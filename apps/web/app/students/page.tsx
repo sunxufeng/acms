@@ -63,7 +63,7 @@ function FilterSelect({
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref && !ref.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);

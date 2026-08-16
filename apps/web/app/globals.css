@@ -377,6 +377,18 @@ a:hover { color: var(--accent-hover); }
 }
 .nav-item.active .nav-icon { opacity: 1; }
 
+.nav-item--disabled {
+  opacity: 0.5; cursor: not-allowed; position: relative;
+}
+.nav-item--disabled:hover { background: none; color: var(--sidebar-fg-secondary); }
+.nav-item .nav-soon {
+  margin-left: auto; font-size: 10px; font-weight: 600;
+  color: var(--sidebar-fg-tertiary); background: var(--sidebar-hover);
+  padding: 2px 7px; border-radius: var(--radius-full); white-space: nowrap;
+}
+.sidebar.collapsed .nav-item .nav-soon { display: none; }
+.sidebar.collapsed .nav-item--disabled .nav-icon { opacity: 0.5; }
+
 .sidebar-footer {
   padding: 12px 10px; border-top: 1px solid var(--topbar-chip-border); flex-shrink: 0;
 }

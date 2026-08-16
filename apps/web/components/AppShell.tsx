@@ -119,13 +119,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         <nav className="sidebar-nav">
           {NAV_ITEMS.map((group) => {
-            const visible = group.items.filter((i) => !i.disabled);
-            if (visible.length === 0) return null;
+            if (group.items.length === 0) return null;
             return (
               <div key={group.section}>
                 <div className="sidebar-section-label">{group.section}</div>
-                {visible.map((item) => {
+                {group.items.map((item) => {
                   const Icon = item.icon;
+                  if (item.disabled) {
+                    return (
+                      <div key={item.key} className="nav-item nav-item--disabled" title="敬请期待">
+                        <span className="nav-icon"><Icon /></span>
+                        <span>{item.label}</span>
+                        <span className="nav-soon">敬请期待</span>
+                      </div>
+                    );
+                  }
                   const active = isActive(item.href);
                   return (
                     <Link key={item.key} href={item.href} className={`nav-item${active ? ' active' : ''}`}>

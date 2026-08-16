@@ -55,6 +55,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
+  // Sidebar: init from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('acms-sidebar');
+    if (saved === 'collapsed') setSidebarOpen(false);
+  }, []);
+
+  function toggleSidebar() {
+    const next = !sidebarOpen;
+    setSidebarOpen(next);
+    localStorage.setItem('acms-sidebar', next ? 'expanded' : 'collapsed');
+  }
+
   // Theme: init from localStorage → apply data-theme to <html>
   useEffect(() => {
     const saved = localStorage.getItem('acms-theme') as 'light' | 'dark' | null;
@@ -93,13 +105,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell">
       {/* ── Sidebar ─────────────────────────────── */}
-      <aside className="sidebar">
+      <aside className={`sidebar${sidebarOpen ? '' : ' collapsed'}`}>
         <div className="sidebar-header">
           <span className="sidebar-logo">A</span>
           <div className="sidebar-brand">
             <strong>ARETE</strong>
             <small>COLLEGE OPS</small>
           </div>
+          <button className="sidebar-collapse-btn" onClick={toggleSidebar} title={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}>
+            {sidebarOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+          </button>
         </div>
 
         <nav className="sidebar-nav">
@@ -239,4 +254,10 @@ function SunIcon() {
 }
 function MoonIcon() {
   return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>);
+}
+function ChevronLeftIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>);
+}
+function ChevronRightIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>);
 }

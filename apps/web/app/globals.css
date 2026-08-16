@@ -241,7 +241,53 @@ a:hover { color: var(--accent-hover); }
   height: 100vh;
   overflow-y: auto;
   z-index: 100;
-  transition: background-color var(--dur-normal) var(--ease);
+  transition: width var(--dur-normal) var(--ease), background-color var(--dur-normal) var(--ease);
+}
+
+/* ── Collapsed state ─────────────────────────────────── */
+
+.sidebar.collapsed {
+  width: 72px;
+}
+.sidebar.collapsed .sidebar-brand,
+.sidebar.collapsed .sidebar-section-label,
+.sidebar.collapsed .nav-item span:last-child,
+.sidebar.collapsed .sidebar-footer .nav-item span:last-child {
+  display: none;
+}
+.sidebar.collapsed .sidebar-header {
+  padding: 16px 0; justify-content: center;
+}
+.sidebar.collapsed .sidebar-collapse-btn {
+  position: absolute; right: -14px; top: 18px;
+  background: var(--sidebar-bg); border: 1px solid var(--border);
+  border-radius: 50%; z-index: 10;
+}
+.sidebar.collapsed .nav-item {
+  justify-content: center; padding: 12px;
+}
+.sidebar.collapsed .sidebar-footer .nav-item {
+  justify-content: center; padding: 12px;
+}
+.sidebar.collapsed .sidebar-nav {
+  padding: 12px 6px;
+  align-items: center;
+}
+.sidebar.collapsed .sidebar-footer {
+  padding: 12px 6px;
+}
+
+.sidebar-collapse-btn {
+  margin-left: auto; flex-shrink: 0;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--fg-tertiary); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all var(--dur-fast) var(--ease);
+}
+.sidebar-collapse-btn svg { width: 14px; height: 14px; }
+.sidebar-collapse-btn:hover {
+  background: var(--surface); color: var(--fg); border-color: var(--border-strong);
 }
 
 .sidebar-header {

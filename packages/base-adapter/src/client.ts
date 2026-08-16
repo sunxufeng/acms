@@ -37,6 +37,53 @@ export class BaseClient {
     this.tokens = new TokenManager(cfg);
   }
 
+  /** 缓存每张表的 datetime 字段名（type=5），用于字符串↔毫秒时间戳互转 */
+  private readonly dtCache = new Map<string, Set<string>>();
+
+  private async datetimeFields(tableId: string): Promise<Set<string>> {
+    const cached = this.dtCache.get(tableId);
+    if (cached) return cached;
+    const fl = await this.listFields(tableId);
+    const set = new Set(fl.filter((f) => f.type === 5).map((f) => f.name));
+    this.dtCache.set(tableId, set);
+    return set;
+  }
+
+  /** 写入前：datetime 字段的日期字符串("YYYY-MM-DD")转毫秒时间戳（飞书要求数值） */
+  private async toWriteFields(
+    tableId: string,
+    fields: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const dt = await this.datetimeFields(tableId);
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (dt.has(k) && typeof v === 'string' && v.trim() !== '') {
+        const t = new Date(v.trim()).getTime();
+        out[k] = Number.isNaN(t) ? v : t;
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  }
+
+  /** 读取后：datetime 字段的毫秒时间戳转本地 "YYYY-MM-DD"（供 Web date 输入展示） */
+  private fromReadFields(fields: Record<string, unknown>, dt: Set<string>): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (dt.has(k) && typeof v === 'number' && !Number.isNaN(v)) {
+        const d = new Date(v);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        out[k] = `${y}-${m}-${day}`;
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  }
+
   private async req<T>(method: string, path: string, body?: unknown): Promise<T> {
     const token = await this.tokens.getToken();
     let lastErr: Error | null = null;
@@ -97,8 +144,12 @@ export class BaseClient {
       sort: opts.sort?.map((s) => ({ field_name: s.field, desc: s.desc })),
       automatic_fields: false,
     });
+    const dt = await this.datetimeFields(tableId);
     return {
-      items: (d.items ?? []).map((r) => ({ recordId: r.record_id, fields: r.fields })),
+      items: (d.items ?? []).map((r) => ({
+        recordId: r.record_id,
+        fields: this.fromReadFields(r.fields, dt),
+      })),
       total: d.total ?? 0,
       hasMore: d.has_more ?? false,
       pageToken: d.page_token,
@@ -111,24 +162,27 @@ export class BaseClient {
         'GET',
         `${this.url(tableId)}/records/${recordId}`,
       );
-      return { recordId: d.record.record_id, fields: d.record.fields };
+      const dt = await this.datetimeFields(tableId);
+      return { recordId: d.record.record_id, fields: this.fromReadFields(d.record.fields, dt) };
     } catch {
       return null;
     }
   }
 
   async create(tableId: string, fields: Record<string, unknown>): Promise<string> {
+    const wf = await this.toWriteFields(tableId, fields);
     const d = await this.req<{ record: { record_id: string } }>(
       'POST',
       `${this.url(tableId)}/records`,
-      { fields },
+      { fields: wf },
     );
     return d.record.record_id;
   }
 
   /** 更新必须是 PUT（POST/PATCH 均为 404，坑已固化） */
   async update(tableId: string, recordId: string, fields: Record<string, unknown>): Promise<void> {
-    await this.req('PUT', `${this.url(tableId)}/records/${recordId}`, { fields });
+    const wf = await this.toWriteFields(tableId, fields);
+    await this.req('PUT', `${this.url(tableId)}/records/${recordId}`, { fields: wf });
   }
 
   async delete(tableId: string, recordId: string): Promise<void> {

@@ -8,11 +8,13 @@ import { BASE_CLIENT } from '../base.provider.js';
 
 const FEISHU_BASE = 'https://open.feishu.cn';
 
-interface UserInfoResp {
+interface FeishuUserInfo {
   code: number;
   msg: string;
   data?: {
-    user?: { open_id?: string; name?: string };
+    open_id?: string;
+    name?: string;
+    en_name?: string;
   };
 }
 
@@ -31,19 +33,16 @@ export class AuthService {
     return v;
   }
 
-  private get redirectUri(): string {
-    return process.env.FEISHU_REDIRECT_URI ?? 'http://localhost:3000/api/v1/auth/callback';
-  }
-
-  async buildAuthorizeUrl(): Promise<string> {
+  async buildAuthorizeUrl(redirectUri: string): Promise<string> {
     const state = crypto.randomUUID().replace(/-/g, '');
     const verifier = crypto.randomUUID() + crypto.randomUUID();
     const challenge = await this.pkceChallenge(verifier);
     await this.redis.set(`oauth:state:${state}`, verifier, 'EX', 600, 'NX');
     const params = new URLSearchParams({
       client_id: this.appId,
-      redirect_uri: this.redirectUri,
+      redirect_uri: redirectUri,
       response_type: 'code',
+      scope: 'auth:user.id:read',
       state,
       code_challenge: challenge,
       code_challenge_method: 'S256',
@@ -52,7 +51,7 @@ export class AuthService {
   }
 
   /** 换 code → access_token → 用户信息 → 建会话 */
-  async handleCallback(code: string, state: string): Promise<SessionUser> {
+  async handleCallback(code: string, state: string, redirectUri: string): Promise<SessionUser> {
     const key = `oauth:state:${state}`;
     const verifier = await this.redis.get(key);
     if (!verifier) throw new UnauthorizedException('INVALID_STATE');
@@ -67,7 +66,7 @@ export class AuthService {
         code,
         grant_type: 'authorization_code',
         code_verifier: verifier,
-        redirect_uri: this.redirectUri,
+        redirect_uri: redirectUri,
       }),
     });
     const tokenData = (await tokenRes.json()) as {
@@ -83,15 +82,17 @@ export class AuthService {
       );
     }
 
+    // token 响应不含 open_id，需带 token 调 authen/v1/user_info（scope=auth:user.id:read）
     const infoRes = await fetch(`${FEISHU_BASE}/open-apis/authen/v1/user_info`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    const info = (await infoRes.json()) as UserInfoResp;
-    const openId = info.data?.user?.open_id;
+    const info = (await infoRes.json()) as FeishuUserInfo;
+    // 注意：user_info 返回结构为 data.open_id（非 data.user.open_id）
+    const openId = info.data?.open_id;
+    const name = info.data?.name ?? info.data?.en_name ?? '';
     if (info.code !== 0 || !openId) {
       throw new UnauthorizedException('USER_INFO_FAILED');
     }
-    const name = info.data?.user?.name ?? '';
     const principal = await this.resolvePrincipal(openId, name);
     return this.sessions.create(principal);
   }

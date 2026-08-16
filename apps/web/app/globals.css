@@ -1,7 +1,21 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
+
+  /* ── Login page tokens (reference: ARETE split-screen auth) ── */
+  --login-left-bg: #1a3838;
+  --login-right-bg: #0f2a2a;
+  --login-gold: #c9a227;
+  --login-cta: #4ecdc4;
+  --login-cta-hover: #3dbdb5;
+  --login-text: #ffffff;
+  --login-muted: rgba(255, 255, 255, 0.55);
+  --login-label: #5dd9c7;
+  --login-line: rgba(255, 255, 255, 0.08);
+  --login-status: #c9a227;
+
+  /* ── Dashboard tokens (light mode) ── */
   --fg: #1a1d21;
   --muted: #6b7280;
   --border: #e5e7eb;
@@ -9,7 +23,330 @@
 }
 
 body {
-  font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
   color: var(--fg);
   background: #f7f8fa;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ================================================================ */
+/*  LOGIN PAGE – split-screen                                      */
+/* ================================================================ */
+
+.login-shell {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* ── Left panel ─────────────────────────────────────────────── */
+
+.login-left {
+  position: relative;
+  flex: 1 1 55%;
+  background: var(--login-left-bg);
+  color: var(--login-text);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  padding: 48px 56px;
+}
+
+.left-inner {
+  position: relative;
+  z-index: 2;
+  max-width: 480px;
+}
+
+/* Logo mark */
+.brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 48px;
+}
+
+.mark-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1.5px solid var(--login-gold);
+  color: var(--login-gold);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+
+.mark-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.mark-text strong {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mark-text small {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  font-weight: 500;
+}
+
+/* Breadcrumb */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--login-gold);
+  margin-bottom: 40px;
+}
+
+/* Section label */
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--login-label);
+  margin-bottom: 16px;
+}
+
+/* Hero headline */
+.hero {
+  font-size: clamp(32px, 4vw, 44px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin-bottom: 20px;
+}
+
+.hero-sub {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--login-muted);
+  max-width: 380px;
+  margin-bottom: 48px;
+}
+
+/* Feature items */
+.features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.features svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--login-muted);
+  opacity: 0.7;
+}
+
+.features div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.features strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--login-text);
+}
+
+.features span {
+  font-size: 12px;
+  color: var(--login-label);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* Geometric decoration line */
+.geo-line {
+  position: absolute;
+  right: -60px;
+  top: 80px;
+  width: 400px;
+  height: 550px;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+.geo-line path {
+  stroke: var(--login-line);
+  stroke-width: 1;
+}
+
+/* ── Right panel ────────────────────────────────────────────── */
+
+.login-right {
+  flex: 1 1 45%;
+  background: var(--login-right-bg);
+  color: var(--login-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 56px;
+}
+
+.right-inner {
+  max-width: 400px;
+  width: 100%;
+}
+
+.right-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--login-label);
+  margin-bottom: 24px;
+}
+
+.right-head {
+  font-size: clamp(26px, 3vw, 36px);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  margin-bottom: 20px;
+}
+
+.right-desc {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--login-muted);
+  margin-bottom: 36px;
+}
+
+/* CTA button */
+.cta-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 15px 24px;
+  background: var(--login-cta);
+  color: #0f2a2a;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  border-radius: 8px;
+  transition: background 0.2s ease, transform 0.1s ease;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+}
+
+.cta-btn:hover {
+  background: var(--login-cta-hover);
+  transform: translateY(-1px);
+}
+
+.cta-btn:active {
+  transform: translateY(0);
+}
+
+.cta-arrow {
+  font-size: 16px;
+  font-weight: 400;
+}
+
+/* Status block */
+.status-block {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.status-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--login-status);
+  display: block;
+  margin-bottom: 10px;
+}
+
+.status-text {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--login-muted);
+}
+
+/* ================================================================ */
+/*  RESPONSIVE                                                     */
+/* ================================================================ */
+
+@media (max-width: 900px) {
+  .login-shell {
+    flex-direction: column;
+  }
+
+  .login-left {
+    flex: none;
+    min-height: auto;
+    padding: 40px 28px 48px;
+  }
+
+  .brand-mark {
+    margin-bottom: 28px;
+  }
+
+  .eyebrow {
+    margin-bottom: 24px;
+  }
+
+  .hero-sub {
+    margin-bottom: 28px;
+  }
+
+  .features {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 16px 28px;
+  }
+
+  .geo-line {
+    display: none;
+  }
+
+  .login-right {
+    flex: none;
+    min-height: calc(100vh - 300px);
+    min-height: calc(100dvh - 300px);
+    padding: 40px 28px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-left,
+  .login-right {
+    padding: 32px 20px;
+  }
+
+  .features {
+    flex-direction: column;
+    gap: 18px;
+  }
 }

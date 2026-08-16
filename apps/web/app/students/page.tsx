@@ -272,32 +272,32 @@ export default function StudentsPage() {
           multi
         />
         <FilterSelect
-          label="招生老师"
+          label="招生"
           value={filters['招生负责老师'] as string[]}
           onChange={(v) => setFilter('招生负责老师', v)}
           options={dicts['招生负责老师'] ?? []}
           multi
         />
         <FilterSelect
-          label="来源渠道"
+          label="来源"
           value={filters['来源渠道'] as string}
           onChange={(v) => setFilter('来源渠道', v)}
           options={dicts['来源渠道'] ?? ['官网', '转介绍', '展会', '社交媒体', '代理', '其他']}
         />
         <FilterSelect
-          label="跟进状态"
+          label="跟进"
           value={filters['生源跟进状态'] as string}
           onChange={(v) => setFilter('生源跟进状态', v)}
           options={dicts['生源跟进状态'] ?? ['新线索', '跟进中', '已报名', '已入学', '已流失']}
         />
         <FilterSelect
-          label="入学级"
+          label="入学"
           value={filters['入学级'] as string}
           onChange={(v) => setFilter('入学级', v)}
           options={dicts['入学级'] ?? ['2021', '2022', '2023', '2024', '2025', '2026', '2027']}
         />
         <FilterSelect
-          label="毕业届"
+          label="毕业"
           value={filters['毕业届'] as string}
           onChange={(v) => setFilter('毕业届', v)}
           options={dicts['毕业届'] ?? ['2021', '2022', '2023', '2024', '2025', '2026', '2027']}

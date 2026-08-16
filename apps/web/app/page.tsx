@@ -119,7 +119,7 @@ export default function Home() {
 
 /* ── Sub components ─────────────────────────── */
 
-function StatCard({ index, value, desc }: { index: string; value: number | string; desc: string }) {
+function StatCard({ index, label, value, desc }: { index: string; label?: string; value: number | string; desc: string }) {
   return (
     <div className="stat-card">
       <div className="stat-index">{index}</div>

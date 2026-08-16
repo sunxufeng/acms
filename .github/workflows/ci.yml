@@ -20,3 +20,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+
+  smoke:
+    name: Public smoke (acms.areteailab.com)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health + login redirect
+        run: |
+          code=$(curl -s -o /tmp/h.json -w "%{http_code}" -m 20 https://acms.areteailab.com/api/v1/health)
+          echo "health=$code $(cat /tmp/h.json)"
+          [ "$code" = "200" ]
+          loc=$(curl -s -o /dev/null -w "%{redirect_url}" -m 20 https://acms.areteailab.com/api/v1/auth/login)
+          echo "login_redirect=$loc"
+          case "$loc" in https://open.feishu.cn/open-apis/authen/v1/index*) ;; *) exit 1;; esac

@@ -36,6 +36,7 @@ export interface CreateStudentDto {
   宿舍信息?: string;
   健康风险摘要?: string;
   特殊支持摘要?: string[];
+  摘要?: string;
   数据密级?: string;
   数据负责人?: string[];
   档案完整度?: string;
@@ -89,6 +90,7 @@ export interface UpdateStudentDto {
   宿舍信息?: string;
   健康风险摘要?: string;
   特殊支持摘要?: string[];
+  摘要?: string;
   数据密级?: string;
   数据负责人?: string[];
   档案完整度?: string;

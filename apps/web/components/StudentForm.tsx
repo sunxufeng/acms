@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
 
-export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone';
+export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone' | 'textarea';
 
 export interface FieldDef {
   key: string;
@@ -12,6 +12,8 @@ export interface FieldDef {
   options?: string[];
   /** 若该字段候选项来自字典表，则填字典 key（优先于 options；options 作为离线兜底） */
   dictKey?: string;
+  /** 多选字段以单选下拉呈现（存储仍保持数组，兼容飞书多选字段） */
+  singleChoice?: boolean;
 }
 
 export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
@@ -74,7 +76,8 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     title: '健康与安全',
     fields: [
       { key: '健康风险摘要', label: '健康风险摘要', type: 'select', options: ['无', '低风险', '中风险', '高风险'] },
-      { key: '特殊支持摘要', label: '特殊支持摘要', type: 'multiselect', dictKey: '特殊支持摘要', options: ['学习支持', '心理支持', '行为支持', '语言支持', '医疗支持'] },
+      { key: '特殊支持摘要', label: '特殊支持摘要', type: 'multiselect', dictKey: '特殊支持摘要', singleChoice: true, options: ['学习支持', '心理支持', '行为支持', '语言支持', '医疗支持', '经济支持'] },
+      { key: '摘要', label: '摘要', type: 'textarea' },
       { key: '宿舍信息', label: '宿舍信息', type: 'text' },
     ],
   },
@@ -195,17 +198,37 @@ export function StudentForm({
                   </select>
                 ) : f.type === 'multiselect' ? (
                   <select
-                    multiple
+                    multiple={!f.singleChoice}
                     className="form-input"
-                    style={{ minHeight: 80 }}
-                    value={toStringArray(values[f.key])}
+                    style={f.singleChoice ? undefined : { minHeight: 80 }}
+                    value={
+                      f.singleChoice
+                        ? toStringArray(values[f.key])[0] ?? ''
+                        : toStringArray(values[f.key])
+                    }
                     disabled={readOnly}
-                    onChange={(e) => setField(f.key, Array.from(e.target.selectedOptions).map((o) => o.value))}
+                    onChange={(e) =>
+                      setField(
+                        f.key,
+                        f.singleChoice
+                          ? (e.target.value ? [e.target.value] : [])
+                          : Array.from(e.target.selectedOptions).map((o) => o.value),
+                      )
+                    }
                   >
+                    {f.singleChoice && <option value="">—</option>}
                     {optionsFor(f).map((o) => (
                       <option key={o} value={o}>{o}</option>
                     ))}
                   </select>
+                ) : f.type === 'textarea' ? (
+                  <textarea
+                    className="form-input"
+                    style={{ minHeight: 76, resize: 'vertical' }}
+                    value={String(values[f.key] ?? '')}
+                    disabled={readOnly}
+                    onChange={(e) => setField(f.key, e.target.value)}
+                  />
                 ) : (
                   <input
                     className="form-input"

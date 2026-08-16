@@ -541,8 +541,19 @@ a:hover { color: var(--accent-hover); }
 .dict-option {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: var(--font-sm); color: var(--fg);
-  background: var(--app-bg); border: 1px solid var(--border);
+  background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-full); padding: 4px 6px 4px 12px;
+  cursor: default;
+  transition: background 0.15s, border-color 0.15s;
+}
+.dict-option:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+.dict-option.editing {
+  cursor: text;
+  border-color: var(--accent);
+  background: var(--content-bg);
 }
 .dict-option-remove {
   border: none; background: transparent; color: var(--fg-tertiary);
@@ -555,6 +566,43 @@ a:hover { color: var(--accent-hover); }
 .dict-add-row .input { flex: 1; }
 .dict-card-foot { display: flex; align-items: center; gap: var(--space-sm); margin-top: auto; }
 .dict-dirty { font-size: var(--font-xs); color: var(--warning); }
+
+/* 新增字典类型卡片 */
+.dict-new-card {
+  border: 2px dashed var(--border);
+  background: transparent;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.dict-new-card:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+.dict-new-form {
+  width: 100%;
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* 内联编辑输入 */
+.dict-edit-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--fg);
+  font-size: inherit;
+  font-family: inherit;
+  width: 100%;
+  min-width: 40px;
+}
 
 
 /* ── Buttons ──────────────────────────────────────────────── */

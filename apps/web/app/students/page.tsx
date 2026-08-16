@@ -23,6 +23,19 @@ function str(v: unknown): string {
   return String(v);
 }
 
+/** 格式化时间戳（秒或毫秒）为 YYYY-MM-DD HH:mm */
+function fmtDate(v: unknown): string {
+  if (!v) return '';
+  const n = Number(v);
+  if (!n || isNaN(n)) return String(v);
+  // 判断是秒还是毫秒（毫秒 > 1e12）
+  const ms = n > 1e12 ? n : n * 1000;
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return String(v);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function avatarColor(name: string): string {
   const colors = ['avatar-teal', 'avatar-emerald', 'avatar-amber', 'avatar-rose'];
   let hash = 0;
@@ -349,7 +362,7 @@ export default function StudentsPage() {
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['生源跟进状态']) || '—'}</td>
                       {/* Updated */}
                       <td style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>
-                        {str(s['更新时间']).slice(5, 10) || '—'}
+                        {fmtDate(s['更新时间']) || '—'}
                       </td>
                       {/* Actions: 编辑 + 删除 */}
                       <td>

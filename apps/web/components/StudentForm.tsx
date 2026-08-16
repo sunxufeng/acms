@@ -95,6 +95,18 @@ function toStringArray(v: unknown): string[] {
   return [];
 }
 
+/** 格式化时间戳（秒或毫秒）为 YYYY-MM-DD HH:mm */
+function fmtDateVal(v: unknown): string {
+  if (!v) return '';
+  const n = Number(v);
+  if (!n || isNaN(n)) return String(v ?? '');
+  const ms = n > 1e12 ? n : n * 1000;
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return String(v);
+  const pad = (x: number) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function StudentForm({
   initial,
   onSubmit,
@@ -196,7 +208,7 @@ export function StudentForm({
                   <input
                     className="form-input"
                     type={f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : f.type === 'phone' ? 'tel' : 'text'}
-                    value={String(values[f.key] ?? '')}
+                    value={readOnly && f.type === 'date' ? fmtDateVal(values[f.key]) : String(values[f.key] ?? '')}
                     disabled={readOnly}
                     onChange={(e) => setField(f.key, e.target.value)}
                   />

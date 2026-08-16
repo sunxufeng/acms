@@ -67,7 +67,7 @@ export class StudentService {
     if (query.班主任) conditions.push({ field: '班主任', value: [query.班主任] });
     if (query.招生负责老师) conditions.push({ field: '招生负责老师', value: [query.招生负责老师] });
     if (query.校区) conditions.push({ field: '校区', value: [query.校区] });
-    if (query.数据密级) conditions.push({ field: '数据密级', value: [query.数据密级] }]);
+    if (query.数据密级) conditions.push({ field: '数据密级', value: [query.数据密级] });
     if (query.性别) conditions.push({ field: '性别', value: [query.性别] });
     if (query.来源渠道) conditions.push({ field: '来源渠道', value: [query.来源渠道] });
     if (query.生源跟进状态) conditions.push({ field: '生源跟进状态', value: [query.生源跟进状态] });

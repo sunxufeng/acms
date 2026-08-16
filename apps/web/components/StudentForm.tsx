@@ -84,7 +84,7 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '招生负责老师', label: '招生负责老师（open_id）', type: 'user' },
       { key: '班主任', label: '班主任（open_id）', type: 'user' },
       { key: '数据负责人', label: '数据负责人（open_id）', type: 'user' },
-      { key: '通知状态', label: '通知状态', type: 'select', options: ['未订阅', '订阅中', '退订'] },
+      { key: '通知状态', label: '通知状态', type: 'select', dictKey: '通知状态', options: ['未订阅', '订阅中', '退订', '已发送', '已读'] },
     ],
   },
 ];

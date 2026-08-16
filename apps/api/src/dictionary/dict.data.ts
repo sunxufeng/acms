@@ -58,6 +58,7 @@ export const DICTIONARIES: Record<string, string[]> = {
   来源渠道: ['官网', '转介绍', '展会', '社交媒体', '代理', '搜索引擎', '开放日', '其他'],
   生源跟进状态: ['新线索', '跟进中', '已报名', '已入学', '已成交', '已流失'],
   校区: ['主校区', '东校区', '西校区', '南校区', '北校区', '国际部校区'],
+  通知状态: ['未订阅', '订阅中', '退订', '已发送', '已读'],
 };
 
 /**
@@ -74,6 +75,7 @@ export const BASE_FIELD_SYNC: { field: string; dictKey: string }[] = [
   { field: '来源渠道', dictKey: '来源渠道' },
   { field: '生源跟进状态', dictKey: '生源跟进状态' },
   { field: '校区', dictKey: '校区' },
+  { field: '通知状态', dictKey: '通知状态' },
 ];
 
 /** 飞书 Base 字段类型：单选=3，多选=4 */

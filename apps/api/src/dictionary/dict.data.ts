@@ -60,6 +60,8 @@ export const DICTIONARIES: Record<string, string[]> = {
   校区: ['主校区', '东校区', '西校区', '南校区', '北校区', '国际部校区'],
   通知状态: ['未订阅', '订阅中', '退订', '已发送', '已读'],
   班级: ['Foundation', 'Pre1', 'Pre2', 'Pre3', '大一班'],
+  入学级: ['2021', '2022', '2023', '2024', '2025', '2026', '2027'],
+  毕业届: ['2021', '2022', '2023', '2024', '2025', '2026', '2027'],
 };
 
 /**
@@ -78,6 +80,8 @@ export const BASE_FIELD_SYNC: { field: string; dictKey: string }[] = [
   { field: '校区', dictKey: '校区' },
   { field: '通知状态', dictKey: '通知状态' },
   { field: '班级', dictKey: '班级' },
+  { field: '入学级', dictKey: '入学级' },
+  { field: '毕业届', dictKey: '毕业届' },
 ];
 
 /** 飞书 Base 字段类型：单选=3，多选=4 */

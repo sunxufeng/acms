@@ -29,6 +29,8 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '籍贯', label: '籍贯', type: 'text' },
       { key: '户籍类型', label: '户籍类型', type: 'select', options: ['城镇', '农村'] },
       { key: '政治面貌', label: '政治面貌', type: 'text' },
+      { key: '入学级', label: '入学级', type: 'select', dictKey: '入学级', options: ['2021', '2022', '2023', '2024', '2025', '2026', '2027'] },
+      { key: '毕业届', label: '毕业届', type: 'select', dictKey: '毕业届', options: ['2021', '2022', '2023', '2024', '2025', '2026', '2027'] },
     ],
   },
   {

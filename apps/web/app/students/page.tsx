@@ -10,7 +10,6 @@ const COLS = [
   { key: '当前状态', label: '状态', width: '100px' },
   { key: '当前年级', label: '年级 / 班级', width: '' },
   { key: '校区', label: '校区', width: '' },
-  { key: '数据密级', label: '档案', width: '70px' },
   { key: '来源渠道', label: '来源', width: '80px' },
   { key: '生源跟进状态', label: '跟进', width: '80px' },
   { key: '更新时间', label: '更新', width: '80px' },
@@ -47,13 +46,6 @@ function statusClass(status: string): string {
   if (status === '在校在读' || status === '已录未报到' || status === '潜在学生') return 'status-active';
   if (status === '毕业') return 'status-graduated';
   return 'status-left';
-}
-
-function badgeClass(level: string): string {
-  if (level === 'L1') return 'badge-l1';
-  if (level === 'L2') return 'badge-l2';
-  if (level === 'L3') return 'badge-l3';
-  return 'badge-l4';
 }
 
 /** Small dropdown filter component */
@@ -148,6 +140,8 @@ export default function StudentsPage() {
     招生负责老师: [],
     来源渠道: '',
     生源跟进状态: '',
+    入学级: '',
+    毕业届: '',
   });
 
   const [dicts, setDicts] = useState<Record<string, string[]>>({});
@@ -296,6 +290,18 @@ export default function StudentsPage() {
           onChange={(v) => setFilter('生源跟进状态', v)}
           options={dicts['生源跟进状态'] ?? ['新线索', '跟进中', '已报名', '已入学', '已流失']}
         />
+        <FilterSelect
+          label="入学级"
+          value={filters['入学级'] as string}
+          onChange={(v) => setFilter('入学级', v)}
+          options={dicts['入学级'] ?? ['2021', '2022', '2023', '2024', '2025', '2026', '2027']}
+        />
+        <FilterSelect
+          label="毕业届"
+          value={filters['毕业届'] as string}
+          onChange={(v) => setFilter('毕业届', v)}
+          options={dicts['毕业届'] ?? ['2021', '2022', '2023', '2024', '2025', '2026', '2027']}
+        />
       </form>
 
       {/* ── Error / Loading ──────────────────── */}
@@ -323,7 +329,6 @@ export default function StudentsPage() {
                 {items.map((s) => {
                   const name = str(s['学生姓名']) || '—';
                   const status = str(s['当前状态']);
-                  const level = str(s['数据密级']);
                   return (
                     <tr key={s.id}>
                       {/* 学籍号 - clickable link */}
@@ -354,8 +359,6 @@ export default function StudentsPage() {
                       </td>
                       {/* Campus */}
                       <td>{str(s['校区']) || '—'}</td>
-                      {/* Level badge */}
-                      <td><span className={`badge ${badgeClass(level)}`}>{level || '—'}</span></td>
                       {/* 来源渠道 */}
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['来源渠道']) || '—'}</td>
                       {/* 跟进状态 */}

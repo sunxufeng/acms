@@ -49,6 +49,8 @@ export interface CreateStudentDto {
   就读方式?: string;
   毕业学校?: string;
   '飞书 Open ID'?: string;
+  入学级?: string;
+  毕业届?: string;
 }
 
 /** 编辑：全部可选（部分更新） */
@@ -100,6 +102,8 @@ export interface UpdateStudentDto {
   就读方式?: string;
   毕业学校?: string;
   '飞书 Open ID'?: string;
+  入学级?: string;
+  毕业届?: string;
 }
 
 /** 列表筛选 */
@@ -119,6 +123,8 @@ export interface StudentFilterDto {
   sortOrder?: 'asc' | 'desc';
   pageToken?: string;
   includeArchived?: string; // 'true' 包含已归档
+  入学级?: string;
+  毕业届?: string;
 }
 
 /** 导出查询（复用列表筛选） */

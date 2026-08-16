@@ -111,7 +111,7 @@ export class AuthService {
     try {
       const res = await this.base.search(USER_TABLE.tableId, {
         pageSize: 1,
-        filter: { conditions: [{ field: 'Open ID', value: [openId] }] },
+        filter: { conditions: [{ field: '飞书 Open ID', value: [openId] }] },
       });
       record = res.items[0] ?? null;
       // 判断用户表是否为空（首登引导用）：无此人时再查全表计数
@@ -135,11 +135,11 @@ export class AuthService {
       // 自动建档：系统管理员 / L4 / 启用
       try {
         await this.base.create(USER_TABLE.tableId, {
-          'Open ID': openId,
+          '飞书 Open ID': openId,
           姓名: name,
           系统角色: ['系统管理员'],
           数据密级上限: 'L4',
-          状态: '启用',
+          账号状态: '启用',
         });
       } catch {
         // 建档失败不阻断登录（Base 只读时仍可进系统）
@@ -147,13 +147,13 @@ export class AuthService {
       return { openId, name, roles: ['系统管理员'], campuses: [], maxDataLevel: 'L4' };
     }
 
-    const status = toText(record.fields['状态']);
+    const status = toText(record.fields['账号状态']);
     if (status === '停用') throw new UnauthorizedException('USER_DISABLED');
 
     const roles = toStringArray(record.fields['系统角色']).filter((r: string) =>
       (ROLES as readonly string[]).includes(r),
     );
-    const campuses = toStringArray(record.fields['校区']);
+    const campuses = toStringArray(record.fields['默认校区']);
     const levelRaw = toText(record.fields['数据密级上限']) ?? 'L1';
     const maxDataLevel: DataLevel = levelRaw in DATA_LEVEL_RANK ? (levelRaw as DataLevel) : 'L1';
     return { openId, name: toText(record.fields['姓名']) || name, roles, campuses, maxDataLevel };

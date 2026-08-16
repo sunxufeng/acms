@@ -103,26 +103,25 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map((group) => (
-            <div key={group.section}>
-              <div className="sidebar-section-label">{group.section}</div>
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                const active = isActive(item.href);
-                return item.disabled ? (
-                  <button key={item.key} className="nav-item" style={{ opacity: 0.4 }} title="即将上线">
-                    <span className="nav-icon"><Icon /></span>
-                    <span>{item.label}</span>
-                  </button>
-                ) : (
-                  <Link key={item.key} href={item.href} className={`nav-item${active ? ' active' : ''}`}>
-                    <span className="nav-icon"><Icon /></span>
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+          {NAV_ITEMS.map((group) => {
+            const visible = group.items.filter((i) => !i.disabled);
+            if (visible.length === 0) return null;
+            return (
+              <div key={group.section}>
+                <div className="sidebar-section-label">{group.section}</div>
+                {visible.map((item) => {
+                  const Icon = item.icon;
+                  const active = isActive(item.href);
+                  return (
+                    <Link key={item.key} href={item.href} className={`nav-item${active ? ' active' : ''}`}>
+                      <span className="nav-icon"><Icon /></span>
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            );
+          })}
         </nav>
 
         <div className="sidebar-footer">

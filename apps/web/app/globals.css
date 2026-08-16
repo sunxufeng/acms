@@ -124,12 +124,12 @@
    内容区浅色画布 #E9EFEC + 白色表面；侧栏/顶栏仍为深 teal   */
 
 [data-theme="light"] {
-  --app-bg:          #174A45;
+  --app-bg:          #1B6B63;
   --content-bg:      #E9EFEC;
-  --sidebar-bg:      #174A45;
-  --sidebar-hover:   #1E5A54;
-  --sidebar-active:  #1A5C56;
-  --topbar-bg:       rgba(23, 74, 69, 0.92);
+  --sidebar-bg:      #1B6B63;
+  --sidebar-hover:   #228279;
+  --sidebar-active:  #289690;
+  --topbar-bg:       rgba(27, 107, 99, 0.92);
 
   --surface:         #FFFFFF;
   --surface-hover:   #F2F6F4;
@@ -171,8 +171,17 @@
   --shadow-md:  0 4px 12px rgba(23, 74, 69, 0.1);
   --shadow-lg:  0 8px 28px rgba(23, 74, 69, 0.12);
 
-  --login-left-bg:   #174A45;
-  --login-right-bg:  #0F2E2B;
+  --login-left-bg:   #1B6B63;
+  --login-right-bg:  #E9EFEC;
+
+  /* Light chrome — brighter teal needs adjusted text/chip tokens */
+  --sidebar-fg:           #FFFFFF;
+  --sidebar-fg-secondary: #C8E0DC;
+  --sidebar-fg-tertiary:  #8FBDB7;
+  --topbar-fg:            #E2F0ED;
+  --topbar-fg-secondary:  #A8CCC7;
+  --topbar-chip-bg:       rgba(255, 255, 255, 0.12);
+  --topbar-chip-border:   rgba(255, 255, 255, 0.18);
 }
 
 body {

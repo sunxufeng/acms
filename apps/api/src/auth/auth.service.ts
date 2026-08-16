@@ -107,13 +107,19 @@ export class AuthService {
       .filter(Boolean);
 
     let record: { fields: Record<string, unknown> } | null = null;
+    let tableTotal = -1;
     try {
       const res = await this.base.search(USER_TABLE.tableId, {
         pageSize: 1,
         filter: { conditions: [{ field: 'Open ID', value: [openId] }] },
       });
       record = res.items[0] ?? null;
-    } catch (e) {
+      // 判断用户表是否为空（首登引导用）：无此人时再查全表计数
+      if (!record) {
+        const all = await this.base.search(USER_TABLE.tableId, { pageSize: 1 });
+        tableTotal = all.total;
+      }
+    } catch {
       // 用户表不可读（权限/建表未完成）时只放行引导管理员
       if (!bootstrapAdmins.includes(openId)) {
         throw new UnauthorizedException('USER_TABLE_UNAVAILABLE');
@@ -121,10 +127,12 @@ export class AuthService {
     }
 
     if (!record) {
-      if (!bootstrapAdmins.includes(openId)) {
+      // 用户表为空 → 首个登录者自动成为系统管理员并建档；否则拒绝
+      const isFirstUser = tableTotal === 0;
+      if (!isFirstUser && !bootstrapAdmins.includes(openId)) {
         throw new UnauthorizedException('NOT_REGISTERED');
       }
-      // 首个引导管理员自动建档：系统管理员 / L4 / 启用
+      // 自动建档：系统管理员 / L4 / 启用
       try {
         await this.base.create(USER_TABLE.tableId, {
           'Open ID': openId,

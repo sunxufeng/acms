@@ -53,7 +53,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
   // Sidebar: init from localStorage
   useEffect(() => {
@@ -70,7 +70,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Theme: init from localStorage → apply data-theme to <html>
   useEffect(() => {
     const saved = localStorage.getItem('acms-theme') as 'light' | 'dark' | null;
-    const t = saved || 'light';
+    const t = saved || 'dark';
     setTheme(t);
     document.documentElement.setAttribute('data-theme', t);
   }, []);

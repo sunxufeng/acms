@@ -298,12 +298,21 @@ a:hover { color: var(--accent-hover); }
 /* ── Collapsed state ─────────────────────────────────── */
 
 .sidebar.collapsed {
-  width: 72px;
+  width: 64px;
 }
 .sidebar.collapsed .sidebar-brand,
 .sidebar.collapsed .sidebar-section-label,
-.sidebar.collapsed .nav-item span:last-child,
-.sidebar.collapsed .sidebar-footer .nav-item span:last-child {
+.sidebar.collapsed .nav-soon {
+  display: none;
+}
+/* Hide all text in nav items when collapsed; keep only the icon */
+.sidebar.collapsed .nav-item {
+  justify-content: center; padding: 12px;
+}
+.sidebar.collapsed .nav-item > span:not(.nav-icon) {
+  display: none;
+}
+.sidebar.collapsed .sidebar-footer .nav-item > span:not(.nav-icon) {
   display: none;
 }
 .sidebar.collapsed .sidebar-header {
@@ -313,9 +322,6 @@ a:hover { color: var(--accent-hover); }
   position: absolute; right: -14px; top: 18px;
   background: var(--sidebar-bg); border: 1px solid var(--topbar-chip-border);
   border-radius: 50%; z-index: 10;
-}
-.sidebar.collapsed .nav-item {
-  justify-content: center; padding: 12px;
 }
 .sidebar.collapsed .sidebar-footer .nav-item {
   justify-content: center; padding: 12px;

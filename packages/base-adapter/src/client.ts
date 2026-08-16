@@ -125,12 +125,7 @@ export class BaseClient {
     hasMore: boolean;
     pageToken?: string;
   }> {
-    const d = await this.req<{
-      items?: { record_id: string; fields: Record<string, unknown> }[];
-      total?: number;
-      has_more?: boolean;
-      page_token?: string;
-    }>('POST', `${this.url(tableId)}/records/search?page_size=${opts.pageSize ?? 50}${opts.pageToken ? `&page_token=${opts.pageToken}` : ''}`, {
+    const payload = () => ({
       field_names: [],
       filter: opts.filter
         ? {
@@ -145,6 +140,26 @@ export class BaseClient {
       sort: opts.sort?.map((s) => ({ field_name: s.field, desc: s.desc })),
       automatic_fields: false,
     });
+    const url = (tok?: string) =>
+      `${this.url(tableId)}/records/search?page_size=${opts.pageSize ?? 50}${tok ? `&page_token=${tok}` : ''}`;
+    let d: {
+      items?: { record_id: string; fields: Record<string, unknown> }[];
+      total?: number;
+      has_more?: boolean;
+      page_token?: string;
+    };
+    try {
+      d = await this.req<typeof d>('POST', url(opts.pageToken), payload());
+    } catch (e) {
+      // 飞书按系统字段(创建时间/更新时间)排序会报 InvalidSort(1254016)，降级为不排序重试
+      if (e instanceof Error && /1254016|InvalidSort/.test(e.message)) {
+        const p = payload();
+        delete (p as { sort?: unknown }).sort;
+        d = await this.req<typeof d>('POST', url(opts.pageToken), p);
+      } else {
+        throw e;
+      }
+    }
     const dt = await this.datetimeFields(tableId);
     return {
       items: (d.items ?? []).map((r) => ({

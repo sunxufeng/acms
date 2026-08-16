@@ -9,6 +9,13 @@ import { VenueModule } from './venue/venue.module.js';
 import { ScheduleModule } from './schedule/schedule.module.js';
 import { EnrollmentModule } from './enrollment/enrollment.module.js';
 import { PortalModule } from './portal/portal.module.js';
+import { AttendanceModule } from './attendance/attendance.module.js';
+import { PartnershipModule } from './partnership/partnership.module.js';
+import { BillingModule } from './billing/billing.module.js';
+import { SettlementModule } from './settlement/settlement.module.js';
+import { AdjustmentModule } from './adjustment/adjustment.module.js';
+import { NotificationModule } from './notification/notification.module.js';
+import { DashboardModule } from './dashboard/dashboard.module.js';
 
 @Module({
   imports: [
@@ -22,6 +29,13 @@ import { PortalModule } from './portal/portal.module.js';
     ScheduleModule,
     EnrollmentModule,
     PortalModule,
+    AttendanceModule,
+    PartnershipModule,
+    BillingModule,
+    SettlementModule,
+    AdjustmentModule,
+    NotificationModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}

@@ -173,7 +173,8 @@ export class BaseClient {
     fields: { field_name: string; type: number; options?: string[] }[],
   ): Promise<{ tableId: string; name: string }> {
     const d = await this.req<{
-      table?: { table_id: string; name: string; fields?: { field_id: string; field_name: string }[] };
+      table_id: string;
+      name?: string;
     }>('POST', `/open-apis/bitable/v1/apps/${this.appToken}/tables`, {
       table: {
         name: tableName,
@@ -186,7 +187,6 @@ export class BaseClient {
         })),
       },
     });
-    const t = d.table!;
-    return { tableId: t.table_id, name: t.name };
+    return { tableId: d.table_id, name: d.name ?? tableName };
   }
 }

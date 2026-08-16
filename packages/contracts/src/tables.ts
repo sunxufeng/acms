@@ -15,6 +15,15 @@ export const TABLES = {
   venue: { tableId: 'tblhWAp4TlE0l31A', name: '场地资源表' },
   session: { tableId: 'tblCu7bjnoNBlxlZ', name: '课次排课表' },
   enrollment: { tableId: 'tblr3Y1Py9rZ7GjU', name: '学生修读关系表' },
+  // M3 教师履约与计费财务
+  teacherAttendance: { tableId: 'tblSHa7ZSFw6mlKC', name: '教师履约记录表' },
+  partnership: { tableId: 'tblGwfI6m4XfBH1p', name: '聘用合作关系表' },
+  billingDetail: { tableId: 'tblcTFokcL751xCL', name: '计费明细表' },
+  monthlySettlement: { tableId: 'tblnvoolTMAMFrmz', name: '月度结算表' },
+  adjustment: { tableId: 'tblGLnqahkKCsJez', name: '调整冲销表' },
+  // M4 通知闭环
+  notificationTemplate: { tableId: 'tbloLs7JLBSfm2pT', name: '通知模板表' },
+  notificationLog: { tableId: 'tblvCNDUwF0qU547', name: '通知记录表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

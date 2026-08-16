@@ -179,6 +179,91 @@ export const api = {
   portalGrades: () => request<{ items: Record<string, unknown>[]; total: number }>('/portal/grades'),
   portalSchedule: () => request<{ items: Record<string, unknown>[]; total: number; classes: string[] }>('/portal/schedule'),
   portalTeachers: () => request<{ items: Record<string, unknown>[]; total: number }>('/portal/teachers'),
+
+  // ── M3 教师履约 ─────────────────────────────
+  listAttendances: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/attendances${q ? `?${q}` : ''}`);
+  },
+  createAttendance: (data: Record<string, unknown>) => request<Record<string, unknown>>('/attendances', { method: 'POST', body: JSON.stringify(data) }),
+  updateAttendance: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/attendances/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveAttendance: (id: string) => request<{ ok: boolean }>(`/attendances/${id}`, { method: 'DELETE' }),
+  transitionAttendance: (id: string, to: string) => request<Record<string, unknown>>(`/attendances/${id}/transition`, { method: 'POST', body: JSON.stringify({ to }) }),
+
+  // ── M3 聘用合作关系 ─────────────────────────
+  listPartnerships: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/partnerships${q ? `?${q}` : ''}`);
+  },
+  createPartnership: (data: Record<string, unknown>) => request<Record<string, unknown>>('/partnerships', { method: 'POST', body: JSON.stringify(data) }),
+  updatePartnership: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/partnerships/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archivePartnership: (id: string) => request<{ ok: boolean }>(`/partnerships/${id}`, { method: 'DELETE' }),
+
+  // ── M3 计费明细 ─────────────────────────────
+  listBilling: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/billing${q ? `?${q}` : ''}`);
+  },
+  createBilling: (data: Record<string, unknown>) => request<Record<string, unknown>>('/billing', { method: 'POST', body: JSON.stringify(data) }),
+  updateBilling: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/billing/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveBilling: (id: string) => request<{ ok: boolean }>(`/billing/${id}`, { method: 'DELETE' }),
+  transitionBilling: (id: string, to: string) => request<Record<string, unknown>>(`/billing/${id}/transition`, { method: 'POST', body: JSON.stringify({ to }) }),
+  generateBilling: (attendanceId: string) => request<Record<string, unknown>>('/billing/generate', { method: 'POST', body: JSON.stringify({ attendanceId }) }),
+
+  // ── M3 月度结算 ─────────────────────────────
+  listSettlements: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/settlements${q ? `?${q}` : ''}`);
+  },
+  createSettlement: (data: Record<string, unknown>) => request<Record<string, unknown>>('/settlements', { method: 'POST', body: JSON.stringify(data) }),
+  updateSettlement: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/settlements/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveSettlement: (id: string) => request<{ ok: boolean }>(`/settlements/${id}`, { method: 'DELETE' }),
+  transitionSettlement: (id: string, to: string) => request<Record<string, unknown>>(`/settlements/${id}/transition`, { method: 'POST', body: JSON.stringify({ to }) }),
+  aggregateSettlement: (data: Record<string, unknown>) => request<Record<string, unknown>>('/settlements/aggregate', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── M3 调整冲销 ─────────────────────────────
+  listAdjustments: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/adjustments${q ? `?${q}` : ''}`);
+  },
+  createAdjustment: (data: Record<string, unknown>) => request<Record<string, unknown>>('/adjustments', { method: 'POST', body: JSON.stringify(data) }),
+  updateAdjustment: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/adjustments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveAdjustment: (id: string) => request<{ ok: boolean }>(`/adjustments/${id}`, { method: 'DELETE' }),
+  transitionAdjustment: (id: string, to: string) => request<Record<string, unknown>>(`/adjustments/${id}/transition`, { method: 'POST', body: JSON.stringify({ to }) }),
+
+  // ── M4 通知闭环 ─────────────────────────────
+  listTemplates: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/notifications/templates${q ? `?${q}` : ''}`);
+  },
+  createTemplate: (data: Record<string, unknown>) => request<Record<string, unknown>>('/notifications/templates', { method: 'POST', body: JSON.stringify(data) }),
+  updateTemplate: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/notifications/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveTemplate: (id: string) => request<{ ok: boolean }>(`/notifications/templates/${id}`, { method: 'DELETE' }),
+  listNotificationLogs: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/notifications/logs${q ? `?${q}` : ''}`);
+  },
+  sendNotification: (data: Record<string, unknown>) => request<Record<string, unknown>>('/notifications/send', { method: 'POST', body: JSON.stringify(data) }),
+  batchNotification: (data: Record<string, unknown>) => request<{ count: number; items: unknown[] }>('/notifications/batch', { method: 'POST', body: JSON.stringify(data) }),
+  transitionNotificationLog: (id: string, to: string) => request<Record<string, unknown>>(`/notifications/logs/${id}/transition`, { method: 'POST', body: JSON.stringify({ to }) }),
+
+  // ── M6 运营工作台 / 搜索 ────────────────────
+  dashboardMetrics: () => request<{ cards: { key: string; label: string; value: number }[]; todos: { key: string; label: string; value: number }[]; exceptions: { key: string; label: string; value: number }[] }>('/dashboard/metrics'),
+  globalSearch: (q: string) => request<{ students: { id: string; label: string }[]; teachers: { id: string; label: string }[]; courses: { id: string; label: string }[]; classes: { id: string; label: string }[] }>(`/search?q=${encodeURIComponent(q)}`),
 };
 
 export interface SessionUser {

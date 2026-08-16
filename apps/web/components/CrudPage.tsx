@@ -34,6 +34,7 @@ export interface CrudPageProps {
   statusField?: string;
   transitions?: Record<string, string[]>;
   statusClass?: (s: string) => string;
+  extraActions?: { label: string; run: (reload: () => void) => void | Promise<void> }[];
 }
 
 function str(v: unknown): string {
@@ -89,7 +90,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const [pageToken, setPageToken] = useState<string | undefined>();
@@ -199,7 +200,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           <h1 className="page-title">{title}</h1>
           {subtitle && <p className="page-subtitle">{subtitle}</p>}
         </div>
-        <button className="btn btn-primary" onClick={openCreate} disabled={loading}>+ 新建</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {extraActions?.map((a) => (
+            <button key={a.label} className="btn btn-outline" disabled={loading}
+              onClick={() => a.run(() => load())}>{a.label}</button>
+          ))}
+          <button className="btn btn-primary" onClick={openCreate} disabled={loading}>+ 新建</button>
+        </div>
       </div>
 
       {filterCols.length > 0 && (

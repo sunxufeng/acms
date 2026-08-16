@@ -7,10 +7,14 @@ import {
 
 /** RBAC：角色 → 权限点（M0 基线，后续按 BR 业务规则细化） */
 const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
-  系统管理员: [
+    系统管理员: [
     'student:read', 'student:write', 'student:archive',
     'followup:read', 'followup:write',
     'attendance:read', 'attendance:write', 'attendance:approve',
+    'billing:read', 'billing:write', 'billing:confirm', 'billing:settle',
+    'partnership:read', 'partnership:write',
+    'finance:read', 'finance:approve',
+    'notification:read', 'notification:write', 'notification:send',
     'grade:read', 'grade:write',
     'activity:read', 'activity:write',
     'communication:read', 'communication:write',
@@ -26,6 +30,10 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'student:read', 'student:write', 'student:archive',
     'followup:read', 'followup:write',
     'attendance:read', 'attendance:write', 'attendance:approve',
+    'billing:read', 'billing:write', 'billing:confirm',
+    'partnership:read', 'partnership:write',
+    'finance:read', 'finance:approve',
+    'notification:read', 'notification:write', 'notification:send',
     'grade:read', 'grade:write',
     'activity:read', 'activity:write',
     'communication:read', 'communication:write',
@@ -40,6 +48,8 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   教务管理员: [
     'student:read',
     'attendance:read', 'attendance:write', 'attendance:approve',
+    'billing:read', 'billing:write', 'billing:confirm',
+    'notification:read', 'notification:write', 'notification:send',
     'grade:read', 'grade:write',
     'activity:read', 'activity:write',
     'evaluation:read', 'evaluation:write',
@@ -49,7 +59,7 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'schedule:read', 'schedule:write',
     'export:run',
   ],
-  财务: ['student:read', 'export:run'],
+  财务: ['student:read', 'export:run', 'billing:read', 'billing:write', 'billing:confirm', 'billing:settle', 'partnership:read', 'partnership:write', 'finance:read', 'finance:approve', 'notification:read'],
   教师: [
     'student:read',
     'attendance:read', 'attendance:write',

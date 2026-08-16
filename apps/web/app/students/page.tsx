@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { api, type Page, type StudentRecord } from '../../lib/api';
 
@@ -58,7 +58,7 @@ function FilterSelect({
   multi?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useState<HTMLDivElement>(null)[0];
+  const ref = useRef<HTMLDivElement>(null);
   const sel = Array.isArray(value) ? value : value ? [value] : [];
 
   useEffect(() => {
@@ -85,7 +85,7 @@ function FilterSelect({
   };
 
   return (
-    <div className="filter-select" ref={ref as React.RefObject<HTMLDivElement>}>
+    <div className="filter-select" ref={ref}>
       <button type="button" className="filter-select-trigger" onClick={() => setOpen(!open)}>
         <span>{label}</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="m6 9 6 6 6-6"/></svg>

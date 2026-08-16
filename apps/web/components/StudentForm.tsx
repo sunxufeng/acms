@@ -75,7 +75,7 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
   {
     title: '健康与安全',
     fields: [
-      { key: '健康风险摘要', label: '健康风险摘要', type: 'select', options: ['无', '低风险', '中风险', '高风险'] },
+      { key: '健康风险摘要', label: '健康风险摘要', type: 'select', dictKey: '健康风险摘要', options: ['无', '低风险', '中风险', '高风险'] },
       { key: '特殊支持摘要', label: '特殊支持摘要', type: 'multiselect', dictKey: '特殊支持摘要', singleChoice: true, options: ['学习支持', '心理支持', '行为支持', '语言支持', '医疗支持', '经济支持'] },
       { key: '摘要', label: '摘要', type: 'textarea' },
       { key: '宿舍信息', label: '宿舍信息', type: 'text' },

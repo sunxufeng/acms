@@ -690,6 +690,64 @@ a:hover { color: var(--accent-hover); }
   font-size: var(--font-sm); cursor: pointer; white-space: nowrap;
 }
 
+/* ── Inline stat (next to title) ────────────────────────────── */
+
+.stat-inline {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--font-lg); font-weight: 800; color: var(--gold);
+  letter-spacing: -0.01em;
+}
+
+/* ── Filter bar (search + dropdowns row) ─────────────────────── */
+
+.filter-bar {
+  display: flex; align-items: center; gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+/* ── Dropdown filter select ─────────────────────────────────── */
+
+.filter-select { position: relative; }
+.filter-select-trigger {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; background: var(--surface-input);
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  color: var(--fg-secondary); font-size: var(--font-sm); font-weight: 500;
+  cursor: pointer; transition: all var(--dur-fast) var(--ease);
+  white-space: nowrap;
+}
+.filter-select-trigger:hover { border-color: var(--border-strong); color: var(--fg); }
+.filter-select-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 200;
+  min-width: 160px; max-height: 280px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
+  padding: 6px 0;
+}
+.filter-select-opt {
+  padding: 7px 14px; font-size: var(--font-sm); color: var(--fg-secondary);
+  cursor: pointer; display: flex; align-items: center; gap: 8px;
+  transition: all var(--dur-fast) var(--ease);
+}
+.filter-select-opt:hover { background: var(--surface-hover); color: var(--fg); }
+.filter-select-opt.active { color: var(--accent); font-weight: 600; }
+.filter-check { width: 16px; text-align: center; font-size: 12px; }
+.filter-select-clear {
+  padding: 8px 14px; font-size: var(--font-xs); color: var(--danger);
+  cursor: pointer; border-top: 1px solid var(--border);
+  font-weight: 600; text-align: center;
+}
+.filter-select-clear:hover { background: var(--danger-muted); }
+
+/* ── Link cell (clickable table cell) ───────────────────────── */
+
+.link-cell {
+  color: var(--accent); font-weight: 500; font-size: var(--font-sm);
+  cursor: pointer; transition: color var(--dur-fast) var(--ease);
+}
+.link-cell:hover { color: var(--accent-hover); text-decoration: underline; }
+
 /* ── Form inputs (app theme) ──────────────────────────────── */
 
 .form-fieldset {

@@ -106,11 +106,15 @@ export interface UpdateStudentDto {
 export interface StudentFilterDto {
   q?: string; // 姓名模糊搜索
   当前状态?: string;
+  当前年级?: string;
   班级?: string;
+  班主任?: string;
+  招生负责老师?: string;
   校区?: string;
   数据密级?: string;
   性别?: string;
   来源渠道?: string;
+  生源跟进状态?: string;
   sortBy?: '学生编号' | '学生姓名' | '更新时间' | '创建时间' | '入学日期';
   sortOrder?: 'asc' | 'desc';
   pageToken?: string;

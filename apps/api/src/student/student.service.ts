@@ -62,11 +62,15 @@ export class StudentService {
     const conditions: { field: string; op?: string; value: string[] }[] = [];
     if (query.q) conditions.push({ field: '学生姓名', op: 'contains', value: [query.q] });
     if (query.当前状态) conditions.push({ field: '当前状态', value: [query.当前状态] });
+    if (query.当前年级) conditions.push({ field: '当前年级', value: [query.当前年级] });
     if (query.班级) conditions.push({ field: '班级', value: [query.班级] });
+    if (query.班主任) conditions.push({ field: '班主任', value: [query.班主任] });
+    if (query.招生负责老师) conditions.push({ field: '招生负责老师', value: [query.招生负责老师] });
     if (query.校区) conditions.push({ field: '校区', value: [query.校区] });
-    if (query.数据密级) conditions.push({ field: '数据密级', value: [query.数据密级] });
+    if (query.数据密级) conditions.push({ field: '数据密级', value: [query.数据密级] }]);
     if (query.性别) conditions.push({ field: '性别', value: [query.性别] });
     if (query.来源渠道) conditions.push({ field: '来源渠道', value: [query.来源渠道] });
+    if (query.生源跟进状态) conditions.push({ field: '生源跟进状态', value: [query.生源跟进状态] });
     // 注：当前状态真实选项仅为「在校/毕业/离校」，Base 中无「已归档」选项，
     // 故不再做 is_not 已归档 的服务端过滤（否则飞书报错 500）。列表默认展示全部，
     // 归档通过 archive() 将状态置为「离校」实现。

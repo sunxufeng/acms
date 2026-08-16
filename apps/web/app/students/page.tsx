@@ -4,15 +4,15 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { api, type Page, type StudentRecord } from '../../lib/api';
 
-const STATUS_TABS_DEFAULT = [{ key: '', label: '全部' }];
-
 const COLS = [
-  { key: '学生编号', label: '学生 / 编号', width: '' },
-  { key: '学生姓名', label: '学籍', width: '' },
-  { key: '当前状态', label: '', width: '80px' },
-  { key: '班级', label: '年级 / 班级', width: '' },
+  { key: '学籍号', label: '学籍号', width: '130px' },
+  { key: '学生姓名', label: '学生 / 编号', width: '' },
+  { key: '当前状态', label: '状态', width: '100px' },
+  { key: '当前年级', label: '年级 / 班级', width: '' },
   { key: '校区', label: '校区', width: '' },
-  { key: '数据密级', label: '档案', width: '80px' },
+  { key: '数据密级', label: '档案', width: '70px' },
+  { key: '来源渠道', label: '来源', width: '80px' },
+  { key: '生源跟进状态', label: '跟进', width: '80px' },
   { key: '更新时间', label: '更新', width: '80px' },
 ];
 
@@ -43,6 +43,82 @@ function badgeClass(level: string): string {
   return 'badge-l4';
 }
 
+/** Small dropdown filter component */
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+  multi = false,
+}: {
+  label: string;
+  value: string | string[];
+  onChange: (val: string | string[]) => void;
+  options: string[];
+  multi?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useState<HTMLDivElement>(null)[0];
+  const sel = Array.isArray(value) ? value : value ? [value] : [];
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref && !ref.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [ref]);
+
+  const toggle = (opt: string) => {
+    if (multi) {
+      const next = sel.includes(opt) ? sel.filter((x) => x !== opt) : [...sel, opt];
+      onChange(next);
+    } else {
+      onChange(opt === value ? '' : opt);
+      setOpen(false);
+    }
+  };
+
+  const clear = () => {
+    onChange(multi ? [] : '');
+    setOpen(false);
+  };
+
+  return (
+    <div className="filter-select" ref={ref as React.RefObject<HTMLDivElement>}>
+      <button type="button" className="filter-select-trigger" onClick={() => setOpen(!open)}>
+        <span>{label}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      {open && (
+        <div className="filter-select-dropdown">
+          {!multi && (
+            <div
+              className={`filter-select-opt${!value ? ' active' : ''}`}
+              onClick={() => onChange('')}
+            >
+              全部
+            </div>
+          )}
+          {options.map((o) => (
+            <div
+              key={o}
+              className={`filter-select-opt${(multi ? sel.includes(o) : o === value) ? ' active' : ''}`}
+              onClick={() => toggle(o)}
+            >
+              {multi && <span className="filter-check">{sel.includes(o) ? '✓' : ''}</span>}
+              {o}
+            </div>
+          ))}
+          {sel.length > 0 && (
+            <div className="filter-select-clear" onClick={clear}>清除筛选</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function StudentsPage() {
   const [items, setItems] = useState<StudentRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -52,19 +128,21 @@ export default function StudentsPage() {
   const [error, setError] = useState('');
 
   const [q, setQ] = useState('');
-  const [activeTab, setActiveTab] = useState('');
-  const [statusTabs, setStatusTabs] = useState(STATUS_TABS_DEFAULT);
+  const [filters, setFilters] = useState<Record<string, string | string[]>>({
+    当前状态: '',
+    当前年级: '',
+    班主任: [],
+    招生负责老师: [],
+    来源渠道: '',
+    生源跟进状态: '',
+  });
+
+  const [dicts, setDicts] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
-    api
-      .dictionaries()
-      .then((d) => {
-        const opts = d?.['当前状态'] ?? [];
-        if (opts.length) setStatusTabs([{ key: '', label: '全部' }, ...opts.map((o) => ({ key: o, label: o }))]);
-      })
-      .catch(() => {
-        /* 兜底保留默认「全部」 */
-      });
+    api.dictionaries().then((d) => {
+      if (d) setDicts(d);
+    }).catch(() => {});
   }, []);
 
   const load = useCallback(
@@ -72,9 +150,12 @@ export default function StudentsPage() {
       setLoading(true);
       setError('');
       try {
-        const params: Record<string, string> = {};
+        const params: Record<string, string | undefined> = {};
         if (q) params.q = q;
-        if (activeTab) params.当前状态 = activeTab;
+        for (const [k, v] of Object.entries(filters)) {
+          if (Array.isArray(v) && v.length) params[k] = v.join(',');
+          else if (typeof v === 'string' && v) params[k] = v;
+        }
         if (token) params.pageToken = token;
         const data: Page<StudentRecord> = await api.listStudents(params);
         setItems((prev) => (append ? [...prev, ...data.items] : data.items));
@@ -87,13 +168,13 @@ export default function StudentsPage() {
         setLoading(false);
       }
     },
-    [q, activeTab],
+    [q, filters],
   );
 
   useEffect(() => {
     setItems([]);
     load(undefined, false);
-  }, [q, activeTab, load]);
+  }, [q, filters, load]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,31 +182,47 @@ export default function StudentsPage() {
     load(undefined, false);
   };
 
-  const handleArchive = async (id: string) => {
-    if (!confirm('确认将该学生状态改为「离校」？')) return;
-    await api.archiveStudent(id);
-    load(undefined, false);
+  const setFilter = (key: string, val: string | string[]) => {
+    setFilters((prev) => ({ ...prev, [key]: val }));
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('确认删除该学生档案？此操作不可恢复。')) return;
+    try {
+      await api.archiveStudent(id);
+      load(undefined, false);
+    } catch (e) {
+      alert('删除失败：' + (e as Error).message);
+    }
   };
 
   return (
     <div>
       {/* ── Page header ──────────────────────── */}
       <div className="page-header">
-        <div className="page-eyebrow">STUDENT REGISTRY / P-{String(total).padStart(3, '0')}</div>
         <div className="page-header-row">
-          <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-md)' }}>
             <h1 className="page-title">学生综合档案</h1>
-            <p className="page-subtitle">基础档案、学籍状态与数据密级在同一授权视图中呈现。</p>
+            <span className="stat-inline">{total} 条结果</span>
           </div>
+          <p className="page-subtitle">基础档案、学籍状态与数据密级在同一授权视图中呈现。</p>
           <div className="page-actions">
             <button
               className="btn btn-outline btn-sm"
-              onClick={() => api.exportStudents({ q, 当前状态: activeTab }).then((csv) => {
-                const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url; a.download = 'students.csv'; a.click();
-              })}
+              onClick={() => {
+                const params: Record<string, string | undefined> = {};
+                if (q) params.q = q;
+                for (const [k, v] of Object.entries(filters)) {
+                  if (Array.isArray(v) && v.length) params[k] = v.join(',');
+                  else if (typeof v === 'string' && v) params[k] = v;
+                }
+                api.exportStudents(params).then((csv) => {
+                  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = 'students.csv'; a.click();
+                });
+              }}
             >
               ↓ 导出授权范围
             </button>
@@ -136,16 +233,9 @@ export default function StudentsPage() {
         </div>
       </div>
 
-      {/* ── Stats overview ───────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-lg)', marginBottom: 'var(--space-lg)' }} className="stat-grid">
-        <StatMini label="当前结果" value={total} sub={activeTab || '按当前授权范围过滤'} />
-        <StatMini label="数据范围" value={1} sub="全部" accent />
-        <StatMini label="密级上限" value="L4" sub="超出范围的条数默认隐藏" gold />
-      </div>
-
       {/* ── Search + filters ─────────────────── */}
-      <form onSubmit={handleSearch} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)', marginBottom: 'var(--space-lg)', flexWrap: 'wrap' }}>
-        <div className="search-bar" style={{ flex: 1, minWidth: 240 }}>
+      <form onSubmit={handleSearch} className="filter-bar">
+        <div className="search-bar" style={{ flex: 1, minWidth: 200 }}>
           <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input
             placeholder="学生编号、姓名、英文名或班级"
@@ -155,21 +245,44 @@ export default function StudentsPage() {
           <button type="submit">查询</button>
         </div>
 
-        <div className="filter-tabs">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="16" height="16" style={{ color: 'var(--fg-tertiary)', flexShrink: 0, alignSelf: 'center', marginRight: 4 }}>
-            <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>
-          </svg>
-          {statusTabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              className={`filter-tab${activeTab === tab.key ? ' active' : ''}`}
-              onClick={() => setActiveTab(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <FilterSelect
+          label="当前状态"
+          value={filters['当前状态'] as string}
+          onChange={(v) => setFilter('当前状态', v)}
+          options={dicts['当前状态'] ?? ['已录未报到', '在校在读', '离校未毕(休学）', '离校未毕(保留学籍）', '毕业', '退学', '放弃入学', '潜在学生']}
+        />
+        <FilterSelect
+          label="年级"
+          value={filters['当前年级'] as string}
+          onChange={(v) => setFilter('当前年级', v)}
+          options={dicts['当前年级'] ?? ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '初一', '初二', '初三', '高一', '高二', '高三']}
+        />
+        <FilterSelect
+          label="班主任"
+          value={filters['班主任'] as string[]}
+          onChange={(v) => setFilter('班主任', v)}
+          options={dicts['班主任'] ?? []}
+          multi
+        />
+        <FilterSelect
+          label="招生老师"
+          value={filters['招生负责老师'] as string[]}
+          onChange={(v) => setFilter('招生负责老师', v)}
+          options={dicts['招生负责老师'] ?? []}
+          multi
+        />
+        <FilterSelect
+          label="来源渠道"
+          value={filters['来源渠道'] as string}
+          onChange={(v) => setFilter('来源渠道', v)}
+          options={dicts['来源渠道'] ?? ['官网', '转介绍', '展会', '社交媒体', '代理', '其他']}
+        />
+        <FilterSelect
+          label="跟进状态"
+          value={filters['生源跟进状态'] as string}
+          onChange={(v) => setFilter('生源跟进状态', v)}
+          options={dicts['生源跟进状态'] ?? ['新线索', '跟进中', '已报名', '已入学', '已流失']}
+        />
       </form>
 
       {/* ── Error / Loading ──────────────────── */}
@@ -190,7 +303,7 @@ export default function StudentsPage() {
                   {COLS.map((c) => (
                     <th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.label}</th>
                   ))}
-                  <th style={{ width: 80 }}>操作</th>
+                  <th style={{ width: 120 }}>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -200,6 +313,12 @@ export default function StudentsPage() {
                   const level = str(s['数据密级']);
                   return (
                     <tr key={s.id}>
+                      {/* 学籍号 - clickable link */}
+                      <td>
+                        <Link href={`/students/${s.id}`} className="link-cell">
+                          {str(s['学籍号（脱敏）']) || str(s['学生编号']) || '—'}
+                        </Link>
+                      </td>
                       {/* Avatar + Name */}
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -215,8 +334,6 @@ export default function StudentsPage() {
                         <div className={`status-dot ${statusClass(status)}`}>{status || '—'}</div>
                         <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 2 }}>{str(s['性别'] || '')}</div>
                       </td>
-                      {/* Status column (spacer for alignment with reference) */}
-                      <td></td>
                       {/* Grade/Class */}
                       <td>
                         <div style={{ fontWeight: 500 }}>{str(s['当前年级']) || '—'}</div>
@@ -226,17 +343,28 @@ export default function StudentsPage() {
                       <td>{str(s['校区']) || '—'}</td>
                       {/* Level badge */}
                       <td><span className={`badge ${badgeClass(level)}`}>{level || '—'}</span></td>
-                      {/* Level desc */}
-                      <td style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{s['特殊支持摘要'] ? '特需充' : '待补充'}</td>
+                      {/* 来源渠道 */}
+                      <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['来源渠道']) || '—'}</td>
+                      {/* 跟进状态 */}
+                      <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['生源跟进状态']) || '—'}</td>
                       {/* Updated */}
                       <td style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>
                         {str(s['更新时间']).slice(5, 10) || '—'}
                       </td>
-                      {/* Actions */}
+                      {/* Actions: 编辑 + 删除 */}
                       <td>
-                        <Link href={`/students/${s.id}`} className="btn btn-ghost btn-sm" style={{ padding: '4px 10px' }}>
-                          编辑
-                        </Link>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <Link href={`/students/${s.id}`} className="btn btn-ghost btn-sm" style={{ padding: '4px 10px', fontSize: 'var(--font-xs)' }}>
+                            编辑
+                          </Link>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            style={{ padding: '4px 10px', fontSize: 'var(--font-xs)' }}
+                            onClick={() => handleDelete(s.id)}
+                          >
+                            删除
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -265,21 +393,6 @@ export default function StudentsPage() {
           </div>
         </>
       ) : null}
-    </div>
-  );
-}
-
-/* ── Mini stat card for overview row ───────────── */
-
-function StatMini({ label, value, sub, accent, gold }: { label: string; value: number | string; sub: string; accent?: boolean; gold?: boolean }) {
-  const color = gold ? 'var(--gold)' : accent ? 'var(--accent)' : 'var(--gold)';
-  return (
-    <div className="stat-card" style={{ padding: 'var(--space-md) var(--space-lg)' }}>
-      <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', fontWeight: 600, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 'var(--font-3xl)', fontWeight: 800, color, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
-        {typeof value === 'number' ? value.toLocaleString() : value}
-      </div>
-      <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 2 }}>{sub}</div>
     </div>
   );
 }

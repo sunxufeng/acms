@@ -133,39 +133,40 @@ export function StudentForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} style={formStyles.form}>
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {STUDENT_SECTIONS.map((section) => (
-        <fieldset key={section.title} style={formStyles.fieldset}>
-          <legend style={formStyles.legend}>{section.title}</legend>
-          <div style={formStyles.grid}>
+        <fieldset key={section.title} className="form-fieldset">
+          <legend className="form-legend">{section.title}</legend>
+          <div className="form-grid">
             {section.fields.map((f) => (
-              <label key={f.key} style={formStyles.label}>
-                <span style={formStyles.labelText}>{f.label}</span>
+              <label key={f.key} className="form-label">
+                <span className="form-label-text">{f.label}</span>
                 {f.type === 'select' ? (
-                  <select style={formStyles.input} value={String(values[f.key] ?? '')} onChange={(e) => setField(f.key, e.target.value)}>
+                  <select
+                    className="form-input"
+                    value={String(values[f.key] ?? '')}
+                    onChange={(e) => setField(f.key, e.target.value)}
+                  >
                     <option value="">—</option>
                     {f.options?.map((o) => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
+                      <option key={o} value={o}>{o}</option>
                     ))}
                   </select>
                 ) : f.type === 'multiselect' ? (
                   <select
                     multiple
-                    style={{ ...formStyles.input, minHeight: 80 }}
+                    className="form-input"
+                    style={{ minHeight: 80 }}
                     value={toStringArray(values[f.key])}
                     onChange={(e) => setField(f.key, Array.from(e.target.selectedOptions).map((o) => o.value))}
                   >
                     {f.options?.map((o) => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
+                      <option key={o} value={o}>{o}</option>
                     ))}
                   </select>
                 ) : (
                   <input
-                    style={formStyles.input}
+                    className="form-input"
                     type={f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : f.type === 'phone' ? 'tel' : 'text'}
                     value={String(values[f.key] ?? '')}
                     onChange={(e) => setField(f.key, e.target.value)}
@@ -176,23 +177,17 @@ export function StudentForm({
           </div>
         </fieldset>
       ))}
-      <button type="submit" style={formStyles.submit} disabled={submitting}>
-        {submitting ? '保存中…' : '保存'}
-      </button>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8 }}>
+        <button type="submit" className="btn btn-primary" disabled={submitting}>
+          {submitting ? '保存中…' : '保存'}
+        </button>
+        {!initial && (
+          <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
+            保存后将自动跳转到详情页
+          </span>
+        )}
+      </div>
     </form>
   );
 }
-
-const formStyles: Record<string, React.CSSProperties> = {
-  form: { display: 'flex', flexDirection: 'column', gap: 24 },
-  fieldset: { border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px' },
-  legend: { fontWeight: 700, color: 'var(--fg)', padding: '0 8px' },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 },
-  label: { display: 'flex', flexDirection: 'column', gap: 6 },
-  labelText: { fontSize: 12, color: 'var(--muted)', fontWeight: 500 },
-  input: { padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 14 },
-  submit: {
-    padding: '12px 24px', border: 'none', borderRadius: 8, background: 'var(--brand)',
-    color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-start',
-  },
-};

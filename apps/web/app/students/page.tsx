@@ -1,20 +1,24 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { api, type Page, type StudentRecord } from '../../lib/api';
 
-const STATUS_OPTIONS = ['在校', '毕业', '离校'];
-const LEVEL_OPTIONS = ['L1', 'L2', 'L3', 'L4'];
+const STATUS_TABS = [
+  { key: '', label: '全部' },
+  { key: '在校', label: '在校' },
+  { key: '毕业', label: '毕业' },
+  { key: '离校', label: '离校' },
+];
 
 const COLS = [
-  { key: '学生编号', label: '编号' },
-  { key: '学生姓名', label: '姓名' },
-  { key: '性别', label: '性别' },
-  { key: '班级', label: '班级' },
-  { key: '校区', label: '校区' },
-  { key: '当前状态', label: '状态' },
-  { key: '数据密级', label: '密级' },
-  { key: '更新时间', label: '更新时间' },
+  { key: '学生编号', label: '学生 / 编号', width: '' },
+  { key: '学生姓名', label: '学籍', width: '' },
+  { key: '当前状态', label: '', width: '80px' },
+  { key: '班级', label: '年级 / 班级', width: '' },
+  { key: '校区', label: '校区', width: '' },
+  { key: '数据密级', label: '档案', width: '80px' },
+  { key: '更新时间', label: '更新', width: '80px' },
 ];
 
 function str(v: unknown): string {
@@ -22,6 +26,27 @@ function str(v: unknown): string {
   if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' ? x : String((x as { text?: string })?.text ?? ''))).join('、');
   if (typeof v === 'object') return String((v as { text?: string })?.text ?? '');
   return String(v);
+}
+
+function avatarColor(name: string): string {
+  const colors = ['avatar-teal', 'avatar-emerald', 'avatar-amber', 'avatar-rose'];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
+
+function statusClass(status: string): string {
+  if (status === '在校') return 'status-active';
+  if (status === '毕业') return 'status-graduated';
+  if (status === '离校') return 'status-left';
+  return '';
+}
+
+function badgeClass(level: string): string {
+  if (level === 'L1') return 'badge-l1';
+  if (level === 'L2') return 'badge-l2';
+  if (level === 'L3') return 'badge-l3';
+  return 'badge-l4';
 }
 
 export default function StudentsPage() {
@@ -33,9 +58,7 @@ export default function StudentsPage() {
   const [error, setError] = useState('');
 
   const [q, setQ] = useState('');
-  const [status, setStatus] = useState('');
-  const [campus, setCampus] = useState('');
-  const [level, setLevel] = useState('');
+  const [activeTab, setActiveTab] = useState('');
 
   const load = useCallback(
     async (token?: string, append = false) => {
@@ -44,9 +67,7 @@ export default function StudentsPage() {
       try {
         const params: Record<string, string> = {};
         if (q) params.q = q;
-        if (status) params.当前状态 = status;
-        if (campus) params.校区 = campus;
-        if (level) params.数据密级 = level;
+        if (activeTab) params.当前状态 = activeTab;
         if (token) params.pageToken = token;
         const data: Page<StudentRecord> = await api.listStudents(params);
         setItems((prev) => (append ? [...prev, ...data.items] : data.items));
@@ -59,13 +80,13 @@ export default function StudentsPage() {
         setLoading(false);
       }
     },
-    [q, status, campus, level],
+    [q, activeTab],
   );
 
   useEffect(() => {
     setItems([]);
     load(undefined, false);
-  }, [q, status, campus, level, load]);
+  }, [q, activeTab, load]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,166 +95,184 @@ export default function StudentsPage() {
   };
 
   const handleArchive = async (id: string) => {
-    if (!confirm('确认归档该学生？')) return;
+    if (!confirm('确认将该学生状态改为「离校」？')) return;
     await api.archiveStudent(id);
     load(undefined, false);
   };
 
   return (
-    <main style={styles.main}>
-      <header style={styles.header}>
-        <h1 style={styles.h1}>学生管理</h1>
-        <a href="/students/new" style={styles.newBtn}>
-          + 新增学生
-        </a>
-      </header>
-
-      <form style={styles.filters} onSubmit={handleSearch}>
-        <input
-          style={styles.input}
-          placeholder="搜索姓名"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <select style={styles.input} value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">全部状态</option>
-          {STATUS_OPTIONS.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <input
-          style={styles.input}
-          placeholder="校区"
-          value={campus}
-          onChange={(e) => setCampus(e.target.value)}
-        />
-        <select style={styles.input} value={level} onChange={(e) => setLevel(e.target.value)}>
-          <option value="">全部密级</option>
-          {LEVEL_OPTIONS.map((l) => (
-            <option key={l} value={l}>
-              {l}
-            </option>
-          ))}
-        </select>
-        <button type="submit" style={styles.searchBtn}>
-          查询
-        </button>
-        <button
-          type="button"
-          style={styles.resetBtn}
-          onClick={() => {
-            setQ('');
-            setStatus('');
-            setCampus('');
-            setLevel('');
-          }}
-        >
-          重置
-        </button>
-      </form>
-
-      {error && <p style={styles.error}>加载失败：{error}</p>}
-      {loading && <p style={styles.muted}>加载中…</p>}
-
-      <div style={styles.tableWrap}>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              {COLS.map((c) => (
-                <th key={c.key} style={styles.th}>
-                  {c.label}
-                </th>
-              ))}
-              <th style={styles.th}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((s) => (
-              <tr key={s.id} style={styles.tr}>
-                {COLS.map((c) => (
-                  <td key={c.key} style={styles.td}>
-                    {str(s[c.key]) || '—'}
-                  </td>
-                ))}
-                <td style={styles.td}>
-                  <a href={`/students/${s.id}`} style={styles.link}>
-                    查看
-                  </a>
-                  <button style={styles.linkBtn} onClick={() => handleArchive(s.id)}>
-                    归档
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {!loading && items.length === 0 && (
-              <tr>
-                <td colSpan={COLS.length + 1} style={styles.empty}>
-                  暂无学生数据
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+    <div>
+      {/* ── Page header ──────────────────────── */}
+      <div className="page-header">
+        <div className="page-eyebrow">STUDENT REGISTRY / P-{String(total).padStart(3, '0')}</div>
+        <div className="page-header-row">
+          <div>
+            <h1 className="page-title">学生综合档案</h1>
+            <p className="page-subtitle">基础档案、学籍状态与数据密级在同一授权视图中呈现。</p>
+          </div>
+          <div className="page-actions">
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => api.exportStudents({ q, 当前状态: activeTab }).then((csv) => {
+                const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'students.csv'; a.click();
+              })}
+            >
+              ↓ 导出授权范围
+            </button>
+            <Link href="/students/new" className="btn btn-primary">
+              + 新建学生
+            </Link>
+          </div>
+        </div>
       </div>
 
-      <footer style={styles.footer}>
-        <span style={styles.muted}>共 {total} 条</span>
-        {hasMore && (
-          <button style={styles.searchBtn} onClick={() => pageToken && load(pageToken, true)}>
-            加载更多
-          </button>
-        )}
-        <button style={styles.resetBtn} onClick={() => api.exportStudents({ q, 当前状态: status, 校区: campus, 数据密级: level }).then((csv) => {
-          const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'students.csv';
-          a.click();
-        })}>
-          导出 CSV
-        </button>
-      </footer>
-    </main>
+      {/* ── Stats overview ───────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-lg)', marginBottom: 'var(--space-lg)' }} className="stat-grid">
+        <StatMini label="当前结果" value={total} sub={activeTab || '按当前授权范围过滤'} />
+        <StatMini label="数据范围" value={1} sub="全部" accent />
+        <StatMini label="密级上限" value="L4" sub="超出范围的条数默认隐藏" gold />
+      </div>
+
+      {/* ── Search + filters ─────────────────── */}
+      <form onSubmit={handleSearch} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)', marginBottom: 'var(--space-lg)', flexWrap: 'wrap' }}>
+        <div className="search-bar" style={{ flex: 1, minWidth: 240 }}>
+          <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input
+            placeholder="学生编号、姓名、英文名或班级"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <button type="submit">查询</button>
+        </div>
+
+        <div className="filter-tabs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="16" height="16" style={{ color: 'var(--fg-tertiary)', flexShrink: 0, alignSelf: 'center', marginRight: 4 }}>
+            <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>
+          </svg>
+          {STATUS_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              className={`filter-tab${activeTab === tab.key ? ' active' : ''}`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </form>
+
+      {/* ── Error / Loading ──────────────────── */}
+      {error && <p className="msg-error">加载失败：{error}</p>}
+      {loading && items.length === 0 && (
+        <div className="empty-state" style={{ minHeight: 200 }}>
+          <div style={{ width: 28, height: 28, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+        </div>
+      )}
+
+      {/* ── Data table ───────────────────────── */}
+      {!loading || items.length > 0 ? (
+        <>
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  {COLS.map((c) => (
+                    <th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.label}</th>
+                  ))}
+                  <th style={{ width: 80 }}>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((s) => {
+                  const name = str(s['学生姓名']) || '—';
+                  const status = str(s['当前状态']);
+                  const level = str(s['数据密级']);
+                  return (
+                    <tr key={s.id}>
+                      {/* Avatar + Name */}
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span className={`avatar-dot ${avatarColor(name)}`}>{name.charAt(0)}</span>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{name}</div>
+                            <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['学生编号']) || '—'}</div>
+                          </div>
+                        </div>
+                      </td>
+                      {/* Status */}
+                      <td>
+                        <div className={`status-dot ${statusClass(status)}`}>{status || '—'}</div>
+                        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 2 }}>{str(s['性别'] || '')}</div>
+                      </td>
+                      {/* Status column (spacer for alignment with reference) */}
+                      <td></td>
+                      {/* Grade/Class */}
+                      <td>
+                        <div style={{ fontWeight: 500 }}>{str(s['当前年级']) || '—'}</div>
+                        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['班级']) || '未分班'}</div>
+                      </td>
+                      {/* Campus */}
+                      <td>{str(s['校区']) || '—'}</td>
+                      {/* Level badge */}
+                      <td><span className={`badge ${badgeClass(level)}`}>{level || '—'}</span></td>
+                      {/* Level desc */}
+                      <td style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{s['特殊支持摘要'] ? '特需充' : '待补充'}</td>
+                      {/* Updated */}
+                      <td style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>
+                        {str(s['更新时间']).slice(5, 10) || '—'}
+                      </td>
+                      {/* Actions */}
+                      <td>
+                        <Link href={`/students/${s.id}`} className="btn btn-ghost btn-sm" style={{ padding: '4px 10px' }}>
+                          编辑
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!loading && items.length === 0 && (
+                  <tr>
+                    <td colSpan={COLS.length + 1}>
+                      <div className="empty-state">
+                        <div className="empty-state-text">暂无学生数据</div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--border)' }}>
+            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>共 {total} 条</span>
+            {hasMore && (
+              <button className="btn btn-outline btn-sm" onClick={() => pageToken && load(pageToken, true)}>
+                加载更多
+              </button>
+            )}
+          </div>
+        </>
+      ) : null}
+    </div>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  main: { maxWidth: 1100, margin: '0 auto', padding: '32px 24px' },
-  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
-  h1: { fontSize: 22, fontWeight: 700 },
-  newBtn: {
-    background: 'var(--brand)', color: '#fff', padding: '8px 16px', borderRadius: 8,
-    textDecoration: 'none', fontSize: 14, fontWeight: 600,
-  },
-  filters: { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 },
-  input: {
-    padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 14, minWidth: 140,
-  },
-  searchBtn: {
-    padding: '8px 18px', border: 'none', borderRadius: 8, background: 'var(--brand)',
-    color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-  },
-  resetBtn: {
-    padding: '8px 18px', border: '1px solid var(--border)', borderRadius: 8, background: '#fff',
-    color: 'var(--muted)', fontSize: 14, cursor: 'pointer',
-  },
-  error: { color: '#dc2626', marginBottom: 12 },
-  muted: { color: 'var(--muted)' },
-  tableWrap: { overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 10 },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 14 },
-  th: {
-    textAlign: 'left', padding: '12px 14px', background: '#fafbfc',
-    borderBottom: '1px solid var(--border)', fontWeight: 600, color: 'var(--muted)',
-  },
-  tr: { borderBottom: '1px solid var(--border)' },
-  td: { padding: '12px 14px' },
-  link: { color: 'var(--brand)', textDecoration: 'none', marginRight: 12 },
-  linkBtn: {
-    border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer', padding: 0, fontSize: 14,
-  },
-  empty: { padding: '40px', textAlign: 'center', color: 'var(--muted)' },
-  footer: { display: 'flex', alignItems: 'center', gap: 16, marginTop: 16 },
-};
+/* ── Mini stat card for overview row ───────────── */
+
+function StatMini({ label, value, sub, accent, gold }: { label: string; value: number | string; sub: string; accent?: boolean; gold?: boolean }) {
+  const color = gold ? 'var(--gold)' : accent ? 'var(--accent)' : 'var(--gold)';
+  return (
+    <div className="stat-card" style={{ padding: 'var(--space-md) var(--space-lg)' }}>
+      <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', fontWeight: 600, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 'var(--font-3xl)', fontWeight: 800, color, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
+        {typeof value === 'number' ? value.toLocaleString() : value}
+      </div>
+      <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 2 }}>{sub}</div>
+    </div>
+  );
+}

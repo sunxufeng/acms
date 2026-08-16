@@ -820,6 +820,14 @@ a:hover { color: var(--accent-hover); }
 .form-input:focus { border-color: var(--border-focus); }
 .form-input::placeholder { color: var(--fg-tertiary); }
 select.form-input { appearance: auto; cursor: pointer; }
+/* 只读（详情）模式：看起来像纯展示文本，而非灰掉输入框 */
+.form-input:disabled {
+  background: transparent; border-color: transparent; color: var(--fg);
+  cursor: default; -webkit-appearance: none; appearance: none;
+  padding-left: 0; padding-right: 0; opacity: 1; pointer-events: none;
+}
+select.form-input:disabled { color: var(--fg); }
+
 
 /* ── Detail grid ──────────────────────────────────────────── */
 

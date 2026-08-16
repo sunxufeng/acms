@@ -99,10 +99,12 @@ export function StudentForm({
   initial,
   onSubmit,
   submitting,
+  readOnly,
 }: {
   initial?: Record<string, unknown>;
   onSubmit: (data: Record<string, unknown>) => void;
   submitting?: boolean;
+  readOnly?: boolean;
 }) {
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     const v: Record<string, unknown> = {};
@@ -169,6 +171,7 @@ export function StudentForm({
                   <select
                     className="form-input"
                     value={String(values[f.key] ?? '')}
+                    disabled={readOnly}
                     onChange={(e) => setField(f.key, e.target.value)}
                   >
                     <option value="">—</option>
@@ -182,6 +185,7 @@ export function StudentForm({
                     className="form-input"
                     style={{ minHeight: 80 }}
                     value={toStringArray(values[f.key])}
+                    disabled={readOnly}
                     onChange={(e) => setField(f.key, Array.from(e.target.selectedOptions).map((o) => o.value))}
                   >
                     {optionsFor(f).map((o) => (
@@ -193,6 +197,7 @@ export function StudentForm({
                     className="form-input"
                     type={f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : f.type === 'phone' ? 'tel' : 'text'}
                     value={String(values[f.key] ?? '')}
+                    disabled={readOnly}
                     onChange={(e) => setField(f.key, e.target.value)}
                   />
                 )}
@@ -202,16 +207,18 @@ export function StudentForm({
         </fieldset>
       ))}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8 }}>
-        <button type="submit" className="btn btn-primary" disabled={submitting}>
-          {submitting ? '保存中…' : '保存'}
-        </button>
-        {!initial && (
-          <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
-            保存后将自动跳转到详情页
-          </span>
-        )}
-      </div>
+      {!readOnly && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8 }}>
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? '保存中…' : '保存'}
+          </button>
+          {!initial && (
+            <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
+              保存后将自动跳转到列表页
+            </span>
+          )}
+        </div>
+      )}
     </form>
   );
 }

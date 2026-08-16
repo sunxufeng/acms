@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, type StudentRecord } from '../../../lib/api';
-import { StudentForm } from '../../../components/StudentForm';
 
 function str(v: unknown): string {
   if (v == null) return '—';
@@ -36,48 +35,20 @@ const IDENTITY_FIELDS = ['学生姓名', '学生编号', '性别', '当前状态
 
 export default function StudentDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const id = String(params.id);
   const [student, setStudent] = useState<StudentRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [editing, setEditing] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [msg, setMsg] = useState('');
 
-  const load = useCallback(async () => {
+  useEffect(() => {
     setLoading(true); setError('');
-    try {
-      const data = await api.getStudent(id);
-      setStudent(data);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
+    api
+      .getStudent(id)
+      .then((data) => setStudent(data))
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setLoading(false));
   }, [id]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const handleSave = async (data: Record<string, unknown>) => {
-    setSubmitting(true); setMsg('');
-    try {
-      await api.updateStudent(id, data);
-      setMsg('已保存'); setEditing(false); load();
-    } catch (e) {
-      setMsg('保存失败：' + (e as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleArchive = async () => {
-    if (!confirm('确认将该学生状态改为「离校」？')) return;
-    await api.archiveStudent(id); load();
-  };
-
-  const handleRestore = async () => {
-    await api.restoreStudent(id); load();
-  };
 
   if (loading) return <div className="empty-state" style={{ minHeight: '50vh' }}><div style={{ width: 28, height: 28, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /></div>;
   if (error) return <div className="page-header"><p className="msg-error">加载失败：{error}</p></div>;
@@ -102,69 +73,54 @@ export default function StudentDetailPage() {
             </div>
           </div>
           <div className="page-actions">
-            {!editing && (
-              <>
-                {status === '离校' ? (
-                  <button className="btn btn-outline btn-sm" onClick={handleRestore}>恢复在校</button>
-                ) : (
-                  <button className="btn btn-danger btn-sm" onClick={handleArchive}>归档(离校)</button>
-                )}
-                <button className="btn btn-primary btn-sm" onClick={() => setEditing(true)}>编辑</button>
-              </>
-            )}
+            <button className="btn btn-primary btn-sm" onClick={() => router.push(`/students/${id}/edit`)}>编辑</button>
           </div>
         </div>
       </div>
 
-      {msg && <p className={msg.startsWith('保存失败') ? 'msg-error' : 'msg-success'}>{msg}</p>}
-
       {/* ── Content ─────────────────────────── */}
-      {editing ? (
-        <StudentForm initial={student} onSubmit={handleSave} submitting={submitting} />
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 'var(--space-lg)' }}>
-          {/* Identity card */}
-          <div className="form-fieldset">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
-              <span className={`avatar-dot avatar-teal`} style={{ width: 52, height: 52, fontSize: 22 }}>{name.charAt(0)}</span>
-              <div>
-                <div style={{ fontSize: 'var(--font-xl)', fontWeight: 700 }}>{name}</div>
-                <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>#{str(student['学生编号']) || '—'}</div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {IDENTITY_FIELDS.filter(k => k !== '学生姓名').map((k) => (
-                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                  <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{FIELD_LABELS[k] || k}</span>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>
-                    {k === '当前状态' ? (
-                      <span className={`status-dot ${statusClass(status)}`}>{status || '—'}</span>
-                    ) : k === '数据密级' ? (
-                      <span className={`badge ${badgeClass(level)}`}>{level || '—'}</span>
-                    ) : (
-                      str(student[k]) || '—'
-                    )}
-                  </span>
-                </div>
-              ))}
+      <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 'var(--space-lg)' }}>
+        {/* Identity card */}
+        <div className="form-fieldset">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+            <span className={`avatar-dot avatar-teal`} style={{ width: 52, height: 52, fontSize: 22 }}>{name.charAt(0)}</span>
+            <div>
+              <div style={{ fontSize: 'var(--font-xl)', fontWeight: 700 }}>{name}</div>
+              <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>#{str(student['学生编号']) || '—'}</div>
             </div>
           </div>
 
-          {/* Detail fields grid */}
-          <div className="detail-grid">
-            {Object.entries(student)
-              .filter(([k]) => k !== 'id' && !IDENTITY_FIELDS.includes(k))
-              .map(([k, v]) => (
-                <div key={k} className="detail-card">
-                  <div className="detail-key">{FIELD_LABELS[k] || k}</div>
-                  <div className="detail-val">{str(v)}</div>
-                </div>
-              ))
-            }
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {IDENTITY_FIELDS.filter(k => k !== '学生姓名').map((k) => (
+              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{FIELD_LABELS[k] || k}</span>
+                <span style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>
+                  {k === '当前状态' ? (
+                    <span className={`status-dot ${statusClass(status)}`}>{status || '—'}</span>
+                  ) : k === '数据密级' ? (
+                    <span className={`badge ${badgeClass(level)}`}>{level || '—'}</span>
+                  ) : (
+                    str(student[k]) || '—'
+                  )}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
-      )}
+
+        {/* Detail fields grid */}
+        <div className="detail-grid">
+          {Object.entries(student)
+            .filter(([k]) => k !== 'id' && !IDENTITY_FIELDS.includes(k))
+            .map(([k, v]) => (
+              <div key={k} className="detail-card">
+                <div className="detail-key">{FIELD_LABELS[k] || k}</div>
+                <div className="detail-val">{str(v)}</div>
+              </div>
+            ))
+          }
+        </div>
+      </div>
     </div>
   );
 }

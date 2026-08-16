@@ -15,7 +15,7 @@ export default function NewStudentPage() {
     setSubmitting(true); setMsg('');
     try {
       const created = await api.createStudent(data);
-      router.push(`/students/${created.id}`);
+      router.push('/students');
     } catch (e) {
       setMsg('创建失败：' + (e as Error).message);
       setSubmitting(false);

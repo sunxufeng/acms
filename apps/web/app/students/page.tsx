@@ -354,7 +354,7 @@ export default function StudentsPage() {
                       {/* Actions: 编辑 + 删除 */}
                       <td>
                         <div style={{ display: 'flex', gap: 4 }}>
-                          <Link href={`/students/${s.id}`} className="btn btn-ghost btn-sm" style={{ padding: '4px 10px', fontSize: 'var(--font-xs)' }}>
+                          <Link href={`/students/${s.id}/edit`} className="btn btn-ghost btn-sm" style={{ padding: '4px 10px', fontSize: 'var(--font-xs)' }}>
                             编辑
                           </Link>
                           <button

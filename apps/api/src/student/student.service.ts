@@ -171,8 +171,8 @@ export class StudentService {
   }
 
   /**
-   * 归档（软删除）：当前状态真实选项仅为 在校/毕业/离校，Base 无「已归档」选项，
-   * 故将状态置为「离校」作为非活跃标记。如需独立归档态，需在飞书字段新增「已归档」选项。
+   * 删除（硬删除）：直接从飞书 Base 移除记录。
+   * 权限要求 student:archive（系统管理员/校区管理员具备）。
    */
   async archive(user: SessionUser, id: string) {
     const principal = toPrincipal(user);
@@ -180,19 +180,13 @@ export class StudentService {
       throw new ForbiddenException('FORBIDDEN:student:archive');
     }
     await this.detail(user, id); // 存在性 + read ABAC
-    await this.base.update(TABLE, id, { 当前状态: '离校' });
+    await this.base.delete(TABLE, id);
     return { ok: true };
   }
 
-  /** 恢复（当前状态=在校在读） */
+  /** 恢复（保留兼容接口，当前删除为硬删除不再提供恢复） */
   async restore(user: SessionUser, id: string) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'student:archive').allowed) {
-      throw new ForbiddenException('FORBIDDEN:student:archive');
-    }
-    await this.detail(user, id);
-    await this.base.update(TABLE, id, { 当前状态: '在校在读' });
-    return { ok: true };
+    throw new BadRequestException('该记录已被删除，无法恢复');
   }
 
   /** 导出（CSV 脱敏 + ABAC export 校验） */

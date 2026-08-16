@@ -11,8 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -27,7 +25,11 @@ jobs:
     steps:
       - name: Health + login redirect
         run: |
-          code=$(curl -s -o /tmp/h.json -w "%{http_code}" -m 20 https://acms.areteailab.com/api/v1/health)
+          echo "dns:"; getent hosts acms.areteailab.com || true
+          for i in 1 2 3; do
+            code=$(curl -s -o /tmp/h.json -w "%{http_code}" -m 20 https://acms.areteailab.com/api/v1/health) && break
+            echo "attempt $i failed"; sleep 5
+          done
           echo "health=$code $(cat /tmp/h.json)"
           [ "$code" = "200" ]
           loc=$(curl -s -o /dev/null -w "%{redirect_url}" -m 20 https://acms.areteailab.com/api/v1/auth/login)

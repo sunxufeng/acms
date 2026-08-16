@@ -4,12 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { api, type Page, type StudentRecord } from '../../lib/api';
 
-const STATUS_TABS = [
-  { key: '', label: '全部' },
-  { key: '在校', label: '在校' },
-  { key: '毕业', label: '毕业' },
-  { key: '离校', label: '离校' },
-];
+const STATUS_TABS_DEFAULT = [{ key: '', label: '全部' }];
 
 const COLS = [
   { key: '学生编号', label: '学生 / 编号', width: '' },
@@ -36,10 +31,9 @@ function avatarColor(name: string): string {
 }
 
 function statusClass(status: string): string {
-  if (status === '在校') return 'status-active';
+  if (status === '在校在读' || status === '已录未报到' || status === '潜在学生') return 'status-active';
   if (status === '毕业') return 'status-graduated';
-  if (status === '离校') return 'status-left';
-  return '';
+  return 'status-left';
 }
 
 function badgeClass(level: string): string {
@@ -59,6 +53,19 @@ export default function StudentsPage() {
 
   const [q, setQ] = useState('');
   const [activeTab, setActiveTab] = useState('');
+  const [statusTabs, setStatusTabs] = useState(STATUS_TABS_DEFAULT);
+
+  useEffect(() => {
+    api
+      .dictionaries()
+      .then((d) => {
+        const opts = d?.['当前状态'] ?? [];
+        if (opts.length) setStatusTabs([{ key: '', label: '全部' }, ...opts.map((o) => ({ key: o, label: o }))]);
+      })
+      .catch(() => {
+        /* 兜底保留默认「全部」 */
+      });
+  }, []);
 
   const load = useCallback(
     async (token?: string, append = false) => {
@@ -152,7 +159,7 @@ export default function StudentsPage() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="16" height="16" style={{ color: 'var(--fg-tertiary)', flexShrink: 0, alignSelf: 'center', marginRight: 4 }}>
             <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>
           </svg>
-          {STATUS_TABS.map((tab) => (
+          {statusTabs.map((tab) => (
             <button
               key={tab.key}
               type="button"

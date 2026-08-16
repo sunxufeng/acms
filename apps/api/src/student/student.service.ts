@@ -142,7 +142,7 @@ export class StudentService {
     }
     const fields = this.toWriteFields(dto);
     if (!fields['数据密级']) fields['数据密级'] = 'L1';
-    if (!fields['当前状态']) fields['当前状态'] = '在校';
+    if (!fields['当前状态']) fields['当前状态'] = '潜在学生';
     const recordId = await this.base.create(TABLE, fields);
     return this.detail(user, recordId);
   }
@@ -180,14 +180,14 @@ export class StudentService {
     return { ok: true };
   }
 
-  /** 恢复（当前状态=在校） */
+  /** 恢复（当前状态=在校在读） */
   async restore(user: SessionUser, id: string) {
     const principal = toPrincipal(user);
     if (!authorize(principal, 'student:archive').allowed) {
       throw new ForbiddenException('FORBIDDEN:student:archive');
     }
     await this.detail(user, id);
-    await this.base.update(TABLE, id, { 当前状态: '在校' });
+    await this.base.update(TABLE, id, { 当前状态: '在校在读' });
     return { ok: true };
   }
 

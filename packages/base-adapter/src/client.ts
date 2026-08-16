@@ -136,12 +136,37 @@ export class BaseClient {
   }
 
   /** 表结构（Schema Drift 检测用） */
-  async listFields(tableId: string): Promise<{ name: string; type: number }[]> {
-    const d = await this.req<{ items?: { field_name: string; type: number }[] }>(
+  async listFields(tableId: string): Promise<{ id: string; name: string; type: number }[]> {
+    const d = await this.req<{ items?: { field_id: string; field_name: string; type: number }[] }>(
       'GET',
       `${this.url(tableId)}/fields?page_size=100`,
     );
-    return (d.items ?? []).map((f) => ({ name: f.field_name, type: f.type }));
+    return (d.items ?? []).map((f) => ({ id: f.field_id, name: f.field_name, type: f.type }));
+  }
+
+  /** 读取单个字段完整定义（含 property.options），用于合并字典选项 */
+  async getField(
+    tableId: string,
+    fieldId: string,
+  ): Promise<{ id: string; name: string; type: number; property: { options?: { name: string; id?: string }[] } }> {
+    const d = await this.req<{
+      field: { field_id: string; field_name: string; type: number; property?: { options?: { name: string; id?: string }[] } };
+    }>('GET', `${this.url(tableId)}/fields/${fieldId}`);
+    return {
+      id: d.field.field_id,
+      name: d.field.field_name,
+      type: d.field.type,
+      property: d.field.property ?? {},
+    };
+  }
+
+  /** 更新字段（合并单选/多选选项用）。飞书要求 PUT + 完整 property */
+  async updateField(
+    tableId: string,
+    fieldId: string,
+    body: { field_name: string; type: number; property: { options: { name: string }[] } },
+  ): Promise<void> {
+    await this.req('PUT', `${this.url(tableId)}/fields/${fieldId}`, body);
   }
 
   async listTables(): Promise<{ tableId: string; name: string }[]> {

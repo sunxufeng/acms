@@ -88,6 +88,9 @@ export const api = {
     const q = qs.toString();
     return request<string>(`/students/export${q ? `?${q}` : ''}`);
   },
+
+  /** 字典表：全部候选项 */
+  dictionaries: () => request<Record<string, string[]>>('/dictionaries'),
 };
 
 export interface SessionUser {

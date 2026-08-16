@@ -12,20 +12,23 @@ import type { Request, Response } from 'express';
 import type { SessionUser } from '@acms/contracts';
 import { AuthService } from './auth.service.js';
 import { SessionGuard } from './session.guard.js';
+import { LoginRateLimitGuard } from './rate-limit.guard.js';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
-  /** 发起飞书 OAuth 登录（PKCE S256） */
+  /** 发起飞书 OAuth 登录（PKCE S256，双限流） */
   @Get('login')
+  @UseGuards(LoginRateLimitGuard)
   async login(@Res() res: Response): Promise<void> {
     const url = await this.auth.buildAuthorizeUrl();
     res.redirect(url);
   }
 
-  /** OAuth 回调：换 token、建会话、种 cookie、回前端 */
+  /** OAuth 回调：换 token、建会话、种 cookie、回前端（双限流） */
   @Get('callback')
+  @UseGuards(LoginRateLimitGuard)
   async callback(
     @Query('code') code: string,
     @Query('state') state: string,

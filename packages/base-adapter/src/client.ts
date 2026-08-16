@@ -5,10 +5,18 @@ export interface BaseRecord {
   fields: Record<string, unknown>;
 }
 
+export interface FilterCondition {
+  field: string;
+  /** 默认 is */
+  op?: string;
+  value: string[];
+}
+
 export interface ListOptions {
   pageSize?: number;
   pageToken?: string;
-  filter?: string;
+  /** 服务端过滤（records/search filter） */
+  filter?: { conjunction?: 'and' | 'or'; conditions: FilterCondition[] };
   sort?: { field: string; desc: boolean }[];
 }
 
@@ -76,7 +84,16 @@ export class BaseClient {
       page_token?: string;
     }>('POST', `${this.url(tableId)}/records/search?page_size=${opts.pageSize ?? 50}${opts.pageToken ? `&page_token=${opts.pageToken}` : ''}`, {
       field_names: [],
-      filter: opts.filter ? { conjunction: 'and', conditions: [] } : undefined,
+      filter: opts.filter
+        ? {
+            conjunction: opts.filter.conjunction ?? 'and',
+            conditions: opts.filter.conditions.map((c) => ({
+              field_name: c.field,
+              operator: c.op ?? 'is',
+              value: c.value,
+            })),
+          }
+        : undefined,
       sort: opts.sort?.map((s) => ({ field_name: s.field, desc: s.desc })),
       automatic_fields: false,
     });

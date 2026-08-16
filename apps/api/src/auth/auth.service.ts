@@ -1,8 +1,10 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import type { Redis } from 'ioredis';
-import type { SessionUser } from '@acms/contracts';
+import { DATA_LEVEL_RANK, ROLES, USER_TABLE, type DataLevel, type SessionUser } from '@acms/contracts';
+import { toText, toStringArray, type BaseClient } from '@acms/base-adapter';
 import { SessionService } from './session.service.js';
 import { REDIS } from '../redis.provider.js';
+import { BASE_CLIENT } from '../base.provider.js';
 
 const FEISHU_BASE = 'https://open.feishu.cn';
 
@@ -19,6 +21,7 @@ interface UserInfoResp {
 export class AuthService {
   constructor(
     @Inject(REDIS) private readonly redis: Redis,
+    @Inject(BASE_CLIENT) private readonly base: BaseClient,
     private readonly sessions: SessionService,
   ) {}
 
@@ -88,15 +91,64 @@ export class AuthService {
     if (info.code !== 0 || !openId) {
       throw new UnauthorizedException('USER_INFO_FAILED');
     }
+    const name = info.data?.user?.name ?? '';
+    const principal = await this.resolvePrincipal(openId, name);
+    return this.sessions.create(principal);
+  }
 
-    // M0：角色暂按默认（无角色）；M1 接用户表后按表内角色/校区/密级解析
-    return this.sessions.create({
-      openId,
-      name: info.data?.user?.name ?? '',
-      roles: [],
-      campuses: [],
-      maxDataLevel: 'L1',
-    });
+  /** 从系统用户表解析角色/校区/密级；未注册用户拒绝（引导管理员开通） */
+  private async resolvePrincipal(
+    openId: string,
+    name: string,
+  ): Promise<Omit<SessionUser, 'sessionId' | 'expiresAt'>> {
+    const bootstrapAdmins = (process.env.BOOTSTRAP_ADMIN_OPEN_IDS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    let record: { fields: Record<string, unknown> } | null = null;
+    try {
+      const res = await this.base.search(USER_TABLE.tableId, {
+        pageSize: 1,
+        filter: { conditions: [{ field: 'Open ID', value: [openId] }] },
+      });
+      record = res.items[0] ?? null;
+    } catch (e) {
+      // 用户表不可读（权限/建表未完成）时只放行引导管理员
+      if (!bootstrapAdmins.includes(openId)) {
+        throw new UnauthorizedException('USER_TABLE_UNAVAILABLE');
+      }
+    }
+
+    if (!record) {
+      if (!bootstrapAdmins.includes(openId)) {
+        throw new UnauthorizedException('NOT_REGISTERED');
+      }
+      // 首个引导管理员自动建档：系统管理员 / L4 / 启用
+      try {
+        await this.base.create(USER_TABLE.tableId, {
+          'Open ID': openId,
+          姓名: name,
+          系统角色: ['系统管理员'],
+          数据密级上限: 'L4',
+          状态: '启用',
+        });
+      } catch {
+        // 建档失败不阻断登录（Base 只读时仍可进系统）
+      }
+      return { openId, name, roles: ['系统管理员'], campuses: [], maxDataLevel: 'L4' };
+    }
+
+    const status = toText(record.fields['状态']);
+    if (status === '停用') throw new UnauthorizedException('USER_DISABLED');
+
+    const roles = toStringArray(record.fields['系统角色']).filter((r: string) =>
+      (ROLES as readonly string[]).includes(r),
+    );
+    const campuses = toStringArray(record.fields['校区']);
+    const levelRaw = toText(record.fields['数据密级上限']) ?? 'L1';
+    const maxDataLevel: DataLevel = levelRaw in DATA_LEVEL_RANK ? (levelRaw as DataLevel) : 'L1';
+    return { openId, name: toText(record.fields['姓名']) || name, roles, campuses, maxDataLevel };
   }
 
   async logout(sessionId: string): Promise<void> {

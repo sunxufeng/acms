@@ -2,11 +2,11 @@
   "name": "@acms/api",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dev": "node --watch --experimental-strip-types --env-file-if-exists=../../.env src/main.ts",
+    "test": "vitest run",
+    "dev": "tsc -p tsconfig.json && node --watch --env-file-if-exists=../../.env dist/main.js",
     "start": "node dist/main.js"
   },
   "dependencies": {
@@ -23,6 +23,7 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   }
 }

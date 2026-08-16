@@ -8,6 +8,13 @@ export const TABLES = {
   homeSchoolComm: { tableId: 'tbl8Isr46G3BRQ52', name: '家校沟通表' },
   stageEvaluation: { tableId: 'tblHk6r8USy6BXV4', name: '阶段评价表' },
   alumniFollowup: { tableId: 'tblK02GgjnaLp1Gp', name: '校友长期跟进表' },
+  // M2 教学域
+  teacherProfile: { tableId: 'tblOhSv7Yr3WhJb0', name: '教师档案表' },
+  coursePlan: { tableId: 'tblkceYvjTwoZ5n9', name: '课程方案表' },
+  teachingClass: { tableId: 'tbl4V1uLkrddC9Gv', name: '教学班表' },
+  venue: { tableId: 'tblhWAp4TlE0l31A', name: '场地资源表' },
+  session: { tableId: 'tblCu7bjnoNBlxlZ', name: '课次排课表' },
+  enrollment: { tableId: 'tblr3Y1Py9rZ7GjU', name: '学生修读关系表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

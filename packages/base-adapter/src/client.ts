@@ -166,4 +166,27 @@ export class BaseClient {
     );
     return (d.items ?? []).map((t) => ({ tableId: t.table_id, name: t.name }));
   }
+
+  /** 创建数据表（建表用，M2 教学域等）。fields 中 type: 1=文本, 3=单选, 4=多选 */
+  async createTable(
+    tableName: string,
+    fields: { field_name: string; type: number; options?: string[] }[],
+  ): Promise<{ tableId: string; name: string }> {
+    const d = await this.req<{
+      table?: { table_id: string; name: string; fields?: { field_id: string; field_name: string }[] };
+    }>('POST', `/open-apis/bitable/v1/apps/${this.appToken}/tables`, {
+      table: {
+        name: tableName,
+        fields: fields.map((f) => ({
+          field_name: f.field_name,
+          type: f.type,
+          ...(f.options
+            ? { property: { options: f.options.map((o) => ({ name: o })) } }
+            : {}),
+        })),
+      },
+    });
+    const t = d.table!;
+    return { tableId: t.table_id, name: t.name };
+  }
 }

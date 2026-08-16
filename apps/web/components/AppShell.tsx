@@ -22,14 +22,16 @@ const NAV_ITEMS = [
     items: [
       { key: 'students', label: '招生与学生', href: '/students', icon: StudentsIcon },
       { key: 'admissions', label: '招生跟进', href: '/students', icon: AdmissionsIcon, disabled: true },
-      { key: 'courses', label: '课程与教学', href: '/', icon: CoursesIcon, disabled: true },
-      { key: 'schedule', label: '排课与展约', href: '/', icon: ScheduleIcon, disabled: true },
+      { key: 'courses', label: '课程与教学', href: '/courses', icon: CoursesIcon },
+      { key: 'teaching', label: '教学班', href: '/teaching-classes', icon: CoursesIcon },
+      { key: 'schedule', label: '排课与展约', href: '/schedule', icon: ScheduleIcon },
+      { key: 'portal', label: '学生门户', href: '/portal', icon: StudentsIcon },
     ],
   },
   {
     section: '管理',
     items: [
-      { key: 'teachers', label: '教师考勤', href: '/', icon: TeachersIcon, disabled: true },
+      { key: 'teachers', label: '教师档案', href: '/teachers', icon: TeachersIcon },
       { key: 'notifications', label: '通知任务', href: '/', icon: NotificationsIcon, disabled: true },
       { key: 'ai', label: '技能与智能体', href: '/', icon: AIIcon, disabled: true },
       { key: 'billing', label: '计费与结算', href: '/', icon: BillingIcon, disabled: true },

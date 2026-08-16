@@ -693,6 +693,8 @@ a:hover { color: var(--accent-hover); }
 .status-active::before { background: var(--success); box-shadow: 0 0 6px rgba(78,205,196,0.45); }
 .status-graduated::before { background: var(--fg-tertiary); }
 .status-left::before { background: var(--warning); }
+.status-draft::before { background: var(--accent, #6aa9ff); box-shadow: 0 0 6px rgba(106,169,255,0.45); }
+.status-warn::before { background: #f5a623; box-shadow: 0 0 6px rgba(245,166,35,0.45); }
 
 /* Badge / tag */
 .badge {

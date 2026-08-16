@@ -31,7 +31,7 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
   {
     title: '学籍信息',
     fields: [
-      { key: '当前状态', label: '当前状态', type: 'select', options: ['在校', '毕业', '离校'] },
+      { key: '学籍号（脱敏）', label: '学籍号（脱敏）', type: 'text' },
       { key: '班级', label: '班级', type: 'text' },
       { key: '校区', label: '校区', type: 'text' },
       { key: '当前学段', label: '当前学段', type: 'select', options: ['幼儿园', '小学', '初中', '高中', '国际课程'] },
@@ -41,12 +41,12 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '预计毕业日期', label: '预计毕业日期', type: 'date' },
       { key: '毕业日期', label: '毕业日期', type: 'date' },
       { key: '离校原因', label: '离校原因', type: 'select', options: ['毕业', '转学', '休学', '退学'] },
-      { key: '学籍号（脱敏）', label: '学籍号（脱敏）', type: 'text' },
       { key: '毕业学校', label: '毕业学校', type: 'text' },
       { key: '专业学科', label: '专业学科', type: 'text' },
       { key: '就读方式', label: '就读方式', type: 'text' },
       { key: '数据密级', label: '数据密级', type: 'select', options: ['L1', 'L2', 'L3', 'L4'] },
       { key: '档案完整度', label: '档案完整度', type: 'select', options: ['完整', '待补充', '缺失'] },
+      { key: '当前状态', label: '当前状态', type: 'select', options: ['在校', '毕业', '离校'] },
       { key: '最近核验日期', label: '最近核验日期', type: 'date' },
     ],
   },

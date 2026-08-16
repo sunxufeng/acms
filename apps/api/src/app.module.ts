@@ -16,6 +16,8 @@ import { SettlementModule } from './settlement/settlement.module.js';
 import { AdjustmentModule } from './adjustment/adjustment.module.js';
 import { NotificationModule } from './notification/notification.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
+import { GenericCrudModule } from './shared/generic-crud.module.js';
+import { LIFECYCLE_METAS } from './shared/lifecycle.meta.js';
 
 @Module({
   imports: [
@@ -36,6 +38,7 @@ import { DashboardModule } from './dashboard/dashboard.module.js';
     AdjustmentModule,
     NotificationModule,
     DashboardModule,
+    GenericCrudModule.registerAll(LIFECYCLE_METAS),
   ],
 })
 export class AppModule {}

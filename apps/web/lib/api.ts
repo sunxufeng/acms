@@ -264,6 +264,77 @@ export const api = {
   // ── M6 运营工作台 / 搜索 ────────────────────
   dashboardMetrics: () => request<{ cards: { key: string; label: string; value: number }[]; todos: { key: string; label: string; value: number }[]; exceptions: { key: string; label: string; value: number }[] }>('/dashboard/metrics'),
   globalSearch: (q: string) => request<{ students: { id: string; label: string }[]; teachers: { id: string; label: string }[]; courses: { id: string; label: string }[]; classes: { id: string; label: string }[] }>(`/search?q=${encodeURIComponent(q)}`),
+
+  // ── M1 学生生命周期域（通用 CRUD） ───────────
+  listSourceFollowups: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/source-followups${q ? `?${q}` : ''}`);
+  },
+  createSourceFollowup: (data: Record<string, unknown>) => request<Record<string, unknown>>('/source-followups', { method: 'POST', body: JSON.stringify(data) }),
+  updateSourceFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/source-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveSourceFollowup: (id: string) => request<{ ok: boolean }>(`/source-followups/${id}`, { method: 'DELETE' }),
+
+  listStudentAttendances: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/student-attendances${q ? `?${q}` : ''}`);
+  },
+  createStudentAttendance: (data: Record<string, unknown>) => request<Record<string, unknown>>('/student-attendances', { method: 'POST', body: JSON.stringify(data) }),
+  updateStudentAttendance: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/student-attendances/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveStudentAttendance: (id: string) => request<{ ok: boolean }>(`/student-attendances/${id}`, { method: 'DELETE' }),
+
+  listGrades: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/grades${q ? `?${q}` : ''}`);
+  },
+  createGrade: (data: Record<string, unknown>) => request<Record<string, unknown>>('/grades', { method: 'POST', body: JSON.stringify(data) }),
+  updateGrade: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/grades/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveGrade: (id: string) => request<{ ok: boolean }>(`/grades/${id}`, { method: 'DELETE' }),
+
+  listPracticeActivities: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/practice-activities${q ? `?${q}` : ''}`);
+  },
+  createPracticeActivity: (data: Record<string, unknown>) => request<Record<string, unknown>>('/practice-activities', { method: 'POST', body: JSON.stringify(data) }),
+  updatePracticeActivity: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/practice-activities/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archivePracticeActivity: (id: string) => request<{ ok: boolean }>(`/practice-activities/${id}`, { method: 'DELETE' }),
+
+  listHomeSchoolComms: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/home-school-comms${q ? `?${q}` : ''}`);
+  },
+  createHomeSchoolComm: (data: Record<string, unknown>) => request<Record<string, unknown>>('/home-school-comms', { method: 'POST', body: JSON.stringify(data) }),
+  updateHomeSchoolComm: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/home-school-comms/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveHomeSchoolComm: (id: string) => request<{ ok: boolean }>(`/home-school-comms/${id}`, { method: 'DELETE' }),
+
+  listStageEvaluations: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/stage-evaluations${q ? `?${q}` : ''}`);
+  },
+  createStageEvaluation: (data: Record<string, unknown>) => request<Record<string, unknown>>('/stage-evaluations', { method: 'POST', body: JSON.stringify(data) }),
+  updateStageEvaluation: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/stage-evaluations/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveStageEvaluation: (id: string) => request<{ ok: boolean }>(`/stage-evaluations/${id}`, { method: 'DELETE' }),
+
+  listAlumniFollowups: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/alumni-followups${q ? `?${q}` : ''}`);
+  },
+  createAlumniFollowup: (data: Record<string, unknown>) => request<Record<string, unknown>>('/alumni-followups', { method: 'POST', body: JSON.stringify(data) }),
+  updateAlumniFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/alumni-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveAlumniFollowup: (id: string) => request<{ ok: boolean }>(`/alumni-followups/${id}`, { method: 'DELETE' }),
 };
 
 export interface SessionUser {

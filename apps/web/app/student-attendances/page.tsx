@@ -1,0 +1,45 @@
+'use client';
+
+import CrudPage, { type CrudColumn } from '../../components/CrudPage';
+import { api } from '../../lib/api';
+
+const 考勤状态_OPTS = ['正常', '异常'];
+const 时段_OPTS = ['上午', '下午', '晚间', '全天'];
+const 学期_OPTS = ['第一学期', '第二学期', '暑期'];
+const 考勤结果_OPTS = ['出勤', '迟到', '早退', '事假', '病假', '缺勤', '校内活动'];
+const 通知状态_OPTS = ['无需通知', '待通知', '已通知', '已确认'];
+
+const COLUMNS: CrudColumn[] = [
+  { key: '关联学生编号', label: '学生编号', width: '120px', form: true, type: 'text' },
+  { key: '考勤状态', label: '状态', width: '90px', filter: true, filterOptions: 考勤状态_OPTS, form: true, type: 'select', options: 考勤状态_OPTS },
+  { key: '异常描述', label: '异常描述', form: true, type: 'textarea' },
+  { key: '班主任', label: '班主任', width: '100px', form: true, type: 'text' },
+  { key: '时段', label: '时段', width: '90px', filter: true, filterOptions: 时段_OPTS, form: true, type: 'select', options: 时段_OPTS },
+  { key: '学年', label: '学年', width: '100px', form: true, type: 'text' },
+  { key: '考勤日期', label: '考勤日期', width: '120px', form: true, type: 'date' },
+  { key: '学期', label: '学期', width: '100px', filter: true, filterOptions: 学期_OPTS, form: true, type: 'select', options: 学期_OPTS },
+  { key: '班级', label: '班级', width: '100px', form: true, type: 'text' },
+  { key: '考勤结果', label: '考勤结果', width: '110px', filter: true, filterOptions: 考勤结果_OPTS, form: true, type: 'select', options: 考勤结果_OPTS },
+  { key: '到校时间', label: '到校', width: '120px', form: true, type: 'date' },
+  { key: '离校时间', label: '离校', width: '120px', form: true, type: 'date' },
+  { key: '记录人', label: '记录人', width: '100px', form: true, type: 'text' },
+  { key: '通知状态', label: '通知状态', width: '110px', filter: true, filterOptions: 通知状态_OPTS, form: true, type: 'select', options: 通知状态_OPTS },
+  { key: '处理结果', label: '处理结果', form: true, type: 'text' },
+];
+
+export default function StudentAttendancesPage() {
+  return (
+    <CrudPage
+      title="学生考勤"
+      subtitle="学生出勤与考勤结果记录（M1 学生域）"
+      columns={COLUMNS}
+      statusField="考勤状态"
+      api={{
+        list: (p) => api.listStudentAttendances(p),
+        create: (d) => api.createStudentAttendance(d),
+        update: (id, d) => api.updateStudentAttendance(id, d),
+        archive: (id) => api.archiveStudentAttendance(id),
+      }}
+    />
+  );
+}

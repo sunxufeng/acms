@@ -21,11 +21,22 @@ const NAV_ITEMS = [
     section: '业务域',
     items: [
       { key: 'students', label: '招生与学生', href: '/students', icon: StudentsIcon },
-      { key: 'admissions', label: '招生跟进', href: '/students', icon: AdmissionsIcon, disabled: true },
       { key: 'courses', label: '课程与教学', href: '/courses', icon: CoursesIcon },
       { key: 'teaching', label: '教学班', href: '/teaching-classes', icon: CoursesIcon },
       { key: 'schedule', label: '排课与展约', href: '/schedule', icon: ScheduleIcon },
       { key: 'portal', label: '学生门户', href: '/portal', icon: StudentsIcon },
+    ],
+  },
+  {
+    section: '学生全生命周期',
+    items: [
+      { key: 'sourceFollowups', label: '招生跟进', href: '/source-followups', icon: AdmissionsIcon },
+      { key: 'studentAttendances', label: '学生考勤', href: '/student-attendances', icon: StudentsIcon },
+      { key: 'grades', label: '学业成绩', href: '/grades', icon: CoursesIcon },
+      { key: 'practiceActivities', label: '实践活动', href: '/practice-activities', icon: StudentsIcon },
+      { key: 'homeSchoolComms', label: '家校沟通', href: '/home-school-comms', icon: NotificationsIcon },
+      { key: 'stageEvaluations', label: '阶段评价', href: '/stage-evaluations', icon: StudentsIcon },
+      { key: 'alumniFollowups', label: '校友跟进', href: '/alumni-followups', icon: StudentsIcon },
     ],
   },
   {
@@ -127,7 +138,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <div className="sidebar-section-label">{group.section}</div>
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  if (item.disabled) {
+                  if ((item as { disabled?: boolean }).disabled) {
                     return (
                       <div key={item.key} className="nav-item nav-item--disabled" title="敬请期待">
                         <span className="nav-icon"><Icon /></span>

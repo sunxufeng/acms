@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { api, type StudentRecord } from '../../../lib/api';
-import { StudentForm } from '../../../components/StudentForm';
+import { api, type StudentRecord } from '../../../../lib/api';
+import { StudentForm } from '../../../../components/StudentForm';
 
 export default function EditStudentPage() {
   const params = useParams();

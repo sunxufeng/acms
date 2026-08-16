@@ -74,6 +74,6 @@ export const BASE_FIELD_SYNC: { field: string; dictKey: string }[] = [
   { field: '生源跟进状态', dictKey: '生源跟进状态' },
 ];
 
-/** 飞书 Base 字段类型：单选=1，多选=3 */
-export const SINGLE_SELECT = 1;
-export const MULTI_SELECT = 3;
+/** 飞书 Base 字段类型：单选=3，多选=4 */
+export const SINGLE_SELECT = 3;
+export const MULTI_SELECT = 4;

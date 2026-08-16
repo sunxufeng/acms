@@ -35,13 +35,14 @@ export class DictService {
 
   /**
    * 将字典候选项合并进飞书 Base 对应单选/多选字段（幂等）。
-   * - 仅处理 type=1（单选）/ type=3（多选）字段；文本字段跳过。
-   * - 已存在的选项保留（含其 id），仅追加缺失项，不删除任何选项。
+   * - 仅处理 type=3（单选）/ type=4（多选）字段；文本等其他类型跳过。
+   * - 当前选项取自 listFields 的 property.options（飞书无单字段 GET 接口），
+   *   已存在的选项保留（含其 id），仅追加缺失项，不删除任何选项。
    * - 单字段失败不影响其余字段；结果汇总返回，便于接口/日志查看。
    */
   async syncToBase(): Promise<SyncResult> {
     const result: SyncResult = { table: this.TABLE, synced: [], skipped: [], errors: [] };
-    let fields: { id: string; name: string; type: number }[];
+    let fields: { id: string; name: string; type: number; property: { options?: { name: string; id?: string }[] } }[];
     try {
       fields = await this.base.listFields(this.TABLE);
     } catch (e) {
@@ -63,19 +64,18 @@ export class DictService {
         continue;
       }
       try {
-        const full = await this.base.getField(this.TABLE, def.id);
-        const existing = (full.property.options ?? []).map((o) => o.name);
+        const existing = (def.property.options ?? []).map((o) => o.name);
         const toAdd = options.filter((o) => !existing.includes(o));
         if (toAdd.length === 0) {
           result.synced.push(`${field}（已是最新）`);
           continue;
         }
         const merged = [
-          ...(full.property.options ?? []).map((o) => ({ name: o.name })),
+          ...(def.property.options ?? []).map((o) => ({ name: o.name })),
           ...toAdd.map((name) => ({ name })),
         ];
         await this.base.updateField(this.TABLE, def.id, {
-          field_name: full.name,
+          field_name: def.name,
           type: def.type,
           property: { options: merged },
         });

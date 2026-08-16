@@ -57,7 +57,8 @@ export class BaseClient {
     const dt = await this.datetimeFields(tableId);
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(fields)) {
-      if (dt.has(k) && typeof v === 'string' && v.trim() !== '') {
+      if (dt.has(k) && typeof v === 'string') {
+        if (v.trim() === '') continue; // 空日期不写入，避免 DatetimeFieldConvFail
         const t = new Date(v.trim()).getTime();
         out[k] = Number.isNaN(t) ? v : t;
       } else {

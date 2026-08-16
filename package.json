@@ -1,0 +1,16 @@
+{
+  "name": "acms",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Arete College Management System — Feishu Base as system of record",
+  "packageManager": "pnpm@11.21.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm --filter @acms/contracts build && pnpm -r typecheck",
+    "test": "pnpm --filter @acms/contracts build && pnpm -r test",
+    "lint": "pnpm -r lint",
+    "dev:api": "pnpm --filter @acms/api dev",
+    "dev:web": "pnpm --filter @acms/web dev"
+  }
+}

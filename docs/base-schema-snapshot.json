@@ -1,0 +1,981 @@
+{
+  "app_token": "VhlPbR5tEa2ACjsugq0cRBSvnlf",
+  "fetched_at": "2026-08-16",
+  "tables": {
+    "学生档案表": {
+      "table_id": "tbl2peVECjHnm8la",
+      "fields": [
+        {
+          "name": "学生编号",
+          "type": 1005,
+          "ui_type": "AutoNumber"
+        },
+        {
+          "name": "学生姓名",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "来源渠道",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "生源跟进状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "招生负责老师",
+          "type": 11,
+          "ui_type": "User"
+        },
+        {
+          "name": "当前状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "班级",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "班主任",
+          "type": 11,
+          "ui_type": "User"
+        },
+        {
+          "name": "入学日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "毕业日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "监护人与家庭",
+          "type": 21,
+          "ui_type": "DuplexLink"
+        },
+        {
+          "name": "学籍与班级历史",
+          "type": 21,
+          "ui_type": "DuplexLink"
+        },
+        {
+          "name": "健康与安全档案",
+          "type": 21,
+          "ui_type": "DuplexLink"
+        },
+        {
+          "name": "证件与文件",
+          "type": 21,
+          "ui_type": "DuplexLink"
+        },
+        {
+          "name": "授权与同意",
+          "type": 21,
+          "ui_type": "DuplexLink"
+        },
+        {
+          "name": "姓名拼音",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "英文名",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "曾用名",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "出生日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "性别",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "国籍或地区",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "民族",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "籍贯",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "户籍类型",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "证件号码（脱敏）",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "学生手机号",
+          "type": 13,
+          "ui_type": "Phone"
+        },
+        {
+          "name": "学生邮箱",
+          "type": 1,
+          "ui_type": "Email"
+        },
+        {
+          "name": "现居住地址",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "通讯地址",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "邮政编码",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "学生照片",
+          "type": 17,
+          "ui_type": "Attachment"
+        },
+        {
+          "name": "当前学年",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "当前班级",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "当前学段",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "当前年级",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "入学类型",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "学籍号（脱敏）",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "预计毕业日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "离校原因",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "校区",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "宿舍信息",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "健康风险摘要",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "特殊支持摘要",
+          "type": 4,
+          "ui_type": "MultiSelect"
+        },
+        {
+          "name": "数据密级",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "数据负责人",
+          "type": 11,
+          "ui_type": "User"
+        },
+        {
+          "name": "档案完整度",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "最近核验日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "学生标签",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "备注",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "创建时间",
+          "type": 1001,
+          "ui_type": "CreatedTime"
+        },
+        {
+          "name": "创建人",
+          "type": 1003,
+          "ui_type": "CreatedUser"
+        },
+        {
+          "name": "更新时间",
+          "type": 1002,
+          "ui_type": "ModifiedTime"
+        },
+        {
+          "name": "最后修改人",
+          "type": 1004,
+          "ui_type": "ModifiedUser"
+        },
+        {
+          "name": "接送授权人员",
+          "type": 21,
+          "ui_type": "DuplexLink"
+        },
+        {
+          "name": "服务分配",
+          "type": 21,
+          "ui_type": "DuplexLink"
+        },
+        {
+          "name": "数据变更审计",
+          "type": 21,
+          "ui_type": "DuplexLink"
+        },
+        {
+          "name": "定制课程方案",
+          "type": 21,
+          "ui_type": "DuplexLink"
+        },
+        {
+          "name": "课程修读关系",
+          "type": 21,
+          "ui_type": "DuplexLink"
+        },
+        {
+          "name": "数据范围授权",
+          "type": 21,
+          "ui_type": "DuplexLink"
+        },
+        {
+          "name": "飞书 Open ID",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "通知状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "学生微信号",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "政治面貌",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "专业学科",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "就读方式",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "毕业学校",
+          "type": 1,
+          "ui_type": "Text"
+        }
+      ]
+    },
+    "生源跟进记录表": {
+      "table_id": "tblDEuaTDoiXkjZu",
+      "fields": [
+        {
+          "name": "跟进编号",
+          "type": 1005,
+          "ui_type": "AutoNumber"
+        },
+        {
+          "name": "关联学生编号",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "活动类型",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "活动参与日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "参观反馈",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "跟进状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "招生负责老师",
+          "type": 19,
+          "ui_type": "Lookup"
+        },
+        {
+          "name": "跟进负责人",
+          "type": 11,
+          "ui_type": "User"
+        },
+        {
+          "name": "跟进日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "跟进内容",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "跟进方式",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "家长或学生诉求",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "意向等级",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "下次跟进日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "下一步行动",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "闭环状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "跟进附件",
+          "type": 17,
+          "ui_type": "Attachment"
+        }
+      ]
+    },
+    "考勤记录表": {
+      "table_id": "tblUkd1JKi4T7XQb",
+      "fields": [
+        {
+          "name": "考勤编号",
+          "type": 1005,
+          "ui_type": "AutoNumber"
+        },
+        {
+          "name": "关联学生编号",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "考勤状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "异常描述",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "班主任",
+          "type": 19,
+          "ui_type": "Lookup"
+        },
+        {
+          "name": "时段",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "学年",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "考勤日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "学期",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "班级",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "考勤结果",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "到校时间",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "离校时间",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "记录人",
+          "type": 11,
+          "ui_type": "User"
+        },
+        {
+          "name": "通知状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "处理结果",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "佐证附件",
+          "type": 17,
+          "ui_type": "Attachment"
+        }
+      ]
+    },
+    "学业成绩表": {
+      "table_id": "tblaYsfXSbqyZiZ5",
+      "fields": [
+        {
+          "name": "成绩编号",
+          "type": 1005,
+          "ui_type": "AutoNumber"
+        },
+        {
+          "name": "关联学生编号",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "学科",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "成绩",
+          "type": 2,
+          "ui_type": "Number"
+        },
+        {
+          "name": "课堂表现",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "学期",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "学年",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "课程",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "考核类型",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "考核名称",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "考核日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "满分",
+          "type": 2,
+          "ui_type": "Number"
+        },
+        {
+          "name": "成绩等级",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "教师评语",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "任课教师",
+          "type": 11,
+          "ui_type": "User"
+        },
+        {
+          "name": "成绩状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "成绩附件",
+          "type": 17,
+          "ui_type": "Attachment"
+        }
+      ]
+    },
+    "实践活动表": {
+      "table_id": "tblOitwcvOBSkeuu",
+      "fields": [
+        {
+          "name": "活动编号",
+          "type": 1005,
+          "ui_type": "AutoNumber"
+        },
+        {
+          "name": "关联学生编号",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "活动名称",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "活动内容",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "参与情况",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "活动表现",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "活动开始日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "活动类型",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "活动结束日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "活动地点",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "活动负责人",
+          "type": 11,
+          "ui_type": "User"
+        },
+        {
+          "name": "学生角色",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "服务或参与时长",
+          "type": 2,
+          "ui_type": "Number"
+        },
+        {
+          "name": "安全确认状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "关联授权",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "成果与反思",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "活动证明",
+          "type": 17,
+          "ui_type": "Attachment"
+        }
+      ]
+    },
+    "家校沟通表": {
+      "table_id": "tbl8Isr46G3BRQ52",
+      "fields": [
+        {
+          "name": "沟通编号",
+          "type": 1005,
+          "ui_type": "AutoNumber"
+        },
+        {
+          "name": "关联学生编号",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "家长",
+          "type": 1,
+          "ui_type": "Email"
+        },
+        {
+          "name": "沟通内容",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "沟通时间",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "沟通方式",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "沟通主题",
+          "type": 4,
+          "ui_type": "MultiSelect"
+        },
+        {
+          "name": "关联监护人",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "沟通人",
+          "type": 11,
+          "ui_type": "User"
+        },
+        {
+          "name": "家长反馈态度",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "家长反馈",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "待办事项",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "待办负责人",
+          "type": 11,
+          "ui_type": "User"
+        },
+        {
+          "name": "跟进截止日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "闭环状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "闭环日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "信息敏感级别",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "沟通附件",
+          "type": 17,
+          "ui_type": "Attachment"
+        }
+      ]
+    },
+    "阶段评价表": {
+      "table_id": "tblHk6r8USy6BXV4",
+      "fields": [
+        {
+          "name": "评价编号",
+          "type": 1005,
+          "ui_type": "AutoNumber"
+        },
+        {
+          "name": "关联学生编号",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "评价周期",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "评价等级",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "评价内容",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "评价完整度",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "班主任",
+          "type": 19,
+          "ui_type": "Lookup"
+        },
+        {
+          "name": "是否通过",
+          "type": 20,
+          "ui_type": "Formula"
+        },
+        {
+          "name": "学期",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "学年",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "评价类型",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "评价日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "评价人",
+          "type": 11,
+          "ui_type": "User"
+        },
+        {
+          "name": "优势表现",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "待改进项",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "改进计划",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "复核日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "家长确认状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "评价附件",
+          "type": 17,
+          "ui_type": "Attachment"
+        }
+      ]
+    },
+    "校友长期跟进表": {
+      "table_id": "tblK02GgjnaLp1Gp",
+      "fields": [
+        {
+          "name": "跟进编号",
+          "type": 1005,
+          "ui_type": "AutoNumber"
+        },
+        {
+          "name": "关联学生编号",
+          "type": 18,
+          "ui_type": "SingleLink"
+        },
+        {
+          "name": "跟进事项",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "跟进时间",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "跟进备注",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "跟进方式",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "校友阶段",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "跟进负责人",
+          "type": 11,
+          "ui_type": "User"
+        },
+        {
+          "name": "当前去向类型",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "当前学校或单位",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "专业或岗位",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "联系方式变更",
+          "type": 1,
+          "ui_type": "Text"
+        },
+        {
+          "name": "校友参与意愿",
+          "type": 4,
+          "ui_type": "MultiSelect"
+        },
+        {
+          "name": "下次跟进日期",
+          "type": 5,
+          "ui_type": "DateTime"
+        },
+        {
+          "name": "跟进状态",
+          "type": 3,
+          "ui_type": "SingleSelect"
+        },
+        {
+          "name": "跟进附件",
+          "type": 17,
+          "ui_type": "Attachment"
+        }
+      ]
+    }
+  }
+}

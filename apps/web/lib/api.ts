@@ -91,6 +91,16 @@ export const api = {
 
   /** 字典表：全部候选项 */
   dictionaries: () => request<Record<string, string[]>>('/dictionaries'),
+
+  /** 更新单个字典候选项 */
+  updateDictionary: (key: string, options: string[]) =>
+    request<{ key: string; options: string[] }>(`/dictionaries/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ options }),
+    }),
+
+  /** 把字典候选项同步进飞书 Base 字段 */
+  syncDictionaries: () => request<unknown>('/dictionaries/sync', { method: 'POST' }),
 };
 
 export interface SessionUser {

@@ -36,7 +36,7 @@ const NAV_ITEMS = [
       { key: 'audit', label: '审计与报表', href: '/', icon: AuditIcon, disabled: true },
       { key: 'system', label: '系统配置', href: '/', icon: SystemIcon, disabled: true },
       { key: 'integration', label: '智能体配置', href: '/', icon: IntegrationIcon, disabled: true },
-      { key: 'dictionary', label: '字典数据', href: '/', icon: DictionaryIcon, disabled: true },
+      { key: 'dictionary', label: '字典数据', href: '/dictionaries', icon: DictionaryIcon },
     ],
   },
 ];

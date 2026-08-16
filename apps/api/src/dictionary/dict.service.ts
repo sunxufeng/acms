@@ -1,4 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
@@ -16,21 +18,62 @@ export interface SyncResult {
   errors: string[];
 }
 
+/** 字典持久化文件：编辑后写入，重启不丢（覆盖 dict.data.ts 种子） */
+const DATA_DIR = process.env.ACMS_DATA_DIR ?? '/opt/acms/data';
+const STORE_FILE = path.join(DATA_DIR, 'dictionaries.json');
+
 @Injectable()
 export class DictService {
   private readonly logger = new Logger(DictService.name);
   private readonly TABLE = TABLES.studentProfile.tableId;
+  /** 运行时可变字典（种子 + 持久化文件合并），编辑后写入文件 */
+  private store: Record<string, string[]>;
 
-  constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
+  constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {
+    this.store = { ...DICTIONARIES };
+    this.loadStore();
+  }
+
+  /** 启动时若存在持久化文件，则用其覆盖同名 key（保留种子中新增的 key） */
+  private loadStore(): void {
+    try {
+      if (fs.existsSync(STORE_FILE)) {
+        const saved = JSON.parse(fs.readFileSync(STORE_FILE, 'utf-8')) as Record<string, string[]>;
+        this.store = { ...DICTIONARIES, ...saved };
+      }
+    } catch (e) {
+      this.logger.warn(`字典加载失败，使用种子：${(e as Error).message}`);
+    }
+  }
+
+  private persistStore(): void {
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(STORE_FILE, JSON.stringify(this.store, null, 2), 'utf-8');
+    } catch (e) {
+      this.logger.warn(`字典持久化失败：${(e as Error).message}`);
+    }
+  }
 
   /** 全部字典 */
   getAll(): Record<string, string[]> {
-    return DICTIONARIES;
+    return this.store;
   }
 
   /** 单个字典 */
   get(key: string): string[] | undefined {
-    return DICTIONARIES[key];
+    return this.store[key];
+  }
+
+  /** 更新单个字典候选项：去重 + 去空白，写回内存并持久化 */
+  update(key: string, options: string[]): { key: string; options: string[] } {
+    const cleaned = Array.from(
+      new Set((options ?? []).map((o) => (o ?? '').trim()).filter((o) => o.length > 0)),
+    );
+    this.store[key] = cleaned;
+    this.persistStore();
+    this.logger.log(`字典更新：${key}（${cleaned.length} 项）`);
+    return { key, options: cleaned };
   }
 
   /**
@@ -52,7 +95,7 @@ export class DictService {
     const fieldByName = new Map(fields.map((f) => [f.name, f]));
 
     for (const { field, dictKey } of BASE_FIELD_SYNC) {
-      const options = DICTIONARIES[dictKey];
+      const options = this.store[dictKey];
       if (!options?.length) continue;
       const def = fieldByName.get(field);
       if (!def) {

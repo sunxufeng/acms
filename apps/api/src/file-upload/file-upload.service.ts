@@ -118,10 +118,18 @@ export class FileUploadService {
       body: body as any,
     });
 
-    const j = (await r.json()) as { code?: number; msg?: string; data?: { file_token: string } };
+    // 防御：飞书可能返回非 JSON 错误（如网关错误文本），先检查 HTTP 状态
+    const text = await r.text();
+    let j: { code?: number; msg?: string; data?: { file_token: string } };
+    try {
+      j = JSON.parse(text) as typeof j;
+    } catch {
+      this.logger.error(`上传响应非 JSON [HTTP ${r.status}]: ${text.slice(0, 200)}`);
+      throw new Error(`UPLOAD_BAD_RESPONSE:${r.status}`);
+    }
     if (j.code !== 0 || !j.data?.file_token) {
       this.logger.error(`上传失败 code=${j.code} msg=${j.msg}`);
-      throw new Error(`UPLOAD_FAILED:${j.code}`);
+      throw new Error(`UPLOAD_FAILED:${j.code ?? 'UNKNOWN'}:${j.msg ?? text.slice(0, 100)}`);
     }
 
     return { file_token: j.data.file_token };

@@ -185,9 +185,9 @@ function PhotoAttachmentSection({
   onAttUpload: () => void;
 }) {
   return (
-    <>
+    <div className="photo-att-row">
       {/* 照片 */}
-      <fieldset className="form-fieldset">
+      <fieldset className="form-fieldset" style={{ flex: 1 }}>
         <legend className="form-legend">学生照片</legend>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 24 }}>
           <div className="student-photo-wrap">
@@ -220,7 +220,7 @@ function PhotoAttachmentSection({
       </fieldset>
 
       {/* 附件 */}
-      <fieldset className="form-fieldset">
+      <fieldset className="form-fieldset" style={{ flex: 1 }}>
         <legend className="form-legend">证件与文件</legend>
         {attachments.length === 0 ? (
           <p style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>暂无附件</p>
@@ -241,7 +241,7 @@ function PhotoAttachmentSection({
           </div>
         )}
       </fieldset>
-    </>
+    </div>
   );
 }
 

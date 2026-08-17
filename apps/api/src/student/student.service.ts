@@ -57,12 +57,13 @@ export class StudentService {
   /** 构建列表过滤条件 */
   private buildFilter(query: StudentFilterDto): FilterGroup {
     const conditions: FilterGroup['conditions'] = [];
-    // 多字段文本搜索：学生编号 / 学生姓名 / 英文名 / 班级 任一包含关键词即命中
+    // 多字段文本搜索：仅对文本类型字段用 contains（飞书 search 的 contains 不支持单选/关联/数字等字段）
+    // 学生编号/学生姓名/英文名 是文本字段；班级 可能是单选或关联字段，不含在 OR 里
     if (query.q) {
-      const searchFields = ['学生编号', '学生姓名', '英文名', '班级'];
+      const searchTextFields = ['学生编号', '学生姓名', '英文名'];
       conditions.push({
         conjunction: 'or' as const,
-        conditions: searchFields.map((f) => ({ field: f, op: 'contains' as const, value: [query.q!] })),
+        conditions: searchTextFields.map((f) => ({ field: f, op: 'contains' as const, value: [query.q!] })),
       });
     }
     if (query.当前状态) conditions.push({ field: '当前状态', value: [query.当前状态] });

@@ -952,6 +952,20 @@ select.form-input:disabled { color: var(--fg); }
 .muted { color: var(--fg-tertiary); opacity: 0.6; }
 
 /* ── 学生照片 ─────────────────────────────── */
+/* ── 照片 + 附件并排行 ─────────────────── */
+.photo-att-row {
+  display: flex;
+  gap: var(--space-md);
+  align-items: flex-start;
+}
+.photo-att-row fieldset {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 768px) {
+  .photo-att-row { flex-direction: column; }
+}
+
 .student-photo-wrap {
   width: 120px; height: 150px; border-radius: var(--radius-md);
   overflow: hidden; flex-shrink: 0;

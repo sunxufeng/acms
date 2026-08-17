@@ -24,7 +24,7 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'course:read', 'course:write',
     'venue:read', 'venue:write',
     'schedule:read', 'schedule:write',
-    'export:run', 'admin:user', 'admin:audit',
+    'export:run', 'admin:user', 'admin:audit', 'config:read', 'config:write',
   ],
   校区管理员: [
     'student:read', 'student:write', 'student:archive',
@@ -43,7 +43,7 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'course:read', 'course:write',
     'venue:read', 'venue:write',
     'schedule:read', 'schedule:write',
-    'export:run', 'admin:audit',
+    'export:run', 'admin:audit', 'config:read', 'config:write',
   ],
   教务管理员: [
     'student:read',
@@ -57,7 +57,7 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'course:read', 'course:write',
     'venue:read', 'venue:write',
     'schedule:read', 'schedule:write',
-    'export:run',
+    'export:run', 'config:read', 'config:write',
   ],
   财务: ['student:read', 'export:run', 'billing:read', 'billing:write', 'billing:confirm', 'billing:settle', 'partnership:read', 'partnership:write', 'finance:read', 'finance:approve', 'notification:read'],
   教师: [

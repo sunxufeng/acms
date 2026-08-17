@@ -67,6 +67,8 @@ export const PERMISSIONS = [
   'export:run',
   'admin:user',
   'admin:audit',
+  'config:read',
+  'config:write',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

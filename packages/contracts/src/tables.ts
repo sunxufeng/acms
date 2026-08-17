@@ -24,6 +24,8 @@ export const TABLES = {
   // M4 通知闭环
   notificationTemplate: { tableId: 'tbloLs7JLBSfm2pT', name: '通知模板表' },
   notificationLog: { tableId: 'tblvCNDUwF0qU547', name: '通知记录表' },
+  // 系统配置
+  systemConfig: { tableId: 'tblqeuKQlsuOIeUy', name: '系统配置表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

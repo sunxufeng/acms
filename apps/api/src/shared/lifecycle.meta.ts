@@ -100,3 +100,17 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     sortField: '跟进时间',
   },
 ];
+
+/** 系统配置表（M6 运营工作台补充）：key-value 配置，仅管理员可写 */
+export const CONFIG_METAS: RecordMeta[] = [
+  {
+    path: 'settings',
+    tableId: TABLES.systemConfig.tableId,
+    readPerm: 'config:read',
+    writePerm: 'config:write',
+    statusField: '状态',
+    defaultStatus: '启用',
+    searchField: '配置键',
+    sortField: '分组',
+  },
+];

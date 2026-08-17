@@ -114,3 +114,16 @@ export const CONFIG_METAS: RecordMeta[] = [
     sortField: '分组',
   },
 ];
+
+/** 审计日志表（独立模块 audit:write 权限不存在 → 仅经 AuditService 内部直写，API 只读） */
+export const AUDIT_METAS: RecordMeta[] = [
+  {
+    path: 'audit-logs',
+    tableId: TABLES.auditLog.tableId,
+    readPerm: 'admin:audit',
+    writePerm: 'audit:write',
+    readonly: ['操作时间', '操作人', '操作类型', '业务模块', '记录标识', '摘要', '详情'],
+    searchField: '业务模块',
+    sortField: '操作时间',
+  },
+];

@@ -26,6 +26,8 @@ export const TABLES = {
   notificationLog: { tableId: 'tblvCNDUwF0qU547', name: '通知记录表' },
   // 系统配置
   systemConfig: { tableId: 'tblqeuKQlsuOIeUy', name: '系统配置表' },
+  // 审计日志
+  auditLog: { tableId: 'tbl0V2dbD9vqVL3N', name: '审计日志表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

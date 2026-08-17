@@ -18,7 +18,8 @@ import { NotificationModule } from './notification/notification.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
 import { ExportModule } from './export/export.module.js';
 import { GenericCrudModule } from './shared/generic-crud.module.js';
-import { LIFECYCLE_METAS, CONFIG_METAS } from './shared/lifecycle.meta.js';
+import { AuditModule } from './audit/audit.module.js';
+import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.meta.js';
 
 @Module({
   imports: [
@@ -40,8 +41,10 @@ import { LIFECYCLE_METAS, CONFIG_METAS } from './shared/lifecycle.meta.js';
     NotificationModule,
     DashboardModule,
     ExportModule,
+    AuditModule,
     GenericCrudModule.registerAll(LIFECYCLE_METAS),
     GenericCrudModule.registerAll(CONFIG_METAS),
+    GenericCrudModule.registerAll(AUDIT_METAS),
   ],
 })
 export class AppModule {}

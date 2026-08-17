@@ -35,6 +35,8 @@ export interface CrudPageProps {
   transitions?: Record<string, string[]>;
   statusClass?: (s: string) => string;
   extraActions?: { label: string; run: (reload: () => void) => void | Promise<void> }[];
+  /** 只读模式：隐藏新建/编辑/删除按钮与弹窗（用于审计日志等仅查看的表） */
+  readonly?: boolean;
 }
 
 function str(v: unknown): string {
@@ -90,7 +92,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const [pageToken, setPageToken] = useState<string | undefined>();
@@ -205,7 +207,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             <button key={a.label} className="btn btn-outline" disabled={loading}
               onClick={() => a.run(() => load())}>{a.label}</button>
           ))}
-          <button className="btn btn-primary" onClick={openCreate} disabled={loading}>+ 新建</button>
+          <button className="btn btn-primary" onClick={openCreate} disabled={loading || readonly}>+ 新建</button>
         </div>
       </div>
 
@@ -244,8 +246,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   ))}
                   <td>
                     <div style={rowActions}>
-                      <button className="btn btn-ghost btn-sm" onClick={() => openEdit(row)}>编辑</button>
-                      {api.transition && allowed.length > 0 && (
+                      {!readonly && <button className="btn btn-ghost btn-sm" onClick={() => openEdit(row)}>编辑</button>}
+                      {!readonly && api.transition && allowed.length > 0 && (
                         <div style={{ position: 'relative' }}>
                           <button className="btn btn-ghost btn-sm" onClick={() => setTxMenu(txMenu === String(row.id) ? null : String(row.id))}>状态▾</button>
                           {txMenu === String(row.id) && (
@@ -260,7 +262,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                           )}
                         </div>
                       )}
-                      <button className="btn btn-danger btn-sm" onClick={() => remove(row)}>删除</button>
+                      {!readonly && <button className="btn btn-danger btn-sm" onClick={() => remove(row)}>删除</button>}
                     </div>
                   </td>
                 </tr>

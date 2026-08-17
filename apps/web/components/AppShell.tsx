@@ -52,6 +52,7 @@ const NAV_ITEMS = [
       { key: 'dictionary', label: '字典数据', href: '/dictionaries', icon: DictionaryIcon },
       { key: 'export', label: '数据导出', href: '/export', icon: ReportsIcon },
       { key: 'settings', label: '系统设置', href: '/settings', icon: SettingsIcon },
+      { key: 'audit-logs', label: '审计日志', href: '/audit-logs', icon: AuditIcon },
     ],
   },
 ];

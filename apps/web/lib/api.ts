@@ -346,6 +346,14 @@ export const api = {
   createSetting: (data: Record<string, unknown>) => request<Record<string, unknown>>('/settings', { method: 'POST', body: JSON.stringify(data) }),
   updateSetting: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/settings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveSetting: (id: string) => request<{ ok: boolean }>(`/settings/${id}`, { method: 'DELETE' }),
+
+  // ── 审计日志（只读，需 admin:audit 权限） ─────────
+  listAuditLogs: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/audit-logs${q ? `?${q}` : ''}`);
+  },
 };
 
 /** 通用导出：任一已注册飞书表 → CSV 下载（需 export:run 权限） */

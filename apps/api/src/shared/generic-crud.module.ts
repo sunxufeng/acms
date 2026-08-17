@@ -14,6 +14,7 @@ import { authorize, type Principal } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
 import { BASE_CLIENT, baseClientProvider } from '../base.provider.js';
 import { SessionGuard } from '../auth/session.guard.js';
+import { AuditService } from '../audit/audit.service.js';
 import { buildWriteFields, toFlatRecord, buildFilter } from './record.util.js';
 
 export interface RecordMeta {
@@ -45,7 +46,33 @@ function toPrincipal(user: SessionUser): Principal {
 }
 
 export class BaseRecordService {
-  constructor(protected readonly meta: RecordMeta, @Inject(BASE_CLIENT) private readonly base: BaseClient) {}
+  constructor(
+    protected readonly meta: RecordMeta,
+    @Inject(BASE_CLIENT) private readonly base: BaseClient,
+    @Inject(AuditService) private readonly audit: AuditService,
+  ) {}
+
+  /** 操作人展示名 */
+  private actorName(user: SessionUser): string {
+    return user.name || user.openId || 'unknown';
+  }
+
+  /** 审计：跳过审计日志表自身，避免自审计噪声 */
+  private emitAudit(
+    user: SessionUser,
+    action: '创建' | '更新' | '删除',
+    recordId: string,
+    detail?: string,
+  ): void {
+    if (this.meta.path === 'audit-logs') return;
+    void this.audit.log({
+      actor: this.actorName(user),
+      action,
+      module: this.meta.path,
+      recordId,
+      detail,
+    });
+  }
 
   private get tableId() {
     return this.meta.tableId;
@@ -121,6 +148,7 @@ export class BaseRecordService {
       fields[this.meta.statusField] = this.meta.defaultStatus;
     }
     const recordId = await this.base.create(this.tableId, fields);
+    this.emitAudit(user, '创建', recordId, Object.keys(fields).join(','));
     return this.detail(user, recordId);
   }
 
@@ -131,6 +159,7 @@ export class BaseRecordService {
     const fields = this.writeFields(dto);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(this.tableId, id, fields);
+    this.emitAudit(user, '更新', id, Object.keys(fields).join(','));
     return this.detail(user, id);
   }
 
@@ -139,6 +168,7 @@ export class BaseRecordService {
       throw new ForbiddenException('FORBIDDEN:' + this.meta.writePerm);
     await this.detail(user, id);
     await this.base.delete(this.tableId, id);
+    this.emitAudit(user, '删除', id);
     return { ok: true };
   }
 
@@ -155,8 +185,11 @@ export class BaseRecordService {
 function makeService(meta: RecordMeta): Type<BaseRecordService> {
   @Injectable()
   class GService extends BaseRecordService {
-    constructor(@Inject(BASE_CLIENT) base: BaseClient) {
-      super(meta, base);
+    constructor(
+      @Inject(BASE_CLIENT) base: BaseClient,
+      @Inject(AuditService) audit: AuditService,
+    ) {
+      super(meta, base, audit);
     }
   }
   return GService as unknown as Type<BaseRecordService>;

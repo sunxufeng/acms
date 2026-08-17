@@ -337,6 +337,25 @@ export const api = {
   archiveAlumniFollowup: (id: string) => request<{ ok: boolean }>(`/alumni-followups/${id}`, { method: 'DELETE' }),
 };
 
+/** 通用导出：任一已注册飞书表 → CSV 下载（需 export:run 权限） */
+export async function exportTable(table: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/export/${table}`, { credentials: 'include' });
+  if (res.status === 401) {
+    if (typeof window !== 'undefined') window.location.href = '/login';
+    throw new Error('UNAUTHENTICATED');
+  }
+  if (!res.ok) throw new Error(`导出失败 HTTP ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${table}_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export interface SessionUser {
   openId: string;
   name: string;

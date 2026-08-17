@@ -11,7 +11,7 @@ const 评价类型_OPTS = ['学业综合', '行为发展', '身心健康', '实�
 const 家长确认状态_OPTS = ['待确认', '已确认', '有异议', '不适用'];
 
 const COLUMNS: CrudColumn[] = [
-  { key: '关联学生编号', label: '学生编号', width: '120px' },
+  { key: '关联学生编号', label: '学生', width: '110px' },
   { key: '评价周期', label: '评价周期', width: '100px', filter: true, filterOptions: 评价周期_OPTS, form: true, type: 'select', options: 评价周期_OPTS },
   { key: '评价等级', label: '评价等级', width: '100px', filter: true, filterOptions: 评价等级_OPTS, form: true, type: 'select', options: 评价等级_OPTS },
   { key: '评价内容', label: '评价内容', form: true, type: 'textarea' },
@@ -34,6 +34,7 @@ export default function StageEvaluationsPage() {
     <CrudPage
       title="阶段评价"
       subtitle="学业/行为/身心等阶段性综合评价（M1 学生域）"
+      search={{ placeholder: '搜索学生姓名…' }}
       columns={COLUMNS}
       statusField="评价完整度"
       api={{

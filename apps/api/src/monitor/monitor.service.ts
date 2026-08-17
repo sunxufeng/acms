@@ -4,8 +4,10 @@ import { readFileSync } from 'node:fs';
 /**
  * M7 监控探针（进程内，无需外部依赖）：
  *  - 启动 + 每 5 分钟：检查内存(P1 高位) 与 飞书凭证/存储可达性(P0)
- *  - 异常时向 FEISHU_NOTIFY_TARGET 飞书机器人推送告警（带 30 分钟冷却），未配置则仅本地日志
+ *  - 异常时通过飞书 OpenAPI（应用身份 tenant_access_token 调 im/v1/messages）直发告警
+ *    到通知目标（默认 BOOTSTRAP_ADMIN_OPEN_IDS[0]，可用 FEISHU_NOTIFY_TARGET 覆盖），带 30 分钟冷却
  *  - 暴露 getStatus() 供 /api/v1/monitor/status 查询最近一次探测快照
+ *  - notify() 对外提供「立即发送」能力（无冷却），供业务侧主动推送状态
  */
 export interface MonitorSnapshot {
   time: string;
@@ -33,8 +35,13 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
   private readonly memP1Mb = Number(process.env.MONITOR_MEM_P1_MB ?? 1500);
   private envCache: Record<string, string> | null = null;
 
+  private tenantToken?: string;
+  private tokenExp = 0;
+
   onModuleInit(): void {
-    void this.run('boot');
+    void this.run('boot').then(() => {
+      void this.notify('ACMS API 已启动，飞书通知通道已接入（OpenAPI 直发）。');
+    });
     this.timer = setInterval(() => void this.run('tick'), this.intervalMs);
     // 不阻塞进程退出
     this.timer.unref?.();
@@ -65,6 +72,69 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
     return this.envCache[key];
   }
 
+  /** 取 tenant_access_token（带缓存，提前 60s 过期刷新） */
+  private async getToken(): Promise<string | null> {
+    const now = Date.now();
+    if (this.tenantToken && now < this.tokenExp) return this.tenantToken;
+    const id = this.env('FEISHU_APP_ID');
+    const secret = this.env('FEISHU_APP_SECRET');
+    if (!id || !secret) return null;
+    try {
+      const r = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app_id: id, app_secret: secret }),
+      });
+      const j = (await r.json()) as { code?: number; tenant_access_token?: string; expire?: number };
+      if (j.code !== 0 || !j.tenant_access_token) return null;
+      this.tenantToken = j.tenant_access_token;
+      this.tokenExp = now + (j.expire ?? 7200) * 1000 - 60_000;
+      return this.tenantToken;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 解析通知目标：FEISHU_NOTIFY_TARGET 优先，否则取 BOOTSTRAP_ADMIN_OPEN_IDS 首个。oc_ 前缀视为群 chat_id */
+  private resolveTarget(): { id: string; type: 'open_id' | 'chat_id' } | null {
+    const raw = (this.env('FEISHU_NOTIFY_TARGET') || (this.env('BOOTSTRAP_ADMIN_OPEN_IDS') || '').split(',')[0] || '').trim();
+    if (!raw) return null;
+    return { id: raw, type: raw.startsWith('oc_') ? 'chat_id' : 'open_id' };
+  }
+
+  /** 经飞书 OpenAPI 发送文本消息；返回是否成功 */
+  private async sendMessage(text: string): Promise<boolean> {
+    const token = await this.getToken();
+    if (!token) {
+      this.logger.warn('[监控] 无飞书凭证，跳过发送');
+      return false;
+    }
+    const t = this.resolveTarget();
+    if (!t) {
+      this.logger.warn('[监控] 未配置通知目标，跳过发送');
+      return false;
+    }
+    try {
+      const r = await fetch(`https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=${t.type}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ receive_id: t.id, msg_type: 'text', content: JSON.stringify({ text }) }),
+      });
+      const j = (await r.json()) as { code?: number; msg?: string };
+      if (j.code === 0) return true;
+      this.logger.error(`[监控] 飞书发送失败 code=${j.code} msg=${j.msg}`);
+      return false;
+    } catch (e) {
+      this.logger.error('[监控] 飞书发送异常: ' + (e as Error).message);
+      return false;
+    }
+  }
+
+  /** 对外：立即发送（无冷却）。供状态推送使用，返回是否成功 */
+  async notify(text: string): Promise<boolean> {
+    return this.sendMessage(`[ACMS] ${text}`);
+  }
+
   private async run(kind: 'boot' | 'tick'): Promise<void> {
     const notes: string[] = [];
     const mem = process.memoryUsage();
@@ -73,7 +143,7 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
 
     let feishuOk = true;
     try {
-      feishuOk = await this.checkFeishu();
+      feishuOk = (await this.getToken()) !== null;
       if (!feishuOk) notes.push('飞书 tenant_access_token 获取失败');
     } catch (e) {
       feishuOk = false;
@@ -99,23 +169,9 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
     if (alerts.length) await this.alert(alerts.join('；'));
   }
 
-  private async checkFeishu(): Promise<boolean> {
-    const id = this.env('FEISHU_APP_ID');
-    const secret = this.env('FEISHU_APP_SECRET');
-    if (!id || !secret) return true; // 无凭证（本地开发）跳过
-    const r = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ app_id: id, app_secret: secret }),
-    });
-    const j = (await r.json()) as { code?: number };
-    return j.code === 0;
-  }
-
   private async alert(text: string): Promise<void> {
-    const target = this.env('FEISHU_NOTIFY_TARGET');
-    if (!target) {
-      this.logger.warn('[监控] 未配置 FEISHU_NOTIFY_TARGET，仅本地记录: ' + text);
+    if (!this.resolveTarget()) {
+      this.logger.warn('[监控] 未配置通知目标，仅本地记录: ' + text);
       return;
     }
     const now = Date.now();
@@ -124,27 +180,7 @@ export class MonitorService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     this.lastAlertAt = now;
-    try {
-      const ts = String(Math.floor(now / 1000));
-      const body: Record<string, unknown> = {
-        msg_type: 'text',
-        content: { text: `[ACMS 监控告警] ${text} @ ${new Date().toLocaleString('zh-CN')}` },
-      };
-      const secret = this.env('FEISHU_NOTIFY_SECRET');
-      if (secret) {
-        const { createHmac } = await import('node:crypto');
-        const sign = createHmac('sha256', secret).update(ts + '\n' + secret).digest('base64');
-        body.timestamp = ts;
-        body.sign = sign;
-      }
-      await fetch(target, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      this.logger.warn('[监控] 已发送飞书告警: ' + text);
-    } catch (e) {
-      this.logger.error('[监控] 飞书告警发送失败: ' + (e as Error).message);
-    }
+    const ok = await this.sendMessage(`[ACMS 监控告警] ${text} @ ${new Date().toLocaleString('zh-CN')}`);
+    if (ok) this.logger.warn('[监控] 已发送飞书告警: ' + text);
   }
 }

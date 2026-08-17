@@ -9,7 +9,7 @@ const 当前去向类型_OPTS = ['升学', '就业', '创业', '间隔年', '其
 const 跟进状态_OPTS = ['待跟进', '保持联系', '暂时失联', '停止跟进'];
 
 const COLUMNS: CrudColumn[] = [
-  { key: '关联学生编号', label: '学生编号', width: '120px' },
+  { key: '关联学生编号', label: '学生', width: '110px' },
   { key: '跟进事项', label: '跟进事项', form: true, type: 'textarea' },
   { key: '跟进时间', label: '跟进时间', width: '120px', form: true, type: 'date' },
   { key: '跟进备注', label: '跟进备注', form: true, type: 'textarea' },
@@ -30,6 +30,7 @@ export default function AlumniFollowupsPage() {
     <CrudPage
       title="校友跟进"
       subtitle="毕业校友去向追踪与关系维护（M1 学生域）"
+      search={{ placeholder: '搜索学生姓名…' }}
       columns={COLUMNS}
       statusField="跟进状态"
       api={{

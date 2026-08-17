@@ -11,7 +11,7 @@ const 成绩等级_OPTS = ['A', 'B', 'C', 'D', '不合格'];
 const 成绩状态_OPTS = ['草稿', '已发布', '已更正', '已归档'];
 
 const COLUMNS: CrudColumn[] = [
-  { key: '关联学生编号', label: '学生编号', width: '120px' },
+  { key: '关联学生编号', label: '学生', width: '110px' },
   { key: '学科', label: '学科', width: '90px', filter: true, filterOptions: 学科_OPTS, form: true, type: 'select', options: 学科_OPTS },
   { key: '成绩', label: '成绩', width: '90px', form: true, type: 'number' },
   { key: '课堂表现', label: '课堂表现', width: '100px', filter: true, filterOptions: 课堂表现_OPTS, form: true, type: 'select', options: 课堂表现_OPTS },
@@ -33,6 +33,7 @@ export default function GradesPage() {
     <CrudPage
       title="学业成绩"
       subtitle="学科成绩与考核记录（M1 学生域）"
+      search={{ placeholder: '搜索学生姓名 / 学年 / 课程…' }}
       columns={COLUMNS}
       statusField="成绩状态"
       api={{

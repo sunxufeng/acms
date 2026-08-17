@@ -28,6 +28,12 @@ export const TABLES = {
   systemConfig: { tableId: 'tblqeuKQlsuOIeUy', name: '系统配置表' },
   // 审计日志
   auditLog: { tableId: 'tbl0V2dbD9vqVL3N', name: '审计日志表' },
+  // 生命周期域关联目标表（link 字段跨表解析用，2026-08-17 经 listFields 核对）
+  academicYear: { tableId: 'tblg8hWV4A0rVHvR', name: '学年表' },
+  classLink: { tableId: 'tblAy1JpNjVRb2d3', name: '班级表' },
+  courseLink: { tableId: 'tbl01bBuYIePVhau', name: '学科课程表' },
+  authorization: { tableId: 'tbl2gGkg1Arg3tzn', name: '授权事项表' },
+  guardian: { tableId: 'tblNzs3UQu0K7x4j', name: '监护人表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

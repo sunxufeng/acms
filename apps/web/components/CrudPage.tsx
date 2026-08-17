@@ -51,6 +51,8 @@ export interface CrudPageProps {
   readonly?: boolean;
   /** 时间范围筛选（起止日期） */
   rangeFilters?: RangeFilter[];
+  /** 全局关键字搜索框：发送 q 参数，由后端 searchField 决定检索字段（支持关联字段跨表解析后模糊匹配） */
+  search?: { placeholder: string };
 }
 
 function str(v: unknown): string {
@@ -106,7 +108,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const [pageToken, setPageToken] = useState<string | undefined>();
@@ -135,6 +137,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         if (filters[rf.fromParam]) params[rf.fromParam] = filters[rf.fromParam];
         if (filters[rf.toParam]) params[rf.toParam] = filters[rf.toParam];
       }
+      if (filters.q) params.q = filters.q;
       if (token) params.pageToken = token;
       const res = await api.list(params);
       setItems(append ? [...items, ...res.items] : res.items);
@@ -229,8 +232,17 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         </div>
       </div>
 
-      {(filterCols.length > 0 || (rangeFilters ?? []).length > 0) && (
+      {(filterCols.length > 0 || (rangeFilters ?? []).length > 0 || search) && (
         <div className="filter-bar">
+          {search && (
+            <input
+              className="form-input"
+              style={{ width: 220 }}
+              placeholder={search.placeholder}
+              value={filters.q ?? ''}
+              onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+            />
+          )}
           {filterCols.map((c) =>
             c.filterType === 'text' ? (
               <input

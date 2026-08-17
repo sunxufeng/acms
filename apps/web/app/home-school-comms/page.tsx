@@ -9,7 +9,7 @@ const 闭环状态_OPTS = ['无需跟进', '待跟进', '跟进中', '已闭环'
 const 信息敏感级别_OPTS = ['内部', '敏感', '高度敏感'];
 
 const COLUMNS: CrudColumn[] = [
-  { key: '关联学生编号', label: '学生编号', width: '120px' },
+  { key: '关联学生编号', label: '学生', width: '110px' },
   { key: '家长', label: '家长', width: '100px', form: true, type: 'text' },
   { key: '沟通内容', label: '沟通内容', form: true, type: 'textarea' },
   { key: '沟通时间', label: '沟通时间', width: '120px', form: true, type: 'date' },
@@ -32,6 +32,7 @@ export default function HomeSchoolCommsPage() {
     <CrudPage
       title="家校沟通"
       subtitle="家长沟通与待办闭环（M1 学生域）"
+      search={{ placeholder: '搜索家长…' }}
       columns={COLUMNS}
       statusField="闭环状态"
       api={{

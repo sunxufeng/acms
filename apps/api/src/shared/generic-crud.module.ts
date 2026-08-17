@@ -12,6 +12,7 @@ import { ForbiddenException, NotFoundException, BadRequestException } from '@nes
 import type { SessionUser } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
+import { toText } from '@acms/base-adapter';
 import { BASE_CLIENT, baseClientProvider } from '../base.provider.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -41,6 +42,8 @@ export interface RecordMeta {
   sortField?: string;
   /** 时间范围筛选字段（用于审计日志等的操作时间区间过滤，内存过滤） */
   rangeField?: string;
+  /** 关联字段（type=18/21/22）：需跨表解析为可读名。field=本表字段名，table=目标表 tableId，nameField=目标表用于展示的字段名 */
+  linkFields?: { field: string; table: string; nameField: string }[];
 }
 
 function toPrincipal(user: SessionUser): Principal {
@@ -89,6 +92,9 @@ export class BaseRecordService {
   private multiSet() {
     return new Set(this.meta.multi ?? []);
   }
+  private linkSet() {
+    return new Set((this.meta.linkFields ?? []).map((l) => l.field));
+  }
 
   /** 审计等场景的扩展筛选参数（不走飞书服务端过滤，按需内存过滤） */
   private static readonly DEEP_PARAMS = ['from', 'to', 'actor', 'module', 'action'] as const;
@@ -99,6 +105,10 @@ export class BaseRecordService {
     // 审计日志：按操作人(模糊)/业务模块(模糊)/操作类型(精确)/时间范围 筛选，内存过滤
     if (BaseRecordService.DEEP_PARAMS.some((k) => query[k])) {
       return this.listDeep(query);
+    }
+    // 关联字段（link）作为搜索目标时，飞书服务端 contains 对关联字段无效 → 走内存按解析文本过滤
+    if (query.q && this.meta.searchField && this.linkSet().has(this.meta.searchField)) {
+      return this.listByLinkSearch(query);
     }
     const conditions: { field: string; op?: string; value: string[] }[] = [];
     for (const [k, v] of Object.entries(query)) {
@@ -117,18 +127,79 @@ export class BaseRecordService {
       filter: buildFilter(conditions),
       sort,
     });
+    const items = res.items.map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet()));
+    await this.resolveLinks(items);
     return {
-      items: res.items.map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet())),
+      items,
       total: res.total,
       hasMore: res.hasMore,
       pageToken: res.pageToken,
     };
   }
 
+  /** 关联字段搜索：拉全量 → 解析可读名 → 按解析文本模糊过滤 */
+  private async listByLinkSearch(query: Record<string, string | undefined>) {
+    const sf = this.meta.searchField!;
+    const q = String(query.q).toLowerCase();
+    const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet()));
+    await this.resolveLinks(rows);
+    const filtered = rows.filter((r) => String(r[sf] ?? '').toLowerCase().includes(q));
+    return { items: filtered, total: filtered.length, hasMore: false, pageToken: undefined };
+  }
+
+  /** 关联字段跨表解析：将 [{record_ids:[...]}] 的 id 替换为目标表的可读名（如 学生姓名） */
+  private async resolveLinks(items: Record<string, unknown>[]): Promise<void> {
+    const links = this.meta.linkFields;
+    if (!links || !links.length || !items.length) return;
+    // 收集每个目标表需解析的 id
+    const need: Record<string, { nameField: string; ids: Set<string> }> = {};
+    for (const l of links) {
+      for (const it of items) {
+        const ids = (it[l.field + '__link'] as string[]) || [];
+        if (!ids.length) continue;
+        const entry = need[l.table] ?? (need[l.table] = { nameField: l.nameField, ids: new Set() });
+        ids.forEach((id) => entry.ids.add(id));
+      }
+    }
+    if (!Object.keys(need).length) return;
+    // 并行批量取名字（按 20 一组并发，避免一次性开太多连接）
+    const nameMap = new Map<string, string>();
+    const chunk = <T,>(arr: T[], n: number): T[][] => {
+      const out: T[][] = [];
+      for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+      return out;
+    };
+    await Promise.all(
+      Object.entries(need).map(async ([table, info]) => {
+        const batches = chunk([...info.ids], 20);
+        for (const batch of batches) {
+          await Promise.all(
+            batch.map(async (id) => {
+              const rec = await this.base.get(table, id);
+              const name = rec ? toText(rec.fields[info.nameField]) : '';
+              nameMap.set(`${table}|${id}`, name || id);
+            }),
+          );
+        }
+      }),
+    );
+    // 回填可读名
+    for (const it of items) {
+      for (const l of links) {
+        const ids = (it[l.field + '__link'] as string[]) || [];
+        if (!ids.length) {
+          it[l.field] = '';
+          continue;
+        }
+        it[l.field] = ids.map((id) => nameMap.get(`${l.table}|${id}`) || id).join('、');
+      }
+    }
+  }
+
   /** 扩展筛选（仅审计日志使用）：拉全量后在内存做 模糊/精确/时间区间 过滤，保证 total 准确 */
   private async listDeep(query: Record<string, string | undefined>) {
     const rangeField = this.meta.rangeField ?? this.meta.dateFields?.[0];
-    const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet()));
+    const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet()));
     let filtered = rows;
     if (rangeField && (query.from || query.to)) {
       const from = query.from ? new Date(query.from + 'T00:00:00').getTime() : -Infinity;
@@ -173,7 +244,9 @@ export class BaseRecordService {
       throw new ForbiddenException('FORBIDDEN:' + this.meta.readPerm);
     const rec = await this.base.get(this.tableId, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
-    return toFlatRecord(rec, this.readonlySet(), this.multiSet());
+    const flat = toFlatRecord(rec, this.readonlySet(), this.multiSet(), this.linkSet());
+    await this.resolveLinks([flat]);
+    return flat;
   }
 
   private writeFields(dto: Record<string, unknown>) {

@@ -10,7 +10,7 @@ const 意向等级_OPTS = ['高', '中', '低', '待判断'];
 const 闭环状态_OPTS = ['待处理', '跟进中', '已闭环', '已终止'];
 
 const COLUMNS: CrudColumn[] = [
-  { key: '关联学生编号', label: '学生编号', width: '120px' },
+  { key: '关联学生编号', label: '学生', width: '110px' },
   { key: '活动类型', label: '活动类型', width: '100px', filter: true, filterOptions: 活动类型_OPTS, form: true, type: 'select', options: 活动类型_OPTS },
   { key: '跟进状态', label: '跟进状态', width: '100px', filter: true, filterOptions: 跟进状态_OPTS, form: true, type: 'select', options: 跟进状态_OPTS },
   { key: '跟进负责人', label: '跟进负责人', width: '110px' },
@@ -28,6 +28,7 @@ export default function SourceFollowupsPage() {
     <CrudPage
       title="生源跟进"
       subtitle="招生线索与跟进闭环（M1 学生域）"
+      search={{ placeholder: '搜索学生姓名…' }}
       columns={COLUMNS}
       statusField="跟进状态"
       api={{

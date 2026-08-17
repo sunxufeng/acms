@@ -65,57 +65,23 @@ export class FileUploadService {
     const token = await this.getToken();
     if (!token) throw new Error('FEISHU_TOKEN_FAILED');
 
-    // 使用 upload_all 上传
+    // 使用 upload_all 上传（Node 原生 FormData，undici 自动编码 multipart）
+    // 必填：file_name / parent_type=bitable_file / parent_node=多维表格 token / size / file
+    const parentNode = this.env('FEISHU_BASE_TOKEN') ?? '';
     const form = new FormData();
     const blob = new Blob([buffer], { type: mimeType });
     form.append('file', blob, filename);
     form.append('file_name', filename);
     form.append('parent_type', 'bitable_file');
-
-    // Node.js 环境下需要手动构建 multipart body
-    const boundary = '----UploadBoundary' + Math.random().toString(36).slice(2);
-    const parts: Buffer[] = [];
-
-    // file part
-    const fileHeader = [
-      `--${boundary}`,
-      `Content-Disposition: form-data; name="file"; filename="${filename}"`,
-      `Content-Type: ${mimeType}`,
-      '',
-    ].join('\r\n');
-    parts.push(Buffer.from(fileHeader, 'utf8'));
-    parts.push(buffer);
-
-    // file_name part
-    const namePart = [
-      `--${boundary}`,
-      'Content-Disposition: form-data; name="file_name"',
-      '',
-      filename,
-    ].join('\r\n');
-    parts.push(Buffer.from(namePart, 'utf8'));
-
-    // parent_type part
-    const typePart = [
-      `--${boundary}`,
-      'Content-Disposition: form-data; name="parent_type"',
-      '',
-      'bitable_file',
-    ].join('\r\n');
-    parts.push(Buffer.from(typePart, 'utf8'));
-
-    // end
-    parts.push(Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8'));
-
-    const body = Buffer.concat(parts);
+    form.append('parent_node', parentNode);
+    form.append('size', String(buffer.length));
 
     const r = await fetch('https://open.feishu.cn/open-apis/drive/v1/medias/upload_all', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer ' + token,
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
       } as Record<string, string>,
-      body: body as any,
+      body: form as unknown as Blob,
     });
 
     // 防御：飞书可能返回非 JSON 错误（如网关错误文本），先检查 HTTP 状态

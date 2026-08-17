@@ -15,7 +15,8 @@ export default function NewStudentPage() {
     setSubmitting(true); setMsg('');
     try {
       const created = await api.createStudent(data);
-      router.push('/students');
+      // 创建成功后跳转编辑页，便于立即补充照片与附件（上传需先有记录 ID）
+      router.push(`/students/${created.id}/edit`);
     } catch (e) {
       setMsg('创建失败：' + (e as Error).message);
       setSubmitting(false);

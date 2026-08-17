@@ -62,13 +62,13 @@
 
   /* Chrome that stays deep teal in BOTH themes (sidebar + topbar) */
   --sidebar-fg:           #FFFFFF;
-  --sidebar-fg-secondary: #B8D4D0;
-  --sidebar-fg-tertiary:  #6E9A94;
-  --topbar-fg:           #FFFFFF;
-  --topbar-fg-secondary: #B8D4D0;
-  --topbar-fg-tertiary:  #6E9A94;
-  --topbar-chip-bg:      rgba(255, 255, 255, 0.08);
-  --topbar-chip-border:  rgba(255, 255, 255, 0.14);
+  --sidebar-fg-secondary: #D4E8E4;
+  --sidebar-fg-tertiary:  #8FBDB7;
+  --topbar-fg:           #F0F7F6;
+  --topbar-fg-secondary: #C8E0DC;
+  --topbar-fg-tertiary:  #9BC4BE;
+  --topbar-chip-bg:      rgba(255, 255, 255, 0.10);
+  --topbar-chip-border:  rgba(255, 255, 255, 0.18);
 
   --table-head-bg:   rgba(0, 0, 0, 0.15);
 
@@ -176,12 +176,12 @@
 
   /* Light chrome — brighter teal needs adjusted text/chip tokens */
   --sidebar-fg:           #FFFFFF;
-  --sidebar-fg-secondary: #C8E0DC;
-  --sidebar-fg-tertiary:  #8FBDB7;
-  --topbar-fg:            #E2F0ED;
-  --topbar-fg-secondary:  #A8CCC7;
-  --topbar-chip-bg:       rgba(255, 255, 255, 0.12);
-  --topbar-chip-border:   rgba(255, 255, 255, 0.18);
+  --sidebar-fg-secondary: #D4E8E4;
+  --sidebar-fg-tertiary:  #9BCABE;
+  --topbar-fg:            #F0F7F6;
+  --topbar-fg-secondary:  #BDD8D2;
+  --topbar-chip-bg:       rgba(255, 255, 255, 0.14);
+  --topbar-chip-border:   rgba(255, 255, 255, 0.22);
 }
 
 body {
@@ -293,6 +293,18 @@ a:hover { color: var(--accent-hover); }
   overflow-y: auto;
   z-index: 100;
   transition: width var(--dur-normal) var(--ease), background-color var(--dur-normal) var(--ease);
+  /* Custom scrollbar — slim, blends with dark teal */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+.sidebar::-webkit-scrollbar { width: 5px; }
+.sidebar::-webkit-scrollbar-track { background: transparent; }
+.sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+  border-radius: 10px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.28);
 }
 
 /* ── Collapsed state ─────────────────────────────────── */
@@ -897,3 +909,86 @@ select.form-input:disabled { color: var(--fg); }
   .login-left, .login-right { padding: 32px 20px; }
   .features { flex-direction: column; gap: 18px; }
 }
+
+/* ── 学生 360 视图 ─────────────────────────── */
+.search-input {
+  background: var(--surface); border: 1px solid var(--border); color: var(--fg);
+  border-radius: var(--radius-md); padding: 9px 12px; font-size: var(--font-base);
+  outline: none; transition: border-color var(--dur-fast) var(--ease);
+}
+.search-input:focus { border-color: var(--accent); }
+.student-hits {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
+  list-style: none; margin: 0; padding: 6px; min-width: 360px;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-lg); max-height: 320px; overflow-y: auto;
+}
+.student-hits li {
+  padding: 9px 12px; border-radius: var(--radius-sm); cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.student-hits li:hover { background: var(--surface-hover); }
+.hit-name { font-weight: 700; color: var(--fg); }
+.hit-meta { font-size: var(--font-xs); color: var(--fg-tertiary); }
+
+.student-head {
+  display: flex; align-items: center; gap: var(--space-lg);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: var(--space-lg); margin-bottom: var(--space-xl);
+}
+.sh-avatar {
+  width: 56px; height: 56px; border-radius: var(--radius-lg); flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 800; background: rgba(78, 205, 196, 0.18); color: var(--accent);
+}
+.sh-info { flex: 1; min-width: 0; }
+.sh-name { font-size: var(--font-xl); font-weight: 800; color: var(--fg); display: flex; align-items: center; gap: 10px; }
+.sh-sub { font-size: var(--font-sm); color: var(--fg-tertiary); margin-top: 4px; }
+.sh-stat { text-align: right; display: flex; flex-direction: column; }
+.sh-stat strong { font-size: var(--font-2xl); color: var(--accent); }
+.sh-stat span { font-size: var(--font-xs); color: var(--fg-tertiary); }
+
+.table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.muted { color: var(--fg-tertiary); opacity: 0.6; }
+
+/* ── 学生照片 ─────────────────────────────── */
+.student-photo-wrap {
+  width: 120px; height: 150px; border-radius: var(--radius-md);
+  overflow: hidden; flex-shrink: 0;
+  background: var(--surface-input);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+}
+.student-photo-img {
+  width: 100%; height: 100%; object-fit: cover;
+}
+.student-photo-placeholder {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; color: var(--fg-tertiary); font-size: var(--font-xs);
+}
+
+/* ── 附件列表 ─────────────────────────────── */
+.attachment-list {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.attachment-item {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: var(--radius-sm);
+  background: var(--surface-input); border: 1px solid var(--border);
+  color: var(--accent); font-size: var(--font-sm); text-decoration: none;
+  transition: all var(--dur-fast) var(--ease);
+  max-width: 360px;
+}
+.attachment-item:hover {
+  background: var(--surface-hover); border-color: var(--accent);
+}
+.attachment-item svg { flex-shrink: 0; opacity: 0.7; }
+
+/* ── 详情页大照片 ─────────────────────────── */
+.detail-photo {
+  width: 72px; height: 90px; border-radius: var(--radius-md);
+  object-fit: cover; border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.hidden { display: none !important; }
+

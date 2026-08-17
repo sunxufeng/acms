@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
 
 export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone' | 'textarea';
@@ -135,6 +135,116 @@ export function StudentForm({
     return v;
   });
 
+  // 照片与附件状态
+  const [photos, setPhotos] = useState<Array<{ file_token: string; name?: string }>>([]);
+  const [attachments, setAttachments] = useState<Array<{ file_token: string; name?: string }>>([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingAtt, setUploadingAtt] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const attInputRef = useRef<HTMLInputElement>(null);
+
+  // 从 initial 数据提取照片和附件
+  useEffect(() => {
+    if (initial) {
+      const extractFiles = (v: unknown): Array<{ file_token: string; name?: string }> => {
+        if (!v) return [];
+        if (Array.isArray(v)) {
+          return v.map((item: any) => ({
+            file_token: String(item.file_token ?? item ?? ''),
+            name: item.name ? String(item.name) : undefined,
+          })).filter((x: any) => x.file_token);
+        }
+        // 单个对象
+        if (typeof v === 'object' && v !== null && (v as any).file_token) {
+          return [{ file_token: String((v as any).file_token), name: (v as any).name ? String((v as any).name) : undefined }];
+        }
+        return [];
+      };
+      setPhotos(extractFiles(initial['学生照片']));
+      setAttachments(extractFiles(initial['证件与文件']));
+    }
+  }, [initial]);
+
+/** 获取飞书文件预览 URL（通过 file_token 构造） */
+function getFileUrl(fileToken: string): string {
+  return `https://open.feishu.cn/open-apis/drive/v1/medias/${fileToken}/download`;
+}
+
+/** 照片与附件展示组件（独立子组件，避免类型推断污染主表单） */
+function PhotoAttachmentSection({
+  photos, attachments, readOnly, studentId,
+  uploadingPhoto, uploadingAtt, onPhotoUpload, onAttUpload,
+}: {
+  photos: Array<{ file_token: string; name?: string }>;
+  attachments: Array<{ file_token: string; name?: string }>;
+  readOnly: boolean;
+  studentId: string | undefined;
+  uploadingPhoto: boolean;
+  uploadingAtt: boolean;
+  onPhotoUpload: () => void;
+  onAttUpload: () => void;
+}) {
+  return (
+    <>
+      {/* 照片 */}
+      <fieldset className="form-fieldset">
+        <legend className="form-legend">学生照片</legend>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 24 }}>
+          <div className="student-photo-wrap">
+            {photos.length > 0 ? (
+              <img
+                src={getFileUrl(photos[0].file_token)}
+                alt=""
+                className="student-photo-img"
+                onError={(e) => { const t = e.target as HTMLImageElement; t.style.display = 'none'; }}
+              />
+            ) : (
+              <div className="student-photo-placeholder">
+                <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-xs)' }}>暂无照片</span>
+              </div>
+            )}
+          </div>
+          {!readOnly && studentId && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 4 }}>
+              <button type="button" className="btn btn-outline btn-sm" onClick={onPhotoUpload} disabled={uploadingPhoto}>
+                {uploadingPhoto ? '上传中...' : '上传照片'}
+              </button>
+              {photos.length > 0 && (
+                <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
+                  已有 {photos.length} 张
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </fieldset>
+
+      {/* 附件 */}
+      <fieldset className="form-fieldset">
+        <legend className="form-legend">证件与文件</legend>
+        {attachments.length === 0 ? (
+          <p style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>暂无附件</p>
+        ) : (
+          <div className="attachment-list">
+            {attachments.map((att, i) => (
+              <a key={i} href={getFileUrl(att.file_token)} target="_blank" rel="noreferrer" className="attachment-item">
+                <span>{att.name || `文件${i + 1}`}</span>
+              </a>
+            ))}
+          </div>
+        )}
+        {!readOnly && studentId && (
+          <div style={{ marginTop: 10 }}>
+            <button type="button" className="btn btn-outline btn-sm" onClick={onAttUpload} disabled={uploadingAtt}>
+              {uploadingAtt ? '上传中...' : '上传附件'}
+            </button>
+          </div>
+        )}
+      </fieldset>
+    </>
+  );
+}
+
   /** 字典表候选项（后端 /api/v1/dictionaries）；加载前用字段自带 options 兜底 */
   const [dicts, setDicts] = useState<Record<string, string[]>>({});
   useEffect(() => {
@@ -158,6 +268,32 @@ export function StudentForm({
 
   const setField = (key: string, val: unknown) => setValues((p) => ({ ...p, [key]: val }));
 
+  /** 上传照片 */
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !initial?.id) return;
+    // 仅允许图片
+    if (!file.type.startsWith('image/')) { alert('请选择图片文件'); return; }
+    setUploadingPhoto(true);
+    try {
+      const res = await api.uploadStudentPhoto(initial.id as string, file);
+      setPhotos((prev) => [...prev, { file_token: res.file_token }]);
+    } catch (err) { alert('上传失败：' + (err as Error).message); }
+    finally { setUploadingPhoto(false); if (photoInputRef.current) photoInputRef.current.value = ''; }
+  };
+
+  /** 上传附件 */
+  const handleAttUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !initial?.id) return;
+    setUploadingAtt(true);
+    try {
+      const res = await api.uploadStudentAttachment(initial.id as string, file);
+      setAttachments((prev) => [...prev, { file_token: res.file_token, name: res.name }]);
+    } catch (err) { alert('上传失败：' + (err as Error).message); }
+    finally { setUploadingAtt(false); if (attInputRef.current) attInputRef.current.value = ''; }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const data: Record<string, unknown> = {};
@@ -177,6 +313,20 @@ export function StudentForm({
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* 照片与附件区域 */}
+      <PhotoAttachmentSection
+        photos={photos}
+        attachments={attachments}
+        readOnly={!!readOnly}
+        studentId={initial?.id as string | undefined}
+        uploadingPhoto={uploadingPhoto}
+        uploadingAtt={uploadingAtt}
+        onPhotoUpload={() => photoInputRef.current?.click()}
+        onAttUpload={() => attInputRef.current?.click()}
+      />
+      <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
+      <input ref={attInputRef} type="file" onChange={handleAttUpload} style={{ display: 'none' }} />
+
       {STUDENT_SECTIONS.map((section) => (
         <fieldset key={section.title} className="form-fieldset">
           <legend className="form-legend">{section.title}</legend>

@@ -22,6 +22,18 @@ function str(v: unknown): string {
   return String(v);
 }
 
+/** 提取照片 token */
+function getPhotoToken(rec: Record<string, unknown>): string | null {
+  const v = rec['学生照片'];
+  if (!v) return null;
+  if (Array.isArray(v) && v.length) {
+    const item = v[0] as any;
+    return item.file_token ?? (typeof item === 'string' ? item : null);
+  }
+  if (typeof v === 'object' && (v as any).file_token) return (v as any).file_token;
+  return null;
+}
+
 /** 格式化时间戳（秒或毫秒）为 YYYY-MM-DD HH:mm */
 function fmtDate(v: unknown): string {
   if (!v) return '';
@@ -340,7 +352,19 @@ export default function StudentsPage() {
                       {/* Avatar + Name */}
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span className={`avatar-dot ${avatarColor(name)}`}>{name.charAt(0)}</span>
+                          {getPhotoToken(s) ? (
+                            <img
+                              src={`https://open.feishu.cn/open-apis/drive/v1/medias/${getPhotoToken(s)}/download`}
+                              alt={name}
+                              className="avatar-dot"
+                              style={{ width: 34, height: 34, objectFit: 'cover' }}
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = 'none';
+                                (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                              }}
+                            />
+                          ) : null}
+                          <span className={`avatar-dot ${getPhotoToken(s) ? 'hidden' : ''} ${avatarColor(name)}`}>{name.charAt(0)}</span>
                           <div>
                             <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{name}</div>
                             <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['学生编号']) || '—'}</div>

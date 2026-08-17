@@ -106,6 +106,10 @@ export interface UpdateStudentDto {
   '飞书 Open ID'?: string;
   入学级?: string;
   毕业届?: string;
+  /** 照片（附件数组，每项含 file_token） */
+  学生照片?: Array<{ file_token: string; name?: string }>;
+  /** 证件与文件附件 */
+  证件与文件?: Array<{ file_token: string; name?: string }>;
 }
 
 /** 列表筛选 */

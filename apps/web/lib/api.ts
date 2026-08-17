@@ -79,6 +79,30 @@ export const api = {
   restoreStudent: (id: string) =>
     request<{ ok: boolean }>(`/students/${id}/restore`, { method: 'PATCH' }),
 
+  /** 上传学生照片（multipart） */
+  uploadStudentPhoto: (id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ ok: boolean; file_token: string }>(
+      `/students/${id}/photo`,
+      { method: 'POST', body: form as any, headers: {} as Record<string, string> },
+    );
+  },
+
+  /** 上传学生附件（multipart） */
+  uploadStudentAttachment: (id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ ok: boolean; file_token: string; name: string }>(
+      `/students/${id}/attachments`,
+      { method: 'POST', body: form as any, headers: {} as Record<string, string> },
+    );
+  },
+
+  /** 获取附件下载 URL */
+  getAttachmentUrl: (studentId: string, fileToken: string) =>
+    request<{ url: string }>(`/students/${studentId}/attachment-url?file_token=${encodeURIComponent(fileToken)}`),
+
   /** 导出 CSV */
   exportStudents: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
@@ -335,6 +359,10 @@ export const api = {
   createAlumniFollowup: (data: Record<string, unknown>) => request<Record<string, unknown>>('/alumni-followups', { method: 'POST', body: JSON.stringify(data) }),
   updateAlumniFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/alumni-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveAlumniFollowup: (id: string) => request<{ ok: boolean }>(`/alumni-followups/${id}`, { method: 'DELETE' }),
+
+  /** 学生 360 视图：聚合某学生的全生命周期记录 */
+  student360: (studentId: string) =>
+    request<{ student: Record<string, unknown>; sections: { key: string; label: string; items: Record<string, unknown>[] }[] }>(`/student-360/${studentId}`),
 
   // ── 系统配置（通用 CRUD） ───────────────────
   listSettings: (params: Record<string, string | undefined> = {}) => {

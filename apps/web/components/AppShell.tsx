@@ -30,6 +30,7 @@ const NAV_ITEMS = [
   {
     section: '学生全生命周期',
     items: [
+      { key: 'student360', label: '学生全景', href: '/student-360', icon: StudentsIcon },
       { key: 'sourceFollowups', label: '招生跟进', href: '/source-followups', icon: AdmissionsIcon },
       { key: 'studentAttendances', label: '学生考勤', href: '/student-attendances', icon: StudentsIcon },
       { key: 'grades', label: '学业成绩', href: '/grades', icon: CoursesIcon },

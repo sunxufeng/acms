@@ -112,7 +112,7 @@ export class AuthService {
     try {
       const res = await this.base.search(USER_TABLE.tableId, {
         pageSize: 1,
-        filter: { conditions: [{ field: '飞书 Open ID', value: [openId] }] },
+        filter: { conjunction: 'and', conditions: [{ field: '飞书 Open ID', value: [openId] }] },
       });
       record = res.items[0] ?? null;
       // 判断用户表是否为空（首登引导用）：无此人时再查全表计数

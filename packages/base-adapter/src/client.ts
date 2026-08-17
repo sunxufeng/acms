@@ -12,11 +12,17 @@ export interface FilterCondition {
   value: string[];
 }
 
+/** 嵌套过滤组（飞书 API 支持 conjunction + conditions 嵌套） */
+export interface FilterGroup {
+  conjunction: 'and' | 'or';
+  conditions: (FilterCondition | FilterGroup)[];
+}
+
 export interface ListOptions {
   pageSize?: number;
   pageToken?: string;
-  /** 服务端过滤（records/search filter） */
-  filter?: { conjunction?: 'and' | 'or'; conditions: FilterCondition[] };
+  /** 服务端过滤（records/search filter，支持嵌套 OR/AND 组） */
+  filter?: FilterGroup;
   sort?: { field: string; desc: boolean }[];
 }
 
@@ -24,6 +30,25 @@ interface FeishuResp<T> {
   code: number;
   msg: string;
   data?: T;
+}
+
+/** 递归将 FilterGroup 展平为飞书 API 所需的 conditions 数组 */
+function flattenFilter(conditions: (FilterCondition | FilterGroup)[]): Record<string, unknown>[] {
+  return conditions.map((c) => {
+    if ('conjunction' in c && !('field' in c)) {
+      // 嵌套组：递归展平
+      return {
+        conjunction: c.conjunction,
+        conditions: flattenFilter(c.conditions),
+      };
+    }
+    // 叶子条件
+    return {
+      field_name: (c as FilterCondition).field,
+      operator: (c as FilterCondition).op ?? 'is',
+      value: (c as FilterCondition).value,
+    };
+  });
 }
 
 /** 飞书 Base 记录读写客户端（search 为主读路径，写入走 create/update） */
@@ -130,11 +155,7 @@ export class BaseClient {
       filter: opts.filter
         ? {
             conjunction: opts.filter.conjunction ?? 'and',
-            conditions: opts.filter.conditions.map((c) => ({
-              field_name: c.field,
-              operator: c.op ?? 'is',
-              value: c.value,
-            })),
+            conditions: flattenFilter(opts.filter.conditions),
           }
         : undefined,
       sort: opts.sort?.map((s) => ({ field_name: s.field, desc: s.desc })),

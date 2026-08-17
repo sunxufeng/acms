@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
-import { BaseClient, toWriteSingle, toWriteMulti, toStringArray, toText } from '@acms/base-adapter';
+import { BaseClient, toWriteSingle, toWriteMulti, toStringArray, toText, type FilterGroup } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 
@@ -55,12 +55,16 @@ export class StudentService {
   }
 
   /** 构建列表过滤条件 */
-  private buildFilter(query: StudentFilterDto): {
-    conjunction: 'and';
-    conditions: { field: string; op?: string; value: string[] }[];
-  } {
-    const conditions: { field: string; op?: string; value: string[] }[] = [];
-    if (query.q) conditions.push({ field: '学生姓名', op: 'contains', value: [query.q] });
+  private buildFilter(query: StudentFilterDto): FilterGroup {
+    const conditions: FilterGroup['conditions'] = [];
+    // 多字段文本搜索：学生编号 / 学生姓名 / 英文名 / 班级 任一包含关键词即命中
+    if (query.q) {
+      const searchFields = ['学生编号', '学生姓名', '英文名', '班级'];
+      conditions.push({
+        conjunction: 'or' as const,
+        conditions: searchFields.map((f) => ({ field: f, op: 'contains' as const, value: [query.q!] })),
+      });
+    }
     if (query.当前状态) conditions.push({ field: '当前状态', value: [query.当前状态] });
     if (query.当前年级) conditions.push({ field: '当前年级', value: [query.当前年级] });
     if (query.班级) conditions.push({ field: '班级', value: [query.班级] });

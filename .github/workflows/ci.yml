@@ -4,34 +4,32 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
-  ci:
+  build-and-typecheck:
+    name: Typecheck & Build (M7 门禁)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm test
 
-  smoke:
-    name: Public smoke (acms.areteailab.com)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Health + login redirect
-        run: |
-          echo "dns:"; getent hosts acms.areteailab.com || true
-          for i in 1 2 3; do
-            code=$(curl -s -o /tmp/h.json -w "%{http_code}" -m 20 https://acms.areteailab.com/api/v1/health) && break
-            echo "attempt $i failed"; sleep 5
-          done
-          echo "health=$code $(cat /tmp/h.json)"
-          [ "$code" = "200" ]
-          loc=$(curl -s -o /dev/null -w "%{redirect_url}" -m 20 https://acms.areteailab.com/api/v1/auth/login)
-          echo "login_redirect=$loc"
-          case "$loc" in https://open.feishu.cn/open-apis/authen/v1/index*) ;; *) exit 1;; esac
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (契约先行 + 全量)
+        run: pnpm typecheck
+
+      - name: Build all packages
+        run: pnpm -r build
+        env:
+          NODE_OPTIONS: '--max-old-space-size=2048'

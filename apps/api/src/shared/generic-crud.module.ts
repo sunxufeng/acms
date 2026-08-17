@@ -39,6 +39,8 @@ export interface RecordMeta {
   dateFields?: string[];
   /** 列表默认排序字段 */
   sortField?: string;
+  /** 时间范围筛选字段（用于审计日志等的操作时间区间过滤，内存过滤） */
+  rangeField?: string;
 }
 
 function toPrincipal(user: SessionUser): Principal {
@@ -88,9 +90,16 @@ export class BaseRecordService {
     return new Set(this.meta.multi ?? []);
   }
 
+  /** 审计等场景的扩展筛选参数（不走飞书服务端过滤，按需内存过滤） */
+  private static readonly DEEP_PARAMS = ['from', 'to', 'actor', 'module', 'action'] as const;
+
   async list(user: SessionUser, query: Record<string, string | undefined>) {
     if (!authorize(toPrincipal(user), this.meta.readPerm as Parameters<typeof authorize>[1]).allowed)
       throw new ForbiddenException('FORBIDDEN:' + this.meta.readPerm);
+    // 审计日志：按操作人(模糊)/业务模块(模糊)/操作类型(精确)/时间范围 筛选，内存过滤
+    if (BaseRecordService.DEEP_PARAMS.some((k) => query[k])) {
+      return this.listDeep(query);
+    }
     const conditions: { field: string; op?: string; value: string[] }[] = [];
     for (const [k, v] of Object.entries(query)) {
       if (['pageToken', 'sortBy', 'sortOrder', 'q'].includes(k)) continue;
@@ -114,6 +123,49 @@ export class BaseRecordService {
       hasMore: res.hasMore,
       pageToken: res.pageToken,
     };
+  }
+
+  /** 扩展筛选（仅审计日志使用）：拉全量后在内存做 模糊/精确/时间区间 过滤，保证 total 准确 */
+  private async listDeep(query: Record<string, string | undefined>) {
+    const rangeField = this.meta.rangeField ?? this.meta.dateFields?.[0];
+    const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet()));
+    let filtered = rows;
+    if (rangeField && (query.from || query.to)) {
+      const from = query.from ? new Date(query.from + 'T00:00:00').getTime() : -Infinity;
+      const to = query.to ? new Date(query.to + 'T23:59:59.999').getTime() : Infinity;
+      filtered = filtered.filter((r) => {
+        const t = Number(r[rangeField]);
+        return Number.isFinite(t) && t >= from && t <= to;
+      });
+    }
+    if (query.actor) {
+      const a = String(query.actor).toLowerCase();
+      filtered = filtered.filter((r) => String(r['操作人'] ?? '').toLowerCase().includes(a));
+    }
+    if (query.module) {
+      const m = String(query.module).toLowerCase();
+      filtered = filtered.filter((r) => String(r['业务模块'] ?? '').toLowerCase().includes(m));
+    }
+    if (query.action) {
+      filtered = filtered.filter((r) => String(r['操作类型'] ?? '') === query.action);
+    }
+    if (rangeField) {
+      filtered.sort((x, y) => Number(y[rangeField]) - Number(x[rangeField]));
+    }
+    return { items: filtered, total: filtered.length, hasMore: false, pageToken: undefined };
+  }
+
+  /** 拉取整表（上限 20000 行，足够内部审计日志规模） */
+  private async fetchAll(): Promise<{ recordId: string; fields: Record<string, unknown> }[]> {
+    const out: { recordId: string; fields: Record<string, unknown> }[] = [];
+    let tok: string | undefined;
+    let guard = 0;
+    do {
+      const res = await this.base.search(this.tableId, { pageSize: 100, pageToken: tok });
+      out.push(...res.items);
+      tok = res.hasMore ? res.pageToken : undefined;
+    } while (tok && guard++ < 200);
+    return out;
   }
 
   async detail(user: SessionUser, id: string) {

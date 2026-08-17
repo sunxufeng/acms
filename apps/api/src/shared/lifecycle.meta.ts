@@ -125,5 +125,6 @@ export const AUDIT_METAS: RecordMeta[] = [
     readonly: ['操作时间', '操作人', '操作类型', '业务模块', '记录标识', '摘要', '详情'],
     searchField: '业务模块',
     sortField: '操作时间',
+    rangeField: '操作时间',
   },
 ];

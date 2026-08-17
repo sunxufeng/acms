@@ -11,11 +11,23 @@ export interface CrudColumn {
   width?: string;
   render?: (v: unknown, row: Record<string, unknown>) => React.ReactNode;
   filter?: boolean;
+  /** 列筛选控件类型：select=下拉(默认) / text=文本模糊输入 */
+  filterType?: 'select' | 'text';
+  /** 筛选提交到后端的查询参数名（默认用 key，如审计页操作人→actor） */
+  filterParam?: string;
   filterOptions?: string[];
   form?: boolean;
   type?: CrudFieldType;
   options?: string[];
   required?: boolean;
+}
+
+/** 时间范围筛选（如审计日志按操作时间区间过滤） */
+export interface RangeFilter {
+  key: string;
+  label: string;
+  fromParam: string;
+  toParam: string;
 }
 
 export interface CrudApi {
@@ -37,6 +49,8 @@ export interface CrudPageProps {
   extraActions?: { label: string; run: (reload: () => void) => void | Promise<void> }[];
   /** 只读模式：隐藏新建/编辑/删除按钮与弹窗（用于审计日志等仅查看的表） */
   readonly?: boolean;
+  /** 时间范围筛选（起止日期） */
+  rangeFilters?: RangeFilter[];
 }
 
 function str(v: unknown): string {
@@ -92,7 +106,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const [pageToken, setPageToken] = useState<string | undefined>();
@@ -114,8 +128,12 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     try {
       const params: Record<string, string | undefined> = {};
       for (const c of filterCols) {
-        const v = filters[c.key];
-        if (v) params[c.key] = v;
+        const v = filters[c.filterParam ?? c.key];
+        if (v) params[c.filterParam ?? c.key] = v;
+      }
+      for (const rf of rangeFilters ?? []) {
+        if (filters[rf.fromParam]) params[rf.fromParam] = filters[rf.fromParam];
+        if (filters[rf.toParam]) params[rf.toParam] = filters[rf.toParam];
       }
       if (token) params.pageToken = token;
       const res = await api.list(params);
@@ -211,11 +229,34 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         </div>
       </div>
 
-      {filterCols.length > 0 && (
+      {(filterCols.length > 0 || (rangeFilters ?? []).length > 0) && (
         <div className="filter-bar">
-          {filterCols.map((c) => (
-            <FilterSelect key={c.key} label={c.label} value={filters[c.key] ?? ''}
-              onChange={(v) => setFilters((f) => ({ ...f, [c.key]: v }))} options={c.filterOptions ?? c.options ?? []} />
+          {filterCols.map((c) =>
+            c.filterType === 'text' ? (
+              <input
+                key={c.key}
+                className="form-input"
+                style={{ width: 160 }}
+                placeholder={`筛选${c.label}`}
+                value={filters[c.filterParam ?? c.key] ?? ''}
+                onChange={(e) => setFilters((f) => ({ ...f, [c.filterParam ?? c.key]: e.target.value }))}
+              />
+            ) : (
+              <FilterSelect key={c.key} label={c.label} value={filters[c.key] ?? ''}
+                onChange={(v) => setFilters((f) => ({ ...f, [c.key]: v }))} options={c.filterOptions ?? c.options ?? []} />
+            ),
+          )}
+          {(rangeFilters ?? []).map((rf) => (
+            <span key={rf.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{rf.label}</span>
+              <input className="form-input" type="date" style={{ width: 150 }}
+                value={filters[rf.fromParam] ?? ''}
+                onChange={(e) => setFilters((f) => ({ ...f, [rf.fromParam]: e.target.value }))} />
+              <span style={{ color: 'var(--fg-tertiary)' }}>~</span>
+              <input className="form-input" type="date" style={{ width: 150 }}
+                value={filters[rf.toParam] ?? ''}
+                onChange={(e) => setFilters((f) => ({ ...f, [rf.toParam]: e.target.value }))} />
+            </span>
           ))}
           <button className="btn btn-ghost btn-sm" onClick={() => setFilters({})}>重置</button>
         </div>

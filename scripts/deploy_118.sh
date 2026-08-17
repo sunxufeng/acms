@@ -22,10 +22,10 @@ for f in "$LOCAL_API_TAR" "$LOCAL_PKGS_TAR" "$LOCAL_WEB_TAR"; do
 done
 
 echo "=== 上传产物 ==="
-sshpass $SSH_OPTS scp "$LOCAL_API_TAR" "$LOCAL_PKGS_TAR" "$LOCAL_WEB_TAR" "${SSH_USER}@${SSH_HOST}:/tmp/"
+sshpass -e scp $SSH_OPTS "$LOCAL_API_TAR" "$LOCAL_PKGS_TAR" "$LOCAL_WEB_TAR" "${SSH_USER}@${SSH_HOST}:/tmp/"
 
 echo "=== 原子停止双服务 → 解压 → 启动双服务 ==="
-sshpass $SSH_OPTS ssh $SSH_OPTS "${SSH_USER}@${SSH_HOST}" '
+sshpass -e ssh $SSH_OPTS "${SSH_USER}@${SSH_HOST}" '
 set -e
 systemctl stop acms-api acms-web
 sleep 1

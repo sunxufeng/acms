@@ -11,10 +11,16 @@ const TABLE = TABLES.studentProfile.tableId;
 
 /** 关联类字段（DuplexLink/SingleLink/Attachment），M1 只读，编辑时跳过 */
 const READONLY_FIELDS = new Set([
-  '学生编号', '监护人与家庭', '学籍与班级历史', '健康与安全档案', '证件与文件', '授权与同意',
-  '学生照片', '当前学年', '当前班级', '接送授权人员', '服务分配', '数据变更审计',
+  '学生编号', '监护人与家庭', '学籍与班级历史', '健康与安全档案', '授权与同意',
+  '证件与文件', '当前学年', '当前班级', '接送授权人员', '服务分配', '数据变更审计',
   '定制课程方案', '课程修读关系', '数据范围授权', '创建时间', '创建人', '更新时间', '最后修改人',
 ]);
+
+/** 附件字段（学生照片）：上传接口专用，值已是飞书附件对象数组，须原样透传，不可走 toWriteMulti */
+const ATTACHMENT_FIELDS = new Set(['学生照片']);
+
+/** 证件与文件关联表（type=21 关联字段指向此表），附件实体存于此表的「文件附件」字段 */
+const DOC_TABLE = 'tblJDhpAEOVhCwE2';
 
 /** L3/L4 脱敏字段（导出时掩码或隐藏） */
 const SENSITIVE_FIELDS: { L3: string[]; L4: string[] } = {
@@ -43,6 +49,11 @@ export class StudentService {
     for (const [k, v] of Object.entries(dto)) {
       if (READONLY_FIELDS.has(k)) continue;
       if (v === undefined || v === null) continue;
+      if (ATTACHMENT_FIELDS.has(k)) {
+        // 附件字段：飞书附件对象数组原样透传（{ file_token } / { file_token, name }）
+        fields[k] = v;
+        continue;
+      }
       if (Array.isArray(v)) {
         fields[k] = toWriteMulti(v);
       } else if (typeof v === 'string') {
@@ -135,7 +146,45 @@ export class StudentService {
       dataLevel: student.数据密级 as string | undefined,
     });
     if (!decision.allowed) throw new ForbiddenException('FORBIDDEN:campus/data-level');
+    // 解析「证件与文件」关联字段为可读附件列表（[{file_token,name}]）
+    student['证件与文件'] = await this.resolveDocFiles(student['证件与文件']);
     return student;
+  }
+
+  /**
+   * 把学生记录的「证件与文件」关联字段（[{record_ids:[...],...}]）解析为附件列表。
+   * 关联表(tblJDhpAEOVhCwE2)的「文件附件」存实际 file_token，「文件名称」存文件名。
+   */
+  private async resolveDocFiles(link: unknown): Promise<Array<{ file_token: string; name?: string }>> {
+    const arr = Array.isArray(link) ? (link as Array<{ record_ids?: string[] }>) : [];
+    const recordIds = arr[0]?.record_ids ?? [];
+    if (recordIds.length === 0) return [];
+    const docs = await Promise.all(
+      recordIds.map((rid) => this.base.get(DOC_TABLE, rid).catch(() => null)),
+    );
+    const out: Array<{ file_token: string; name?: string }> = [];
+    for (const d of docs) {
+      if (!d) continue;
+      const att = Array.isArray(d.fields['文件附件']) ? (d.fields['文件附件'] as Array<{ file_token?: string }>)[0] : undefined;
+      const ft = att?.file_token;
+      if (!ft) continue;
+      out.push({ file_token: ft, name: (d.fields['文件名称'] as string) || undefined });
+    }
+    return out;
+  }
+
+  /**
+   * 上传「证件与文件」：飞书实体存于关联表(tblJDhpAEOVhCwE2)的「文件附件」字段，
+   * 并通过「关联学生」反向链接到学生（双向关联自动回填学生的「证件与文件」）。
+   */
+  async attachDoc(user: SessionUser, studentId: string, fileToken: string, name: string): Promise<string> {
+    // 先校验学生存在 + read ABAC
+    await this.detail(user, studentId);
+    return this.base.create(DOC_TABLE, {
+      文件附件: [{ file_token: fileToken }],
+      文件名称: name,
+      关联学生: [studentId],
+    } as Record<string, unknown>);
   }
 
   /** 新建（ABAC write 校验） */

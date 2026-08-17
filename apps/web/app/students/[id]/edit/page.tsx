@@ -14,7 +14,6 @@ export default function EditStudentPage() {
   const [student, setStudent] = useState<StudentRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
@@ -25,16 +24,9 @@ export default function EditStudentPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const handleSubmit = async (data: Record<string, unknown>) => {
-    setSubmitting(true);
-    setMsg('');
-    try {
-      await api.updateStudent(id, data);
-      router.push('/students');
-    } catch (e) {
-      setMsg('保存失败：' + (e as Error).message);
-      setSubmitting(false);
-    }
+  // 表单内部已负责保存；保存成功后跳回列表
+  const handleSubmit = () => {
+    router.push('/students');
   };
 
   if (loading) {
@@ -71,7 +63,7 @@ export default function EditStudentPage() {
 
       {msg && <p className="msg-error">{msg}</p>}
 
-      <StudentForm initial={student} onSubmit={handleSubmit} submitting={submitting} />
+      <StudentForm initial={student} onSubmit={handleSubmit} />
     </div>
   );
 }

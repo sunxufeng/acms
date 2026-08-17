@@ -143,6 +143,12 @@ export function StudentForm({
   const photoInputRef = useRef<HTMLInputElement>(null);
   const attInputRef = useRef<HTMLInputElement>(null);
 
+  // 记录 ID：编辑态由 initial 提供；新建态在首次保存/上传时由表单自动建记录后写入
+  const [studentId, setStudentId] = useState<string | undefined>(initial?.id as string | undefined);
+  const [saving, setSaving] = useState(false);
+  // 防止并发上传时重复建记录：首个 ensureRecord 创建中的 Promise 被复用
+  const createPromiseRef = useRef<Promise<string> | null>(null);
+
   // 从 initial 数据提取照片和附件
   useEffect(() => {
     if (initial) {
@@ -204,7 +210,7 @@ function PhotoAttachmentSection({
               </div>
             )}
           </div>
-          {!readOnly && studentId && (
+          {!readOnly && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 4 }}>
               <button type="button" className="btn btn-outline btn-sm" onClick={onPhotoUpload} disabled={uploadingPhoto}>
                 {uploadingPhoto ? '上传中...' : '上传照片'}
@@ -233,7 +239,7 @@ function PhotoAttachmentSection({
             ))}
           </div>
         )}
-        {!readOnly && studentId && (
+        {!readOnly && (
           <div style={{ marginTop: 10 }}>
             <button type="button" className="btn btn-outline btn-sm" onClick={onAttUpload} disabled={uploadingAtt}>
               {uploadingAtt ? '上传中...' : '上传附件'}
@@ -268,34 +274,8 @@ function PhotoAttachmentSection({
 
   const setField = (key: string, val: unknown) => setValues((p) => ({ ...p, [key]: val }));
 
-  /** 上传照片 */
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !initial?.id) return;
-    // 仅允许图片
-    if (!file.type.startsWith('image/')) { alert('请选择图片文件'); return; }
-    setUploadingPhoto(true);
-    try {
-      const res = await api.uploadStudentPhoto(initial.id as string, file);
-      setPhotos((prev) => [...prev, { file_token: res.file_token }]);
-    } catch (err) { alert('上传失败：' + (err as Error).message); }
-    finally { setUploadingPhoto(false); if (photoInputRef.current) photoInputRef.current.value = ''; }
-  };
-
-  /** 上传附件 */
-  const handleAttUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !initial?.id) return;
-    setUploadingAtt(true);
-    try {
-      const res = await api.uploadStudentAttachment(initial.id as string, file);
-      setAttachments((prev) => [...prev, { file_token: res.file_token, name: res.name }]);
-    } catch (err) { alert('上传失败：' + (err as Error).message); }
-    finally { setUploadingAtt(false); if (attInputRef.current) attInputRef.current.value = ''; }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  /** 收集当前表单字段（与提交一致） */
+  const buildData = (): Record<string, unknown> => {
     const data: Record<string, unknown> = {};
     for (const section of STUDENT_SECTIONS) {
       for (const f of section.fields) {
@@ -308,7 +288,66 @@ function PhotoAttachmentSection({
         }
       }
     }
-    onSubmit(data);
+    return data;
+  };
+
+  /** 确保已有记录 ID：新建态首次上传/保存时自动建记录（并发安全，避免重复建记录） */
+  const ensureRecord = async (): Promise<string> => {
+    if (studentId) return studentId;
+    if (createPromiseRef.current) return createPromiseRef.current;
+    const p = (async () => {
+      const created = await api.createStudent(buildData());
+      setStudentId(created.id);
+      return created.id;
+    })();
+    createPromiseRef.current = p;
+    return p;
+  };
+
+  /** 上传照片 */
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // 仅允许图片
+    if (!file.type.startsWith('image/')) { alert('请选择图片文件'); return; }
+    if (!values['学生姓名']?.toString().trim()) { alert('请先填写「学生姓名」再上传照片'); return; }
+    setUploadingPhoto(true);
+    try {
+      const id = await ensureRecord();
+      const res = await api.uploadStudentPhoto(id, file);
+      setPhotos((prev) => [...prev, { file_token: res.file_token }]);
+    } catch (err) { alert('上传失败：' + (err as Error).message); }
+    finally { setUploadingPhoto(false); if (photoInputRef.current) photoInputRef.current.value = ''; }
+  };
+
+  /** 上传附件 */
+  const handleAttUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!values['学生姓名']?.toString().trim()) { alert('请先填写「学生姓名」再上传附件'); return; }
+    setUploadingAtt(true);
+    try {
+      const id = await ensureRecord();
+      const res = await api.uploadStudentAttachment(id, file);
+      setAttachments((prev) => [...prev, { file_token: res.file_token, name: res.name }]);
+    } catch (err) { alert('上传失败：' + (err as Error).message); }
+    finally { setUploadingAtt(false); if (attInputRef.current) attInputRef.current.value = ''; }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const data = buildData();
+    setSaving(true);
+    try {
+      if (studentId) {
+        await api.updateStudent(studentId, data);
+      } else {
+        const created = await api.createStudent(data);
+        setStudentId(created.id);
+      }
+      onSubmit(data);
+    } catch (err) { alert('保存失败：' + (err as Error).message); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -318,7 +357,7 @@ function PhotoAttachmentSection({
         photos={photos}
         attachments={attachments}
         readOnly={!!readOnly}
-        studentId={initial?.id as string | undefined}
+        studentId={studentId}
         uploadingPhoto={uploadingPhoto}
         uploadingAtt={uploadingAtt}
         onPhotoUpload={() => photoInputRef.current?.click()}
@@ -396,12 +435,12 @@ function PhotoAttachmentSection({
 
       {!readOnly && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8 }}>
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? '保存中…' : '保存'}
+          <button type="submit" className="btn btn-primary" disabled={saving || submitting}>
+            {saving ? '保存中…' : '保存'}
           </button>
           {!initial && (
             <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
-              保存后将自动跳转到列表页
+              保存后可直接在此上传照片与附件
             </span>
           )}
         </div>

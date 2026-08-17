@@ -2,25 +2,14 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { api } from '../../../lib/api';
 import { StudentForm } from '../../../components/StudentForm';
 
 export default function NewStudentPage() {
-  const router = useRouter();
-  const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState('');
 
-  const handleSubmit = async (data: Record<string, unknown>) => {
-    setSubmitting(true); setMsg('');
-    try {
-      const created = await api.createStudent(data);
-      // 创建成功后跳转编辑页，便于立即补充照片与附件（上传需先有记录 ID）
-      router.push(`/students/${created.id}/edit`);
-    } catch (e) {
-      setMsg('创建失败：' + (e as Error).message);
-      setSubmitting(false);
-    }
+  // 表单内部已负责建记录/上传；此处仅作保存后的提示（不跳转，便于立即上传照片与附件）
+  const handleSubmit = () => {
+    setMsg('已创建学生档案，可继续上传照片与附件，或完善信息后再次保存。');
   };
 
   return (
@@ -39,9 +28,9 @@ export default function NewStudentPage() {
         </div>
       </div>
 
-      {msg && <p className="msg-error">{msg}</p>}
+      {msg && <p className="msg-success">{msg}</p>}
 
-      <StudentForm onSubmit={handleSubmit} submitting={submitting} />
+      <StudentForm onSubmit={handleSubmit} />
     </div>
   );
 }

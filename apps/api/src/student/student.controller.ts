@@ -97,18 +97,15 @@ export class StudentController {
     return { ok: true, file_token };
   }
 
-  /** 上传学生附件（证件与文件） */
+  /** 上传学生附件（证件与文件）：在关联表建记录并双向链接到学生 */
   @Post(':id/attachments')
   @UseInterceptors(FileInterceptor('file'))
   async uploadAttachment(@Req() req: Request, @Param('id') id: string, @UploadedFile() file: any) {
     if (!file) throw new Error('NO_FILE');
     if (file.size > 20 * 1024 * 1024) throw new Error('FILE_TOO_LARGE');
     const { file_token } = await this.fileUpload.uploadFile(file.buffer, file.originalname, file.mimetype);
-    const user = this.user(req);
-    const existing = await this.svc.detail(user, id);
-    const currentFiles = Array.isArray(existing['证件与文件']) ? existing['证件与文件'] : [];
-    await this.svc.update(user, id, { 证件与文件: [...currentFiles.map((f: any) => ({ file_token: f.file_token ?? f })), { file_token, name: file.originalname }] as any });
-    return { ok: true, file_token, name: file.originalname };
+    const recordId = await this.svc.attachDoc(this.user(req), id, file_token, file.originalname);
+    return { ok: true, file_token, name: file.originalname, record_id: recordId };
   }
 
   /** 获取附件下载 URL */

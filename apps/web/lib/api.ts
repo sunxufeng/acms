@@ -6,10 +6,13 @@ export interface ApiError {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // multipart 上传（FormData）不能带 Content-Type，必须由浏览器自动填充 boundary，
+  // 否则服务端 multer/FileInterceptor 会因非 multipart/form-data 直接返回 400。
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(options.headers || {}),
     },
     ...options,
@@ -83,20 +86,20 @@ export const api = {
   uploadStudentPhoto: (id: string, file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return request<{ ok: boolean; file_token: string }>(
-      `/students/${id}/photo`,
-      { method: 'POST', body: form as any, headers: {} as Record<string, string> },
-    );
+    return request<{ ok: boolean; file_token: string }>(`/students/${id}/photo`, {
+      method: 'POST',
+      body: form as unknown as BodyInit,
+    });
   },
 
   /** 上传学生附件（multipart） */
   uploadStudentAttachment: (id: string, file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return request<{ ok: boolean; file_token: string; name: string }>(
-      `/students/${id}/attachments`,
-      { method: 'POST', body: form as any, headers: {} as Record<string, string> },
-    );
+    return request<{ ok: boolean; file_token: string; name: string }>(`/students/${id}/attachments`, {
+      method: 'POST',
+      body: form as unknown as BodyInit,
+    });
   },
 
   /** 获取附件下载 URL */

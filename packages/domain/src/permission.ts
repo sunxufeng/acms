@@ -5,9 +5,12 @@ import {
   type Role,
 } from '@acms/contracts';
 
-/** RBAC：角色 → 权限点（M0 基线，后续按 BR 业务规则细化） */
-const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
-    系统管理员: [
+/**
+ * RBAC：角色 → 权限点。键为 Base 系统用户表「系统角色」实际选项（与 ROLES 一致）。
+ * 导出供权限矩阵 UI / 接口使用。admin:user 仅授予系统管理员，避免普通管理员互删。
+ */
+export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
+  系统管理员: [
     'student:read', 'student:write', 'student:archive',
     'followup:read', 'followup:write',
     'attendance:read', 'attendance:write', 'attendance:approve',
@@ -26,11 +29,11 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'schedule:read', 'schedule:write',
     'export:run', 'admin:user', 'admin:audit', 'config:read', 'config:write',
   ],
-  校区管理员: [
+  院级管理: [
     'student:read', 'student:write', 'student:archive',
     'followup:read', 'followup:write',
     'attendance:read', 'attendance:write', 'attendance:approve',
-    'billing:read', 'billing:write', 'billing:confirm',
+    'billing:read', 'billing:write', 'billing:confirm', 'billing:settle',
     'partnership:read', 'partnership:write',
     'finance:read', 'finance:approve',
     'notification:read', 'notification:write', 'notification:send',
@@ -45,8 +48,8 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'schedule:read', 'schedule:write',
     'export:run', 'admin:audit', 'config:read', 'config:write',
   ],
-  教务管理员: [
-    'student:read',
+  教务: [
+    'student:read', 'student:write', 'student:archive',
     'attendance:read', 'attendance:write', 'attendance:approve',
     'billing:read', 'billing:write', 'billing:confirm',
     'notification:read', 'notification:write', 'notification:send',
@@ -59,15 +62,21 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'schedule:read', 'schedule:write',
     'export:run', 'config:read', 'config:write',
   ],
-  财务: ['student:read', 'export:run', 'billing:read', 'billing:write', 'billing:confirm', 'billing:settle', 'partnership:read', 'partnership:write', 'finance:read', 'finance:approve', 'notification:read'],
-  教师: [
+  财务: [
+    'student:read', 'export:run',
+    'billing:read', 'billing:write', 'billing:confirm', 'billing:settle',
+    'partnership:read', 'partnership:write',
+    'finance:read', 'finance:approve',
+    'notification:read',
+  ],
+  教师本人: [
     'student:read',
     'attendance:read', 'attendance:write',
     'grade:read', 'grade:write',
     'activity:read', 'activity:write',
     'evaluation:read', 'evaluation:write',
   ],
-  班主任: [
+  学生事务: [
     'student:read',
     'followup:read', 'followup:write',
     'attendance:read', 'attendance:write',
@@ -76,22 +85,38 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'communication:read', 'communication:write',
     'evaluation:read', 'evaluation:write',
   ],
-  招生顾问: ['student:read', 'student:write', 'followup:read', 'followup:write'],
-  学生: ['grade:read', 'attendance:read', 'activity:read', 'evaluation:read'],
-  家长: ['grade:read', 'attendance:read', 'activity:read'],
+  招生: ['student:read', 'student:write', 'followup:read', 'followup:write'],
+  HR行政: [
+    'student:read',
+    'teacher:read', 'teacher:write', 'teacher:archive',
+    'course:read', 'course:write',
+    'venue:read', 'venue:write',
+    'schedule:read', 'schedule:write',
+    'notification:read', 'notification:write', 'notification:send',
+    'alumni:read', 'alumni:write',
+    'config:read', 'config:write',
+  ],
+  审计: [
+    'student:read', 'followup:read', 'attendance:read', 'billing:read',
+    'partnership:read', 'finance:read', 'notification:read',
+    'grade:read', 'activity:read', 'communication:read', 'evaluation:read',
+    'alumni:read', 'teacher:read',
+    'course:read', 'venue:read', 'schedule:read',
+    'export:run', 'admin:audit', 'config:read',
+  ],
 };
 
-/** 角色 → 默认数据密级上限 */
+/** 角色 → 默认数据密级上限（引擎等级 L1–L4） */
 const ROLE_MAX_LEVEL: Record<Role, DataLevel> = {
   系统管理员: 'L4',
-  校区管理员: 'L4',
-  教务管理员: 'L3',
+  院级管理: 'L4',
+  教务: 'L3',
   财务: 'L3',
-  教师: 'L2',
-  班主任: 'L3',
-  招生顾问: 'L2',
-  学生: 'L2',
-  家长: 'L2',
+  教师本人: 'L2',
+  学生事务: 'L3',
+  招生: 'L2',
+  HR行政: 'L3',
+  审计: 'L4',
 };
 
 export interface Principal {

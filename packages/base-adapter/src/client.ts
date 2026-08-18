@@ -110,7 +110,8 @@ export class BaseClient {
     return out;
   }
 
-  private async req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  /** 原始请求：返回完整 FeishuResp（含 has_more / page_token，供分页用） */
+  private async reqRaw<T>(method: string, path: string, body?: unknown): Promise<FeishuResp<T>> {
     const token = await this.tokens.getToken();
     let lastErr: Error | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -124,7 +125,7 @@ export class BaseClient {
           body: body === undefined ? undefined : JSON.stringify(body),
         });
         const json = (await res.json()) as FeishuResp<T>;
-        if (json.code === 0 && json.data !== undefined) return json.data;
+        if (json.code === 0 && json.data !== undefined) return json;
         // 429/限流退避重试
         if (json.code === 99991400 || res.status === 429) {
           await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
@@ -137,6 +138,10 @@ export class BaseClient {
       }
     }
     throw lastErr ?? new Error('feishu request failed');
+  }
+
+  private async req<T>(method: string, path: string, body?: unknown): Promise<T> {
+    return (await this.reqRaw<T>(method, path, body)).data as T;
   }
 
   private url(tableId: string, tail = ''): string {
@@ -226,19 +231,29 @@ export class BaseClient {
     await this.req('DELETE', `${this.url(tableId)}/records/${recordId}`);
   }
 
-  /** 表结构（Schema Drift 检测用），含 property（单选/多选的 options 用于合并字典） */
+  /** 表结构（Schema Drift 检测用），含 property（单选/多选的 options 用于合并字典）。
+   *  注意：飞书 fields 列表接口分页（每页最多 100），必须翻页，否则表字段数 >100 时
+   *  只能看到前 100 个字段，导致「已存在字段被误判为缺失 → FieldNameDuplicated」。 */
   async listFields(
     tableId: string,
   ): Promise<{ id: string; name: string; type: number; property: { options?: { name: string; id?: string }[] } }[]> {
-    const d = await this.req<{
-      items?: { field_id: string; field_name: string; type: number; property?: { options?: { name: string; id?: string }[] } }[];
-    }>('GET', `${this.url(tableId)}/fields?page_size=100`);
-    return (d.items ?? []).map((f) => ({
-      id: f.field_id,
-      name: f.field_name,
-      type: f.type,
-      property: f.property ?? {},
-    }));
+    const out: { id: string; name: string; type: number; property: { options?: { name: string; id?: string }[] } }[] = [];
+    let pageToken: string | undefined;
+    do {
+      const path = `${this.url(tableId)}/fields?page_size=100${pageToken ? `&page_token=${pageToken}` : ''}`;
+      const resp = await this.reqRaw<{
+        items?: { field_id: string; field_name: string; type: number; property?: { options?: { name: string; id?: string }[] } }[];
+        has_more?: boolean;
+        page_token?: string;
+      }>('GET', path);
+      const data = resp.data;
+      if (!data) break;
+      for (const f of data.items ?? []) {
+        out.push({ id: f.field_id, name: f.field_name, type: f.type, property: f.property ?? {} });
+      }
+      pageToken = data.has_more ? data.page_token : undefined;
+    } while (pageToken);
+    return out;
   }
 
   /** 更新字段（合并单选/多选选项用）。飞书要求 PUT + 完整 property */
@@ -248,6 +263,24 @@ export class BaseClient {
     body: { field_name: string; type: number; property: { options: { name: string }[] } },
   ): Promise<void> {
     await this.req('PUT', `${this.url(tableId)}/fields/${fieldId}`, body);
+  }
+
+  /** 新建字段（幂等迁移用）。type: 1=文本, 3=单选, 4=多选。已存在则跳过（由调用方先 listFields 判定） */
+  async createField(
+    tableId: string,
+    body: { field_name: string; type: number; property?: { options?: { name: string }[] } },
+  ): Promise<{ field_id: string; field_name: string; type: number }> {
+    const d = await this.req<{
+      field_id: string;
+      field_name: string;
+      type: number;
+    }>('POST', `${this.url(tableId)}/fields`, body);
+    return { field_id: d.field_id, field_name: d.field_name, type: d.type };
+  }
+
+  /** 删除字段（字段类型迁移用，例如 User(11)→Text(1)）。 */
+  async deleteField(tableId: string, fieldId: string): Promise<void> {
+    await this.req('DELETE', `${this.url(tableId)}/fields/${fieldId}`);
   }
 
   async listTables(): Promise<{ tableId: string; name: string }[]> {

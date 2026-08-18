@@ -26,7 +26,7 @@ export class AdjustmentService {
     if (query.方向) conditions.push({ field: '方向', value: [query.方向] });
     if (query.状态) conditions.push({ field: '状态', value: [query.状态] });
     const sort = [{ field: '更新时间', desc: query.sortOrder !== 'asc' }];
-    const res = await this.base.search(TABLE, { pageSize: 50, pageToken: query.pageToken, filter: buildFilter(conditions), sort });
+    const res = await this.base.search(TABLE, { pageSize: Number((query as any).pageSize) || 50, pageToken: query.pageToken, filter: buildFilter(conditions), sort });
     return { items: res.items.map((r) => toFlatRecord(r, READONLY, new Set())), total: res.total, hasMore: res.hasMore, pageToken: res.pageToken };
   }
 

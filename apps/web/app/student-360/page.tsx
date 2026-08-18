@@ -9,7 +9,7 @@ interface StudentHit {
   学生编号?: string;
   当前状态?: string;
   校区?: string;
-  当前年级?: string;
+  入学年级?: string;
   班级?: string;
 }
 
@@ -25,6 +25,12 @@ const SECTION_COLUMNS: Record<string, { key: string; label: string; width?: stri
     { key: '活动类型', label: '活动类型', width: '100px' },
     { key: '跟进日期', label: '跟进日期', width: '120px' },
     { key: '跟进状态', label: '状态', width: '100px' },
+    { key: '原学校', label: '原学校', width: '140px' },
+    { key: '原学校类型', label: '原学校类型', width: '120px' },
+    { key: '合同状态', label: '合同状态', width: '110px' },
+    { key: '付款状态', label: '付款状态', width: '110px' },
+    { key: '奖学金金额', label: '奖学金金额', width: '120px' },
+    { key: '家庭关键决策点', label: '家庭关键决策点', width: '140px' },
     { key: '跟进内容', label: '跟进内容' },
   ],
   'student-attendances': [
@@ -171,7 +177,7 @@ export default function Student360Page() {
               <li key={h.id} onClick={() => selectStudent(h)}>
                 <span className="hit-name">{str(h.学生姓名) || '(无名)'}</span>
                 <span className="hit-meta">
-                  {str(h.学生编号)} · {str(h.当前状态)} · {str(h.校区)} {str(h.当前年级)} {str(h.班级)}
+                  {str(h.学生编号)} · {str(h.当前状态)} · {str(h.校区)} {str(h.入学年级)} {str(h.班级)}
                 </span>
               </li>
             ))}
@@ -198,7 +204,7 @@ export default function Student360Page() {
                 <span className="badge">{str(data.student.当前状态) || '未知状态'}</span>
               </div>
               <div className="sh-sub">
-                {[data.student.学生编号, data.student.校区, data.student.当前年级, data.student.班级, data.student.当前学段]
+                {[data.student.学生编号, data.student.校区, data.student.入学年级, data.student.班级, data.student.当前学段]
                   .map(str)
                   .filter(Boolean)
                   .join(' · ')}

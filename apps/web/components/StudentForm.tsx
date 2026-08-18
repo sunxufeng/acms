@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 
-export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone' | 'textarea';
+export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone' | 'textarea' | 'number';
 
 export interface FieldDef {
   key: string;
@@ -14,6 +14,9 @@ export interface FieldDef {
   dictKey?: string;
   /** 多选字段以单选下拉呈现（存储仍保持数组，兼容飞书多选字段） */
   singleChoice?: boolean;
+  /** 数字字段范围（前端校验用） */
+  min?: number;
+  max?: number;
 }
 
 export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
@@ -21,7 +24,7 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     title: '基本信息',
     fields: [
       { key: '学生姓名', label: '学生姓名', type: 'text' },
-      { key: '性别', label: '性别', type: 'select', options: ['男', '女', '其他'] },
+      { key: '性别', label: '性别', type: 'select', dictKey: '性别', options: ['男', '女'] },
       { key: '出生日期', label: '出生日期', type: 'date' },
       { key: '姓名拼音', label: '姓名拼音', type: 'text' },
       { key: '英文名', label: '英文名', type: 'text' },
@@ -29,10 +32,15 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '国籍或地区', label: '国籍或地区', type: 'text' },
       { key: '民族', label: '民族', type: 'text' },
       { key: '籍贯', label: '籍贯', type: 'text' },
-      { key: '户籍类型', label: '户籍类型', type: 'select', options: ['城镇', '农村'] },
-      { key: '政治面貌', label: '政治面貌', type: 'text' },
-      { key: '入学级', label: '入学级', type: 'select', dictKey: '入学级', options: ['2021', '2022', '2023', '2024', '2025', '2026', '2027'] },
+      { key: '现居住省', label: '现居住省', type: 'select', dictKey: '现居住省' },
+      { key: '城市', label: '城市', type: 'select', dictKey: '城市' },
+      { key: '户籍类型', label: '户籍类型', type: 'select', dictKey: '户籍类型', options: ['城镇', '农村'] },
+      { key: '政治面貌', label: '政治面貌', type: 'select', dictKey: '政治面貌', options: ['群众', '团员', '党员', '无党派'] },
+      { key: '入学年份', label: '入学年份', type: 'select', dictKey: '入学年份' },
+      { key: 'Arete毕业届', label: 'Arete毕业届', type: 'select', dictKey: 'Arete毕业届', options: ['第1届', '第2届', '第3届', '第4届', '第5届', '第6届'] },
       { key: '毕业届', label: '毕业届', type: 'select', dictKey: '毕业届', options: ['2021', '2022', '2023', '2024', '2025', '2026', '2027'] },
+      { key: '日常禁忌', label: '日常禁忌', type: 'text' },
+      { key: '宗教信仰', label: '宗教信仰', type: 'text' },
     ],
   },
   {
@@ -42,7 +50,8 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '班级', label: '班级', type: 'select', dictKey: '班级', options: ['Foundation', 'Pre1', 'Pre2', 'Pre3', '大一班'] },
       { key: '校区', label: '校区', type: 'select', dictKey: '校区', options: ['主校区', '东校区', '西校区', '南校区', '北校区', '国际部校区'] },
       { key: '当前学段', label: '当前学段', type: 'select', dictKey: '当前学段', options: ['幼儿园', '小学', '初中', '高中', '国际课程'] },
-      { key: '当前年级', label: '当前年级', type: 'select', dictKey: '当前年级', options: ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '初一', '初二', '初三', '高一', '高二', '高三'] },
+      { key: '入学年级', label: '入学年级', type: 'select', dictKey: '入学年级', options: ['托班', '小班', '中班', '大班', '一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '初一', '初二', '初三', '高一', '高二', '高三'] },
+      { key: '实际学制', label: '实际学制', type: 'select', dictKey: '实际学制' },
       { key: '入学类型', label: '入学类型', type: 'select', dictKey: '入学类型', options: ['统招', '国际', '插班', '转学'] },
       { key: '入学日期', label: '入学日期', type: 'date' },
       { key: '预计毕业日期', label: '预计毕业日期', type: 'date' },
@@ -51,8 +60,8 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '毕业学校', label: '毕业学校', type: 'text' },
       { key: '专业学科', label: '专业学科', type: 'text' },
       { key: '就读方式', label: '就读方式', type: 'text' },
-      { key: '数据密级', label: '数据密级', type: 'select', options: ['L1', 'L2', 'L3', 'L4'] },
-      { key: '档案完整度', label: '档案完整度', type: 'select', options: ['完整', '待补充', '缺失'] },
+      { key: '数据密级', label: '数据密级', type: 'select', dictKey: '数据密级', options: ['L1', 'L2', 'L3', 'L4'] },
+      { key: '档案完整度', label: '档案完整度', type: 'select', dictKey: '档案完整度', options: ['完整', '待补充', '缺失'] },
       { key: '当前状态', label: '当前状态', type: 'select', dictKey: '当前状态', options: ['已录未报到', '在校在读', '离校未毕(休学）', '离校未毕(保留学籍）', '毕业', '退学', '放弃入学', '潜在学生'] },
       { key: '最近核验日期', label: '最近核验日期', type: 'date' },
     ],
@@ -68,7 +77,8 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '邮政编码', label: '邮政编码', type: 'text' },
       { key: '学生微信号', label: '学生微信号', type: 'text' },
       { key: '飞书 Open ID', label: '飞书 Open ID', type: 'text' },
-      { key: '学生标签', label: '学生标签', type: 'text' },
+      { key: '学生标签', label: '学生标签（可多选/可新建）', type: 'multiselect', dictKey: '学生标签' },
+      { key: '特长标签', label: '特长标签', type: 'multiselect', dictKey: '特长标签', singleChoice: true },
       { key: '备注', label: '备注', type: 'text' },
     ],
   },
@@ -79,6 +89,8 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '特殊支持摘要', label: '特殊支持摘要', type: 'multiselect', dictKey: '特殊支持摘要', singleChoice: true, options: ['学习支持', '心理支持', '行为支持', '语言支持', '医疗支持', '经济支持'] },
       { key: '摘要', label: '摘要', type: 'textarea' },
       { key: '宿舍信息', label: '宿舍信息', type: 'text' },
+      { key: '既往病史', label: '既往病史', type: 'textarea' },
+      { key: '心理状态', label: '心理状态', type: 'textarea' },
     ],
   },
   {
@@ -88,8 +100,91 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '生源跟进状态', label: '生源跟进状态', type: 'select', dictKey: '生源跟进状态', options: ['新线索', '跟进中', '已报名', '已入学', '已流失'] },
       { key: '招生负责老师', label: '招生负责老师（open_id）', type: 'user' },
       { key: '班主任', label: '班主任（open_id）', type: 'user' },
-      { key: '数据负责人', label: '数据负责人（open_id）', type: 'user' },
+      { key: '数据负责人', label: '数据负责人', type: 'user' },
       { key: '通知状态', label: '通知状态', type: 'select', dictKey: '通知状态', options: ['未订阅', '订阅中', '退订', '已发送', '已读'] },
+      { key: '原学校', label: '原学校', type: 'text' },
+      { key: '原学校类型', label: '原学校类型', type: 'select', dictKey: '原学校类型' },
+      { key: '合同状态', label: '合同状态', type: 'select', dictKey: '合同状态' },
+      { key: '付款状态', label: '付款状态', type: 'select', dictKey: '付款状态' },
+      { key: '奖学金金额', label: '奖学金金额', type: 'text' },
+      { key: '家庭关键决策点', label: '家庭关键决策点', type: 'select', dictKey: '家庭关键决策点' },
+    ],
+  },
+  {
+    title: '入学测试',
+    fields: [
+      { key: '数学笔试成绩', label: '数学笔试成绩（0-100）', type: 'number', min: 0, max: 100 },
+      { key: '英语笔试成绩', label: '英语笔试成绩（0-100）', type: 'number', min: 0, max: 100 },
+      { key: '英语标化类型', label: '英语标化类型', type: 'select', dictKey: '英语标化类型' },
+      { key: '英语标化成绩', label: '英语标化成绩', type: 'text' },
+      { key: '英语口语评分', label: '英语口语评分（0-100）', type: 'number', min: 0, max: 100 },
+      { key: '家长面谈情况', label: '家长面谈情况', type: 'textarea' },
+      { key: '学生面试情况', label: '学生面试情况', type: 'textarea' },
+      { key: '作品集/附加材料评价', label: '作品集/附加材料评价', type: 'textarea' },
+      { key: '综合评定等级', label: '综合评定等级', type: 'select', dictKey: '综合评定等级' },
+    ],
+  },
+  {
+    title: '学术表现',
+    fields: [
+      { key: 'GPA成绩类型', label: 'GPA成绩类型', type: 'select', dictKey: 'GPA成绩类型' },
+      { key: 'GPA成绩', label: 'GPA成绩', type: 'text' },
+      { key: '预警科目', label: '预警科目', type: 'text' },
+      { key: '提升成果', label: '提升成果', type: 'text' },
+      { key: '语言标化类型', label: '语言标化类型', type: 'select', dictKey: '语言标化类型' },
+      { key: '语言标化成绩', label: '语言标化成绩', type: 'text' },
+      { key: '学术标化类型', label: '学术标化类型', type: 'select', dictKey: '学术标化类型' },
+      { key: '学术标化成绩', label: '学术标化成绩', type: 'text' },
+      { key: '出勤率', label: '出勤率（0%-100%）', type: 'number', min: 0, max: 100 },
+      { key: '作业完成率', label: '作业完成率（0%-100%）', type: 'number', min: 0, max: 100 },
+      { key: '核心课程表现', label: '核心课程表现', type: 'textarea' },
+    ],
+  },
+  {
+    title: '成长表现',
+    fields: [
+      { key: '社团表现', label: '社团表现', type: 'textarea' },
+      { key: '社区服务表现', label: '社区服务表现', type: 'textarea' },
+      { key: '企业参访表现', label: '企业参访表现', type: 'textarea' },
+      { key: '创新创业PBL表现', label: '创新创业PBL表现', type: 'textarea' },
+      { key: 'AI LAB项目表现', label: 'AI LAB项目表现', type: 'textarea' },
+      { key: '亮点行动', label: '亮点行动', type: 'textarea' },
+      { key: '交付物', label: '交付物', type: 'textarea' },
+      { key: '项目导师评语/成长改进建议', label: '项目导师评语/成长改进建议', type: 'textarea' },
+      { key: 'IDP导师评语/成长改进建议', label: 'IDP导师评语/成长改进建议', type: 'textarea' },
+    ],
+  },
+  {
+    title: '家庭情况',
+    fields: [
+      { key: '父亲姓名', label: '父亲姓名', type: 'text' },
+      { key: '父亲单位', label: '父亲单位', type: 'text' },
+      { key: '父亲职位', label: '父亲职位', type: 'text' },
+      { key: '父亲电话', label: '父亲电话', type: 'phone' },
+      { key: '父亲邮箱', label: '父亲邮箱', type: 'email' },
+      { key: '母亲姓名', label: '母亲姓名', type: 'text' },
+      { key: '母亲单位', label: '母亲单位', type: 'text' },
+      { key: '母亲职位', label: '母亲职位', type: 'text' },
+      { key: '母亲电话', label: '母亲电话', type: 'phone' },
+      { key: '母亲邮箱', label: '母亲邮箱', type: 'email' },
+      { key: '是否企业家庭', label: '是否企业家庭', type: 'select', dictKey: '是否' },
+      { key: '是否工坊企业', label: '是否工坊企业', type: 'select', dictKey: '是否' },
+      { key: '是否多胎家庭', label: '是否多胎家庭', type: 'select', dictKey: '是否' },
+      { key: '家庭地址', label: '家庭地址', type: 'text' },
+      { key: '家长期待', label: '家长期待', type: 'textarea' },
+    ],
+  },
+  {
+    title: '升学阶段',
+    fields: [
+      { key: '升学导师', label: '升学导师（open_id）', type: 'user' },
+      { key: '初始留学意向', label: '初始留学意向', type: 'text' },
+      { key: '目标国家', label: '目标国家', type: 'text' },
+      { key: '目标院校', label: '目标院校', type: 'text' },
+      { key: '意向专业', label: '意向专业', type: 'text' },
+      { key: '录取offer', label: '录取offer', type: 'text' },
+      { key: '最终入读院校', label: '最终入读院校', type: 'text' },
+      { key: '签证情况', label: '签证情况', type: 'select', dictKey: '签证情况' },
     ],
   },
 ];
@@ -97,6 +192,26 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
 function toStringArray(v: unknown): string[] {
   if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' ? x : String((x as { text?: string })?.text ?? '')));
   if (typeof v === 'string') return v ? [v] : [];
+  return [];
+}
+
+/** 解析证件信息：可能是 JSON 字符串或已是数组，统一返回 {type,number}[] */
+function parseDocInfo(v: unknown): { type: string; number: string }[] {
+  if (Array.isArray(v)) {
+    return v
+      .map((x) => (typeof x === 'string' ? safeParseDoc(x) : x) as { type: string; number: string })
+      .filter((x) => x && x.type);
+  }
+  if (typeof v === 'string' && v.trim()) return safeParseDoc(v);
+  return [];
+}
+function safeParseDoc(s: string): { type: string; number: string }[] {
+  try {
+    const arr = JSON.parse(s);
+    if (Array.isArray(arr)) return arr.filter((x: { type?: string }) => x && x.type);
+  } catch {
+    /* ignore */
+  }
   return [];
 }
 
@@ -110,6 +225,313 @@ function fmtDateVal(v: unknown): string {
   if (isNaN(d.getTime())) return String(v);
   const pad = (x: number) => String(x).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** 头像底色（按姓名稳定取色） */
+function avatarColor(name: string): string {
+  const palette = ['#2f6df6', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#db2777', '#475569'];
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
+}
+
+/**
+ * 标签输入组件（学生标签 / 特长标签 用）：
+ * - 已选标签以 chip 展示，可单独移除；
+ * - 下拉展示「数据库里已有的标签」（未选中的），点击即添加；
+ * - 输入框可输入新标签，回车即添加（并写回字典，使其进入「已有标签」）。
+ */
+function TagInput({
+  value,
+  options,
+  onChange,
+  onPersist,
+  readOnly,
+}: {
+  value: string[];
+  options: string[];
+  onChange: (v: string[]) => void;
+  onPersist: (tag: string) => void;
+  readOnly: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const selected = Array.isArray(value) ? value : [];
+  const rest = (options ?? []).filter((o) => !selected.includes(o));
+  const draftMatch = draft.trim() && !selected.includes(draft.trim()) && !options.includes(draft.trim());
+
+  const add = (tag: string) => {
+    const t = tag.trim();
+    if (!t || selected.includes(t)) return;
+    onChange([...selected, t]);
+    if (!options.includes(t)) onPersist(t);
+    setDraft('');
+    setOpen(false);
+  };
+  const remove = (tag: string) => onChange(selected.filter((x) => x !== tag));
+
+  return (
+    <div className="tag-input-wrap">
+      <div className="tag-chips">
+        {selected.map((t) => (
+          <span key={t} className="tag-chip">
+            {t}
+            {!readOnly && (
+              <button type="button" className="tag-chip-x" onClick={() => remove(t)} aria-label="移除">
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+        {!readOnly && (
+          <input
+            className="tag-input"
+            placeholder={selected.length ? '继续添加…' : '选择或输入标签'}
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                add(draft);
+              }
+            }}
+          />
+        )}
+      </div>
+      {!readOnly && open && (rest.length > 0 || draftMatch) && (
+        <div className="tag-dropdown">
+          {rest.map((o) => (
+            <div key={o} className="tag-opt" onMouseDown={() => add(o)}>
+              {o}
+            </div>
+          ))}
+          {draftMatch && (
+            <div className="tag-opt tag-opt-new" onMouseDown={() => add(draft)}>
+              新建标签「{draft.trim()}」
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 用户选择器：从用户管理读取姓名→open_id，单选（存储为 [open_id]） */
+function UserField({
+  value,
+  onChange,
+  readOnly,
+  users,
+  title = '选择用户',
+}: {
+  value: unknown;
+  onChange: (v: string[]) => void;
+  readOnly: boolean;
+  users: { openId: string; name: string; role?: string; campus?: string; teacherType?: string }[];
+  title?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ids = toStringArray(value);
+  const selectedId = ids[0];
+  const selected = users.find((u) => u.openId === selectedId);
+  const matched = users.filter(
+    (u) => !q || u.name.includes(q) || u.openId.includes(q) || (u.role ?? '').includes(q),
+  );
+  // 已选中的用户即使不在按类型过滤后的列表里（例如尚未设置教师类型），也始终展示，避免已存值“消失”
+  const selectedUser = selectedId ? users.find((u) => u.openId === selectedId) : undefined;
+  const filtered =
+    selectedUser && !matched.some((u) => u.openId === selectedUser.openId)
+      ? [selectedUser, ...matched]
+      : matched;
+  const pick = (openId: string) => {
+    onChange([openId]);
+    setOpen(false);
+  };
+  return (
+    <div>
+      {selected ? (
+        <div className="user-pick-current">
+          <span className="user-pick-avatar" style={{ background: avatarColor(selected.name) }}>
+            {selected.name.charAt(0)}
+          </span>
+          <div className="user-pick-meta">
+            <div className="user-pick-name">{selected.name}</div>
+            <div className="user-pick-sub">{selected.role || selected.campus || selected.openId}</div>
+          </div>
+          {!readOnly && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(true)}>
+              更换
+            </button>
+          )}
+        </div>
+      ) : (
+        !readOnly && (
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => setOpen(true)}>
+            + {title}
+          </button>
+        )
+      )}
+      {open && (
+        <div className="modal-overlay" onClick={() => setOpen(false)}>
+          <div className="user-picker-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="user-picker-head">
+              <h3 className="user-picker-title">{title}</h3>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(false)}>×</button>
+            </div>
+            <div className="user-picker-search">
+              <input
+                className="form-input"
+                placeholder="搜索姓名 / 角色 / open_id"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="user-picker-list">
+              {filtered.length === 0 && <div className="user-picker-empty">无匹配用户</div>}
+              {filtered.map((u) => {
+                const isSel = u.openId === selectedId;
+                return (
+                  <div
+                    key={u.openId}
+                    className={`user-picker-card${isSel ? ' selected' : ''}`}
+                    onClick={() => pick(u.openId)}
+                  >
+                    <span className="user-pick-avatar" style={{ background: avatarColor(u.name) }}>
+                      {u.name.charAt(0)}
+                    </span>
+                    <div className="user-pick-meta">
+                      <div className="user-pick-name">{u.name}</div>
+                      <div className="user-pick-sub">{u.role || u.campus || u.openId}</div>
+                    </div>
+                    {isSel && <span className="user-pick-check">✓</span>}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="user-picker-foot">
+              {selected && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => pick('')}>
+                  清除选择
+                </button>
+              )}
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => setOpen(false)}>
+                完成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 数据负责人：只读展示（默认当前登录用户，无需选择） */
+function UserDisplay({
+  value,
+  users,
+  hint,
+}: {
+  value: unknown;
+  users: { openId: string; name: string; role?: string; campus?: string }[];
+  hint?: string;
+}) {
+  const ids = toStringArray(value);
+  const u = users.find((x) => x.openId === ids[0]);
+  return (
+    <div className="user-pick-current">
+      {u ? (
+        <span className="user-pick-avatar" style={{ background: avatarColor(u.name) }}>
+          {u.name.charAt(0)}
+        </span>
+      ) : (
+        <span className="user-pick-avatar" style={{ background: 'var(--fg-tertiary)' }}>
+          {ids[0]?.slice(0, 1) ?? '?'}
+        </span>
+      )}
+      <div className="user-pick-meta">
+        <div className="user-pick-name">{u?.name || ids[0] || '未设置'}</div>
+        <div className="user-pick-sub">{hint ?? (u?.role || u?.campus || '')}</div>
+      </div>
+    </div>
+  );
+}
+
+/** 证件信息编辑器：一组（证件类型 + 证件号码），下方列表展示已填证件号码 */
+function DocInfoEditor({
+  value,
+  onChange,
+  options,
+  readOnly,
+}: {
+  value: unknown;
+  onChange: (v: { type: string; number: string }[]) => void;
+  options: string[];
+  readOnly: boolean;
+}) {
+  const [type, setType] = useState('');
+  const [num, setNum] = useState('');
+  const list = Array.isArray(value) ? (value as { type: string; number: string }[]) : [];
+  const add = () => {
+    if (!type) { alert('请选择证件类型'); return; }
+    if (!num.trim()) { alert('请填写证件号码'); return; }
+    onChange([...list, { type, number: num.trim() }]);
+    setType('');
+    setNum('');
+  };
+  const remove = (i: number) => onChange(list.filter((_, idx) => idx !== i));
+  return (
+    <div className="docinfo-editor">
+      <div className="docinfo-add-row">
+        <select className="form-input" value={type} disabled={readOnly} onChange={(e) => setType(e.target.value)}>
+          <option value="">证件类型</option>
+          {options.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+        <input
+          className="form-input"
+          placeholder="证件号码"
+          value={num}
+          disabled={readOnly}
+          onChange={(e) => setNum(e.target.value)}
+        />
+        {!readOnly && (
+          <button type="button" className="btn btn-primary btn-sm" onClick={add}>添加</button>
+        )}
+      </div>
+      {list.length > 0 && (
+        <table className="data-table docinfo-list">
+          <thead>
+            <tr>
+              <th style={{ width: '40%' }}>证件类型</th>
+              <th>证件号码</th>
+              {!readOnly && <th style={{ width: 80 }}>操作</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((d, i) => (
+              <tr key={i}>
+                <td>{d.type}</td>
+                <td>{d.number}</td>
+                {!readOnly && (
+                  <td>
+                    <button type="button" className="btn btn-danger btn-sm" onClick={() => remove(i)}>删除</button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 }
 
 export function StudentForm({
@@ -131,13 +553,17 @@ export function StudentForm({
           v[f.key] = initial[f.key] ?? (f.type === 'multiselect' || f.type === 'user' ? [] : '');
         }
       }
+      // 证件信息（JSON 数组）单独解析
+      v['证件信息'] = parseDocInfo(initial['证件信息']);
+    } else {
+      v['证件信息'] = [];
     }
     return v;
   });
 
   // 照片与附件状态
-  const [photos, setPhotos] = useState<Array<{ file_token: string; name?: string }>>([]);
-  const [attachments, setAttachments] = useState<Array<{ file_token: string; name?: string }>>([]);
+  const [photos, setPhotos] = useState<FileAttachment[]>([]);
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingAtt, setUploadingAtt] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -152,17 +578,22 @@ export function StudentForm({
   // 从 initial 数据提取照片和附件
   useEffect(() => {
     if (initial) {
-      const extractFiles = (v: unknown): Array<{ file_token: string; name?: string }> => {
+      const extractFiles = (v: unknown): FileAttachment[] => {
         if (!v) return [];
         if (Array.isArray(v)) {
           return v.map((item: any) => ({
             file_token: String(item.file_token ?? item ?? ''),
             name: item.name ? String(item.name) : undefined,
-          })).filter((x: any) => x.file_token);
+            viewUrl: item.viewUrl ? String(item.viewUrl) : undefined,
+          })).filter((x: FileAttachment) => x.file_token);
         }
         // 单个对象
         if (typeof v === 'object' && v !== null && (v as any).file_token) {
-          return [{ file_token: String((v as any).file_token), name: (v as any).name ? String((v as any).name) : undefined }];
+          return [{
+            file_token: String((v as any).file_token),
+            name: (v as any).name ? String((v as any).name) : undefined,
+            viewUrl: (v as any).viewUrl ? String((v as any).viewUrl) : undefined,
+          }];
         }
         return [];
       };
@@ -171,9 +602,12 @@ export function StudentForm({
     }
   }, [initial]);
 
-/** 获取飞书文件预览 URL（通过 file_token 构造） */
-function getFileUrl(fileToken: string): string {
-  return `https://open.feishu.cn/open-apis/drive/v1/medias/${fileToken}/download`;
+type FileAttachment = { file_token: string; name?: string; viewUrl?: string };
+
+/** 附件可访问 URL：优先用后端换发的免 token 临时链接，否则走代理 */
+function getFileUrl(att: FileAttachment): string {
+  if (att.viewUrl) return att.viewUrl;
+  return `/api/v1/files/${encodeURIComponent(att.file_token)}`;
 }
 
 /** 照片与附件展示组件（独立子组件，避免类型推断污染主表单） */
@@ -181,8 +615,8 @@ function PhotoAttachmentSection({
   photos, attachments, readOnly, studentId,
   uploadingPhoto, uploadingAtt, onPhotoUpload, onAttUpload,
 }: {
-  photos: Array<{ file_token: string; name?: string }>;
-  attachments: Array<{ file_token: string; name?: string }>;
+  photos: FileAttachment[];
+  attachments: FileAttachment[];
   readOnly: boolean;
   studentId: string | undefined;
   uploadingPhoto: boolean;
@@ -193,13 +627,13 @@ function PhotoAttachmentSection({
   return (
     <div className="photo-att-row">
       {/* 照片 */}
-      <fieldset className="form-fieldset" style={{ flex: 1 }}>
+      <fieldset className="form-fieldset" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <legend className="form-legend">学生照片</legend>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 24 }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'flex-start', gap: 24 }}>
           <div className="student-photo-wrap">
             {photos.length > 0 ? (
               <img
-                src={getFileUrl(photos[0].file_token)}
+                src={getFileUrl(photos[0])}
                 alt=""
                 className="student-photo-img"
                 onError={(e) => { const t = e.target as HTMLImageElement; t.style.display = 'none'; }}
@@ -226,19 +660,21 @@ function PhotoAttachmentSection({
       </fieldset>
 
       {/* 附件 */}
-      <fieldset className="form-fieldset" style={{ flex: 1 }}>
+      <fieldset className="form-fieldset" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <legend className="form-legend">证件与文件</legend>
-        {attachments.length === 0 ? (
-          <p style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>暂无附件</p>
-        ) : (
-          <div className="attachment-list">
-            {attachments.map((att, i) => (
-              <a key={i} href={getFileUrl(att.file_token)} target="_blank" rel="noreferrer" className="attachment-item">
-                <span>{att.name || `文件${i + 1}`}</span>
-              </a>
-            ))}
-          </div>
-        )}
+        <div style={{ flex: 1 }}>
+          {attachments.length === 0 ? (
+            <p style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>暂无附件</p>
+          ) : (
+            <div className="attachment-list">
+              {attachments.map((att, i) => (
+                <a key={i} href={getFileUrl(att)} target="_blank" rel="noreferrer" className="attachment-item">
+                  <span>{att.name || `文件${i + 1}`}</span>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
         {!readOnly && (
           <div style={{ marginTop: 10 }}>
             <button type="button" className="btn btn-outline btn-sm" onClick={onAttUpload} disabled={uploadingAtt}>
@@ -268,9 +704,88 @@ function PhotoAttachmentSection({
     };
   }, []);
 
+  /** 省 → 市级联映射（级联下拉用） */
+  const [provinceCities, setProvinceCities] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    let alive = true;
+    api
+      .provinceCities()
+      .then((m) => {
+        if (alive) setProvinceCities(m ?? {});
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /** 把新建的标签写回字典（持久化，使「数据库里已经有的标签」随使用增长） */
+  const persistTag = useCallback(
+    (key: string, tag: string) => {
+      setDicts((prev) => {
+        const cur = prev[key] ?? [];
+        if (cur.includes(tag)) return prev;
+        const next = { ...prev, [key]: [...cur, tag] };
+        api.updateDictionary(key, next[key]).catch(() => {});
+        return next;
+      });
+    },
+    [],
+  );
+
   /** 字段有效候选项：优先字典，其次字段 options */
   const optionsFor = (f: FieldDef): string[] =>
     f.dictKey ? dicts[f.dictKey] ?? f.options ?? [] : f.options ?? [];
+
+  /** 用户列表（招生负责老师 / 班主任 选择器数据源；含角色/校区用于展示） */
+  const [users, setUsers] = useState<{ openId: string; name: string; role?: string; campus?: string; teacherType?: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const collected: { openId: string; name: string; role?: string; campus?: string; teacherType?: string }[] = [];
+    const fetchPage = async (token?: string): Promise<void> => {
+      const params: Record<string, string | undefined> = { pageSize: '100' };
+      if (token) params.pageToken = token;
+      const p = await api.listUsers(params);
+      for (const u of p.items) {
+        collected.push({
+          openId: String(u['飞书 Open ID'] ?? ''),
+          name: String(u['姓名'] ?? ''),
+          role: Array.isArray(u['系统角色']) ? u['系统角色'].join('、') : String(u['系统角色'] ?? ''),
+          campus: String(u['默认校区'] ?? ''),
+          teacherType: String(u['教师类型'] ?? ''),
+        });
+      }
+      if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
+    };
+    fetchPage()
+      .then(() => {
+        if (alive) setUsers(collected.filter((u) => u.openId));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /** 当前登录用户（新建时把「数据负责人」默认设为本人） */
+  useEffect(() => {
+    if (initial) return; // 编辑态不覆盖已有值
+    let alive = true;
+    api
+      .me()
+      .then((me) => {
+        if (!alive) return;
+        setValues((p) => {
+          const cur = toStringArray(p['数据负责人']);
+          if (cur.length) return p;
+          return { ...p, '数据负责人': [me.openId] };
+        });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [initial]);
 
   const setField = (key: string, val: unknown) => setValues((p) => ({ ...p, [key]: val }));
 
@@ -288,6 +803,9 @@ function PhotoAttachmentSection({
         }
       }
     }
+    // 证件信息：结构化数组序列化为 JSON 字符串写入 Base 文本字段
+    const docs = Array.isArray(values['证件信息']) ? (values['证件信息'] as { type: string; number: string }[]) : [];
+    if (docs.length) data['证件信息'] = JSON.stringify(docs);
     return data;
   };
 
@@ -315,7 +833,7 @@ function PhotoAttachmentSection({
     try {
       const id = await ensureRecord();
       const res = await api.uploadStudentPhoto(id, file);
-      setPhotos((prev) => [...prev, { file_token: res.file_token }]);
+      setPhotos((prev) => [...prev, { file_token: res.file_token, viewUrl: res.viewUrl }]);
     } catch (err) { alert('上传失败：' + (err as Error).message); }
     finally { setUploadingPhoto(false); if (photoInputRef.current) photoInputRef.current.value = ''; }
   };
@@ -329,7 +847,7 @@ function PhotoAttachmentSection({
     try {
       const id = await ensureRecord();
       const res = await api.uploadStudentAttachment(id, file);
-      setAttachments((prev) => [...prev, { file_token: res.file_token, name: res.name }]);
+      setAttachments((prev) => [...prev, { file_token: res.file_token, name: res.name, viewUrl: res.viewUrl }]);
     } catch (err) { alert('上传失败：' + (err as Error).message); }
     finally { setUploadingAtt(false); if (attInputRef.current) attInputRef.current.value = ''; }
   };
@@ -378,14 +896,29 @@ function PhotoAttachmentSection({
                     className="form-input"
                     value={String(values[f.key] ?? '')}
                     disabled={readOnly}
-                    onChange={(e) => setField(f.key, e.target.value)}
+                    onChange={(e) => {
+                      setField(f.key, e.target.value);
+                      if (f.key === '现居住省') setField('城市', ''); // 省变化 → 清空城市（级联）
+                    }}
                   >
                     <option value="">—</option>
-                    {optionsFor(f).map((o) => (
+                    {(f.key === '城市'
+                      ? (provinceCities[String(values['现居住省'] ?? '')] ?? [])
+                      : optionsFor(f)
+                    ).map((o) => (
                       <option key={o} value={o}>{o}</option>
                     ))}
                   </select>
                 ) : f.type === 'multiselect' ? (
+                  f.key === '学生标签' ? (
+                    <TagInput
+                      value={toStringArray(values[f.key])}
+                      options={dicts[f.key] ?? []}
+                      onChange={(v) => setField(f.key, v)}
+                      onPersist={(t) => persistTag(f.key, t)}
+                      readOnly={!!readOnly}
+                    />
+                  ) : (
                   <select
                     multiple={!f.singleChoice}
                     className="form-input"
@@ -410,6 +943,17 @@ function PhotoAttachmentSection({
                       <option key={o} value={o}>{o}</option>
                     ))}
                   </select>
+                  )
+                ) : f.type === 'number' ? (
+                  <input
+                    className="form-input"
+                    type="number"
+                    min={f.min}
+                    max={f.max}
+                    value={String(values[f.key] ?? '')}
+                    disabled={readOnly}
+                    onChange={(e) => setField(f.key, e.target.value)}
+                  />
                 ) : f.type === 'textarea' ? (
                   <textarea
                     className="form-input"
@@ -418,6 +962,30 @@ function PhotoAttachmentSection({
                     disabled={readOnly}
                     onChange={(e) => setField(f.key, e.target.value)}
                   />
+                ) : f.type === 'user' ? (
+                  f.key === '数据负责人' ? (
+                    <UserDisplay value={values[f.key]} users={users} hint="默认当前登录用户" />
+                  ) : (
+                    <UserField
+                      value={values[f.key]}
+                      onChange={(v) => setField(f.key, v)}
+                      readOnly={!!readOnly}
+                    users={
+                      f.key === '招生负责老师'
+                        ? users.filter((u) => u.teacherType === '招生老师')
+                        : f.key === '升学导师'
+                          ? users.filter((u) => u.teacherType === '升学导师')
+                          : users.filter((u) => u.teacherType === '班主任')
+                    }
+                    title={
+                      f.label.includes('招生')
+                        ? '选择招生负责老师'
+                        : f.label.includes('升学')
+                          ? '选择升学导师'
+                          : '选择班主任'
+                    }
+                    />
+                  )
                 ) : (
                   <input
                     className="form-input"
@@ -430,6 +998,17 @@ function PhotoAttachmentSection({
               </label>
             ))}
           </div>
+          {section.title === '联系方式' && (
+            <div className="docinfo-block">
+              <div className="form-label-text" style={{ margin: 'var(--space-md) 0 var(--space-xs)' }}>证件信息（类型 + 号码）</div>
+              <DocInfoEditor
+                value={values['证件信息']}
+                onChange={(v) => setField('证件信息', v)}
+                options={optionsFor({ dictKey: '证件类型' } as FieldDef)}
+                readOnly={!!readOnly}
+              />
+            </div>
+          )}
         </fieldset>
       ))}
 

@@ -119,4 +119,47 @@ export class FileUploadService {
     if (j.code !== 0 || !j.data?.url) throw new Error(`DOWNLOAD_URL_FAILED:${j.code}`);
     return j.data.url;
   }
+
+  /**
+   * 用后端 token 请求飞书下载接口，返回原始 Response 供 Controller 透传。
+   * fetch 默认 follow redirect，因此会追到底层 CDN 文件流。
+   */
+  async downloadFile(file_token: string): Promise<Response> {
+    const token = await this.getToken();
+    if (!token) throw new Error('FEISHU_TOKEN_FAILED');
+    return fetch(`https://open.feishu.cn/open-apis/drive/v1/medias/${file_token}/download`, {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+  }
+
+  /**
+   * 批量获取临时下载链接（浏览器可直接访问，无需 token，约 4 小时有效）。
+   * @param fileTokens 文件 token 列表
+   * @param extra 飞书要求的 bitablePerm 参数（从附件对象 url 字段的 query 中提取）
+   */
+  async getBatchTmpDownloadUrls(fileTokens: string[], extra: string): Promise<Record<string, string>> {
+    if (fileTokens.length === 0) return {};
+    const token = await this.getToken();
+    if (!token) throw new Error('FEISHU_TOKEN_FAILED');
+
+    const qs = new URLSearchParams();
+    for (const t of fileTokens) qs.append('file_tokens', t);
+    qs.set('extra', extra);
+
+    const r = await fetch(
+      `https://open.feishu.cn/open-apis/drive/v1/medias/batch_get_tmp_download_url?${qs.toString()}`,
+      { headers: { Authorization: 'Bearer ' + token } },
+    );
+    const text = await r.text();
+    let j: { code?: number; msg?: string; data?: { tmp_download_urls?: Array<{ file_token: string; tmp_download_url: string }> } };
+    try {
+      j = JSON.parse(text) as typeof j;
+    } catch {
+      throw new Error(`BATCH_TMP_URL_BAD_RESPONSE:${r.status}:${text.slice(0, 100)}`);
+    }
+    if (j.code !== 0) throw new Error(`BATCH_TMP_URL_FAILED:${j.code}:${j.msg}`);
+    const map: Record<string, string> = {};
+    for (const it of j.data?.tmp_download_urls ?? []) map[it.file_token] = it.tmp_download_url;
+    return map;
+  }
 }

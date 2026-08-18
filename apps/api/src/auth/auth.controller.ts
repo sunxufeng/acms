@@ -9,10 +9,15 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import type { SessionUser } from '@acms/contracts';
+import { DATA_LEVELS, PERMISSIONS, ROLES, type SessionUser } from '@acms/contracts';
+import { maxDataLevelOf, permissionsOf, ROLE_PERMISSIONS } from '@acms/domain';
 import { AuthService } from './auth.service.js';
 import { SessionGuard } from './session.guard.js';
 import { LoginRateLimitGuard } from './rate-limit.guard.js';
+
+function toPrincipal(user: SessionUser) {
+  return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
+}
 
 @Controller('auth')
 export class AuthController {
@@ -73,5 +78,22 @@ export class AuthController {
     await this.auth.logout(req.sessionId);
     res.clearCookie(process.env.SESSION_COOKIE ?? 'acms_sid', { path: '/' });
     res.status(204).send();
+  }
+
+  /** 权限模型 + 当前用户有效权限（菜单「权限与授权」使用） */
+  @Get('permissions')
+  @UseGuards(SessionGuard)
+  permissions(@Req() req: Request & { user: SessionUser }) {
+    const p = toPrincipal(req.user);
+    return {
+      roles: ROLES,
+      permissions: PERMISSIONS,
+      /** 角色 → 权限点 矩阵（系统权限基线，单一事实来源） */
+      matrix: ROLE_PERMISSIONS,
+      dataLevels: DATA_LEVELS,
+      myRoles: req.user.roles,
+      myMaxDataLevel: maxDataLevelOf(p),
+      myPermissions: [...permissionsOf(p)],
+    };
   }
 }

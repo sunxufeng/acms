@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { api, type Page } from '../lib/api';
+import { api as apiClient, type Page } from '../lib/api';
 
 export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect';
 
@@ -17,8 +17,12 @@ export interface CrudColumn {
   filterParam?: string;
   filterOptions?: string[];
   form?: boolean;
+  /** 是否在列表表格中显示（默认 true；设为 false 仅保留在表单中，例如敏感列） */
+  list?: boolean;
   type?: CrudFieldType;
   options?: string[];
+  /** 候选项来自字典表（优先于 options；options 作为离线兜底） */
+  dictKey?: string;
   required?: boolean;
 }
 
@@ -53,6 +57,10 @@ export interface CrudPageProps {
   rangeFilters?: RangeFilter[];
   /** 全局关键字搜索框：发送 q 参数，由后端 searchField 决定检索字段（支持关联字段跨表解析后模糊匹配） */
   search?: { placeholder: string };
+  /** 新建/编辑使用页内表单（非弹出框） */
+  inlineEdit?: boolean;
+  /** 每页记录数（默认 5，参考学生列表页） */
+  pageSize?: number;
 }
 
 function str(v: unknown): string {
@@ -108,56 +116,128 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, pageSize }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
-  const [pageToken, setPageToken] = useState<string | undefined>();
-  const [hasMore, setHasMore] = useState(false);
+  const PAGE_SIZE = pageSize ?? 5;
+  const [page, setPage] = useState(1);
+  const tokenStack = useRef<(string | undefined)[]>([]); // tokenStack[i] = 拉取第 i+1 页所需的 pageToken
+  const fallbackRef = useRef<Record<string, unknown>[] | null>(null); // 后端一次性返回全部时的前端切片兜底
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState<Record<string, string>>({});
-  const [modal, setModal] = useState<null | { mode: 'create' | 'edit'; row?: Record<string, unknown> }>(null);
+  const [editing, setEditing] = useState<null | { mode: 'create' | 'edit'; row?: Record<string, unknown> }>(null);
   const [form, setForm] = useState<Record<string, unknown>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txMenu, setTxMenu] = useState<string | null>(null);
+  const [dicts, setDicts] = useState<Record<string, string[]>>({});
 
   const filterCols = columns.filter((c) => c.filter);
   const formCols = columns.filter((c) => c.form);
+  const listCols = columns.filter((c) => c.list !== false);
 
-  const load = useCallback(async (token?: string, append = false) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params: Record<string, string | undefined> = {};
-      for (const c of filterCols) {
-        const v = filters[c.filterParam ?? c.key];
+  // 用 ref 持有最新的 api / filters / rangeFilters，避免 load 因这些依赖变化而反复重建，
+  // 否则每次渲染都会重新触发拉取 -> 页面（尤其按姓名搜索时）不停刷新闪烁。
+  const apiRef = useRef(api); apiRef.current = api;
+  const filtersRef = useRef(filters); filtersRef.current = filters;
+  const rangeRef = useRef(rangeFilters); rangeRef.current = rangeFilters;
+
+  const buildParams = useCallback(
+    (token?: string): Record<string, string | undefined> => {
+      const f = filtersRef.current;
+      const params: Record<string, string | undefined> = { pageSize: String(PAGE_SIZE) };
+      for (const c of columns.filter((x) => x.filter)) {
+        const v = f[c.filterParam ?? c.key];
         if (v) params[c.filterParam ?? c.key] = v;
       }
-      for (const rf of rangeFilters ?? []) {
-        if (filters[rf.fromParam]) params[rf.fromParam] = filters[rf.fromParam];
-        if (filters[rf.toParam]) params[rf.toParam] = filters[rf.toParam];
+      for (const rf of rangeRef.current ?? []) {
+        if (f[rf.fromParam]) params[rf.fromParam] = f[rf.fromParam];
+        if (f[rf.toParam]) params[rf.toParam] = f[rf.toParam];
       }
-      if (filters.q) params.q = filters.q;
+      if (f.q) params.q = f.q;
       if (token) params.pageToken = token;
-      const res = await api.list(params);
-      setItems(append ? [...items, ...res.items] : res.items);
-      setTotal(res.total);
-      setHasMore(res.hasMore);
-      setPageToken(res.pageToken);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : '加载失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [api, filters, filterCols, items]);
+      return params;
+    },
+    [PAGE_SIZE],
+  );
 
-  useEffect(() => { load(); }, [load]);
+  /** 拉取指定页（token 已知时直接拉；拉取后用返回 token 续填下一页游标） */
+  const fetchPage = useCallback(
+    async (target: number, token?: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await apiRef.current.list(buildParams(token));
+        setTotal(res.total);
+        // 后端若一次性返回超过一页（如审计日志深度筛选），改为前端切片分页
+        if (!res.pageToken && res.items.length > PAGE_SIZE) {
+          fallbackRef.current = res.items;
+          setItems(res.items.slice(0, PAGE_SIZE));
+        } else {
+          fallbackRef.current = null;
+          setItems(res.items);
+          tokenStack.current[target] = res.pageToken; // 第 target 页之后的游标
+        }
+        setPage(target);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : '加载失败');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [buildParams],
+  );
+
+  /** 跳转到目标页：若游标未知则向前逐页补全（不渲染中间页），再拉取目标页 */
+  const goToPage = useCallback(
+    async (target: number) => {
+      const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      target = Math.min(Math.max(target, 1), totalPages);
+      if (fallbackRef.current) {
+        setItems(fallbackRef.current.slice((target - 1) * PAGE_SIZE, target * PAGE_SIZE));
+        setPage(target);
+        return;
+      }
+      if (target - 1 < tokenStack.current.length) {
+        await fetchPage(target, tokenStack.current[target - 1]);
+        return;
+      }
+      for (let p = tokenStack.current.length; p < target; p++) {
+        const data = await apiRef.current.list(buildParams(tokenStack.current[p - 1]));
+        tokenStack.current[p] = data.pageToken;
+      }
+      await fetchPage(target, tokenStack.current[target - 1]);
+    },
+    [total, PAGE_SIZE, fetchPage, buildParams],
+  );
+
+  /** 重置分页并从第 1 页重新加载（筛选/搜索变化、增删改后调用） */
+  const reload = useCallback(() => {
+    tokenStack.current = [];
+    fallbackRef.current = null;
+    fetchPage(1, undefined);
+  }, [fetchPage]);
+
+  useEffect(() => { reload(); }, [filters, reload]);
+
+  // 字典表候选项（供带 dictKey 的字段使用），加载前用字段自带 options 兜底
+  useEffect(() => {
+    if (!columns.some((c) => c.dictKey)) return;
+    let alive = true;
+    apiClient.dictionaries().then((d) => { if (alive) setDicts(d ?? {}); }).catch(() => {});
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columns]);
+
+  /** 字段有效候选项：优先字典，其次字段 options */
+  const optionsFor = (c: CrudColumn): string[] =>
+    c.dictKey ? (dicts[c.dictKey] ?? c.options ?? []) : (c.options ?? []);
 
   function openCreate() {
     const init: Record<string, unknown> = {};
     for (const c of formCols) init[c.key] = c.type === 'multiselect' ? [] : '';
     setForm(init);
-    setModal({ mode: 'create' });
+    setEditing({ mode: 'create' });
     setError(null);
   }
 
@@ -169,7 +249,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         : (row[c.key] ?? '');
     }
     setForm(init);
-    setModal({ mode: 'edit', row });
+    setEditing({ mode: 'edit', row });
     setError(null);
   }
 
@@ -184,10 +264,10 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         else if (c.type === 'number') payload[c.key] = v === '' || v == null ? undefined : Number(v);
         else payload[c.key] = v === '' ? undefined : v;
       }
-      if (modal?.mode === 'create') await api.create(payload);
-      else if (modal?.row) await api.update(String(modal.row.id), payload);
-      setModal(null);
-      await load();
+      if (editing?.mode === 'create') await api.create(payload);
+      else if (editing?.row) await api.update(String(editing.row.id), payload);
+      setEditing(null);
+      await reload();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '保存失败');
     } finally {
@@ -199,7 +279,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     if (!confirm(`确认删除「${str(row[columns[0]?.key ?? 'id'])}」？此操作不可撤销。`)) return;
     try {
       await api.archive(String(row.id));
-      await load();
+      await reload();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '删除失败');
     }
@@ -210,11 +290,48 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     try {
       await api.transition(String(row.id), to);
       setTxMenu(null);
-      await load();
+      await reload();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '状态变更失败');
     }
   }
+
+  const formFields = (
+    <div className="form-grid">
+      {formCols.map((c) => (
+        <div key={c.key} className="form-label" style={c.type === 'textarea' ? { gridColumn: '1 / -1' } : undefined}>
+          <span className="form-label-text">{c.label}{c.required && <span style={{ color: 'var(--danger)' }}> *</span>}</span>
+          {c.type === 'textarea' ? (
+            <textarea className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} rows={3} />
+          ) : c.type === 'select' ? (
+            <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
+              <option value="">（未填）</option>
+              {optionsFor(c).map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : c.type === 'multiselect' ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {optionsFor(c).map((o) => {
+                const arr = Array.isArray(form[c.key]) ? (form[c.key] as string[]) : [];
+                const on = arr.includes(o);
+                return (
+                  <label key={o} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 999, border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`, background: on ? 'var(--accent-soft)' : 'transparent', fontSize: 'var(--font-sm)', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={on} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.checked ? [...arr, o] : arr.filter((x) => x !== o) }))} />
+                    {o}
+                  </label>
+                );
+              })}
+            </div>
+          ) : c.type === 'number' ? (
+            <input className="form-input" type="number" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
+          ) : c.type === 'date' ? (
+            <input className="form-input" type="date" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
+          ) : (
+            <input className="form-input" type="text" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="page">
@@ -226,7 +343,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         <div style={{ display: 'flex', gap: 8 }}>
           {extraActions?.map((a) => (
             <button key={a.label} className="btn btn-outline" disabled={loading}
-              onClick={() => a.run(() => load())}>{a.label}</button>
+              onClick={() => a.run(() => reload())}>{a.label}</button>
           ))}
           <button className="btn btn-primary" onClick={openCreate} disabled={loading || readonly}>+ 新建</button>
         </div>
@@ -255,7 +372,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               />
             ) : (
               <FilterSelect key={c.key} label={c.label} value={filters[c.key] ?? ''}
-                onChange={(v) => setFilters((f) => ({ ...f, [c.key]: v }))} options={c.filterOptions ?? c.options ?? []} />
+                onChange={(v) => setFilters((f) => ({ ...f, [c.key]: v }))}
+                options={c.filterOptions ?? (c.dictKey ? (dicts[c.dictKey] ?? c.options ?? []) : (c.options ?? []))} />
             ),
           )}
           {(rangeFilters ?? []).map((rf) => (
@@ -274,13 +392,33 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         </div>
       )}
 
+      {inlineEdit && editing && (
+        <div className="crud-inline-form">
+          <div className="crud-inline-form-head">
+            <h3 className="crud-inline-form-title">{editing.mode === 'create' ? `新建${title}` : `编辑${title}`}</h3>
+            <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>×</button>
+          </div>
+          {error && <p className="msg-error">{error}</p>}
+          <fieldset className="form-fieldset">
+            <legend className="form-legend">{title}信息</legend>
+            {formFields}
+          </fieldset>
+          <div className="crud-inline-form-actions">
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>取消</button>
+            <button className="btn btn-primary" onClick={submit} disabled={submitting}>{submitting ? '保存中…' : '保存'}</button>
+          </div>
+        </div>
+      )}
+
       {error && <p className="msg-error">{error}</p>}
 
+      {!(inlineEdit && editing) && (
+      <>{/* 编辑/新建（inline）时不显示列表，避免表单下方仍展示整张用户表 */}
       <div className="data-table-wrap">
         <table className="data-table">
           <thead>
             <tr>
-              {columns.map((c) => <th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}
+              {listCols.map((c) => <th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}
               <th style={{ width: '150px' }}>操作</th>
             </tr>
           </thead>
@@ -290,7 +428,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               const allowed = transitions && st ? transitions[st] ?? [] : [];
               return (
                 <tr key={String(row.id)}>
-                  {columns.map((c) => (
+                  {listCols.map((c) => (
                     <td key={c.key}>
                       {statusField === c.key && st
                         ? <span className={`status-dot ${statusClass ? statusClass(st) : ''}`}>{st}</span>
@@ -322,7 +460,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               );
             })}
             {items.length === 0 && !loading && (
-              <tr><td colSpan={columns.length + 1}>
+              <tr><td colSpan={listCols.length + 1}>
                 <div className="empty-state"><div className="empty-state-text">暂无数据</div></div>
               </td></tr>
             )}
@@ -331,60 +469,42 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         {loading && <div className="empty-state"><div className="empty-state-text">加载中…</div></div>}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-md)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
         <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>共 {total} 条</span>
-        {hasMore && <button className="btn btn-outline btn-sm" onClick={() => load(pageToken, true)} disabled={loading}>加载更多</button>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button className="btn btn-outline btn-sm" disabled={page <= 1 || loading} onClick={() => goToPage(page - 1)}>上一页</button>
+          {(() => {
+            const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+            const startP = Math.max(1, page - 2);
+            const endP = Math.min(totalPages, page + 2);
+            const pageNumbers: number[] = [];
+            for (let i = startP; i <= endP; i++) pageNumbers.push(i);
+            return pageNumbers.map((p) => (
+              <button key={p} className={`btn btn-sm ${p === page ? 'btn-primary' : 'btn-outline'}`} disabled={loading} onClick={() => goToPage(p)}>{p}</button>
+            ));
+          })()}
+          <button className="btn btn-outline btn-sm" disabled={page >= Math.ceil(total / PAGE_SIZE) || loading} onClick={() => goToPage(page + 1)}>下一页</button>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginLeft: 8 }}>第 {page} / {Math.max(1, Math.ceil(total / PAGE_SIZE))} 页</span>
+        </div>
       </div>
+      </>)}
 
-      {modal && (
-        <div style={overlayStyle} onClick={() => setModal(null)}>
+      {!inlineEdit && editing && (
+        <div style={overlayStyle} onClick={() => setEditing(null)}>
           <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ margin: 0, fontSize: 'var(--font-lg)', fontWeight: 700 }}>{modal.mode === 'create' ? `新建${title}` : `编辑${title}`}</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setModal(null)}>×</button>
+              <h3 style={{ margin: 0, fontSize: 'var(--font-lg)', fontWeight: 700 }}>{editing.mode === 'create' ? `新建${title}` : `编辑${title}`}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>×</button>
             </div>
             <div style={{ padding: '20px 22px', maxHeight: '64vh', overflowY: 'auto' }}>
               {error && <p className="msg-error">{error}</p>}
               <fieldset className="form-fieldset">
                 <legend className="form-legend">{title}信息</legend>
-                <div className="form-grid">
-                  {formCols.map((c) => (
-                    <div key={c.key} className="form-label" style={c.type === 'textarea' ? { gridColumn: '1 / -1' } : undefined}>
-                      <span className="form-label-text">{c.label}{c.required && <span style={{ color: 'var(--danger)' }}> *</span>}</span>
-                      {c.type === 'textarea' ? (
-                        <textarea className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} rows={3} />
-                      ) : c.type === 'select' ? (
-                        <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
-                          <option value="">（未填）</option>
-                          {(c.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                      ) : c.type === 'multiselect' ? (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                          {(c.options ?? []).map((o) => {
-                            const arr = Array.isArray(form[c.key]) ? (form[c.key] as string[]) : [];
-                            const on = arr.includes(o);
-                            return (
-                              <label key={o} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 999, border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`, background: on ? 'var(--accent-soft)' : 'transparent', fontSize: 'var(--font-sm)', cursor: 'pointer' }}>
-                                <input type="checkbox" checked={on} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.checked ? [...arr, o] : arr.filter((x) => x !== o) }))} />
-                                {o}
-                              </label>
-                            );
-                          })}
-                        </div>
-                      ) : c.type === 'number' ? (
-                        <input className="form-input" type="number" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
-                      ) : c.type === 'date' ? (
-                        <input className="form-input" type="date" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
-                      ) : (
-                        <input className="form-input" type="text" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
-                      )}
-                    </div>
-                  ))}
-                </div>
+                {formFields}
               </fieldset>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '16px 22px', borderTop: '1px solid var(--border)' }}>
-              <button className="btn btn-ghost" onClick={() => setModal(null)}>取消</button>
+              <button className="btn btn-ghost" onClick={() => setEditing(null)}>取消</button>
               <button className="btn btn-primary" onClick={submit} disabled={submitting}>{submitting ? '保存中…' : '保存'}</button>
             </div>
           </div>

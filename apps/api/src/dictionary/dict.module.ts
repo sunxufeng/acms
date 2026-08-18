@@ -6,5 +6,6 @@ import { baseClientProvider } from '../base.provider.js';
 @Module({
   controllers: [DictController],
   providers: [DictService, baseClientProvider],
+  exports: [DictService],
 })
 export class DictModule {}

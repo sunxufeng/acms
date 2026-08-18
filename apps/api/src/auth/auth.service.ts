@@ -1,6 +1,6 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import type { Redis } from 'ioredis';
-import { DATA_LEVEL_RANK, ROLES, USER_TABLE, type DataLevel, type SessionUser } from '@acms/contracts';
+import { ROLES, USER_LEVEL_TO_ENGINE, USER_TABLE, type DataLevel, type SessionUser } from '@acms/contracts';
 import { toText, toStringArray, type BaseClient } from '@acms/base-adapter';
 import { SessionService } from './session.service.js';
 import { REDIS } from '../redis.provider.js';
@@ -156,7 +156,8 @@ export class AuthService {
     );
     const campuses = toStringArray(record.fields['默认校区']);
     const levelRaw = toText(record.fields['数据密级上限']) ?? 'L1';
-    const maxDataLevel: DataLevel = levelRaw in DATA_LEVEL_RANK ? (levelRaw as DataLevel) : 'L1';
+    const maxDataLevel: DataLevel =
+      levelRaw in USER_LEVEL_TO_ENGINE ? (USER_LEVEL_TO_ENGINE[levelRaw] ?? 'L1') : 'L1';
     return { openId, name: toText(record.fields['姓名']) || name, roles, campuses, maxDataLevel };
   }
 

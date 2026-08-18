@@ -35,3 +35,31 @@ export function toWriteSingle(v: unknown): string | undefined {
 export function toWriteMulti(v: unknown): string[] {
   return toStringArray(v);
 }
+
+/**
+ * 人员字段（飞书 User 类型 type=11）。
+ * 飞书要求写入值为 [{open_id}]、读取返回也是 [{open_id}]，
+ * 因此内部统一以 open_id 字符串数组表示，读写时各自转换。
+ */
+export function toUserIds(v: unknown): string[] {
+  if (v == null) return [];
+  if (Array.isArray(v)) {
+    return v
+      .map((it) => {
+        if (typeof it === 'string') return it;
+        if (it && typeof it === 'object') {
+          const o = it as { open_id?: string; text?: string };
+          return o.open_id ?? o.text ?? '';
+        }
+        return String(it);
+      })
+      .filter(Boolean);
+  }
+  if (typeof v === 'string') return v ? [v] : [];
+  return [];
+}
+
+/** 写入飞书 User 字段：open_id 数组 → [{open_id}] */
+export function toUserWrite(v: unknown): { open_id: string }[] {
+  return toUserIds(v).map((id) => ({ open_id: id }));
+}

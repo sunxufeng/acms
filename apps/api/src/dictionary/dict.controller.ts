@@ -31,6 +31,12 @@ export class DictController {
     return this.svc.getAll();
   }
 
+  /** 省 → 市级联映射：GET /api/v1/dictionaries/province-cities */
+  @Get('province-cities')
+  getProvinceCities() {
+    return this.svc.getProvinceCities();
+  }
+
   /** 单个字典：GET /api/v1/dictionaries/:key */
   @Get(':key')
   getOne(@Param('key') key: string) {

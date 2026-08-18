@@ -86,7 +86,7 @@ export const api = {
   uploadStudentPhoto: (id: string, file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return request<{ ok: boolean; file_token: string }>(`/students/${id}/photo`, {
+    return request<{ ok: boolean; file_token: string; viewUrl?: string; name?: string }>(`/students/${id}/photo`, {
       method: 'POST',
       body: form as unknown as BodyInit,
     });
@@ -96,7 +96,7 @@ export const api = {
   uploadStudentAttachment: (id: string, file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return request<{ ok: boolean; file_token: string; name: string }>(`/students/${id}/attachments`, {
+    return request<{ ok: boolean; file_token: string; name: string; viewUrl?: string }>(`/students/${id}/attachments`, {
       method: 'POST',
       body: form as unknown as BodyInit,
     });
@@ -118,6 +118,8 @@ export const api = {
 
   /** 字典表：全部候选项 */
   dictionaries: () => request<Record<string, string[]>>('/dictionaries'),
+  /** 省 → 市级联映射 */
+  provinceCities: () => request<Record<string, string[]>>('/dictionaries/province-cities'),
 
   /** 更新单个字典候选项 */
   updateDictionary: (key: string, options: string[]) =>
@@ -385,7 +387,36 @@ export const api = {
     const q = qs.toString();
     return request<Page<Record<string, unknown>>>(`/audit-logs${q ? `?${q}` : ''}`);
   },
+
+  // ── 用户管理（需 admin:user 权限） ───────────
+  listUsers: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/users${q ? `?${q}` : ''}`);
+  },
+  getUser: (id: string) => request<Record<string, unknown>>(`/users/${id}`),
+  createUser: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/users', { method: 'POST', body: JSON.stringify(data) }),
+  updateUser: (id: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteUser: (id: string) => request<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' }),
+  setUserStatus: (id: string, status: string) =>
+    request<Record<string, unknown>>(`/users/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
+
+  /** 权限模型 + 当前用户有效权限（菜单「权限与授权」使用） */
+  getPermissions: () => request<PermissionsPayload>('/auth/permissions'),
 };
+
+export interface PermissionsPayload {
+  roles: string[];
+  permissions: string[];
+  matrix: Record<string, string[]>;
+  dataLevels: string[];
+  myRoles: string[];
+  myMaxDataLevel: string;
+  myPermissions: string[];
+}
 
 /** 通用导出：任一已注册飞书表 → CSV 下载（需 export:run 权限） */
 export async function exportTable(table: string): Promise<void> {

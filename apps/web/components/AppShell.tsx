@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 interface Me {
   name: string;
@@ -54,6 +54,8 @@ const NAV_ITEMS = [
       { key: 'export', label: '数据导出', href: '/export', icon: ReportsIcon },
       { key: 'settings', label: '系统设置', href: '/settings', icon: SettingsIcon },
       { key: 'audit-logs', label: '审计日志', href: '/audit-logs', icon: AuditIcon },
+      { key: 'users', label: '用户管理', href: '/users', icon: UserGroupIcon, adminOnly: true },
+      { key: 'permissions', label: '权限与授权', href: '/permissions', icon: ShieldIcon, adminOnly: true },
     ],
   },
 ];
@@ -67,6 +69,7 @@ function initial(name: string): string {
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -119,6 +122,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return pathname.startsWith(href);
   };
 
+  const isAdmin = !!me?.roles?.includes('系统管理员');
+
   return (
     <div className="app-shell">
       {/* ── Sidebar ─────────────────────────────── */}
@@ -142,6 +147,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <div className="sidebar-section-label">{group.section}</div>
                 {group.items.map((item) => {
                   const Icon = item.icon;
+                  if ((item as { adminOnly?: boolean }).adminOnly && !isAdmin) return null;
                   if ((item as { disabled?: boolean }).disabled) {
                     return (
                       <div key={item.key} className="nav-item nav-item--disabled" title="敬请期待">
@@ -165,9 +171,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="sidebar-footer">
-          <button className="nav-item" onClick={handleLogout} disabled={loggingOut}>
-            <span className="nav-icon"><LogoutIcon /></span>
-            <span>{loggingOut ? '退出中…' : '用户与权限'}</span>
+          <button className="nav-item" onClick={() => router.push('/permissions')}>
+            <span className="nav-icon"><ShieldIcon /></span>
+            <span>用户与权限</span>
           </button>
         </div>
       </aside>
@@ -219,6 +225,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
 function breadcrumbLabel(path: string): string {
   if (path === '/') return '工作台';
+  if (path.startsWith('/users')) return '用户管理';
+  if (path.startsWith('/permissions')) return '权限与授权';
   if (path.startsWith('/students')) {
     if (path === '/students/new') return '新建学生';
     if (/\/students\/[^/]+$/.test(path)) return '学生详情';
@@ -264,6 +272,12 @@ function SystemIcon() {
 }
 function IntegrationIcon() {
   return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>);
+}
+function UserGroupIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>);
+}
+function ShieldIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>);
 }
 function DictionaryIcon() {
   return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>);

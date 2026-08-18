@@ -112,7 +112,7 @@ export class BaseRecordService {
     }
     const conditions: { field: string; op?: string; value: string[] }[] = [];
     for (const [k, v] of Object.entries(query)) {
-      if (['pageToken', 'sortBy', 'sortOrder', 'q'].includes(k)) continue;
+      if (['pageToken', 'sortBy', 'sortOrder', 'q', 'pageSize'].includes(k)) continue;
       if (v) conditions.push({ field: k, value: [v] });
     }
     if (query.q && this.meta.searchField) {
@@ -121,8 +121,9 @@ export class BaseRecordService {
     const sort = query.sortBy
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]
       : [{ field: this.meta.sortField ?? '更新时间', desc: true }];
+    const pageSize = Number(query.pageSize) || 50;
     const res = await this.base.search(this.tableId, {
-      pageSize: 50,
+      pageSize,
       pageToken: query.pageToken,
       filter: buildFilter(conditions),
       sort,

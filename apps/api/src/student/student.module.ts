@@ -3,9 +3,10 @@ import { StudentController } from './student.controller.js';
 import { StudentService } from './student.service.js';
 import { baseClientProvider } from '../base.provider.js';
 import { FileUploadModule } from '../file-upload/file-upload.module.js';
+import { DictModule } from '../dictionary/dict.module.js';
 
 @Module({
-  imports: [FileUploadModule],
+  imports: [FileUploadModule, DictModule],
   controllers: [StudentController],
   providers: [StudentService, baseClientProvider],
   exports: [StudentService],

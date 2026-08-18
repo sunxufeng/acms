@@ -16,18 +16,18 @@ describe('RBAC 矩阵', () => {
     expect(permissionsOf(p('系统管理员')).size).toBe(PERMISSIONS.length);
   });
 
-  it('学生只能读自己的学业/考勤/活动/评价，不能写、不能读档案', () => {
-    expect(hasPermission(p('学生'), 'grade:read')).toBe(true);
-    expect(hasPermission(p('学生'), 'attendance:read')).toBe(true);
-    expect(hasPermission(p('学生'), 'student:read')).toBe(false);
-    expect(hasPermission(p('学生'), 'student:write')).toBe(false);
-    expect(hasPermission(p('学生'), 'admin:user')).toBe(false);
+  it('教师本人只能读学生档案与本人教学相关，不能写档案', () => {
+    expect(hasPermission(p('教师本人'), 'grade:read')).toBe(true);
+    expect(hasPermission(p('教师本人'), 'attendance:read')).toBe(true);
+    expect(hasPermission(p('教师本人'), 'student:read')).toBe(true);
+    expect(hasPermission(p('教师本人'), 'student:write')).toBe(false);
+    expect(hasPermission(p('教师本人'), 'admin:user')).toBe(false);
   });
 
-  it('家长权限是学生子集', () => {
-    const stu = permissionsOf(p('学生'));
-    const par = permissionsOf(p('家长'));
-    for (const x of par) expect(stu.has(x), `家长不应多出 ${x}`).toBe(true);
+  it('招生角色权限是 院级管理 子集（院级管理具备全部业务权限）', () => {
+    const sup = permissionsOf(p('院级管理'));
+    const adm = permissionsOf(p('招生'));
+    for (const x of adm) expect(sup.has(x), `招生不应多出 ${x}`).toBe(true);
   });
 
   it('财务只能读档案与导出', () => {
@@ -37,8 +37,8 @@ describe('RBAC 矩阵', () => {
   });
 
   it('多角色权限取并集', () => {
-    expect(hasPermission(p('教师', '班主任'), 'followup:write')).toBe(true);
-    expect(hasPermission(p('教师'), 'followup:write')).toBe(false);
+    expect(hasPermission(p('教师本人', '学生事务'), 'followup:write')).toBe(true);
+    expect(hasPermission(p('教师本人'), 'followup:write')).toBe(false);
   });
 
   it('未知角色不授任何权限', () => {
@@ -47,24 +47,24 @@ describe('RBAC 矩阵', () => {
 });
 
 describe('ABAC 密级与校区', () => {
-  it('角色默认密级上限：管理员 L4、教师 L2、家长 L2', () => {
+  it('角色默认密级上限：系统管理员 L4、教师本人 L2、财务 L3', () => {
     expect(maxDataLevelOf(p('系统管理员'))).toBe('L4');
-    expect(maxDataLevelOf(p('教师'))).toBe('L2');
-    expect(maxDataLevelOf(p('家长'))).toBe('L2');
+    expect(maxDataLevelOf(p('教师本人'))).toBe('L2');
+    expect(maxDataLevelOf(p('财务'))).toBe('L3');
   });
 
   it('用户级密级上限覆盖角色默认', () => {
-    expect(maxDataLevelOf({ roles: ['教师'], campuses: [], maxDataLevel: 'L3' })).toBe('L3');
+    expect(maxDataLevelOf({ roles: ['教师本人'], campuses: [], maxDataLevel: 'L3' })).toBe('L3');
   });
 
   it('L3 记录对 L2 上限用户拒绝', () => {
-    const d = authorize(p('家长'), 'grade:read', { dataLevel: 'L3' });
+    const d = authorize(p('教师本人'), 'grade:read', { dataLevel: 'L3' });
     expect(d.allowed).toBe(false);
     expect(d.reason).toBe('data-level-exceeded');
   });
 
   it('校区不匹配拒绝', () => {
-    const d = authorize({ roles: ['校区管理员'], campuses: ['虹桥校区'] }, 'student:read', {
+    const d = authorize({ roles: ['院级管理'], campuses: ['虹桥校区'] }, 'student:read', {
       campus: '浦东校区',
     });
     expect(d.allowed).toBe(false);
@@ -76,11 +76,17 @@ describe('ABAC 密级与校区', () => {
   });
 
   it('权限缺失优先于密级判断', () => {
-    const d = authorize(p('家长'), 'student:write', { dataLevel: 'L4' });
+    const d = authorize(p('财务'), 'student:write', { dataLevel: 'L4' });
     expect(d.reason).toBe('missing-permission');
   });
 
-  it('多角色密级取最高（教师+班主任 → L3）', () => {
-    expect(maxDataLevelOf(p('教师', '班主任'))).toBe('L3');
+  it('多角色密级取最高（教师本人+学生事务 → L3）', () => {
+    expect(maxDataLevelOf(p('教师本人', '学生事务'))).toBe('L3');
+  });
+
+  it('Base 中文密级可与引擎等级混合排名（内部≈L2）', () => {
+    // 学生/教师表使用中文密级选项，authorize 应能正确比较
+    expect(authorize(p('财务'), 'grade:read', { dataLevel: '内部' }).allowed).toBe(false);
+    expect(authorize(p('院级管理'), 'grade:read', { dataLevel: '内部' }).allowed).toBe(true);
   });
 });

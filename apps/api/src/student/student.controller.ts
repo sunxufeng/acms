@@ -93,8 +93,9 @@ export class StudentController {
     const user = this.user(req);
     const existing = await this.svc.detail(user, id);
     const currentPhotos = Array.isArray(existing['学生照片']) ? existing['学生照片'] : [];
-    await this.svc.update(user, id, { 学生照片: [...currentPhotos.map((p: any) => ({ file_token: p.file_token ?? p })), { file_token }] as any });
-    return { ok: true, file_token };
+    const updated = await this.svc.update(user, id, { 学生照片: [...currentPhotos.map((p: any) => ({ file_token: p.file_token ?? p })), { file_token }] as any });
+    const newPhoto = (updated['学生照片'] as Array<{ file_token?: string; viewUrl?: string; name?: string }>)?.find((p) => p.file_token === file_token);
+    return { ok: true, file_token, viewUrl: newPhoto?.viewUrl, name: newPhoto?.name };
   }
 
   /** 上传学生附件（证件与文件）：在关联表建记录并双向链接到学生 */
@@ -104,8 +105,12 @@ export class StudentController {
     if (!file) throw new Error('NO_FILE');
     if (file.size > 20 * 1024 * 1024) throw new Error('FILE_TOO_LARGE');
     const { file_token } = await this.fileUpload.uploadFile(file.buffer, file.originalname, file.mimetype);
-    const recordId = await this.svc.attachDoc(this.user(req), id, file_token, file.originalname);
-    return { ok: true, file_token, name: file.originalname, record_id: recordId };
+    const user = this.user(req);
+    const recordId = await this.svc.attachDoc(user, id, file_token, file.originalname);
+    // 双向关联写入后刷新学生记录，换取浏览器可直接访问的临时链接
+    const updated = await this.svc.detail(user, id);
+    const newAtt = (updated['证件与文件'] as Array<{ file_token?: string; viewUrl?: string; name?: string }>)?.find((a) => a.file_token === file_token);
+    return { ok: true, file_token, name: file.originalname, record_id: recordId, viewUrl: newAtt?.viewUrl };
   }
 
   /** 获取附件下载 URL */

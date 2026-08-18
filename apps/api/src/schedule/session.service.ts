@@ -50,7 +50,7 @@ export class SessionService {
     const sort = query.sortBy
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]
       : [{ field: '更新时间', desc: true }];
-    const res = await this.base.search(TABLE, { pageSize: 50, pageToken: query.pageToken, filter: buildFilter(conditions), sort });
+    const res = await this.base.search(TABLE, { pageSize: Number((query as any).pageSize) || 50, pageToken: query.pageToken, filter: buildFilter(conditions), sort });
     return { items: res.items.map((r) => toFlatRecord(r, READONLY, MULTI)), total: res.total, hasMore: res.hasMore, pageToken: res.pageToken };
   }
 

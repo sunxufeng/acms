@@ -28,7 +28,7 @@ export class NotificationService {
     if (query.q) conditions.push({ field: '模板名称', op: 'contains', value: [query.q] });
     if (query.渠道) conditions.push({ field: '渠道', value: [query.渠道] });
     if (query.状态) conditions.push({ field: '状态', value: [query.状态] });
-    const res = await this.base.search(TPL_TABLE, { pageSize: 50, pageToken: query.pageToken, filter: buildFilter(conditions) });
+    const res = await this.base.search(TPL_TABLE, { pageSize: Number((query as any).pageSize) || 50, pageToken: query.pageToken, filter: buildFilter(conditions) });
     return { items: res.items.map((r) => toFlatRecord(r, READONLY, new Set())), total: res.total, hasMore: res.hasMore, pageToken: res.pageToken };
   }
 
@@ -72,7 +72,7 @@ export class NotificationService {
     if (query.渠道) conditions.push({ field: '渠道', value: [query.渠道] });
     if (query.发送状态) conditions.push({ field: '发送状态', value: [query.发送状态] });
     if (query.模板文本) conditions.push({ field: '模板文本', op: 'contains', value: [query.模板文本] });
-    const res = await this.base.search(LOG_TABLE, { pageSize: 50, pageToken: query.pageToken, filter: buildFilter(conditions) });
+    const res = await this.base.search(LOG_TABLE, { pageSize: Number((query as any).pageSize) || 50, pageToken: query.pageToken, filter: buildFilter(conditions) });
     return { items: res.items.map((r) => toFlatRecord(r, READONLY, new Set())), total: res.total, hasMore: res.hasMore, pageToken: res.pageToken };
   }
 

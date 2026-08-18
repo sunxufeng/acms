@@ -57,7 +57,7 @@ export class TeacherService {
     const sort = query.sortBy
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]
       : [{ field: '更新时间', desc: true }];
-    const res = await this.base.search(TABLE, { pageSize: 50, pageToken: query.pageToken, filter, sort });
+    const res = await this.base.search(TABLE, { pageSize: Number((query as any).pageSize) || 50, pageToken: query.pageToken, filter, sort });
     const items = res.items.map((r) => this.toTeacher(r));
     return { items, total: res.total, hasMore: res.hasMore, pageToken: res.pageToken };
   }

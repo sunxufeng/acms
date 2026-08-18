@@ -5,14 +5,14 @@ import Link from 'next/link';
 import { api, type Page, type StudentRecord } from '../../lib/api';
 
 const COLS = [
-  { key: '学籍号', label: '学籍号', width: '130px' },
   { key: '学生姓名', label: '学生 / 编号', width: '' },
-  { key: '当前状态', label: '状态', width: '100px' },
-  { key: '当前年级', label: '年级 / 班级', width: '' },
-  { key: '校区', label: '校区', width: '' },
+  { key: '英文名', label: '英文名', width: '120px' },
+  { key: 'Arete毕业届', label: 'Arete毕业届', width: '110px' },
+  { key: '入学年级', label: 'Arete班', width: '' },
   { key: '来源渠道', label: '来源', width: '80px' },
   { key: '生源跟进状态', label: '跟进', width: '80px' },
-  { key: '更新时间', label: '更新', width: '80px' },
+  { key: '更新时间', label: '更新', width: '140px' },
+  { key: '当前状态', label: '状态', width: '100px' },
 ];
 
 function str(v: unknown): string {
@@ -31,6 +31,17 @@ function getPhotoToken(rec: Record<string, unknown>): string | null {
     return item.file_token ?? (typeof item === 'string' ? item : null);
   }
   if (typeof v === 'object' && (v as any).file_token) return (v as any).file_token;
+  return null;
+}
+
+/** 浏览器可直接访问的照片 URL：优先后端换发的免 token 临时链接，其次走代理 */
+function getPhotoUrl(rec: Record<string, unknown>): string | null {
+  const v = rec['学生照片'];
+  if (Array.isArray(v) && v.length) {
+    const item = v[0] as any;
+    if (item?.viewUrl) return item.viewUrl;
+    if (item?.file_token) return `/api/v1/files/${encodeURIComponent(item.file_token)}`;
+  }
   return null;
 }
 
@@ -139,21 +150,22 @@ function FilterSelect({
 export default function StudentsPage() {
   const [items, setItems] = useState<StudentRecord[]>([]);
   const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [pageToken, setPageToken] = useState<string | undefined>();
+  const [page, setPage] = useState(1);
+  const tokenStack = useRef<(string | undefined)[]>([]); // tokenStack[i] = 拉取第 i+1 页所需的 pageToken
+  const PAGE_SIZE = 5;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const [q, setQ] = useState('');
   const [filters, setFilters] = useState<Record<string, string | string[]>>({
     当前状态: '',
-    当前年级: '',
+    入学年级: '',
     班主任: [],
     招生负责老师: [],
     来源渠道: '',
     生源跟进状态: '',
-    入学级: '',
-    毕业届: '',
+    入学年份: '',
+    Arete毕业届: '',
   });
 
   const [dicts, setDicts] = useState<Record<string, string[]>>({});
@@ -164,41 +176,116 @@ export default function StudentsPage() {
     }).catch(() => {});
   }, []);
 
-  const load = useCallback(
-    async (token?: string, append = false) => {
+  /** 教师用户（班主任 / 招生负责老师 下拉框数据源） */
+  const [headTeacherOptions, setHeadTeacherOptions] = useState<string[]>([]);
+  const [recruitOptions, setRecruitOptions] = useState<string[]>([]);
+  /** 姓名 → 飞书 Open ID 映射（学生字段存的是 Open ID，筛选时需还原） */
+  const nameToOpenId = useRef<Record<string, string>>({});
+  useEffect(() => {
+    let alive = true;
+    const collected: { name: string; openId: string; teacherType: string }[] = [];
+    const fetchPage = async (token?: string): Promise<void> => {
+      const params: Record<string, string | undefined> = { pageSize: '100' };
+      if (token) params.pageToken = token;
+      const p = await api.listUsers(params);
+      for (const u of p.items) {
+        collected.push({
+          name: String(u['姓名'] ?? ''),
+          openId: String(u['飞书 Open ID'] ?? ''),
+          teacherType: String(u['教师类型'] ?? ''),
+        });
+      }
+      if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
+    };
+    fetchPage()
+      .then(() => {
+        if (!alive) return;
+        const map: Record<string, string> = {};
+        for (const u of collected) if (u.name && u.openId) map[u.name] = u.openId;
+        nameToOpenId.current = map;
+        const named = collected.filter((u) => u.name);
+        setHeadTeacherOptions(named.filter((u) => u.teacherType === '班主任').map((u) => u.name));
+        setRecruitOptions(named.filter((u) => u.teacherType === '招生老师').map((u) => u.name));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const buildParams = useCallback(
+    (token?: string): Record<string, string | undefined> => {
+      const params: Record<string, string | undefined> = {
+        pageSize: String(PAGE_SIZE),
+        sortBy: '学籍号（脱敏）',
+        sortOrder: 'asc',
+      };
+      if (q) params.q = q;
+      for (const [k, v] of Object.entries(filters)) {
+        if (Array.isArray(v) && v.length) {
+          // 班主任 / 招生负责老师 存的是 Open ID，下拉选的是姓名，需还原
+          const ids = ['班主任', '招生负责老师'].includes(k)
+            ? v.map((name) => nameToOpenId.current[name] ?? name).filter(Boolean)
+            : v;
+          if (ids.length) params[k] = ids.join(',');
+        } else if (typeof v === 'string' && v) params[k] = v;
+      }
+      if (token) params.pageToken = token;
+      return params;
+    },
+    [q, filters, PAGE_SIZE],
+  );
+
+  /** 拉取指定页（token 已知时直接拉；拉取后用返回 token 续填下一页游标） */
+  const fetchPage = useCallback(
+    async (target: number, token?: string) => {
       setLoading(true);
       setError('');
       try {
-        const params: Record<string, string | undefined> = {};
-        if (q) params.q = q;
-        for (const [k, v] of Object.entries(filters)) {
-          if (Array.isArray(v) && v.length) params[k] = v.join(',');
-          else if (typeof v === 'string' && v) params[k] = v;
-        }
-        if (token) params.pageToken = token;
-        const data: Page<StudentRecord> = await api.listStudents(params);
-        setItems((prev) => (append ? [...prev, ...data.items] : data.items));
+        const data: Page<StudentRecord> = await api.listStudents(buildParams(token));
+        setItems(data.items);
         setTotal(data.total);
-        setHasMore(data.hasMore);
-        setPageToken(data.pageToken);
+        setPage(target);
+        tokenStack.current[target] = data.pageToken; // 第 target 页之后的游标
       } catch (e) {
         setError((e as Error).message);
       } finally {
         setLoading(false);
       }
     },
-    [q, filters],
+    [buildParams],
   );
 
+  /** 跳转到目标页：若游标未知则向前逐页补全（不渲染中间页），再拉取目标页 */
+  const goToPage = useCallback(
+    async (target: number) => {
+      const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      target = Math.min(Math.max(target, 1), totalPages);
+      if (target - 1 < tokenStack.current.length) {
+        await fetchPage(target, tokenStack.current[target - 1]);
+        return;
+      }
+      for (let p = tokenStack.current.length; p < target; p++) {
+        const data = await api.listStudents(buildParams(tokenStack.current[p - 1]));
+        tokenStack.current[p] = data.pageToken;
+      }
+      await fetchPage(target, tokenStack.current[target - 1]);
+    },
+    [total, PAGE_SIZE, fetchPage, buildParams],
+  );
+
+  // 筛选 / 搜索变化 → 重置分页并从第 1 页重新加载
   useEffect(() => {
-    setItems([]);
-    load(undefined, false);
-  }, [q, filters, load]);
+    tokenStack.current = [];
+    setPage(1);
+    fetchPage(1, undefined);
+  }, [q, filters, fetchPage]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setItems([]);
-    load(undefined, false);
+    tokenStack.current = [];
+    setPage(1);
+    fetchPage(1, undefined);
   };
 
   const setFilter = (key: string, val: string | string[]) => {
@@ -209,7 +296,9 @@ export default function StudentsPage() {
     if (!confirm('确认删除该学生档案？此操作不可恢复。')) return;
     try {
       await api.archiveStudent(id);
-      load(undefined, false);
+      tokenStack.current = [];
+      setPage(1);
+      fetchPage(1, undefined);
     } catch (e) {
       alert('删除失败：' + (e as Error).message);
     }
@@ -232,8 +321,12 @@ export default function StudentsPage() {
                 const params: Record<string, string | undefined> = {};
                 if (q) params.q = q;
                 for (const [k, v] of Object.entries(filters)) {
-                  if (Array.isArray(v) && v.length) params[k] = v.join(',');
-                  else if (typeof v === 'string' && v) params[k] = v;
+                  if (Array.isArray(v) && v.length) {
+                    const ids = ['班主任', '招生负责老师'].includes(k)
+                      ? v.map((name) => nameToOpenId.current[name] ?? name).filter(Boolean)
+                      : v;
+                    if (ids.length) params[k] = ids.join(',');
+                  } else if (typeof v === 'string' && v) params[k] = v;
                 }
                 api.exportStudents(params).then((csv) => {
                   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
@@ -257,7 +350,7 @@ export default function StudentsPage() {
         <div className="search-bar" style={{ flex: 1, minWidth: 200 }}>
           <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input
-            placeholder="学生编号、姓名、英文名或班级"
+            placeholder="姓名、英文名"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -265,29 +358,29 @@ export default function StudentsPage() {
         </div>
 
         <FilterSelect
-          label="当前状态"
+          label="状态"
           value={filters['当前状态'] as string}
           onChange={(v) => setFilter('当前状态', v)}
           options={dicts['当前状态'] ?? ['已录未报到', '在校在读', '离校未毕(休学）', '离校未毕(保留学籍）', '毕业', '退学', '放弃入学', '潜在学生']}
         />
         <FilterSelect
           label="年级"
-          value={filters['当前年级'] as string}
-          onChange={(v) => setFilter('当前年级', v)}
-          options={dicts['当前年级'] ?? ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '初一', '初二', '初三', '高一', '高二', '高三']}
+          value={filters['入学年级'] as string}
+          onChange={(v) => setFilter('入学年级', v)}
+          options={dicts['入学年级'] ?? ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '初一', '初二', '初三', '高一', '高二', '高三']}
         />
         <FilterSelect
           label="班主任"
           value={filters['班主任'] as string[]}
           onChange={(v) => setFilter('班主任', v)}
-          options={dicts['班主任'] ?? []}
+          options={headTeacherOptions}
           multi
         />
         <FilterSelect
           label="招生"
           value={filters['招生负责老师'] as string[]}
           onChange={(v) => setFilter('招生负责老师', v)}
-          options={dicts['招生负责老师'] ?? []}
+          options={recruitOptions}
           multi
         />
         <FilterSelect
@@ -304,15 +397,15 @@ export default function StudentsPage() {
         />
         <FilterSelect
           label="入学"
-          value={filters['入学级'] as string}
-          onChange={(v) => setFilter('入学级', v)}
-          options={dicts['入学级'] ?? ['2021', '2022', '2023', '2024', '2025', '2026', '2027']}
+          value={filters['入学年份'] as string}
+          onChange={(v) => setFilter('入学年份', v)}
+          options={dicts['入学年份'] ?? ['2021春', '2021秋', '2022春', '2022秋', '2023春', '2023秋', '2024春', '2024秋', '2025春', '2025秋', '2026春', '2026秋', '2027春', '2027秋']}
         />
         <FilterSelect
-          label="毕业"
-          value={filters['毕业届'] as string}
-          onChange={(v) => setFilter('毕业届', v)}
-          options={dicts['毕业届'] ?? ['2021', '2022', '2023', '2024', '2025', '2026', '2027']}
+          label="Arete届"
+          value={filters['Arete毕业届'] as string}
+          onChange={(v) => setFilter('Arete毕业届', v)}
+          options={dicts['Arete毕业届'] ?? ['第1届', '第2届', '第3届', '第4届', '第5届', '第6届']}
         />
       </form>
 
@@ -343,46 +436,40 @@ export default function StudentsPage() {
                   const status = str(s['当前状态']);
                   return (
                     <tr key={s.id}>
-                      {/* 学籍号 - clickable link */}
-                      <td>
-                        <Link href={`/students/${s.id}`} className="link-cell">
-                          {str(s['学籍号（脱敏）']) || str(s['学生编号']) || '—'}
-                        </Link>
-                      </td>
-                      {/* Avatar + Name */}
+                      {/* 学生 / 编号（超链接 + 缩略图） */}
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          {getPhotoToken(s) ? (
-                            <img
-                              src={`https://open.feishu.cn/open-apis/drive/v1/medias/${getPhotoToken(s)}/download`}
-                              alt={name}
-                              className="avatar-dot"
-                              style={{ width: 34, height: 34, objectFit: 'cover' }}
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none';
-                                (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                              }}
-                            />
-                          ) : null}
-                          <span className={`avatar-dot ${getPhotoToken(s) ? 'hidden' : ''} ${avatarColor(name)}`}>{name.charAt(0)}</span>
-                          <div>
+                          {getPhotoUrl(s) ? (
+                            <div className="photo-thumb">
+                              <img
+                                src={getPhotoUrl(s)!}
+                                alt={name}
+                                className="avatar-dot"
+                                style={{ width: 34, height: 34, objectFit: 'cover' }}
+                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                              />
+                              <div className="photo-tip" role="tooltip">
+                                <img src={getPhotoUrl(s)!} alt={name} />
+                              </div>
+                            </div>
+                          ) : (
+                            <span className={`avatar-dot ${avatarColor(name)}`}>{name.charAt(0)}</span>
+                          )}
+                          <Link href={`/students/${s.id}`} className="name-link">
                             <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{name}</div>
                             <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['学生编号']) || '—'}</div>
-                          </div>
+                          </Link>
                         </div>
                       </td>
-                      {/* Status */}
+                      {/* 英文名 */}
+                      <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['英文名']) || '—'}</td>
+                      {/* Arete毕业届 */}
+                      <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['Arete毕业届']) || '—'}</td>
+                      {/* Arete班（年级/班级） */}
                       <td>
-                        <div className={`status-dot ${statusClass(status)}`}>{status || '—'}</div>
-                        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 2 }}>{str(s['性别'] || '')}</div>
-                      </td>
-                      {/* Grade/Class */}
-                      <td>
-                        <div style={{ fontWeight: 500 }}>{str(s['当前年级']) || '—'}</div>
+                        <div style={{ fontWeight: 500 }}>{str(s['入学年级']) || '—'}</div>
                         <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['班级']) || '未分班'}</div>
                       </td>
-                      {/* Campus */}
-                      <td>{str(s['校区']) || '—'}</td>
                       {/* 来源渠道 */}
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['来源渠道']) || '—'}</td>
                       {/* 跟进状态 */}
@@ -390,6 +477,11 @@ export default function StudentsPage() {
                       {/* Updated */}
                       <td style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>
                         {fmtDate(s['更新时间']) || '—'}
+                      </td>
+                      {/* Status（移到更新列后） */}
+                      <td>
+                        <div className={`status-dot ${statusClass(status)}`}>{status || '—'}</div>
+                        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 2 }}>{str(s['性别'] || '')}</div>
                       </td>
                       {/* Actions: 编辑 + 删除 */}
                       <td>
@@ -422,15 +514,34 @@ export default function StudentsPage() {
             </table>
           </div>
 
-          {/* Footer */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--border)' }}>
-            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>共 {total} 条</span>
-            {hasMore && (
-              <button className="btn btn-outline btn-sm" onClick={() => pageToken && load(pageToken, true)}>
-                加载更多
-              </button>
-            )}
-          </div>
+          {/* Footer：分页（每页 5 条，按学籍号升序） */}
+          {(() => {
+            const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+            const startP = Math.max(1, page - 2);
+            const endP = Math.min(totalPages, page + 2);
+            const pageNumbers: number[] = [];
+            for (let i = startP; i <= endP; i++) pageNumbers.push(i);
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
+                <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>共 {total} 条</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button className="btn btn-outline btn-sm" disabled={page <= 1 || loading} onClick={() => goToPage(page - 1)}>上一页</button>
+                  {pageNumbers.map((p) => (
+                    <button
+                      key={p}
+                      className={`btn btn-sm ${p === page ? 'btn-primary' : 'btn-outline'}`}
+                      disabled={loading}
+                      onClick={() => goToPage(p)}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                  <button className="btn btn-outline btn-sm" disabled={page >= totalPages || loading} onClick={() => goToPage(page + 1)}>下一页</button>
+                  <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginLeft: 8 }}>第 {page} / {totalPages} 页</span>
+                </div>
+              </div>
+            );
+          })()}
         </>
       ) : null}
     </div>

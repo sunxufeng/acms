@@ -110,6 +110,9 @@ export class DictService {
     // 教师档案表：确保「教师类别/授课学段/授课科目类型/授课科目/合作开始时间/收款主体」等
     // 字典下拉字段存在且选项与字典一致；并补齐文本类字段（微信号/常驻城市/个人描述/附件等）。
     results.push(await this.ensureTeacherFields());
+    // 家校沟通表：确保「沟通方式/家长反馈态度/闭环状态/信息敏感级别」单选字段与字典一致；
+    // 补齐文本字段（关联学生/家长/沟通人/沟通主题/沟通明细/沟通总结/沟通附件清单）。
+    results.push(await this.ensureHomeSchoolCommFields());
     return results;
   }
 
@@ -277,6 +280,86 @@ export class DictService {
       }
     } catch (e) {
       result.errors.push(`ensureTeacherFields: ${(e as Error).message}`);
+    }
+    return result;
+  }
+
+  /**
+   * 幂等确保家校沟通表的字典下拉字段存在且选项与字典一致：
+   * - 单选字段（沟通方式/家长反馈态度/闭环状态/信息敏感级别）：不存在则创建（type=3，带字典选项）；
+   *   已存在单选则追加缺失选项；已存在非单选则跳过（不删字段，避免丢数据）。
+   * - 文本字段（关联学生/家长/沟通人/沟通主题/沟通明细/沟通总结/沟通附件清单）：不存在则创建文本字段(type=1)。
+   *   其中 沟通明细 / 沟通总结 用于存放 MD 格式的沟通记录与总结，长度可能很长，飞书文本字段(1)可容纳。
+   */
+  private async ensureHomeSchoolCommFields(): Promise<SyncResult> {
+    const tableId = TABLES.homeSchoolComm.tableId;
+    const result: SyncResult = { table: tableId, synced: [], skipped: [], errors: [] };
+    const opt = (key: string) => (this.store[key] ?? []).map((name) => ({ name }));
+    try {
+      const fields = await this.base.listFields(tableId);
+      const byName = new Map(fields.map((f) => [f.name, f]));
+
+      // 0) 沟通人：原为飞书 User(11) 类型，本租户无法写入姓名（UserFieldConvFail）；
+      // 删除后重建为 Text(1)，由应用侧用 open_id↔姓名 映射展示，前端 person 选择器写入姓名。
+      const commPerson = byName.get('沟通人');
+      if (commPerson && commPerson.type !== 1) {
+        await this.base.deleteField(tableId, commPerson.id);
+        await this.base.createField(tableId, { field_name: '沟通人', type: 1 });
+        result.synced.push('沟通人（User→Text）');
+        byName.set('沟通人', { name: '沟通人', type: 1, property: {} } as typeof commPerson);
+      }
+
+      // 1) 单选字段（带字典选项）
+      const singles: { name: string; dictKey: string }[] = [
+        { name: '沟通方式', dictKey: '沟通方式' },
+        { name: '家长反馈态度', dictKey: '家长反馈态度' },
+        { name: '闭环状态', dictKey: '家校闭环状态' },
+        { name: '信息敏感级别', dictKey: '信息敏感级别' },
+      ];
+      for (const { name, dictKey } of singles) {
+        const options = opt(dictKey);
+        const def = byName.get(name);
+        if (!def) {
+          await this.base.createField(tableId, { field_name: name, type: SINGLE_SELECT, property: { options } });
+          result.synced.push(`${name}（已创建单选）`);
+          continue;
+        }
+        if (def.type !== SINGLE_SELECT) {
+          result.skipped.push(`${name}（已存在但非单选 type=${def.type}，跳过以免丢数据）`);
+          continue;
+        }
+        const existing = new Set((def.property.options ?? []).map((o) => o.name));
+        const toAdd = options.filter((o) => !existing.has(o.name));
+        if (toAdd.length) {
+          const merged = [
+            ...(def.property.options ?? []).map((o) => ({ name: o.name })),
+            ...toAdd,
+          ];
+          await this.base.updateField(tableId, def.id, {
+            field_name: def.name,
+            type: SINGLE_SELECT,
+            property: { options: merged },
+          });
+          result.synced.push(`${name}（+${toAdd.length}）`);
+        } else {
+          result.skipped.push(`${name}（已是最新）`);
+        }
+      }
+
+      // 2) 文本字段（飞书 type=1 即文本，可存多行/长内容）
+      const texts: string[] = [
+        '关联学生', '家长', '沟通人', '沟通主题', '沟通明细', '沟通总结', '沟通附件清单',
+      ];
+      for (const name of texts) {
+        if (byName.has(name)) {
+          result.skipped.push(`${name}（已存在）`);
+          continue;
+        }
+        await this.base.createField(tableId, { field_name: name, type: 1 });
+        result.synced.push(`${name}（已创建文本）`);
+      }
+    } catch (e) {
+      result.errors.push(`ensureHomeSchoolCommFields: ${(e as Error).message}`);
     }
     return result;
   }

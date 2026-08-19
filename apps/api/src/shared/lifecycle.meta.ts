@@ -84,7 +84,7 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     readPerm: PERM_R,
     writePerm: PERM_W,
     dateFields: ['沟通时间', '跟进截止日期', '闭环日期'],
-    readonly: ['沟通人', '待办负责人', '沟通主题', '沟通附件', '关联学生编号', '关联监护人'],
+    readonly: ['待办负责人', '沟通附件', '关联学生编号', '关联监护人'],
     linkFields: [
       { field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
       { field: '关联监护人', table: TABLES.guardian.tableId, nameField: '监护人姓名' },

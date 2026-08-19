@@ -1,4 +1,5 @@
-import { Controller, Get, HttpException, HttpStatus, Logger, Param, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, HttpException, HttpStatus, Logger, Param, Res, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { SessionGuard } from '../auth/session.guard.js';
 import { FileUploadService } from './file-upload.service.js';
@@ -60,6 +61,24 @@ export class FileController {
     } catch (e) {
       this.logger.error(`文件下载失败 token=${token}: ${(e as Error).message}`);
       throw new HttpException('FILE_DOWNLOAD_FAILED', HttpStatus.BAD_GATEWAY);
+    }
+  }
+
+  /**
+   * 通用文件上传（家校沟通附件等）：音频 / 文本 / MD 等任意类型。
+   * - 通过后端 tenant_access_token 写入飞书，返回 file_token；前端自行持久化到业务字段（如 沟通附件清单 JSON）。
+   * - 单文件上限 50MB（音频文件较大）。
+   */
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
+  async upload(@UploadedFile() file: any) {
+    if (!file) throw new BadRequestException('NO_FILE');
+    try {
+      const { file_token } = await this.fileUpload.uploadFile(file.buffer, file.originalname, file.mimetype);
+      return { ok: true, file_token, name: file.originalname };
+    } catch (e) {
+      this.logger.error(`文件上传失败: ${(e as Error).message}`);
+      throw new HttpException('FILE_UPLOAD_FAILED', HttpStatus.BAD_GATEWAY);
     }
   }
 }

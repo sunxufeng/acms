@@ -106,6 +106,16 @@ export const api = {
   getAttachmentUrl: (studentId: string, fileToken: string) =>
     request<{ url: string }>(`/students/${studentId}/attachment-url?file_token=${encodeURIComponent(fileToken)}`),
 
+  /** 通用文件上传（家校沟通附件等）：音频 / 文本 / MD 等，返回 { ok, file_token, name } */
+  uploadFile: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ ok: boolean; file_token: string; name: string }>('/files/upload', {
+      method: 'POST',
+      body: form as unknown as BodyInit,
+    });
+  },
+
   /** 导出 CSV */
   exportStudents: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();

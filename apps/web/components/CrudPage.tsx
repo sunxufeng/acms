@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api as apiClient, type Page } from '../lib/api';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect' | 'person';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect' | 'person' | 'student' | 'parent' | 'attachment';
 
 export interface CrudColumn {
   key: string;
@@ -24,6 +24,8 @@ export interface CrudColumn {
   /** 候选项来自字典表（优先于 options；options 作为离线兜底） */
   dictKey?: string;
   required?: boolean;
+  /** 联动来源字段 key（如 parent 类型从 student 类型所选学生的父亲/母亲取候选） */
+  dependsOn?: string;
 }
 
 /** 时间范围筛选（如审计日志按操作时间区间过滤） */
@@ -68,6 +70,20 @@ function str(v: unknown): string {
   if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' ? x : String((x as { text?: string })?.text ?? ''))).join('、');
   if (typeof v === 'object') return String((v as { text?: string })?.text ?? '');
   return String(v);
+}
+
+/** 附件字段值：可能为数组（表单态）或 JSON 字符串（飞书存储态） */
+function attachmentFiles(v: unknown): { file_token: string; name: string }[] {
+  if (Array.isArray(v)) return v as { file_token: string; name: string }[];
+  if (typeof v === 'string' && v.trim()) {
+    try {
+      const p = JSON.parse(v);
+      if (Array.isArray(p)) return p as { file_token: string; name: string }[];
+    } catch {
+      /* ignore */
+    }
+  }
+  return [];
 }
 
 function FilterSelect({
@@ -251,13 +267,42 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     return () => { alive = false; };
   }, [columns]);
 
+  // 学生字段（student / parent 联动）候选项：从学生档案读取「学生姓名 → 父亲姓名 / 母亲姓名」
+  const [studentNames, setStudentNames] = useState<string[]>([]);
+  const [studentMap, setStudentMap] = useState<Record<string, { father: string; mother: string }>>({});
+  useEffect(() => {
+    if (!columns.some((c) => c.type === 'student' || c.type === 'parent')) return;
+    let alive = true;
+    const collected: { name: string; father: string; mother: string }[] = [];
+    const fetchPage = async (token?: string): Promise<void> => {
+      const params: Record<string, string | undefined> = { pageSize: '100' };
+      if (token) params.pageToken = token;
+      const p = await apiClient.listStudents(params);
+      for (const s of p.items) {
+        const name = String(s['学生姓名'] ?? '');
+        if (name) collected.push({ name, father: String(s['父亲姓名'] ?? ''), mother: String(s['母亲姓名'] ?? '') });
+      }
+      if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
+    };
+    fetchPage()
+      .then(() => {
+        if (!alive) return;
+        const map: Record<string, { father: string; mother: string }> = {};
+        for (const s of collected) map[s.name] = { father: s.father, mother: s.mother };
+        setStudentMap(map);
+        setStudentNames(Array.from(new Set(collected.map((s) => s.name))));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [columns]);
+
   /** 字段有效候选项：优先字典，其次字段 options */
   const optionsFor = (c: CrudColumn): string[] =>
     c.dictKey ? (dicts[c.dictKey] ?? c.options ?? []) : (c.options ?? []);
 
   function openCreate() {
     const init: Record<string, unknown> = {};
-    for (const c of formCols) init[c.key] = c.type === 'multiselect' ? [] : '';
+    for (const c of formCols) init[c.key] = c.type === 'multiselect' || c.type === 'attachment' ? [] : '';
     setForm(init);
     setEditing({ mode: 'create' });
     setError(null);
@@ -266,9 +311,10 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   function openEdit(row: Record<string, unknown>) {
     const init: Record<string, unknown> = {};
     for (const c of formCols) {
-      init[c.key] = c.type === 'multiselect'
-        ? (Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split('、').filter(Boolean))
-        : (row[c.key] ?? '');
+      if (c.type === 'attachment') init[c.key] = attachmentFiles(row[c.key]);
+      else if (c.type === 'multiselect')
+        init[c.key] = (Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split('、').filter(Boolean));
+      else init[c.key] = row[c.key] ?? '';
     }
     setForm(init);
     setEditing({ mode: 'edit', row });
@@ -283,6 +329,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       for (const c of formCols) {
         const v = form[c.key];
         if (c.type === 'multiselect') payload[c.key] = Array.isArray(v) ? v : [];
+        else if (c.type === 'attachment') payload[c.key] = Array.isArray(v) && (v as unknown[]).length ? JSON.stringify(v) : undefined;
         else if (c.type === 'number') payload[c.key] = v === '' || v == null ? undefined : Number(v);
         else payload[c.key] = v === '' ? undefined : v;
       }
@@ -350,6 +397,47 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               <option value="">（未填）</option>
               {userNames.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
+          ) : c.type === 'student' ? (
+            <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
+              <option value="">（未选）</option>
+              {studentNames.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : c.type === 'parent' ? (
+            (() => {
+              const dep = form[c.dependsOn ?? ''] as string;
+              const sm = studentMap[dep] ?? { father: '', mother: '' };
+              const opts = [sm.father, sm.mother].filter(Boolean);
+              const listId = `parent-opt-${c.key}`;
+              return (
+                <>
+                  <input className="form-input" list={listId} value={str(form[c.key])} placeholder="从下拉选择或手工录入" onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
+                  <datalist id={listId}>{opts.map((o) => <option key={o} value={o} />)}</datalist>
+                </>
+              );
+            })()
+          ) : c.type === 'attachment' ? (
+            <div>
+              <input type="file" onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                  const res = await apiClient.uploadFile(file);
+                  setForm((f) => ({ ...f, [c.key]: [...(Array.isArray(f[c.key]) ? (f[c.key] as { file_token: string; name: string }[]) : []), { file_token: res.file_token, name: res.name }] }));
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : '上传失败');
+                } finally {
+                  e.target.value = '';
+                }
+              }} />
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(Array.isArray(form[c.key]) ? (form[c.key] as { file_token: string; name: string }[]) : []).map((a, i) => (
+                  <div key={a.file_token ?? i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--font-sm)' }}>
+                    <a href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{a.name}</a>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setForm((f) => ({ ...f, [c.key]: (Array.isArray(f[c.key]) ? (f[c.key] as { file_token: string; name: string }[]) : []).filter((_, j) => j !== i) }))}>移除</button>
+                  </div>
+                ))}
+              </div>
+            </div>
           ) : c.type === 'date' ? (
             <input className="form-input" type="date" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
           ) : (
@@ -459,7 +547,19 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                     <td key={c.key}>
                       {statusField === c.key && st
                         ? <span className={`status-dot ${statusClass ? statusClass(st) : ''}`}>{st}</span>
-                        : (c.render ? c.render(row[c.key], row) : str(row[c.key]))}
+                        : c.type === 'attachment'
+                          ? (() => {
+                            const files = attachmentFiles(row[c.key]);
+                            if (!files.length) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+                            return (
+                              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                                {files.map((a, i) => (
+                                  <a key={a.file_token ?? i} href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{a.name}</a>
+                                ))}
+                              </span>
+                            );
+                          })()
+                          : (c.render ? c.render(row[c.key], row) : str(row[c.key]))}
                     </td>
                   ))}
                   <td>

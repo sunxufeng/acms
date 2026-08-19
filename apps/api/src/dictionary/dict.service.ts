@@ -216,7 +216,35 @@ export class DictService {
         result.skipped.push(`教师类别（已存在但非单选 type=${catDef.type}，跳过）`);
       }
 
-      // 2) 新增单选字段（带字典选项）
+      // 2) 主要学科：单选（下拉）。原为多选字段，改为单选下拉需重建字段类型。
+      const majorDef = byName.get('主要学科');
+      if (!majorDef) {
+        await this.base.createField(tableId, {
+          field_name: '主要学科', type: SINGLE_SELECT, property: { options: opt('主要学科') },
+        });
+        result.synced.push('主要学科（已创建单选）');
+      } else if (majorDef.type !== SINGLE_SELECT) {
+        // 多选/文本等非单选 → 删除重建为单选（字段数据会丢失，符合「改为单选下拉」需求）
+        await this.base.deleteField(tableId, majorDef.id);
+        await this.base.createField(tableId, {
+          field_name: '主要学科', type: SINGLE_SELECT, property: { options: opt('主要学科') },
+        });
+        result.synced.push('主要学科（多选→单选重建）');
+      } else {
+        const existing = new Set((majorDef.property.options ?? []).map((o) => o.name));
+        const toAdd = opt('主要学科').filter((o) => !existing.has(o.name));
+        if (toAdd.length) {
+          await this.base.updateField(tableId, majorDef.id, {
+            field_name: '主要学科', type: SINGLE_SELECT,
+            property: { options: [...(majorDef.property.options ?? []).map((o) => ({ name: o.name })), ...toAdd] },
+          });
+          result.synced.push(`主要学科（+${toAdd.length}）`);
+        } else {
+          result.skipped.push('主要学科（已是最新）');
+        }
+      }
+
+      // 2.5) 新增单选字段（带字典选项）
       const singles: { name: string; dictKey: string }[] = [
         { name: '授课学段', dictKey: '授课学段' },
         { name: '授课科目类型', dictKey: '授课科目类型' },

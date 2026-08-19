@@ -107,6 +107,9 @@ export class DictService {
     results.push(await this.ensureStudentSelectFields());
     // 生源跟进记录表：确保字典下拉字段存在且选项与字典一致（含新增的 原学校类型/合同状态/付款状态/家庭关键决策点/原学校/奖学金金额）
     results.push(await this.ensureFollowupFields());
+    // 教师档案表：确保「教师类别/授课学段/授课科目类型/授课科目/合作开始时间/收款主体」等
+    // 字典下拉字段存在且选项与字典一致；并补齐文本类字段（微信号/常驻城市/个人描述/附件等）。
+    results.push(await this.ensureTeacherFields());
     return results;
   }
 
@@ -175,6 +178,83 @@ export class DictService {
       }
     } catch (e) {
       result.errors.push(`ensureFollowupFields: ${(e as Error).message}`);
+    }
+    return result;
+  }
+
+  /**
+   * 幂等确保教师档案表的字典下拉字段与文本字段存在且选项与字典一致：
+   * - 教师类别（单选，已存在）：用字典「全职/兼职」整体替换原选项（覆盖旧的 专职教师 等）。
+   * - 授课学段 / 授课科目类型 / 合作开始时间 / 收款主体（单选，带字典选项）：不存在则创建。
+   * - 授课科目（多选，带字典选项）：不存在则创建。
+   * - 文本/多行字段（微信号/常驻城市/开课人数说明/个人描述/附件/教师合作等级/教学评估）：不存在则创建。
+   */
+  private async ensureTeacherFields(): Promise<SyncResult> {
+    const tableId = TABLES.teacherProfile.tableId;
+    const result: SyncResult = { table: tableId, synced: [], skipped: [], errors: [] };
+    const opt = (key: string) => (this.store[key] ?? []).map((name) => ({ name }));
+    try {
+      const fields = await this.base.listFields(tableId);
+      const byName = new Map(fields.map((f) => [f.name, f]));
+
+      // 1) 教师类别：整体替换为 全职/兼职
+      const catDef = byName.get('教师类别');
+      if (!catDef) {
+        await this.base.createField(tableId, {
+          field_name: '教师类别', type: SINGLE_SELECT, property: { options: opt('教师类别') },
+        });
+        result.synced.push('教师类别（已创建单选）');
+      } else if (catDef.type === SINGLE_SELECT) {
+        await this.base.updateField(tableId, catDef.id, {
+          field_name: '教师类别', type: SINGLE_SELECT, property: { options: opt('教师类别') },
+        });
+        result.synced.push('教师类别（选项更新为 全职/兼职）');
+      } else {
+        result.skipped.push(`教师类别（已存在但非单选 type=${catDef.type}，跳过）`);
+      }
+
+      // 2) 新增单选字段（带字典选项）
+      const singles: { name: string; dictKey: string }[] = [
+        { name: '授课学段', dictKey: '授课学段' },
+        { name: '授课科目类型', dictKey: '授课科目类型' },
+        { name: '合作开始时间', dictKey: '合作开始时间' },
+        { name: '收款主体', dictKey: '收款主体' },
+      ];
+      for (const { name, dictKey } of singles) {
+        if (byName.has(name)) { result.skipped.push(`${name}（已存在）`); continue; }
+        await this.base.createField(tableId, {
+          field_name: name, type: SINGLE_SELECT, property: { options: opt(dictKey) },
+        });
+        result.synced.push(`${name}（已创建单选）`);
+      }
+
+      // 3) 授课科目：多选
+      if (!byName.has('授课科目')) {
+        await this.base.createField(tableId, {
+          field_name: '授课科目', type: MULTI_SELECT, property: { options: opt('授课科目') },
+        });
+        result.synced.push('授课科目（已创建多选）');
+      } else {
+        result.skipped.push('授课科目（已存在）');
+      }
+
+      // 4) 文本字段（飞书 type 1 即文本，可存多行内容；type 2 是数字，切勿误用）
+      const texts: { name: string; type: number }[] = [
+        { name: '微信号', type: 1 },
+        { name: '常驻城市', type: 1 },
+        { name: '开课人数说明', type: 1 },
+        { name: '个人描述', type: 1 },
+        { name: '附件', type: 1 },
+        { name: '教师合作等级', type: 1 },
+        { name: '教学评估', type: 1 },
+      ];
+      for (const { name, type } of texts) {
+        if (byName.has(name)) { result.skipped.push(`${name}（已存在）`); continue; }
+        await this.base.createField(tableId, { field_name: name, type });
+        result.synced.push(`${name}（已创建）`);
+      }
+    } catch (e) {
+      result.errors.push(`ensureTeacherFields: ${(e as Error).message}`);
     }
     return result;
   }

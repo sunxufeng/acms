@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 
-export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone' | 'textarea' | 'number';
+export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone' | 'textarea' | 'number' | 'typescore';
 
 export interface FieldDef {
   key: string;
@@ -17,6 +17,9 @@ export interface FieldDef {
   /** 数字字段范围（前端校验用） */
   min?: number;
   max?: number;
+  /** typescore 专用：类型侧标题（如「英语标化类型」）与成绩侧标题（如「英语标化成绩」） */
+  typeLabel?: string;
+  scoreLabel?: string;
 }
 
 export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
@@ -88,7 +91,7 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '健康风险摘要', label: '健康风险摘要', type: 'select', dictKey: '健康风险摘要', options: ['无', '低风险', '中风险', '高风险'] },
       { key: '特殊支持摘要', label: '特殊支持摘要', type: 'multiselect', dictKey: '特殊支持摘要', singleChoice: true, options: ['学习支持', '心理支持', '行为支持', '语言支持', '医疗支持', '经济支持'] },
       { key: '摘要', label: '摘要', type: 'textarea' },
-      { key: '宿舍信息', label: '宿舍信息', type: 'text' },
+      { key: '宿舍信息', label: '宿舍信息', type: 'textarea' },
       { key: '既往病史', label: '既往病史', type: 'textarea' },
       { key: '心理状态', label: '心理状态', type: 'textarea' },
     ],
@@ -98,9 +101,6 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     fields: [
       { key: '来源渠道', label: '来源渠道', type: 'select', dictKey: '来源渠道', options: ['官网', '转介绍', '展会', '社交媒体', '代理', '其他'] },
       { key: '生源跟进状态', label: '生源跟进状态', type: 'select', dictKey: '生源跟进状态', options: ['新线索', '跟进中', '已报名', '已入学', '已流失'] },
-      { key: '招生负责老师', label: '招生负责老师（open_id）', type: 'user' },
-      { key: '班主任', label: '班主任（open_id）', type: 'user' },
-      { key: '数据负责人', label: '数据负责人', type: 'user' },
       { key: '通知状态', label: '通知状态', type: 'select', dictKey: '通知状态', options: ['未订阅', '订阅中', '退订', '已发送', '已读'] },
       { key: '原学校', label: '原学校', type: 'text' },
       { key: '原学校类型', label: '原学校类型', type: 'select', dictKey: '原学校类型' },
@@ -108,6 +108,9 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '付款状态', label: '付款状态', type: 'select', dictKey: '付款状态' },
       { key: '奖学金金额', label: '奖学金金额', type: 'text' },
       { key: '家庭关键决策点', label: '家庭关键决策点', type: 'select', dictKey: '家庭关键决策点' },
+      { key: '招生负责老师', label: '招生负责老师（open_id）', type: 'user' },
+      { key: '班主任', label: '班主任（open_id）', type: 'user' },
+      { key: '数据负责人', label: '数据负责人', type: 'user' },
     ],
   },
   {
@@ -115,26 +118,22 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     fields: [
       { key: '数学笔试成绩', label: '数学笔试成绩（0-100）', type: 'number', min: 0, max: 100 },
       { key: '英语笔试成绩', label: '英语笔试成绩（0-100）', type: 'number', min: 0, max: 100 },
-      { key: '英语标化类型', label: '英语标化类型', type: 'select', dictKey: '英语标化类型' },
-      { key: '英语标化成绩', label: '英语标化成绩', type: 'text' },
       { key: '英语口语评分', label: '英语口语评分（0-100）', type: 'number', min: 0, max: 100 },
       { key: '家长面谈情况', label: '家长面谈情况', type: 'textarea' },
       { key: '学生面试情况', label: '学生面试情况', type: 'textarea' },
       { key: '作品集/附加材料评价', label: '作品集/附加材料评价', type: 'textarea' },
+      { key: '英语标化成绩', label: '英语标化（类型 + 成绩）', type: 'typescore', dictKey: '英语标化类型', typeLabel: '英语标化类型', scoreLabel: '英语标化成绩' },
       { key: '综合评定等级', label: '综合评定等级', type: 'select', dictKey: '综合评定等级' },
     ],
   },
   {
     title: '学术表现',
     fields: [
-      { key: 'GPA成绩类型', label: 'GPA成绩类型', type: 'select', dictKey: 'GPA成绩类型' },
-      { key: 'GPA成绩', label: 'GPA成绩', type: 'text' },
+      { key: 'GPA成绩', label: 'GPA成绩（类型 + 成绩）', type: 'typescore', dictKey: 'GPA成绩类型', typeLabel: 'GPA成绩类型', scoreLabel: 'GPA成绩' },
+      { key: '学术标化成绩', label: '学术标化（类型 + 成绩）', type: 'typescore', dictKey: '学术标化类型', typeLabel: '学术标化类型', scoreLabel: '学术标化成绩' },
+      { key: '语言标化成绩', label: '语言标化（类型 + 成绩）', type: 'typescore', dictKey: '语言标化类型', typeLabel: '语言标化类型', scoreLabel: '语言标化成绩' },
       { key: '预警科目', label: '预警科目', type: 'text' },
       { key: '提升成果', label: '提升成果', type: 'text' },
-      { key: '语言标化类型', label: '语言标化类型', type: 'select', dictKey: '语言标化类型' },
-      { key: '语言标化成绩', label: '语言标化成绩', type: 'text' },
-      { key: '学术标化类型', label: '学术标化类型', type: 'select', dictKey: '学术标化类型' },
-      { key: '学术标化成绩', label: '学术标化成绩', type: 'text' },
       { key: '出勤率', label: '出勤率（0%-100%）', type: 'number', min: 0, max: 100 },
       { key: '作业完成率', label: '作业完成率（0%-100%）', type: 'number', min: 0, max: 100 },
       { key: '核心课程表现', label: '核心课程表现', type: 'textarea' },
@@ -177,7 +176,6 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
   {
     title: '升学阶段',
     fields: [
-      { key: '升学导师', label: '升学导师（open_id）', type: 'user' },
       { key: '初始留学意向', label: '初始留学意向', type: 'text' },
       { key: '目标国家', label: '目标国家', type: 'text' },
       { key: '目标院校', label: '目标院校', type: 'text' },
@@ -185,6 +183,7 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '录取offer', label: '录取offer', type: 'text' },
       { key: '最终入读院校', label: '最终入读院校', type: 'text' },
       { key: '签证情况', label: '签证情况', type: 'select', dictKey: '签证情况' },
+      { key: '升学导师', label: '升学导师（open_id）', type: 'user' },
     ],
   },
 ];
@@ -211,6 +210,20 @@ function safeParseDoc(s: string): { type: string; number: string }[] {
     if (Array.isArray(arr)) return arr.filter((x: { type?: string }) => x && x.type);
   } catch {
     /* ignore */
+  }
+  return [];
+}
+
+/** 解析标化成绩（类型 + 成绩）：可能是 JSON 字符串或已是数组，统一返回 {type,score}[] */
+function parseTypeScore(v: unknown): { type: string; score: string }[] {
+  if (Array.isArray(v)) return v.filter((x) => x && (x.type || x.score));
+  if (typeof v === 'string' && v.trim()) {
+    try {
+      const arr = JSON.parse(v);
+      if (Array.isArray(arr)) return arr.filter((x) => x && (x.type || x.score));
+    } catch {
+      /* ignore */
+    }
   }
   return [];
 }
@@ -534,6 +547,81 @@ function DocInfoEditor({
   );
 }
 
+/** 标化成绩编辑器：一组（类型 + 成绩），下方列表展示已填成绩（仿 证件信息 的 类型 + 号码） */
+function TypeScoreEditor({
+  value,
+  onChange,
+  options,
+  typeLabel,
+  scoreLabel,
+  readOnly,
+}: {
+  value: unknown;
+  onChange: (v: { type: string; score: string }[]) => void;
+  options: string[];
+  typeLabel: string;
+  scoreLabel: string;
+  readOnly: boolean;
+}) {
+  const [type, setType] = useState('');
+  const [score, setScore] = useState('');
+  const list = Array.isArray(value) ? (value as { type: string; score: string }[]) : [];
+  const add = () => {
+    if (!type) { alert(`请选择${typeLabel}`); return; }
+    if (!score.trim()) { alert(`请填写${scoreLabel}`); return; }
+    onChange([...list, { type, score: score.trim() }]);
+    setType('');
+    setScore('');
+  };
+  const remove = (i: number) => onChange(list.filter((_, idx) => idx !== i));
+  return (
+    <div className="docinfo-editor">
+      <div className="docinfo-add-row">
+        <select className="form-input" value={type} disabled={readOnly} onChange={(e) => setType(e.target.value)}>
+          <option value="">{typeLabel}</option>
+          {options.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+        <input
+          className="form-input"
+          placeholder={scoreLabel}
+          value={score}
+          disabled={readOnly}
+          onChange={(e) => setScore(e.target.value)}
+        />
+        {!readOnly && (
+          <button type="button" className="btn btn-primary btn-sm" onClick={add}>添加</button>
+        )}
+      </div>
+      {list.length > 0 && (
+        <table className="data-table docinfo-list">
+          <thead>
+            <tr>
+              <th style={{ width: '40%' }}>{typeLabel}</th>
+              <th>{scoreLabel}</th>
+              {!readOnly && <th style={{ width: 80 }}>操作</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((d, i) => (
+              <tr key={i}>
+                <td>{d.type}</td>
+                <td>{d.score}</td>
+                {!readOnly && (
+                  <td>
+                    <button type="button" className="btn btn-danger btn-sm" onClick={() => remove(i)}>删除</button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 export function StudentForm({
   initial,
   onSubmit,
@@ -550,7 +638,11 @@ export function StudentForm({
     if (initial) {
       for (const section of STUDENT_SECTIONS) {
         for (const f of section.fields) {
-          v[f.key] = initial[f.key] ?? (f.type === 'multiselect' || f.type === 'user' ? [] : '');
+          if (f.type === 'typescore') {
+            v[f.key] = parseTypeScore(initial[f.key]);
+          } else {
+            v[f.key] = initial[f.key] ?? (f.type === 'multiselect' || f.type === 'user' ? [] : '');
+          }
         }
       }
       // 证件信息（JSON 数组）单独解析
@@ -795,7 +887,10 @@ function PhotoAttachmentSection({
     for (const section of STUDENT_SECTIONS) {
       for (const f of section.fields) {
         const val = values[f.key];
-        if (f.type === 'multiselect' || f.type === 'user') {
+        if (f.type === 'typescore') {
+          const arr = Array.isArray(val) ? (val as { type: string; score: string }[]) : [];
+          if (arr.length) data[f.key] = JSON.stringify(arr);
+        } else if (f.type === 'multiselect' || f.type === 'user') {
           const arr = toStringArray(val);
           if (arr.length) data[f.key] = arr;
         } else if (typeof val === 'string' && val.trim()) {
@@ -953,6 +1048,15 @@ function PhotoAttachmentSection({
                     value={String(values[f.key] ?? '')}
                     disabled={readOnly}
                     onChange={(e) => setField(f.key, e.target.value)}
+                  />
+                ) : f.type === 'typescore' ? (
+                  <TypeScoreEditor
+                    value={values[f.key]}
+                    onChange={(v) => setField(f.key, v)}
+                    options={optionsFor(f)}
+                    typeLabel={f.typeLabel ?? '类型'}
+                    scoreLabel={f.scoreLabel ?? '成绩'}
+                    readOnly={!!readOnly}
                   />
                 ) : f.type === 'textarea' ? (
                   <textarea

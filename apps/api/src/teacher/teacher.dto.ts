@@ -14,6 +14,18 @@ export interface CreateTeacherDto {
   入职或首次合作日期?: string;
   离职或终止日期?: string;
   邮箱?: string;
+  微信号?: string;
+  常驻城市?: string;
+  开课人数说明?: string;
+  个人描述?: string;
+  附件?: string;
+  教师合作等级?: string;
+  教学评估?: string;
+  收款主体?: string;
+  授课学段?: string;
+  授课科目类型?: string;
+  授课科目?: string[];
+  合作开始时间?: string;
   备注?: string;
 }
 
@@ -31,6 +43,18 @@ export interface UpdateTeacherDto {
   入职或首次合作日期?: string;
   离职或终止日期?: string;
   邮箱?: string;
+  微信号?: string;
+  常驻城市?: string;
+  开课人数说明?: string;
+  个人描述?: string;
+  附件?: string;
+  教师合作等级?: string;
+  教学评估?: string;
+  收款主体?: string;
+  授课学段?: string;
+  授课科目类型?: string;
+  授课科目?: string[];
+  合作开始时间?: string;
   备注?: string;
 }
 

@@ -68,22 +68,18 @@ export interface CreateStudentDto {
   // ── 入学测试 ──
   数学笔试成绩?: string;
   英语笔试成绩?: string;
-  英语标化类型?: string;
-  英语标化成绩?: string;
+  英语标化成绩?: string; // 结构：JSON 数组 [{type, score}]，类型来自字典「英语标化类型」
   英语口语评分?: string;
   家长面谈情况?: string;
   学生面试情况?: string;
   '作品集/附加材料评价'?: string;
   综合评定等级?: string;
   // ── 学术表现 ──
-  GPA成绩类型?: string;
-  GPA成绩?: string;
+  GPA成绩?: string; // 结构：JSON 数组 [{type, score}]，类型来自字典「GPA成绩类型」
   预警科目?: string;
   提升成果?: string;
-  语言标化类型?: string;
-  语言标化成绩?: string;
-  学术标化类型?: string;
-  学术标化成绩?: string;
+  语言标化成绩?: string; // 结构：JSON 数组 [{type, score}]，类型来自字典「语言标化类型」
+  学术标化成绩?: string; // 结构：JSON 数组 [{type, score}]，类型来自字典「学术标化类型」
   出勤率?: string;
   作业完成率?: string;
   核心课程表现?: string;
@@ -223,11 +219,7 @@ export interface StudentFilterDto {
   合同状态?: string;
   付款状态?: string;
   家庭关键决策点?: string;
-  英语标化类型?: string;
   综合评定等级?: string;
-  GPA成绩类型?: string;
-  语言标化类型?: string;
-  学术标化类型?: string;
   签证情况?: string;
   是否企业家庭?: string;
   是否工坊企业?: string;

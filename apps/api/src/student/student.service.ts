@@ -113,11 +113,7 @@ export class StudentService {
     if (query.合同状态) conditions.push({ field: '合同状态', value: [query.合同状态] });
     if (query.付款状态) conditions.push({ field: '付款状态', value: [query.付款状态] });
     if (query.家庭关键决策点) conditions.push({ field: '家庭关键决策点', value: [query.家庭关键决策点] });
-    if (query.英语标化类型) conditions.push({ field: '英语标化类型', value: [query.英语标化类型] });
     if (query.综合评定等级) conditions.push({ field: '综合评定等级', value: [query.综合评定等级] });
-    if (query.GPA成绩类型) conditions.push({ field: 'GPA成绩类型', value: [query.GPA成绩类型] });
-    if (query.语言标化类型) conditions.push({ field: '语言标化类型', value: [query.语言标化类型] });
-    if (query.学术标化类型) conditions.push({ field: '学术标化类型', value: [query.学术标化类型] });
     if (query.签证情况) conditions.push({ field: '签证情况', value: [query.签证情况] });
     if (query.是否企业家庭) conditions.push({ field: '是否企业家庭', value: [query.是否企业家庭] });
     if (query.是否工坊企业) conditions.push({ field: '是否工坊企业', value: [query.是否工坊企业] });
@@ -137,7 +133,7 @@ export class StudentService {
       '数据密级', '性别', '来源渠道', '生源跟进状态', '入学级', '毕业届',
       '入学年份', '实际学制', '现居住省', '城市', '学生标签', '特长标签',
       '原学校类型', '合同状态', '付款状态', '家庭关键决策点',
-      '英语标化类型', '综合评定等级', 'GPA成绩类型', '语言标化类型', '学术标化类型', '签证情况',
+      '综合评定等级', '签证情况',
       '是否企业家庭', '是否工坊企业', '是否多胎家庭',
     ];
     for (const k of eq) {
@@ -436,6 +432,29 @@ export class StudentService {
         obj[k] = toText(v);
       }
     }
+    // 向后兼容：旧版分字段（英语标化类型/成绩、GPA成绩类型/成绩、学术标化类型/成绩）
+    // 合并为结构化字段（英语标化成绩 / GPA成绩 / 学术标化成绩 的 JSON 数组 [{type,score}]）。
+    // 新写入已统一走结构化字段，这里仅在结构化字段为空、且旧字段有值时做一次性合并，避免旧数据丢失。
+    const migrateTypeScore = (newKey: string, typeKey: string, scoreKey: string) => {
+      const nv = obj[newKey];
+      const hasNew = (typeof nv === 'string' && nv.trim().length > 0) || (Array.isArray(nv) && nv.length > 0);
+      if (hasNew) return;
+      const types = toStringArray(obj[typeKey]);
+      const scores = String(obj[scoreKey] ?? '')
+        .split(/[,，]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const n = Math.max(types.length, scores.length);
+      if (n === 0) return;
+      const arr: { type: string; score: string }[] = [];
+      for (let i = 0; i < n; i++) arr.push({ type: types[i] ?? '', score: scores[i] ?? '' });
+      obj[newKey] = JSON.stringify(arr);
+    };
+    migrateTypeScore('英语标化成绩', '英语标化类型', '英语标化成绩');
+    migrateTypeScore('GPA成绩', 'GPA成绩类型', 'GPA成绩');
+    migrateTypeScore('学术标化成绩', '学术标化类型', '学术标化成绩');
+    migrateTypeScore('语言标化成绩', '语言标化类型', '语言标化成绩');
+
     return obj;
   }
 }

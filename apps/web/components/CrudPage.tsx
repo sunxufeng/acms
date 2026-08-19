@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api as apiClient, type Page } from '../lib/api';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect' | 'person';
 
 export interface CrudColumn {
   key: string;
@@ -229,6 +229,28 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columns]);
 
+  // 人员字段（person）候选项：从用户管理读取姓名列表（供内部对接人等下拉选择）
+  const [userNames, setUserNames] = useState<string[]>([]);
+  useEffect(() => {
+    if (!columns.some((c) => c.type === 'person')) return;
+    let alive = true;
+    const collected: string[] = [];
+    const fetchPage = async (token?: string): Promise<void> => {
+      const params: Record<string, string | undefined> = { pageSize: '100' };
+      if (token) params.pageToken = token;
+      const p = await apiClient.listUsers(params);
+      for (const u of p.items) {
+        const name = String(u['姓名'] ?? '');
+        if (name) collected.push(name);
+      }
+      if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
+    };
+    fetchPage()
+      .then(() => { if (alive) setUserNames(Array.from(new Set(collected))); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [columns]);
+
   /** 字段有效候选项：优先字典，其次字段 options */
   const optionsFor = (c: CrudColumn): string[] =>
     c.dictKey ? (dicts[c.dictKey] ?? c.options ?? []) : (c.options ?? []);
@@ -323,6 +345,11 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             </div>
           ) : c.type === 'number' ? (
             <input className="form-input" type="number" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
+          ) : c.type === 'person' ? (
+            <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
+              <option value="">（未填）</option>
+              {userNames.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
           ) : c.type === 'date' ? (
             <input className="form-input" type="date" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
           ) : (

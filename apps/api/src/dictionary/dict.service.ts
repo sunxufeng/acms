@@ -219,6 +219,8 @@ export class DictService {
         { name: '授课科目类型', dictKey: '授课科目类型' },
         { name: '合作开始时间', dictKey: '合作开始时间' },
         { name: '收款主体', dictKey: '收款主体' },
+        { name: '性别', dictKey: '性别' },
+        { name: '学历/学位', dictKey: '学历/学位' },
       ];
       for (const { name, dictKey } of singles) {
         if (byName.has(name)) { result.skipped.push(`${name}（已存在）`); continue; }
@@ -238,6 +240,19 @@ export class DictService {
         result.skipped.push('授课科目（已存在）');
       }
 
+      // 3.5) 数字字段（飞书 type 2；课时/课酬类）
+      const numbers: string[] = [
+        '标准课时(每周)',
+        '学期预计总课时',
+        '每学期预计课酬总额',
+        '实际课酬总额',
+      ];
+      for (const name of numbers) {
+        if (byName.has(name)) { result.skipped.push(`${name}（已存在）`); continue; }
+        await this.base.createField(tableId, { field_name: name, type: 2 });
+        result.synced.push(`${name}（已创建数字）`);
+      }
+
       // 4) 文本字段（飞书 type 1 即文本，可存多行内容；type 2 是数字，切勿误用）
       const texts: { name: string; type: number }[] = [
         { name: '微信号', type: 1 },
@@ -247,6 +262,13 @@ export class DictService {
         { name: '附件', type: 1 },
         { name: '教师合作等级', type: 1 },
         { name: '教学评估', type: 1 },
+        // ── 教师档案新增文本字段（含原先仅在后端 DTO、未暴露到表单的字段） ──
+        { name: '外聘归属类型', type: 1 },
+        { name: '毕业大学', type: 1 },
+        { name: '内部对接人', type: 1 },
+        { name: '入职或首次合作日期', type: 1 },
+        { name: '离职或终止日期', type: 1 },
+        { name: '备注', type: 1 },
       ];
       for (const { name, type } of texts) {
         if (byName.has(name)) { result.skipped.push(`${name}（已存在）`); continue; }

@@ -27,6 +27,16 @@ export interface CreateTeacherDto {
   授课科目?: string[];
   合作开始时间?: string;
   备注?: string;
+  // ── 教师档案新增字段（与飞书 Base 字段一一对应） ──
+  性别?: string;
+  毕业大学?: string;
+  '学历/学位'?: string;
+  '标准课时(每周)'?: number;
+  学期预计总课时?: number;
+  每学期预计课酬总额?: number;
+  实际课酬总额?: number;
+  内部对接人?: string;
+  手机号?: string;
 }
 
 export interface UpdateTeacherDto {
@@ -56,6 +66,16 @@ export interface UpdateTeacherDto {
   授课科目?: string[];
   合作开始时间?: string;
   备注?: string;
+  // ── 教师档案新增字段（与飞书 Base 字段一一对应） ──
+  性别?: string;
+  毕业大学?: string;
+  '学历/学位'?: string;
+  '标准课时(每周)'?: number;
+  学期预计总课时?: number;
+  每学期预计课酬总额?: number;
+  实际课酬总额?: number;
+  内部对接人?: string;
+  手机号?: string;
 }
 
 export interface TeacherFilterDto {

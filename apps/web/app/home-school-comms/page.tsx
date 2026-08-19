@@ -35,7 +35,7 @@ export default function HomeSchoolCommsPage() {
       columns={COLUMNS}
       statusField="闭环状态"
       inlineEdit
-      standaloneCreate
+      standaloneForm
       api={{
         list: (p) => api.listHomeSchoolComms(p),
         create: (d) => api.createHomeSchoolComm(d),

@@ -31,7 +31,7 @@ export default function HomeSchoolCommsPage() {
     <CrudPage
       title="家校沟通"
       subtitle="家长沟通与待办闭环（M1 学生域）"
-      search={{ placeholder: '搜索家长…' }}
+      search={{ placeholder: '搜索学生…' }}
       columns={COLUMNS}
       statusField="闭环状态"
       inlineEdit

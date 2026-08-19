@@ -450,12 +450,12 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
 
   return (
     <div className="page">
-      <div className="page-header">
+      <div className="page-header page-header-row">
         <div>
           <h1 className="page-title">{title}</h1>
           {subtitle && <p className="page-subtitle">{subtitle}</p>}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="page-actions">
           {extraActions?.map((a) => (
             <button key={a.label} className="btn btn-outline" disabled={loading}
               onClick={() => a.run(() => reload())}>{a.label}</button>
@@ -467,13 +467,19 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       {(filterCols.length > 0 || (rangeFilters ?? []).length > 0 || search) && (
         <div className="filter-bar">
           {search && (
-            <input
-              className="form-input"
-              style={{ width: 220 }}
-              placeholder={search.placeholder}
-              value={filters.q ?? ''}
-              onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-            />
+            <form
+              className="search-bar"
+              style={{ flex: 1, minWidth: 200, maxWidth: 360 }}
+              onSubmit={(e) => { e.preventDefault(); reload(); }}
+            >
+              <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
+              <input
+                placeholder={search.placeholder}
+                value={filters.q ?? ''}
+                onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+              />
+              <button type="submit">查询</button>
+            </form>
           )}
           {filterCols.map((c) =>
             c.filterType === 'text' ? (

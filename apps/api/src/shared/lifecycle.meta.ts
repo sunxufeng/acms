@@ -91,7 +91,7 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     ],
     statusField: '闭环状态',
     defaultStatus: '无需跟进',
-    searchField: '家长',
+    searchField: '关联学生',
     sortField: '沟通时间',
   },
   {

@@ -54,7 +54,7 @@ export default function EditStudentPage() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6"/></svg>
             </Link>
             <div>
-              <div className="page-eyebrow">STUDENT / EDIT</div>
+              <div className="page-eyebrow">EDIT / 学生档案</div>
               <h1 className="page-title">编辑学生档案</h1>
             </div>
           </div>

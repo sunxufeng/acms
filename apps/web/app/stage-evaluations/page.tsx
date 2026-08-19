@@ -37,6 +37,7 @@ export default function StageEvaluationsPage() {
       search={{ placeholder: '搜索学生姓名…' }}
       columns={COLUMNS}
       statusField="评价完整度"
+      inlineEdit
       api={{
         list: (p) => api.listStageEvaluations(p),
         create: (d) => api.createStageEvaluation(d),

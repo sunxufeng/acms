@@ -20,7 +20,7 @@ const NAV_ITEMS = [
   {
     section: '业务域',
     items: [
-      { key: 'students', label: '招生与学生', href: '/students', icon: StudentsIcon },
+      { key: 'students', label: '学生档案', href: '/students', icon: StudentsIcon },
       { key: 'courses', label: '课程与教学', href: '/courses', icon: CoursesIcon },
       { key: 'teaching', label: '教学班', href: '/teaching-classes', icon: CoursesIcon },
       { key: 'schedule', label: '排课与展约', href: '/schedule', icon: ScheduleIcon },
@@ -129,7 +129,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* ── Sidebar ─────────────────────────────── */}
       <aside className={`sidebar${sidebarOpen ? '' : ' collapsed'}`}>
         <div className="sidebar-header">
-          <span className="sidebar-logo">A</span>
+          <img src="/logo.png" alt="Arete" className="sidebar-logo" style={{ objectFit: 'contain', padding: 2, background: 'var(--bg-primary)' }} />
           <div className="sidebar-brand">
             <strong>ARETE</strong>
             <small>COLLEGE OPS</small>
@@ -230,7 +230,7 @@ function breadcrumbLabel(path: string): string {
   if (path.startsWith('/students')) {
     if (path === '/students/new') return '新建学生';
     if (/\/students\/[^/]+$/.test(path)) return '学生详情';
-    return '招生与学生';
+    return '学生档案';
   }
   return path.slice(1);
 }

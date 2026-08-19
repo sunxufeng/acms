@@ -35,6 +35,7 @@ export default function HomeSchoolCommsPage() {
       search={{ placeholder: '搜索家长…' }}
       columns={COLUMNS}
       statusField="闭环状态"
+      inlineEdit
       api={{
         list: (p) => api.listHomeSchoolComms(p),
         create: (d) => api.createHomeSchoolComm(d),

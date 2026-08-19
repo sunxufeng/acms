@@ -35,6 +35,7 @@ export default function StudentAttendancesPage() {
       search={{ placeholder: '搜索学生姓名 / 学年 / 班级…' }}
       columns={COLUMNS}
       statusField="考勤状态"
+      inlineEdit
       api={{
         list: (p) => api.listStudentAttendances(p),
         create: (d) => api.createStudentAttendance(d),

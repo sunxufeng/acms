@@ -24,6 +24,7 @@ export default function PartnershipsPage() {
       title="聘用合作关系"
       subtitle="外聘教师合作关系与计费规则（M3 计费配置）"
       columns={COLUMNS}
+      inlineEdit
       api={{
         list: (p) => api.listPartnerships(p),
         create: (d) => api.createPartnership(d),

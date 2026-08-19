@@ -105,6 +105,7 @@ export default function SchedulePage() {
         statusField="课次状态"
         transitions={TRANSITIONS}
         statusClass={statusClass}
+        inlineEdit
         api={{
           list: (p) => api.listSessions(p),
           create: (d) => api.createSession(d),

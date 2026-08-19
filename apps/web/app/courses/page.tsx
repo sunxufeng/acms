@@ -42,6 +42,7 @@ export default function CoursesPage() {
       statusField="方案状态"
       transitions={TRANSITIONS}
       statusClass={statusClass}
+      inlineEdit
       api={{
         list: (p) => api.listCoursePlans(p),
         create: (d) => api.createCoursePlan(d),

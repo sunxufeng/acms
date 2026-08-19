@@ -33,6 +33,7 @@ export default function SourceFollowupsPage() {
       search={{ placeholder: '搜索学生姓名…' }}
       columns={COLUMNS}
       statusField="跟进状态"
+      inlineEdit
       api={{
         list: (p) => api.listSourceFollowups(p),
         create: (d) => api.createSourceFollowup(d),

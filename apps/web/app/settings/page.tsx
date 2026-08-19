@@ -20,6 +20,7 @@ export default function SettingsPage() {
       subtitle="机构/教务/通知等全局配置项（key-value，仅管理员可写）"
       columns={COLUMNS}
       statusField="状态"
+      inlineEdit
       api={{
         list: (p) => api.listSettings(p),
         create: (d) => api.createSetting(d),

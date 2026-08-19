@@ -33,6 +33,7 @@ export default function AlumniFollowupsPage() {
       search={{ placeholder: '搜索学生姓名…' }}
       columns={COLUMNS}
       statusField="跟进状态"
+      inlineEdit
       api={{
         list: (p) => api.listAlumniFollowups(p),
         create: (d) => api.createAlumniFollowup(d),

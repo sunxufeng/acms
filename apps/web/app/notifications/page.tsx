@@ -107,6 +107,7 @@ export default function NotificationsPage() {
             title="通知发送记录"
             subtitle="单发 / 批量发送与回执状态机（M4 通知闭环）"
             columns={LOG_COLUMNS}
+            inlineEdit
             api={{
               list: (p) => api.listNotificationLogs(p),
               create: () => Promise.reject(new Error('请使用上方发送工作台创建记录')),
@@ -123,6 +124,7 @@ export default function NotificationsPage() {
           title="通知模板"
           subtitle="消息模板维护（M4 通知闭环）"
           columns={TPL_COLUMNS}
+          inlineEdit
           api={{
             list: (p) => api.listTemplates(p),
             create: (d) => api.createTemplate(d),

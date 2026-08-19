@@ -41,6 +41,7 @@ export default function TeachingClassesPage() {
       statusField="教学状态"
       transitions={TRANSITIONS}
       statusClass={statusClass}
+      inlineEdit
       api={{
         list: (p) => api.listTeachingClasses(p),
         create: (d) => api.createTeachingClass(d),

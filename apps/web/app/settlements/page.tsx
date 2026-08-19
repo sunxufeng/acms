@@ -29,6 +29,7 @@ export default function SettlementsPage() {
       title="月度结算"
       subtitle="按周期聚合已确认计费，状态机审批后关闭锁定金额（SoD 审批，M3 计费）"
       columns={COLUMNS}
+      inlineEdit
       api={{
         list: (p) => api.listSettlements(p),
         create: (d) => api.createSettlement(d),

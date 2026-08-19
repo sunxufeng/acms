@@ -36,6 +36,7 @@ export default function GradesPage() {
       search={{ placeholder: '搜索学生姓名 / 学年 / 课程…' }}
       columns={COLUMNS}
       statusField="成绩状态"
+      inlineEdit
       api={{
         list: (p) => api.listGrades(p),
         create: (d) => api.createGrade(d),

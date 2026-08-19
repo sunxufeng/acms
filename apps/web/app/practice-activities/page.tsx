@@ -34,6 +34,7 @@ export default function PracticeActivitiesPage() {
       search={{ placeholder: '搜索活动名称…' }}
       columns={COLUMNS}
       statusField="安全确认状态"
+      inlineEdit
       api={{
         list: (p) => api.listPracticeActivities(p),
         create: (d) => api.createPracticeActivity(d),

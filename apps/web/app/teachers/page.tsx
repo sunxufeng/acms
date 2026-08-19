@@ -4,7 +4,6 @@ import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 
 const STATUS_OPTS = ['候选', '在职', '离职', '退休', '合作中'];
-const SUBJECT_OPTS = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治', '音乐', '美术', '体育', '信息科技'];
 
 /** 把「更新时间」字段值（可能是 epoch 毫秒/秒或日期字符串）格式化为 YYYY-MM-DD HH:mm */
 function fmtUpdate(v: unknown): string {
@@ -34,7 +33,7 @@ const COLUMNS: CrudColumn[] = [
   { key: '教师姓名', label: '教师姓名', width: '120px', form: true, required: true, type: 'text' },
   { key: '英文名', label: '英文名', form: true, type: 'text' },
   { key: '教师类别', label: '教师类别', width: '100px', form: true, type: 'select', dictKey: '教师类别' },
-  { key: '主要学科', label: '主要学科', form: true, type: 'multiselect', options: SUBJECT_OPTS },
+  { key: '主要学科', label: '主要学科', form: true, type: 'select', dictKey: '主要学科' },
   { key: '在职合作状态', label: '合作状态', width: '100px', form: true, type: 'select', options: STATUS_OPTS },
   { key: '更新时间', label: '更新', width: '160px', render: (v) => <span className="muted">{fmtUpdate(v)}</span> },
 
@@ -78,6 +77,7 @@ export default function TeachersPage() {
       subtitle="教师基本信息与师资管理（M2 教师域）"
       columns={COLUMNS}
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listTeachers(p),
         create: (d) => api.createTeacher(d),

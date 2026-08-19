@@ -32,6 +32,7 @@ export default function AttendancePage() {
       subtitle="教师提交并确认本人课次出勤，教务审核后转为可计费（M3 教学履约）"
       columns={COLUMNS}
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listAttendances(p),
         create: (d) => api.createAttendance(d),

@@ -43,6 +43,7 @@ export default function CoursesPage() {
       transitions={TRANSITIONS}
       statusClass={statusClass}
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listCoursePlans(p),
         create: (d) => api.createCoursePlan(d),

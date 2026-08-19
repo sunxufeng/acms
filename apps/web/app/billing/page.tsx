@@ -30,6 +30,7 @@ export default function BillingPage() {
       subtitle="基于已审核履约 + 有效合作关系生成计费（BR-008 快照固化），月度结算纳入（M3 计费）"
       columns={COLUMNS}
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listBilling(p),
         create: (d) => api.createBilling(d),

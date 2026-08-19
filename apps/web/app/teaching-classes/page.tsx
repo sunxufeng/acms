@@ -42,6 +42,7 @@ export default function TeachingClassesPage() {
       transitions={TRANSITIONS}
       statusClass={statusClass}
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listTeachingClasses(p),
         create: (d) => api.createTeachingClass(d),

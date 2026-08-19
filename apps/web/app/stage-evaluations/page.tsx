@@ -38,6 +38,7 @@ export default function StageEvaluationsPage() {
       columns={COLUMNS}
       statusField="评价完整度"
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listStageEvaluations(p),
         create: (d) => api.createStageEvaluation(d),

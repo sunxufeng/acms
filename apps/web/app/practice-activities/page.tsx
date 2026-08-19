@@ -35,6 +35,7 @@ export default function PracticeActivitiesPage() {
       columns={COLUMNS}
       statusField="安全确认状态"
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listPracticeActivities(p),
         create: (d) => api.createPracticeActivity(d),

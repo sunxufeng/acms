@@ -36,6 +36,7 @@ export default function StudentAttendancesPage() {
       columns={COLUMNS}
       statusField="考勤状态"
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listStudentAttendances(p),
         create: (d) => api.createStudentAttendance(d),

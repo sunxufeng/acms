@@ -103,7 +103,7 @@ export class TeacherService {
     const f = rec.fields;
     const obj: TeacherRecord = { id: rec.recordId };
     for (const [k, v] of Object.entries(f)) {
-      if (k === '主要学科' || k === '授课科目') obj[k] = toStringArray(v);
+      if (k === '授课科目') obj[k] = toStringArray(v);
       else if (READONLY_FIELDS.has(k)) obj[k] = v;
       else obj[k] = toText(v);
     }

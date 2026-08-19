@@ -34,6 +34,7 @@ export default function AlumniFollowupsPage() {
       columns={COLUMNS}
       statusField="跟进状态"
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listAlumniFollowups(p),
         create: (d) => api.createAlumniFollowup(d),

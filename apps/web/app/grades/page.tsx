@@ -37,6 +37,7 @@ export default function GradesPage() {
       columns={COLUMNS}
       statusField="成绩状态"
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listGrades(p),
         create: (d) => api.createGrade(d),

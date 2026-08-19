@@ -28,6 +28,7 @@ export default function AdjustmentsPage() {
       subtitle="对结算/计费发起调整或冲销，引用原记录、净额可回溯；审核人与发起人分离（SoD，M3 计费）"
       columns={COLUMNS}
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listAdjustments(p),
         create: (d) => api.createAdjustment(d),

@@ -34,6 +34,7 @@ export default function SourceFollowupsPage() {
       columns={COLUMNS}
       statusField="跟进状态"
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listSourceFollowups(p),
         create: (d) => api.createSourceFollowup(d),

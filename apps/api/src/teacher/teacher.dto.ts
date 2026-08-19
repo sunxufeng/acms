@@ -7,7 +7,7 @@ export interface CreateTeacherDto {
   外聘归属类型?: string;
   在职合作状态?: string;
   所属部门?: string;
-  主要学科?: string[];
+  主要学科?: string;
   可授年级与课程?: string;
   资质与证书摘要?: string;
   数据密级?: string;
@@ -46,7 +46,7 @@ export interface UpdateTeacherDto {
   外聘归属类型?: string;
   在职合作状态?: string;
   所属部门?: string;
-  主要学科?: string[];
+  主要学科?: string;
   可授年级与课程?: string;
   资质与证书摘要?: string;
   数据密级?: string;

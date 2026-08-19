@@ -61,6 +61,8 @@ export interface CrudPageProps {
   search?: { placeholder: string };
   /** 新建/编辑使用页内表单（非弹出框） */
   inlineEdit?: boolean;
+  /** 新建时使用独立页面风格，隐藏列表页标题、操作与筛选区 */
+  standaloneCreate?: boolean;
   /** 每页记录数（默认 5，参考学生列表页） */
   pageSize?: number;
 }
@@ -132,7 +134,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, pageSize }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneCreate, pageSize }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = pageSize ?? 5;
@@ -151,6 +153,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const filterCols = columns.filter((c) => c.filter);
   const formCols = columns.filter((c) => c.form);
   const listCols = columns.filter((c) => c.list !== false);
+  const showingInlineForm = Boolean(inlineEdit && editing);
+  const showingStandaloneCreate = Boolean(standaloneCreate && editing?.mode === 'create');
 
   // 用 ref 持有最新的 api / filters / rangeFilters，避免 load 因这些依赖变化而反复重建，
   // 否则每次渲染都会重新触发拉取 -> 页面（尤其按姓名搜索时）不停刷新闪烁。
@@ -450,21 +454,23 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
 
   return (
     <div className="page">
-      <div className="page-header page-header-row">
-        <div>
-          <h1 className="page-title">{title}</h1>
-          {subtitle && <p className="page-subtitle">{subtitle}</p>}
+      {!showingStandaloneCreate && (
+        <div className="page-header page-header-row">
+          <div>
+            <h1 className="page-title">{title}</h1>
+            {subtitle && <p className="page-subtitle">{subtitle}</p>}
+          </div>
+          <div className="page-actions">
+            {extraActions?.map((a) => (
+              <button key={a.label} className="btn btn-outline" disabled={loading}
+                onClick={() => a.run(() => reload())}>{a.label}</button>
+            ))}
+            <button className="btn btn-primary" onClick={openCreate} disabled={loading || readonly}>+ 新建</button>
+          </div>
         </div>
-        <div className="page-actions">
-          {extraActions?.map((a) => (
-            <button key={a.label} className="btn btn-outline" disabled={loading}
-              onClick={() => a.run(() => reload())}>{a.label}</button>
-          ))}
-          <button className="btn btn-primary" onClick={openCreate} disabled={loading || readonly}>+ 新建</button>
-        </div>
-      </div>
+      )}
 
-      {(filterCols.length > 0 || (rangeFilters ?? []).length > 0 || search) && (
+      {!showingStandaloneCreate && (filterCols.length > 0 || (rangeFilters ?? []).length > 0 || search) && (
         <div className="filter-bar">
           {search && (
             <form
@@ -513,11 +519,25 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         </div>
       )}
 
-      {inlineEdit && editing && (
+      {showingInlineForm && editing && (
         <div className="crud-inline-form">
           <div className="crud-inline-form-head">
-            <h3 className="crud-inline-form-title">{editing.mode === 'create' ? `新建${title}` : `编辑${title}`}</h3>
-            <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>×</button>
+            {showingStandaloneCreate ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+                <button className="btn btn-icon" title="返回列表" aria-label="返回列表" onClick={() => setEditing(null)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
+                </button>
+                <div>
+                  <div className="page-eyebrow">CREATE / {title}</div>
+                  <h1 className="page-title">新建{title}</h1>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h3 className="crud-inline-form-title">{editing.mode === 'create' ? `新建${title}` : `编辑${title}`}</h3>
+                <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>×</button>
+              </>
+            )}
           </div>
           {error && <p className="msg-error">{error}</p>}
           <fieldset className="form-fieldset">

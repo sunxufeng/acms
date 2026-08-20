@@ -446,6 +446,8 @@ export const api = {
   aiSaveOrgDefault: (data: Record<string, unknown>) =>
     request<Record<string, unknown>>('/ai/org-default', { method: 'POST', body: JSON.stringify(data) }),
   aiListAutomations: () => request<Record<string, unknown>[]>('/ai/automations'),
+  aiGetAutomation: (id: string) =>
+    request<Record<string, unknown>>(`/ai/automations/${encodeURIComponent(id)}`),
   aiCreateAutomation: (data: Record<string, unknown>) =>
     request<Record<string, unknown>>('/ai/automations', { method: 'POST', body: JSON.stringify(data) }),
   aiUpdateAutomation: (id: string, data: Record<string, unknown>) =>

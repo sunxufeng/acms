@@ -256,6 +256,13 @@ export class AiService implements OnModuleInit {
     return autos.map((a) => ({ ...a, cronText: describeCron(a.cron) }));
   }
 
+  async getAutomationById(user: SessionUser, id: string) {
+    this.assert(user, 'ai:automation');
+    const auto = await getAutomation(id);
+    if (!auto) throw new BadRequestException('自动化不存在');
+    return { ...auto, cronText: describeCron(auto.cron) };
+  }
+
   async createAutomation(user: SessionUser, body: Record<string, unknown>) {
     this.assert(user, 'ai:automation');
     const auto = await createAutomation({ ...body, owner: user.openId });

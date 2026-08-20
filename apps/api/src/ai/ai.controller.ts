@@ -137,6 +137,11 @@ export class AiController {
     return this.svc.createAutomation(req.user, body);
   }
 
+  @Get('automations/:id')
+  getAutomation(@Req() req: ReqWithUser, @Param('id') id: string) {
+    return this.svc.getAutomationById(req.user, id);
+  }
+
   @Put('automations/:id')
   updateAutomation(@Req() req: ReqWithUser, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     return this.svc.updateAutomation(req.user, id, body);

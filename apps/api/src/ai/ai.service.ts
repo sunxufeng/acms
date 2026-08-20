@@ -112,9 +112,13 @@ export class AiService implements OnModuleInit {
 
   saveMyConfig(user: SessionUser, body: Record<string, unknown>) {
     this.assert(user, 'ai:chat');
-    const stored = setConfig(user.openId, body);
-    const { _apiKeyEnc, ...rest } = stored as Record<string, unknown>;
-    return { ...rest, hasApiKey: !!_apiKeyEnc };
+    try {
+      const stored = setConfig(user.openId, body);
+      const { _apiKeyEnc, ...rest } = stored as Record<string, unknown>;
+      return { ...rest, hasApiKey: !!_apiKeyEnc };
+    } catch (error) {
+      throw new BadRequestException((error as Error).message || 'API 配置保存失败');
+    }
   }
 
   deleteMyConfig(user: SessionUser) {
@@ -125,7 +129,11 @@ export class AiService implements OnModuleInit {
 
   async testMyConnection(user: SessionUser, body: Record<string, unknown> = {}) {
     this.assert(user, 'ai:chat');
-    return testConnection(user.openId, body);
+    try {
+      return await testConnection(user.openId, body);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message || '连接测试失败');
+    }
   }
 
   // 组织默认配置（管理员下发模板，不含密钥）
@@ -148,7 +156,9 @@ export class AiService implements OnModuleInit {
 
   getAgent(user: SessionUser, id: string) {
     this.assert(user, 'ai:config');
-    return getAgentById(id);
+    const agent = getAgentById(id);
+    if (!agent) throw new BadRequestException('智能体不存在');
+    return agent;
   }
 
   saveAgent(user: SessionUser, body: Record<string, unknown>, id?: string) {

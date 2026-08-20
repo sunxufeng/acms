@@ -2,7 +2,8 @@
 const API_BASE = '/api/v1';
 
 export interface ApiError {
-  error: { code: string; message: string; requestId: string };
+  error?: { code: string; message: string; requestId: string };
+  message?: string | string[];
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -31,7 +32,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       /* ignore */
     }
-    throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
+    const message = Array.isArray(body?.message) ? body.message.join('; ') : body?.message;
+    throw new Error(body?.error?.message ?? message ?? `HTTP ${res.status}`);
   }
   // 导出接口返回纯文本（CSV）
   if (res.headers.get('Content-Type')?.includes('text/csv')) {

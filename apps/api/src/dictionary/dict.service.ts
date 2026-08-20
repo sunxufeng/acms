@@ -316,11 +316,41 @@ export class DictService {
   }
 
   /**
+   * 确保某个字段为「文本字段(type=1)」。
+   * 飞书不支持通过 updateField 直接改字段类型，因此若已存在但类型不符
+   * （例如 沟通主题 建表时被误设为多选 type=4，应用侧按自由文本写入会 500），
+   * 则删除后重建为文本，再写入自由文本即可成功。当前 沟通主题 无存量数据，重建安全。
+   */
+  private async ensureTextField(
+    tableId: string,
+    byName: Map<string, { id: string; name: string; type: number; property: Record<string, unknown> }>,
+    result: SyncResult,
+    name: string,
+  ): Promise<void> {
+    const def = byName.get(name);
+    if (!def) {
+      await this.base.createField(tableId, { field_name: name, type: 1 });
+      result.synced.push(`${name}（已创建文本）`);
+      byName.set(name, { name, id: '', type: 1, property: {} });
+      return;
+    }
+    if (def.type !== 1) {
+      await this.base.deleteField(tableId, def.id);
+      await this.base.createField(tableId, { field_name: name, type: 1 });
+      result.synced.push(`${name}（${def.type}→Text，已重建）`);
+      byName.set(name, { name, id: '', type: 1, property: {} });
+      return;
+    }
+    result.skipped.push(`${name}（已是文本）`);
+  }
+
+  /**
    * 幂等确保家校沟通表的字典下拉字段存在且选项与字典一致：
    * - 单选字段（沟通方式/家长反馈态度/闭环状态/信息敏感级别）：不存在则创建（type=3，带字典选项）；
    *   已存在单选则追加缺失选项；已存在非单选则跳过（不删字段，避免丢数据）。
-   * - 文本字段（关联学生/家长/沟通人/沟通主题/沟通明细/沟通总结/沟通附件清单）：不存在则创建文本字段(type=1)。
+   * - 文本字段（关联学生/家长/沟通人/沟通明细/沟通总结/沟通附件清单）：不存在则创建文本字段(type=1)。
    *   其中 沟通明细 / 沟通总结 用于存放 MD 格式的沟通记录与总结，长度可能很长，飞书文本字段(1)可容纳。
+   * - 沟通主题：必须是文本(type=1)，自由文本主题；若是多选(type=4)则重建为文本。
    */
   private async ensureHomeSchoolCommFields(): Promise<SyncResult> {
     const tableId = TABLES.homeSchoolComm.tableId;
@@ -377,9 +407,12 @@ export class DictService {
         }
       }
 
+      // 1.5) 沟通主题：必须为文本(type=1)，自由文本主题；若为多选(type=4)则重建
+      await this.ensureTextField(tableId, byName, result, '沟通主题');
+
       // 2) 文本字段（飞书 type=1 即文本，可存多行/长内容）
       const texts: string[] = [
-        '关联学生', '家长', '沟通人', '沟通主题', '沟通明细', '沟通总结', '沟通附件清单', '责任人',
+        '关联学生', '家长', '沟通人', '沟通明细', '沟通总结', '沟通附件清单', '责任人',
       ];
       for (const name of texts) {
         if (byName.has(name)) {
@@ -400,8 +433,8 @@ export class DictService {
    * - 单选字段（沟通方式/闭环状态/信息敏感级别）：不存在则创建（type=3，带字典选项）；
    *   已存在单选则追加缺失选项；已存在非单选则跳过（不删字段，避免丢数据）。
    * - 文本字段（关联学生/沟通人/沟通内容/沟通明细/沟通总结/沟通附件清单/待办事项/责任人/待办负责人）：
-   *   不存在则创建文本字段(type=建表时已建则跳过)。
-   * 注：沟通主题为创建表时建立的 type=4 多选字段，选项已固定，此处不再改写。
+   *   不存在则创建文本字段(type=1)。
+   * - 沟通主题：必须是文本(type=1)，自由文本主题；建表时误设为多选(type=4)则重建为文本。
    */
   private async ensureDailyFollowupFields(): Promise<SyncResult> {
     const tableId = TABLES.dailyFollowup.tableId;
@@ -446,6 +479,9 @@ export class DictService {
           result.skipped.push(`${name}（已是最新）`);
         }
       }
+
+      // 1.5) 沟通主题：必须为文本(type=1)，自由文本主题；若为多选(type=4)则重建
+      await this.ensureTextField(tableId, byName, result, '沟通主题');
 
       // 2) 文本字段（飞书 type=1）
       const texts: string[] = [

@@ -14,6 +14,7 @@ LOCAL_API_TAR=/tmp/api_dist.tar.gz
 LOCAL_PKGS_TAR=/tmp/pkgs_dist.tar.gz
 LOCAL_WEB_TAR=/tmp/web_next.tar.gz
 LOCAL_WEB_PUBLIC_TAR=/tmp/web_public.tar.gz
+LOCAL_CRONER_TAR=/tmp/croner.tar.gz
 
 for f in "$LOCAL_API_TAR" "$LOCAL_PKGS_TAR" "$LOCAL_WEB_TAR"; do
   if [ ! -f "$f" ]; then
@@ -31,6 +32,9 @@ echo "=== 上传产物 ==="
 UPLOADS=("$LOCAL_API_TAR" "$LOCAL_PKGS_TAR" "$LOCAL_WEB_TAR")
 if [ -f "$LOCAL_WEB_PUBLIC_TAR" ]; then
   UPLOADS+=("$LOCAL_WEB_PUBLIC_TAR")
+fi
+if [ -f "$LOCAL_CRONER_TAR" ]; then
+  UPLOADS+=("$LOCAL_CRONER_TAR")
 fi
 sshpass -e scp $SSH_OPTS "${UPLOADS[@]}" "${SSH_USER}@${SSH_HOST}:/tmp/"
 
@@ -56,6 +60,13 @@ tar xzf /tmp/web_next.tar.gz -C /opt/acms/repo/apps/web/ 2>/dev/null
 if [ -f /tmp/web_public.tar.gz ]; then
   mkdir -p /opt/acms/repo/apps/web/public
   tar xzf /tmp/web_public.tar.gz -C /opt/acms/repo/apps/web/public 2>/dev/null
+fi
+# 补充 node_modules 依赖（deploy 不刷新 node_modules，新增依赖如 croner 需手动补）
+if [ -f /tmp/croner.tar.gz ]; then
+  echo "补充依赖 croner → /opt/acms/api/node_modules/"
+  rm -rf /opt/acms/api/node_modules/croner
+  mkdir -p /opt/acms/api/node_modules
+  tar xzf /tmp/croner.tar.gz -C /opt/acms/api/node_modules/ 2>/dev/null
 fi
 # 启动双服务
 systemctl start acms-api acms-web

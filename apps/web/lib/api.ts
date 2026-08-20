@@ -427,6 +427,40 @@ export const api = {
   setUserStatus: (id: string, status: string) =>
     request<Record<string, unknown>>(`/users/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
 
+  // ── AI 域（acaily 迁移） ─────────────────────
+  aiPresets: () => request<unknown[]>('/ai/presets'),
+  aiGetConfig: () => request<Record<string, unknown> | null>('/ai/config/me'),
+  aiSaveConfig: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/ai/config/me', { method: 'POST', body: JSON.stringify(data) }),
+  aiDeleteConfig: () => request<{ ok: boolean }>('/ai/config/me', { method: 'DELETE' }),
+  aiTestConfig: (data: Record<string, unknown>) =>
+    request<{ ok: boolean; error?: string }>('/ai/config/test', { method: 'POST', body: JSON.stringify(data) }),
+  aiChat: (data: { message: string; sessionId?: string; model?: string; history?: { role: string; content: string }[] }) =>
+    request<{ content: string; sessionId: string; steps: number }>('/ai/chat', { method: 'POST', body: JSON.stringify(data) }),
+  aiListConversations: () => request<{ id: string; title: string; updatedAt: string }[]>('/ai/conversations'),
+  aiCreateConversation: (data: { title?: string }) =>
+    request<{ id: string }>('/ai/conversations', { method: 'POST', body: JSON.stringify(data) }),
+  aiGetConversation: (id: string) =>
+    request<{ role: string; content: string }[]>(`/ai/conversations/${encodeURIComponent(id)}`),
+  aiGetOrgDefault: () => request<Record<string, unknown> | null>('/ai/org-default'),
+  aiSaveOrgDefault: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/ai/org-default', { method: 'POST', body: JSON.stringify(data) }),
+  aiListAutomations: () => request<Record<string, unknown>[]>('/ai/automations'),
+  aiCreateAutomation: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/ai/automations', { method: 'POST', body: JSON.stringify(data) }),
+  aiUpdateAutomation: (id: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/ai/automations/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  aiDeleteAutomation: (id: string) =>
+    request<{ ok: boolean }>(`/ai/automations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  aiRunAutomation: (id: string) =>
+    request<{ ok: boolean }>(`/ai/automations/${encodeURIComponent(id)}/run`, { method: 'POST' }),
+  aiBuildCron: (data: { freq: string; hour?: number; minute?: number; weeklyDay?: number; monthlyDay?: number }) =>
+    request<{ cron: string }>('/ai/cron/build', { method: 'POST', body: JSON.stringify(data) }),
+  aiUsage: (rangeDays = 30) =>
+    request<Record<string, unknown>>(`/ai/admin/usage?rangeDays=${rangeDays}`),
+  aiAudit: (limit = 200) =>
+    request<Record<string, unknown>[]>(`/ai/admin/audit?limit=${limit}`),
+
   /** 权限模型 + 当前用户有效权限（菜单「权限与授权」使用） */
   getPermissions: () => request<PermissionsPayload>('/auth/permissions'),
 };

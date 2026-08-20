@@ -10,12 +10,13 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@acms/base-adapter": "workspace:*",
     "@acms/contracts": "workspace:*",
     "@acms/domain": "workspace:*",
-    "@acms/base-adapter": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "croner": "^10.0.1",
     "ioredis": "^5.4.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.0"

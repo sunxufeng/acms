@@ -1,0 +1,195 @@
+// @ts-nocheck
+import { getConfig, decryptApiKey, getOrgDefault } from '../config/userConfigStore.js';
+import { getProvider, ProviderError } from '../providers/index.js';
+import { TokenBucket, RateLimitError } from './rateLimiter.js';
+import { track } from '../admin/stats.js';
+import { getProvider as getPoolProvider, getProviderApiKey as getPoolApiKey } from '../config/providerPoolStore.js';
+
+const limiter = new TokenBucket({
+  capacity: Number(process.env.ACAILY_RATE_CAPACITY || 20),
+  refillPerSec: Number(process.env.ACAILY_RATE_REFILL || 2),
+});
+
+const DEFAULT_MAX_RETRIES = Number(process.env.ACAILY_MAX_RETRIES || 2);
+
+function backoffMs(attempt) {
+  return 200 * 2 ** (attempt - 1); // 200, 400, 800...
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 按 open_id 路由到用户自配模型：解析配置 → 信封解密 Key → 选适配器 → 限流 → 重试 → 降级
+export async function routeChat(openId, messages, opts = {}) {
+  let cfg = getConfig(openId);
+  if (!cfg) {
+    // 无个人配置 → 回退到组织默认模板（不含 API Key，仍需个人补全；仅当确有模板时才放行）
+    const org = getOrgDefault();
+    if (!org) {
+      throw new ProviderError(
+        '该飞书用户尚未配置模型（请在个人设置页配置 Provider / API Key / Model）',
+        { provider: 'gateway', status: 404 }
+      );
+    }
+    cfg = org;
+  }
+  const apiKey = decryptApiKey(openId); // 个人无配置（继承组织默认）时为 null
+  return doRoute({ cfg, apiKey, openId, displayName: cfg.displayName || '', messages, opts });
+}
+
+// 以显式配置（而非 open_id 查找）路由：供「智能体」等场景复用同一套限流/重试/统计逻辑。
+// cfg 需含 { provider, model, baseUrl, displayName, retries? }；apiKey 为明文（已解密）。
+// 可选 cfg.providerPoolId：若指定，则从 Provider 池解析 type/baseUrl/apiKey，覆盖 cfg 中对应字段。
+export async function routeChatConfig(cfg, apiKey, messages, opts = {}) {
+  if (!cfg) {
+    throw new ProviderError('智能体未配置模型（请在智能体配置页填写 Provider / API Key / Model）', {
+      provider: 'gateway',
+      status: 404,
+    });
+  }
+  // Provider 池解析（优先于 provider 校验）：pool-only 智能体（provider 为 null）靠池提供 type/baseUrl/apiKey。
+  // 必须先解析池，否则下面的 !cfg.provider 检查会把「只挂了 Provider 池」的智能体误杀。
+  if (cfg.providerPoolId) {
+    const pool = getPoolProvider(cfg.providerPoolId);
+    if (pool) {
+      // 池未指定模型时，回落到池的第一个模型（保存表单常把 model 留空交给池提供默认）
+      const fallbackModel =
+        (!cfg.model || !String(cfg.model).trim()) && pool.models && pool.models.length
+          ? pool.models[0]
+          : cfg.model;
+      cfg = {
+        ...cfg,
+        type: pool.type || cfg.provider,
+        provider: cfg.provider || pool.type || null,
+        baseUrl: pool.baseUrl || cfg.baseUrl,
+        models: pool.models || [],
+        model: fallbackModel,
+      };
+      apiKey = getPoolApiKey(cfg.providerPoolId) || apiKey;
+    }
+  }
+  if (!cfg.provider) {
+    throw new ProviderError('智能体未配置模型（请在智能体配置页选择 Provider 池，或填写 Provider / API Key / Model）', {
+      provider: 'gateway',
+      status: 404,
+    });
+  }
+  const displayName = cfg.displayName || cfg.name || '智能体';
+  const openId = `agent:${cfg.id || 'unknown'}`; // 仅用于统计标识
+  return doRoute({ cfg, apiKey, openId, displayName, messages, opts });
+}
+
+// 核心路由：限流 → 选适配器 → 重试 → 降级 → 统计
+async function doRoute({ cfg, apiKey, openId, displayName, messages, opts = {} }) {
+  // 限流（令牌桶）
+  try {
+    limiter.take(openId, 1);
+  } catch (err) {
+    if (err instanceof RateLimitError) throw err;
+    throw err;
+  }
+
+  // 用户配置字段名为 provider，适配器注册表按 type 索引，这里做一次映射
+  // opts.model：调用方可临时覆盖本次请求的模型（如浏览器插件切换模型 / 智能体指定模型）
+  const provider = getProvider({
+    ...cfg,
+    type: cfg.provider,
+    apiKey,
+    model: opts.model || cfg.model,
+  });
+
+  // 单用户可单独配置重试次数；缺失则走系统默认（环境变量或 2）
+  const maxRetries = Number.isInteger(cfg.retries) ? cfg.retries : DEFAULT_MAX_RETRIES;
+
+  let lastErr;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) await sleep(backoffMs(attempt));
+      const res = await provider.chat(messages);
+      // 单点统计：所有成功 chat 调用都会被记录，无论来自 /chat、/agent/chat 还是自动化 runner
+      try {
+        await track({
+          openId,
+          name: displayName,
+          provider: cfg.provider,
+          model: cfg.model,
+          promptTokens: res.usage?.promptTokens || 0,
+          completionTokens: res.usage?.completionTokens || 0,
+        });
+      } catch { /* 统计失败不影响主流程 */ }
+      return {
+        content: res.content,
+        usage: res.usage,
+        provider: cfg.provider,
+        model: cfg.model,
+        userName: displayName,
+        attempt: attempt + 1,
+      };
+    } catch (err) {
+      lastErr = err;
+      // 4xx 客户端错误（非 429）属于配置/鉴权问题，不重试
+      if (err.status && err.status >= 400 && err.status < 500 && err.status !== 429) break;
+      // 超时/中止等明确标记不可重试的错误（如上游挂起）直接放弃，避免把一次慢请求放大成 N 倍等待
+      if (err.retryable === false) break;
+    }
+  }
+
+  // 降级：返回友好提示而非硬失败（生产可降级到小模型或兜底话术）
+  const fallback = process.env.ACAILY_DEGRADE_MESSAGE;
+  if (fallback) {
+    return { content: fallback, degraded: true, error: lastErr?.message, provider: cfg.provider };
+  }
+  throw lastErr ?? new ProviderError('模型调用失败', { provider: 'gateway' });
+}
+
+// 连通性测试：纯 inline 配置（不读个人/池里的密钥），用于「管理员在池表单里试一下能不能通」等场景。
+export async function testInlineProvider(inlineCfg) {
+  if (!inlineCfg || !inlineCfg.provider) return { ok: false, error: '未配置 provider' };
+  if (!inlineCfg.baseUrl) return { ok: false, error: '请填写 Base URL' };
+  if (!inlineCfg.model) return { ok: false, error: '请填写模型（默认按所选 Base URL 自动取列表中第一项；当前为空）' };
+  const cfg = {
+    type: inlineCfg.provider,
+    baseUrl: inlineCfg.baseUrl,
+    apiKey: inlineCfg.apiKey || '',
+    model: inlineCfg.model,
+    chatCompletionsPath: inlineCfg.chatCompletionsPath || '',
+    timeout: inlineCfg.timeout || 30,
+  };
+  const provider = getProvider(cfg);
+  try {
+    await provider.test();
+    return { ok: true, provider: cfg.type, model: cfg.model, baseUrl: cfg.baseUrl };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err.message,
+      attemptedUrl: err.attemptedUrl,
+      provider: cfg.type,
+    };
+  }
+}
+
+// 连通性测试：配置保存前/后一键验证（个人用户侧）
+export async function testConnection(openId, inlineCfg) {
+  let cfg = getConfig(openId);
+  if (!cfg) {
+    const org = getOrgDefault();
+    if (org) cfg = org;
+  }
+  if (inlineCfg && inlineCfg.provider) {
+    const storedApiKey = decryptApiKey(openId);
+    cfg = { ...(cfg || {}), ...inlineCfg };
+    if (!cfg.apiKey && storedApiKey) cfg.apiKey = storedApiKey;
+  }
+  if (!cfg || !cfg.provider) return { ok: false, error: '未配置模型（请先保存或填写配置）' };
+  const apiKey = cfg.apiKey || decryptApiKey(openId);
+  const provider = getProvider({ ...cfg, type: cfg.provider, apiKey });
+  try {
+    await provider.test();
+    return { ok: true, provider: cfg.provider, model: cfg.model };
+  } catch (err) {
+    return { ok: false, error: err.message, attemptedUrl: err.attemptedUrl, provider: cfg.provider };
+  }
+}
+
+export function rateLimitRemaining(openId) {
+  return limiter.remaining(openId);
+}

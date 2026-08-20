@@ -91,6 +91,11 @@ export const PERMISSIONS = [
   'admin:audit',
   'config:read',
   'config:write',
+  // AI 域（来自 acaily 迁移）：对话对所有登录用户开放；配置/自动化/管理仅系统管理员
+  'ai:chat',
+  'ai:config',
+  'ai:automation',
+  'ai:admin',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

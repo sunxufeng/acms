@@ -28,6 +28,14 @@ const NAV_ITEMS = [
     ],
   },
   {
+    section: 'AI 助手',
+    items: [
+      { key: 'aiChat', label: 'AI 对话', href: '/ai/chat', icon: AIIcon },
+      { key: 'aiAutomations', label: '自动化任务', href: '/ai/automations', icon: AIIcon, adminOnly: true },
+      { key: 'aiAdmin', label: 'AI 用量', href: '/ai/admin', icon: AIIcon, adminOnly: true },
+    ],
+  },
+  {
     section: '学生全生命周期',
     items: [
       { key: 'student360', label: '学生全景', href: '/student-360', icon: StudentsIcon },

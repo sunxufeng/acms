@@ -28,6 +28,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'venue:read', 'venue:write',
     'schedule:read', 'schedule:write',
     'export:run', 'admin:user', 'admin:audit', 'config:read', 'config:write',
+    // AI 域
+    'ai:chat', 'ai:config', 'ai:automation', 'ai:admin',
   ],
   院级管理: [
     'student:read', 'student:write', 'student:archive',
@@ -47,6 +49,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'venue:read', 'venue:write',
     'schedule:read', 'schedule:write',
     'export:run', 'admin:audit', 'config:read', 'config:write',
+    'ai:chat',
   ],
   教务: [
     'student:read', 'student:write', 'student:archive',
@@ -61,6 +64,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'venue:read', 'venue:write',
     'schedule:read', 'schedule:write',
     'export:run', 'config:read', 'config:write',
+    'ai:chat',
   ],
   财务: [
     'student:read', 'export:run',
@@ -68,6 +72,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'partnership:read', 'partnership:write',
     'finance:read', 'finance:approve',
     'notification:read',
+    'ai:chat',
   ],
   教师本人: [
     'student:read',
@@ -75,6 +80,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'grade:read', 'grade:write',
     'activity:read', 'activity:write',
     'evaluation:read', 'evaluation:write',
+    'ai:chat',
   ],
   学生事务: [
     'student:read',
@@ -84,8 +90,12 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'activity:read',
     'communication:read', 'communication:write',
     'evaluation:read', 'evaluation:write',
+    'ai:chat',
   ],
-  招生: ['student:read', 'student:write', 'followup:read', 'followup:write'],
+  招生: [
+    'student:read', 'student:write', 'followup:read', 'followup:write',
+    'ai:chat',
+  ],
   HR行政: [
     'student:read',
     'teacher:read', 'teacher:write', 'teacher:archive',
@@ -95,6 +105,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'notification:read', 'notification:write', 'notification:send',
     'alumni:read', 'alumni:write',
     'config:read', 'config:write',
+    'ai:chat',
   ],
   审计: [
     'student:read', 'followup:read', 'attendance:read', 'billing:read',
@@ -103,6 +114,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'alumni:read', 'teacher:read',
     'course:read', 'venue:read', 'schedule:read',
     'export:run', 'admin:audit', 'config:read',
+    'ai:chat',
   ],
 };
 

@@ -1,6 +1,6 @@
-import { Controller, Get, Post, HttpException, HttpStatus, Logger, Param, Res, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, HttpException, HttpStatus, Logger, Param, Res, Req, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { SessionGuard } from '../auth/session.guard.js';
 import { FileUploadService } from './file-upload.service.js';
 
@@ -71,11 +71,18 @@ export class FileController {
    */
   @Post('upload')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
-  async upload(@UploadedFile() file: any) {
+  async upload(@UploadedFile() file: any, @Req() req: Request) {
     if (!file) throw new BadRequestException('NO_FILE');
     try {
-      const { file_token } = await this.fileUpload.uploadFile(file.buffer, file.originalname, file.mimetype);
-      return { ok: true, file_token, name: file.originalname };
+      // 优先使用前端单独传的 filename 文本字段（UTF-8 解码正确），
+      // 否则回退到 multipart 的 originalname（multer 可能将其误判为 latin1 而乱码）。
+      const clientFilename = (req.body as Record<string, unknown>)?.filename;
+      const finalName =
+        typeof clientFilename === 'string' && clientFilename.trim().length > 0
+          ? clientFilename
+          : file.originalname;
+      const { file_token } = await this.fileUpload.uploadFile(file.buffer, finalName, file.mimetype);
+      return { ok: true, file_token, name: finalName };
     } catch (e) {
       this.logger.error(`文件上传失败: ${(e as Error).message}`);
       throw new HttpException('FILE_UPLOAD_FAILED', HttpStatus.BAD_GATEWAY);

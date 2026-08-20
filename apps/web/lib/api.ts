@@ -110,6 +110,9 @@ export const api = {
   uploadFile: (file: File) => {
     const form = new FormData();
     form.append('file', file);
+    // 单独传 filename 文本字段：busboy 对文本字段按 UTF-8 解码，
+    // 而 multipart 的 filename 参数会被 multer 错判为 latin1 导致中文乱码。
+    form.append('filename', file.name);
     return request<{ ok: boolean; file_token: string; name: string }>('/files/upload', {
       method: 'POST',
       body: form as unknown as BodyInit,

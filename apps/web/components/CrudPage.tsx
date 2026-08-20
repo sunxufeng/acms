@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { api as apiClient, type Page } from '../lib/api';
 
 export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect' | 'person' | 'student' | 'parent' | 'attachment';
@@ -65,6 +66,12 @@ export interface CrudPageProps {
   standaloneForm?: boolean;
   /** 每页记录数（默认 5，参考学生列表页） */
   pageSize?: number;
+  /** 额外链接按钮（如「排课与课次」跳转预检页），渲染为 <Link> */
+  extraLinks?: { label: string; href: string }[];
+  /** 新建改为跳转到独立页面（而非页内表单/弹窗）。设置后「新建」按钮渲染为 <Link> */
+  createHref?: string;
+  /** 编辑改为跳转到独立页面：行 id → href。设置后每行「编辑」按钮渲染为 <Link> */
+  editHref?: (id: string) => string;
 }
 
 function str(v: unknown): string {
@@ -134,7 +141,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, pageSize }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, pageSize, extraLinks, createHref, editHref }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = pageSize ?? 5;
@@ -480,7 +487,14 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               <button key={a.label} className="btn btn-outline" disabled={loading}
                 onClick={() => a.run(() => reload())}>{a.label}</button>
             ))}
-            <button className="btn btn-primary" onClick={openCreate} disabled={loading || readonly}>+ 新建</button>
+            {extraLinks?.map((l) => (
+              <Link key={l.href} href={l.href} className="btn btn-outline">{l.label}</Link>
+            ))}
+            {createHref ? (
+              <Link href={createHref} className="btn btn-primary">+ 新建</Link>
+            ) : (
+              <button className="btn btn-primary" onClick={openCreate} disabled={loading || readonly}>+ 新建</button>
+            )}
           </div>
         </div>
       )}
@@ -605,7 +619,11 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   ))}
                   <td>
                     <div style={rowActions}>
-                      {!readonly && <button className="btn btn-ghost btn-sm" onClick={() => openEdit(row)}>编辑</button>}
+                      {!readonly && editHref ? (
+                        <Link href={editHref(String(row.id))} className="btn btn-ghost btn-sm">编辑</Link>
+                      ) : !readonly && (
+                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(row)}>编辑</button>
+                      )}
                       {!readonly && api.transition && allowed.length > 0 && (
                         <div style={{ position: 'relative' }}>
                           <button className="btn btn-ghost btn-sm" onClick={() => setTxMenu(txMenu === String(row.id) ? null : String(row.id))}>状态▾</button>

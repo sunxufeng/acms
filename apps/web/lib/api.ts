@@ -197,6 +197,8 @@ export const api = {
     const q = qs.toString();
     return request<Page<Record<string, unknown>>>(`/sessions${q ? `?${q}` : ''}`);
   },
+  /** 课次详情（编辑页加载用） */
+  getSession: (id: string) => request<Record<string, unknown>>(`/sessions/${id}`),
   createSession: (data: Record<string, unknown>) => request<Record<string, unknown>>('/sessions', { method: 'POST', body: JSON.stringify(data) }),
   updateSession: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/sessions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveSession: (id: string) => request<{ ok: boolean }>(`/sessions/${id}`, { method: 'DELETE' }),

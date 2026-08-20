@@ -376,7 +376,7 @@ export class DictService {
 
       // 2) 文本字段（飞书 type=1 即文本，可存多行/长内容）
       const texts: string[] = [
-        '关联学生', '家长', '沟通人', '沟通主题', '沟通明细', '沟通总结', '沟通附件清单',
+        '关联学生', '家长', '沟通人', '沟通主题', '沟通明细', '沟通总结', '沟通附件清单', '责任人',
       ];
       for (const name of texts) {
         if (byName.has(name)) {

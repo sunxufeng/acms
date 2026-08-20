@@ -272,19 +272,24 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   }, [columns]);
 
   // 学生字段（student / parent 联动）候选项：从学生档案读取「学生姓名 → 父亲姓名 / 母亲姓名」
-  const [studentNames, setStudentNames] = useState<string[]>([]);
+  const [studentOptions, setStudentOptions] = useState<{ value: string; label: string }[]>([]);
   const [studentMap, setStudentMap] = useState<Record<string, { father: string; mother: string }>>({});
   useEffect(() => {
     if (!columns.some((c) => c.type === 'student' || c.type === 'parent')) return;
     let alive = true;
-    const collected: { name: string; father: string; mother: string }[] = [];
+    const collected: { name: string; englishName: string; father: string; mother: string }[] = [];
     const fetchPage = async (token?: string): Promise<void> => {
       const params: Record<string, string | undefined> = { pageSize: '100' };
       if (token) params.pageToken = token;
       const p = await apiClient.listStudents(params);
       for (const s of p.items) {
         const name = String(s['学生姓名'] ?? '');
-        if (name) collected.push({ name, father: String(s['父亲姓名'] ?? ''), mother: String(s['母亲姓名'] ?? '') });
+        if (name) collected.push({
+          name,
+          englishName: String(s['英文名'] ?? ''),
+          father: String(s['父亲姓名'] ?? ''),
+          mother: String(s['母亲姓名'] ?? ''),
+        });
       }
       if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
     };
@@ -294,7 +299,17 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         const map: Record<string, { father: string; mother: string }> = {};
         for (const s of collected) map[s.name] = { father: s.father, mother: s.mother };
         setStudentMap(map);
-        setStudentNames(Array.from(new Set(collected.map((s) => s.name))));
+        const seen = new Set<string>();
+        setStudentOptions(
+          collected
+            .filter((s) => {
+              if (seen.has(s.name)) return false;
+              seen.add(s.name);
+              return true;
+            })
+            .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+            .map((s) => ({ value: s.name, label: s.englishName ? `${s.name} / ${s.englishName}` : s.name })),
+        );
       })
       .catch(() => {});
     return () => { alive = false; };
@@ -404,7 +419,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           ) : c.type === 'student' ? (
             <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
               <option value="">（未选）</option>
-              {studentNames.map((o) => <option key={o} value={o}>{o}</option>)}
+              {studentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           ) : c.type === 'parent' ? (
             (() => {

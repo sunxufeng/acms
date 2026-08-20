@@ -18,7 +18,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
   });
   if (res.status === 401) {
-    if (typeof window !== 'undefined') window.location.href = '/login';
+    // 已在登录页（或正前往登录页）时不再跳转，避免 /login 自刷新死循环
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
     throw new Error('UNAUTHENTICATED');
   }
   if (!res.ok) {
@@ -496,7 +499,10 @@ export interface PermissionsPayload {
 export async function exportTable(table: string): Promise<void> {
   const res = await fetch(`${API_BASE}/export/${table}`, { credentials: 'include' });
   if (res.status === 401) {
-    if (typeof window !== 'undefined') window.location.href = '/login';
+    // 已在登录页（或正前往登录页）时不再跳转，避免 /login 自刷新死循环
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
     throw new Error('UNAUTHENTICATED');
   }
   if (!res.ok) throw new Error(`导出失败 HTTP ${res.status}`);

@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 
 interface StudentHit {
   id: string;
   学生姓名?: string;
+  英文名?: string;
   学生编号?: string;
   当前状态?: string;
   校区?: string;
@@ -92,55 +93,53 @@ function str(v: unknown): string {
 }
 
 export default function Student360Page() {
-  const [query, setQuery] = useState('');
-  const [hits, setHits] = useState<StudentHit[]>([]);
-  const [showHits, setShowHits] = useState(false);
+  const [students, setStudents] = useState<StudentHit[]>([]);
   const [selected, setSelected] = useState<StudentHit | null>(null);
   const [data, setData] = useState<{ student: Record<string, unknown>; sections: Section[] } | null>(null);
+  const [loadingStudents, setLoadingStudents] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
-
-  // 关闭下拉
-  useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setShowHits(false);
-    }
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, []);
-
-  // 搜索学生（防抖）
-  const searchStudents = useCallback(async (q: string) => {
-    if (!q.trim()) {
-      setHits([]);
-      return;
-    }
-    try {
-      const res = await api.listStudents({ q, pageSize: '20' });
-      setHits((res.items ?? []) as StudentHit[]);
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => searchStudents(query), 300);
-    return () => clearTimeout(t);
-  }, [query, searchStudents]);
+    let alive = true;
+    const all: StudentHit[] = [];
 
-  async function selectStudent(s: StudentHit) {
-    setSelected(s);
-    setShowHits(false);
-    setQuery(str(s.学生姓名) + (str(s.学生编号) ? `（${str(s.学生编号)}）` : ''));
-    setLoading(true);
+    async function loadStudents(pageToken?: string): Promise<void> {
+      const res = await api.listStudents({ pageSize: '100', pageToken });
+      all.push(...((res.items ?? []) as StudentHit[]));
+      if (res.hasMore && res.pageToken) await loadStudents(res.pageToken);
+    }
+
+    loadStudents()
+      .then(() => {
+        if (!alive) return;
+        setStudents(all.sort((a, b) => str(a.学生姓名).localeCompare(str(b.学生姓名), 'zh-CN')));
+      })
+      .catch((e) => {
+        if (alive) setError(e instanceof Error ? e.message : '学生列表加载失败');
+      })
+      .finally(() => {
+        if (alive) setLoadingStudents(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function selectStudent(studentId: string) {
+    const student = students.find((s) => s.id === studentId) ?? null;
+    setSelected(student);
+    setData(null);
     setError(null);
+    if (!student) return;
+
+    setLoading(true);
     try {
-      const d = await api.student360(s.id);
+      const d = await api.student360(student.id);
       setData(d);
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败');
-      setData(null);
     } finally {
       setLoading(false);
     }
@@ -158,34 +157,30 @@ export default function Student360Page() {
       </div>
 
       {/* 学生选择器 */}
-      <div className="filter-bar" ref={boxRef} style={{ position: 'relative' }}>
-        <input
-          className="search-input"
-          placeholder="输入学生姓名 / 编号搜索…"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setShowHits(true);
-            if (!e.target.value) setSelected(null);
-          }}
-          onFocus={() => hits.length && setShowHits(true)}
-          style={{ maxWidth: 360 }}
-        />
-        {showHits && hits.length > 0 && (
-          <ul className="student-hits">
-            {hits.map((h) => (
-              <li key={h.id} onClick={() => selectStudent(h)}>
-                <span className="hit-name">{str(h.学生姓名) || '(无名)'}</span>
-                <span className="hit-meta">
-                  {str(h.学生编号)} · {str(h.当前状态)} · {str(h.校区)} {str(h.入学年级)} {str(h.班级)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+      <div className="filter-bar">
+        <label className="form-label" style={{ width: 'min(420px, 100%)' }}>
+          <span className="form-label-text">选择学生</span>
+          <select
+            className="form-input"
+            value={selected?.id ?? ''}
+            onChange={(e) => selectStudent(e.target.value)}
+            disabled={loadingStudents}
+          >
+            <option value="">{loadingStudents ? '学生列表加载中…' : '请选择学生'}</option>
+            {students.map((student) => {
+              const name = str(student.学生姓名) || '(无名)';
+              const englishName = str(student.英文名);
+              return (
+                <option key={student.id} value={student.id}>
+                  {englishName ? `${name} / ${englishName}` : name}
+                </option>
+              );
+            })}
+          </select>
+        </label>
         {selected && (
-          <span className="badge" style={{ marginLeft: 12 }}>
-            已选：{str(selected.学生姓名)}（{str(selected.学生编号)}）
+          <span className="badge">
+            已选：{str(selected.学生姓名)}{str(selected.英文名) ? ` / ${str(selected.英文名)}` : ''}
           </span>
         )}
       </div>

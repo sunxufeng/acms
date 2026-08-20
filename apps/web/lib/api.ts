@@ -460,6 +460,19 @@ export const api = {
     request<Record<string, unknown>>(`/ai/admin/usage?rangeDays=${rangeDays}`),
   aiAudit: (limit = 200) =>
     request<Record<string, unknown>[]>(`/ai/admin/audit?limit=${limit}`),
+  aiListAgents: () => request<Record<string, unknown>[]>('/ai/agents'),
+  aiGetAgent: (id: string) => request<Record<string, unknown> | null>(`/ai/agents/${encodeURIComponent(id)}`),
+  aiCreateAgent: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/ai/agents', { method: 'POST', body: JSON.stringify(data) }),
+  aiUpdateAgent: (id: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/ai/agents/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  aiDeleteAgent: (id: string) =>
+    request<{ ok: boolean }>(`/ai/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  aiTools: () => request<{ name: string; description: string }[]>('/ai/tools'),
+  aiListSkills: () => request<Record<string, unknown>[]>('/ai/skills'),
+  aiGetSkill: (name: string) => request<Record<string, unknown> | null>(`/ai/skills/${encodeURIComponent(name)}`),
+  aiSaveSkill: (name: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/ai/skills/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(data) }),
 
   /** 权限模型 + 当前用户有效权限（菜单「权限与授权」使用） */
   getPermissions: () => request<PermissionsPayload>('/auth/permissions'),

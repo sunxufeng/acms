@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { api } from '../lib/api';
 
 interface Me {
   name: string;
@@ -31,8 +32,11 @@ const NAV_ITEMS = [
     section: 'AI 助手',
     items: [
       { key: 'aiChat', label: 'AI 对话', href: '/ai/chat', icon: AIIcon },
-      { key: 'aiAutomations', label: '自动化任务', href: '/ai/automations', icon: AIIcon, adminOnly: true },
-      { key: 'aiAdmin', label: 'AI 用量', href: '/ai/admin', icon: AIIcon, adminOnly: true },
+      { key: 'aiConfig', label: 'AI 设置', href: '/ai/config', icon: AIIcon },
+      { key: 'aiAgents', label: '智能体配置', href: '/ai/agents', icon: AIIcon, perm: 'ai:config' },
+      { key: 'aiSkills', label: '技能', href: '/ai/skills', icon: AIIcon, perm: 'ai:admin' },
+      { key: 'aiAutomations', label: '自动化任务', href: '/ai/automations', icon: AIIcon, perm: 'ai:automation' },
+      { key: 'aiAdmin', label: 'AI 用量', href: '/ai/admin', icon: AIIcon, perm: 'ai:admin' },
     ],
   },
   {
@@ -80,6 +84,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
+  const [myPerms, setMyPerms] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -115,6 +120,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     fetch('/api/v1/auth/me', { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setMe(d))
+      .catch(() => null);
+    api.getPermissions()
+      .then((p) => setMyPerms(p.myPermissions || []))
       .catch(() => null);
   }, []);
 
@@ -156,7 +164,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <div className="sidebar-section-label">{group.section}</div>
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  if ((item as { adminOnly?: boolean }).adminOnly && !isAdmin) return null;
+                  const it = item as { adminOnly?: boolean; perm?: string };
+                  if (it.adminOnly && !isAdmin) return null;
+                  if (it.perm && !(myPerms || []).includes(it.perm)) return null;
                   if ((item as { disabled?: boolean }).disabled) {
                     return (
                       <div key={item.key} className="nav-item nav-item--disabled" title="敬请期待">

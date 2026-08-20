@@ -43,6 +43,17 @@ import { initRunner } from './lib/automation/runner.js';
 import { ensureLoaded, aggregateUsage } from './lib/admin/stats.js';
 import { record, query as queryAudit } from './lib/audit/auditLog.js';
 import { buildCron, describeCron } from './lib/automation/store.js';
+import {
+  listAgents as listAgentsStore,
+  getAgentById,
+  upsertAgent,
+  removeAgent,
+} from './lib/config/agentStore.js';
+import {
+  listSkills as listSkillsStore,
+  getSkill as getSkillStore,
+  saveSkill as saveSkillStore,
+} from './lib/config/skillStore.js';
 
 type Principal = { roles: readonly string[]; campuses: readonly string[]; maxDataLevel?: string };
 
@@ -127,6 +138,52 @@ export class AiService implements OnModuleInit {
     this.assert(user, 'ai:config');
     const tpl = setOrgDefault(body);
     return tpl;
+  }
+
+  // ---------------- 智能体配置 ----------------
+  listAgents(user: SessionUser) {
+    this.assert(user, 'ai:config');
+    return listAgentsStore();
+  }
+
+  getAgent(user: SessionUser, id: string) {
+    this.assert(user, 'ai:config');
+    return getAgentById(id);
+  }
+
+  saveAgent(user: SessionUser, body: Record<string, unknown>, id?: string) {
+    this.assert(user, 'ai:config');
+    const clean = { ...body };
+    if (!id) clean.owner = user.openId;
+    const saved = upsertAgent(clean, id);
+    if (!saved) throw new BadRequestException('智能体不存在或更新失败');
+    return saved;
+  }
+
+  deleteAgent(user: SessionUser, id: string) {
+    this.assert(user, 'ai:config');
+    return removeAgent(id);
+  }
+
+  // 可用工具清单（供智能体「工具开关」使用）
+  listTools(_user: SessionUser) {
+    return (webTools || []).map((t) => ({ name: t.name, description: t.description || '' }));
+  }
+
+  // ---------------- 技能（工具文档） ----------------
+  listSkills(user: SessionUser) {
+    this.assert(user, 'ai:admin');
+    return listSkillsStore();
+  }
+
+  getSkill(user: SessionUser, name: string) {
+    this.assert(user, 'ai:admin');
+    return getSkillStore(name);
+  }
+
+  saveSkill(user: SessionUser, name: string, body: Record<string, unknown>) {
+    this.assert(user, 'ai:admin');
+    return saveSkillStore(name, body);
   }
 
   // ---------------- 对话 ----------------

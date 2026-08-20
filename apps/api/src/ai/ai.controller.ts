@@ -58,6 +58,53 @@ export class AiController {
     return this.svc.setOrgDefaultCfg(req.user, body);
   }
 
+  // ---------------- 智能体配置 ----------------
+  @Get('agents')
+  agents(@Req() req: ReqWithUser) {
+    return this.svc.listAgents(req.user);
+  }
+
+  @Get('tools')
+  tools(@Req() req: ReqWithUser) {
+    return this.svc.listTools(req.user);
+  }
+
+  @Post('agents')
+  createAgent(@Req() req: ReqWithUser, @Body() body: Record<string, unknown>) {
+    return this.svc.saveAgent(req.user, body);
+  }
+
+  @Get('agents/:id')
+  agent(@Req() req: ReqWithUser, @Param('id') id: string) {
+    return this.svc.getAgent(req.user, id);
+  }
+
+  @Put('agents/:id')
+  updateAgent(@Req() req: ReqWithUser, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.svc.saveAgent(req.user, body, id);
+  }
+
+  @Delete('agents/:id')
+  deleteAgent(@Req() req: ReqWithUser, @Param('id') id: string) {
+    return this.svc.deleteAgent(req.user, id);
+  }
+
+  // ---------------- 技能（工具文档） ----------------
+  @Get('skills')
+  skills(@Req() req: ReqWithUser) {
+    return this.svc.listSkills(req.user);
+  }
+
+  @Get('skills/:name')
+  skill(@Req() req: ReqWithUser, @Param('name') name: string) {
+    return this.svc.getSkill(req.user, name);
+  }
+
+  @Put('skills/:name')
+  saveSkill(@Req() req: ReqWithUser, @Param('name') name: string, @Body() body: Record<string, unknown>) {
+    return this.svc.saveSkill(req.user, name, body);
+  }
+
   // ---------------- 对话 ----------------
   @Post('chat')
   chat(@Req() req: ReqWithUser, @Body() body: { message?: string; sessionId?: string; model?: string; history?: { role: string; content: string }[] }) {

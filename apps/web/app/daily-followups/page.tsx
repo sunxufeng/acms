@@ -10,7 +10,7 @@ const COLUMNS: CrudColumn[] = [
   { key: '关联学生', label: '学生', width: '120px', form: true, type: 'student', required: true },
   { key: '沟通人', label: '沟通人', width: '100px', form: true, type: 'person' },
   { key: '沟通方式', label: '沟通方式', width: '110px', filter: true, form: true, type: 'select', dictKey: '沟通方式' },
-  { key: '沟通主题', label: '沟通主题', width: '120px' },
+  { key: '沟通主题', label: '沟通主题', width: '120px', form: true },
   { key: '沟通内容', label: '沟通内容', list: false, form: true, type: 'textarea' },
   { key: '沟通时间', label: '沟通时间', width: '130px', form: true, type: 'date' },
   { key: '沟通明细', label: '沟通明细（MD 对话记录）', list: false, form: true, type: 'textarea' },

@@ -113,6 +113,9 @@ export class DictService {
     // 家校沟通表：确保「沟通方式/家长反馈态度/闭环状态/信息敏感级别」单选字段与字典一致；
     // 补齐文本字段（关联学生/家长/沟通人/沟通主题/沟通明细/沟通总结/沟通附件清单）。
     results.push(await this.ensureHomeSchoolCommFields());
+    // 日常跟进表：确保「沟通方式/闭环状态/信息敏感级别」单选字段与字典一致；
+    // 补齐文本字段（关联学生/沟通人/沟通内容/沟通明细/沟通总结/沟通附件清单/待办事项/责任人/待办负责人）。
+    results.push(await this.ensureDailyFollowupFields());
     return results;
   }
 
@@ -388,6 +391,76 @@ export class DictService {
       }
     } catch (e) {
       result.errors.push(`ensureHomeSchoolCommFields: ${(e as Error).message}`);
+    }
+    return result;
+  }
+
+  /**
+   * 幂等确保「日常跟进表」的字典下拉字段存在且选项与字典一致（与家校沟通表同源，删除家长相关字段）：
+   * - 单选字段（沟通方式/闭环状态/信息敏感级别）：不存在则创建（type=3，带字典选项）；
+   *   已存在单选则追加缺失选项；已存在非单选则跳过（不删字段，避免丢数据）。
+   * - 文本字段（关联学生/沟通人/沟通内容/沟通明细/沟通总结/沟通附件清单/待办事项/责任人/待办负责人）：
+   *   不存在则创建文本字段(type=建表时已建则跳过)。
+   * 注：沟通主题为创建表时建立的 type=4 多选字段，选项已固定，此处不再改写。
+   */
+  private async ensureDailyFollowupFields(): Promise<SyncResult> {
+    const tableId = TABLES.dailyFollowup.tableId;
+    const result: SyncResult = { table: tableId, synced: [], skipped: [], errors: [] };
+    const opt = (key: string) => (this.store[key] ?? []).map((name) => ({ name }));
+    try {
+      const fields = await this.base.listFields(tableId);
+      const byName = new Map(fields.map((f) => [f.name, f]));
+
+      // 1) 单选字段（带字典选项）
+      const singles: { name: string; dictKey: string }[] = [
+        { name: '沟通方式', dictKey: '沟通方式' },
+        { name: '闭环状态', dictKey: '家校闭环状态' },
+        { name: '信息敏感级别', dictKey: '信息敏感级别' },
+      ];
+      for (const { name, dictKey } of singles) {
+        const options = opt(dictKey);
+        const def = byName.get(name);
+        if (!def) {
+          await this.base.createField(tableId, { field_name: name, type: SINGLE_SELECT, property: { options } });
+          result.synced.push(`${name}（已创建单选）`);
+          continue;
+        }
+        if (def.type !== SINGLE_SELECT) {
+          result.skipped.push(`${name}（已存在但非单选 type=${def.type}，跳过以免丢数据）`);
+          continue;
+        }
+        const existing = new Set((def.property.options ?? []).map((o) => o.name));
+        const toAdd = options.filter((o) => !existing.has(o.name));
+        if (toAdd.length) {
+          const merged = [
+            ...(def.property.options ?? []).map((o) => ({ name: o.name })),
+            ...toAdd,
+          ];
+          await this.base.updateField(tableId, def.id, {
+            field_name: def.name,
+            type: SINGLE_SELECT,
+            property: { options: merged },
+          });
+          result.synced.push(`${name}（+${toAdd.length}）`);
+        } else {
+          result.skipped.push(`${name}（已是最新）`);
+        }
+      }
+
+      // 2) 文本字段（飞书 type=1）
+      const texts: string[] = [
+        '关联学生', '沟通人', '沟通内容', '沟通明细', '沟通总结', '沟通附件清单', '待办事项', '责任人', '待办负责人',
+      ];
+      for (const name of texts) {
+        if (byName.has(name)) {
+          result.skipped.push(`${name}（已存在）`);
+          continue;
+        }
+        await this.base.createField(tableId, { field_name: name, type: 1 });
+        result.synced.push(`${name}（已创建文本）`);
+      }
+    } catch (e) {
+      result.errors.push(`ensureDailyFollowupFields: ${(e as Error).message}`);
     }
     return result;
   }

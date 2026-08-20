@@ -6,6 +6,7 @@ export const TABLES = {
   academicGrade: { tableId: 'tblaYsfXSbqyZiZ5', name: '学业成绩表' },
   practiceActivity: { tableId: 'tblOitwcvOBSkeuu', name: '实践活动表' },
   homeSchoolComm: { tableId: 'tbl8Isr46G3BRQ52', name: '家校沟通表' },
+  dailyFollowup: { tableId: 'tbljjbChYx9uhbbb', name: '日常跟进表' },
   stageEvaluation: { tableId: 'tblHk6r8USy6BXV4', name: '阶段评价表' },
   alumniFollowup: { tableId: 'tblK02GgjnaLp1Gp', name: '校友长期跟进表' },
   // M2 教学域

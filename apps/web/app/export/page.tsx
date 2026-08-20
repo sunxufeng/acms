@@ -7,7 +7,7 @@ const TABLES: { key: string; label: string }[] = [
   { key: 'studentProfile', label: '学生档案' },
   { key: 'teacherProfile', label: '教师档案' },
   { key: 'coursePlan', label: '课程方案' },
-  { key: 'teachingClass', label: '教学班' },
+  { key: 'teachingClass', label: '教学班级' },
   { key: 'session', label: '课次' },
   { key: 'venue', label: '场地' },
   { key: 'enrollment', label: '选课' },
@@ -23,6 +23,7 @@ const TABLES: { key: string; label: string }[] = [
   { key: 'academicGrade', label: '学业成绩' },
   { key: 'practiceActivity', label: '实践活动' },
   { key: 'homeSchoolComm', label: '家校沟通' },
+  { key: 'dailyFollowup', label: '日常跟进' },
   { key: 'stageEvaluation', label: '阶段评价' },
   { key: 'alumniFollowup', label: '校友跟进' },
 ];

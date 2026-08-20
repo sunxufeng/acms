@@ -68,7 +68,7 @@ export default function PermissionsPage() {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">权限与授权</h1>
+          <h1 className="page-title">权限授权</h1>
           <p className="page-subtitle">查看系统权限模型（角色 → 权限矩阵）与当前账号的有效权限。系统权限由角色授予，给用户分配角色即可完成授权。</p>
         </div>
         <Link href="/users" className="btn btn-outline">前往用户管理</Link>

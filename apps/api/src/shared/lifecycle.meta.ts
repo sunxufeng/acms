@@ -95,6 +95,18 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     sortField: '沟通时间',
   },
   {
+    path: 'daily-followups',
+    tableId: TABLES.dailyFollowup.tableId,
+    readPerm: PERM_R,
+    writePerm: PERM_W,
+    dateFields: ['沟通时间', '跟进截止日期', '闭环日期'],
+    readonly: ['待办负责人', '沟通附件'],
+    statusField: '闭环状态',
+    defaultStatus: '无需跟进',
+    searchField: '关联学生',
+    sortField: '沟通时间',
+  },
+  {
     path: 'stage-evaluations',
     tableId: TABLES.stageEvaluation.tableId,
     readPerm: PERM_R,

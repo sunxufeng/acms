@@ -21,9 +21,9 @@ const NAV_ITEMS = [
     section: '业务域',
     items: [
       { key: 'students', label: '学生档案', href: '/students', icon: StudentsIcon },
-      { key: 'courses', label: '课程与教学', href: '/courses', icon: CoursesIcon },
-      { key: 'teaching', label: '教学班', href: '/teaching-classes', icon: CoursesIcon },
-      { key: 'schedule', label: '排课与展约', href: '/schedule', icon: ScheduleIcon },
+      { key: 'courses', label: '课程教学', href: '/courses', icon: CoursesIcon },
+      { key: 'teaching', label: '教学班级', href: '/teaching-classes', icon: CoursesIcon },
+      { key: 'schedule', label: '排课课次', href: '/schedule', icon: ScheduleIcon },
       { key: 'portal', label: '学生门户', href: '/portal', icon: StudentsIcon },
     ],
   },
@@ -36,6 +36,7 @@ const NAV_ITEMS = [
       { key: 'grades', label: '学业成绩', href: '/grades', icon: CoursesIcon },
       { key: 'practiceActivities', label: '实践活动', href: '/practice-activities', icon: StudentsIcon },
       { key: 'homeSchoolComms', label: '家校沟通', href: '/home-school-comms', icon: NotificationsIcon },
+      { key: 'dailyFollowups', label: '日常跟进', href: '/daily-followups', icon: NotificationsIcon },
       { key: 'stageEvaluations', label: '阶段评价', href: '/stage-evaluations', icon: StudentsIcon },
       { key: 'alumniFollowups', label: '校友跟进', href: '/alumni-followups', icon: StudentsIcon },
     ],
@@ -45,7 +46,7 @@ const NAV_ITEMS = [
     items: [
       { key: 'teachers', label: '教师档案', href: '/teachers', icon: TeachersIcon },
       { key: 'attendance', label: '教师履约', href: '/attendance', icon: TeachersIcon },
-      { key: 'billing', label: '计费与结算', href: '/billing', icon: BillingIcon },
+      { key: 'billing', label: '计费结算', href: '/billing', icon: BillingIcon },
       { key: 'settlements', label: '月度结算', href: '/settlements', icon: BillingIcon },
       { key: 'adjustments', label: '调整冲销', href: '/adjustments', icon: BillingIcon },
       { key: 'partnerships', label: '聘用合作', href: '/partnerships', icon: TeachersIcon },
@@ -55,7 +56,7 @@ const NAV_ITEMS = [
       { key: 'settings', label: '系统设置', href: '/settings', icon: SettingsIcon },
       { key: 'audit-logs', label: '审计日志', href: '/audit-logs', icon: AuditIcon },
       { key: 'users', label: '用户管理', href: '/users', icon: UserGroupIcon, adminOnly: true },
-      { key: 'permissions', label: '权限与授权', href: '/permissions', icon: ShieldIcon, adminOnly: true },
+      { key: 'permissions', label: '权限授权', href: '/permissions', icon: ShieldIcon, adminOnly: true },
     ],
   },
 ];
@@ -226,7 +227,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 function breadcrumbLabel(path: string): string {
   if (path === '/') return '工作台';
   if (path.startsWith('/users')) return '用户管理';
-  if (path.startsWith('/permissions')) return '权限与授权';
+  if (path.startsWith('/permissions')) return '权限授权';
   if (path.startsWith('/students')) {
     if (path === '/students/new') return '新建学生';
     if (/\/students\/[^/]+$/.test(path)) return '学生详情';

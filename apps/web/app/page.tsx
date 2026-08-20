@@ -115,7 +115,7 @@ export default function Home() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <QuickAction icon={<StudentsIcon />} label="学生档案" sub="查看已授权档案" href="/students" />
             <QuickAction icon={<FileCheckIcon />} label="教师履约" sub="出勤提交与审核" href="/attendance" />
-            <QuickAction icon={<ChartIcon />} label="计费与结算" sub="计费明细 / 月结" href="/billing" />
+            <QuickAction icon={<ChartIcon />} label="计费结算" sub="计费明细 / 月结" href="/billing" />
             <QuickAction icon={<BellIcon />} label="通知任务" sub="模板与发送" href="/notifications" />
           </div>
         </div>

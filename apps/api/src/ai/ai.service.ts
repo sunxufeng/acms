@@ -5,6 +5,7 @@ import { hasPermission } from '@acms/domain';
 
 import {
   routeChat,
+  routeChatConfig,
   testConnection,
 } from './lib/gateway/router.js';
 import {
@@ -14,6 +15,7 @@ import {
   getOrgDefault,
   setOrgDefault,
   listUsers,
+  decryptApiKey,
 } from './lib/config/userConfigStore.js';
 import { PROVIDER_PRESETS } from './lib/providers/presets.js';
 import { AgentRuntime } from './lib/agent/runtime.js';
@@ -149,8 +151,10 @@ export class AiService implements OnModuleInit {
   }
 
   // ---------------- 智能体配置 ----------------
+  // listAgents 仅读不取密钥（智能体本就不存 apiKey），放宽到 ai:chat，
+  // 让对话页也能下拉选择智能体（Provider）；新增/编辑/删除仍限 ai:config。
   listAgents(user: SessionUser) {
-    this.assert(user, 'ai:config');
+    this.assert(user, 'ai:chat');
     return listAgentsStore();
   }
 
@@ -197,7 +201,7 @@ export class AiService implements OnModuleInit {
   }
 
   // ---------------- 对话 ----------------
-  async chat(user: SessionUser, body: { message?: string; sessionId?: string; model?: string; history?: { role: string; content: string }[] }) {
+  async chat(user: SessionUser, body: { message?: string; sessionId?: string; model?: string; agentId?: string; history?: { role: string; content: string }[] }) {
     this.assert(user, 'ai:chat');
     const message = (body.message ?? '').toString();
     if (!message.trim()) throw new BadRequestException('message 不能为空');
@@ -211,18 +215,40 @@ export class AiService implements OnModuleInit {
       : (await getHistory(user.openId, sessionId, 40)).map((m) => ({ role: m.role, content: m.content }));
     await appendMessage(sessionId, 'user', message);
 
-    // 用户专属人设
-    const cfg = getConfig(user.openId);
-    const systemPrompt = cfg
-      ? this.runtime.buildUserSystemPrompt({
-          botName: (cfg as Record<string, string>).botName,
-          systemPrompt: (cfg as Record<string, string>).systemPrompt,
-        })
-      : undefined;
+    // 选择智能体（对话页下拉）→ 用智能体的 Provider/Model/BaseUrl + 智能体人设；
+    // 否则沿用个人默认配置（个人 API Key）。智能体本身不存密钥，复用个人已配置的 API Key。
+    let systemPrompt: string | undefined;
+    let chatFn: (messages: { role: string; content: string }[]) => Promise<{ content: string }>;
+    const agentId = body.agentId;
+    if (agentId) {
+      const agent = getAgentById(agentId);
+      if (!agent) throw new BadRequestException('智能体不存在');
+      systemPrompt = (agent.systemPrompt as string) || undefined;
+      const apiKey = decryptApiKey(user.openId) || '';
+      const agentCfg = {
+        id: agent.id,
+        name: agent.name,
+        provider: agent.provider,
+        model: agent.model,
+        baseUrl: agent.baseUrl,
+        displayName: agent.name,
+      };
+      chatFn = (messages) => routeChatConfig(agentCfg, apiKey, messages, { model: body.model }) as Promise<{ content: string }>;
+    } else {
+      // 用户专属人设
+      const cfg = getConfig(user.openId);
+      systemPrompt = cfg
+        ? this.runtime.buildUserSystemPrompt({
+            botName: (cfg as Record<string, string>).botName,
+            systemPrompt: (cfg as Record<string, string>).systemPrompt,
+          })
+        : undefined;
+      chatFn = (messages) => routeChat(user.openId, messages, { model: body.model });
+    }
 
     try {
       const result = await this.runtime.run(message, {
-        chat: (messages) => routeChat(user.openId, messages, { model: body.model }),
+        chat: chatFn,
         history: prior,
         systemPrompt,
         maxSteps: 6,

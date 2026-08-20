@@ -26,20 +26,39 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error('UNAUTHENTICATED');
   }
   if (!res.ok) {
-    let body: ApiError | null = null;
+    let message: string | undefined;
     try {
-      body = (await res.json()) as ApiError;
+      const text = await res.text();
+      if (text) {
+        try {
+          const body = JSON.parse(text) as ApiError;
+          message = Array.isArray(body?.message)
+            ? body.message.join('; ')
+            : body?.message;
+          message = body?.error?.message ?? message;
+        } catch {
+          message = text;
+        }
+      }
     } catch {
       /* ignore */
     }
-    const message = Array.isArray(body?.message) ? body.message.join('; ') : body?.message;
-    throw new Error(body?.error?.message ?? message ?? `HTTP ${res.status}`);
+    throw new Error(message ?? `HTTP ${res.status}`);
   }
+  // 读取文本一次：空 body（如 200 无内容 / 204）视为 null，
+  // 避免 res.json() 抛 “Unexpected end of JSON input”。
+  const text = await res.text();
+  if (!text) return null as unknown as T;
   // 导出接口返回纯文本（CSV）
   if (res.headers.get('Content-Type')?.includes('text/csv')) {
-    return (await res.text()) as unknown as T;
+    return text as unknown as T;
   }
-  return (await res.json()) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // 非 JSON（如纯文本响应）原样返回，避免解析失败
+    return text as unknown as T;
+  }
 }
 
 export interface Page<T> {
@@ -442,7 +461,7 @@ export const api = {
   aiDeleteConfig: () => request<{ ok: boolean }>('/ai/config/me', { method: 'DELETE' }),
   aiTestConfig: (data: Record<string, unknown>) =>
     request<{ ok: boolean; error?: string }>('/ai/config/test', { method: 'POST', body: JSON.stringify(data) }),
-  aiChat: (data: { message: string; sessionId?: string; model?: string; history?: { role: string; content: string }[] }) =>
+  aiChat: (data: { message: string; sessionId?: string; model?: string; agentId?: string; history?: { role: string; content: string }[] }) =>
     request<{ content: string; sessionId: string; steps: number }>('/ai/chat', { method: 'POST', body: JSON.stringify(data) }),
   aiListConversations: () => request<{ id: string; title: string; updatedAt: string }[]>('/ai/conversations'),
   aiCreateConversation: (data: { title?: string }) =>

@@ -282,7 +282,7 @@ export class BaseClient {
   /** 新建字段（幂等迁移用）。type: 1=文本, 3=单选, 4=多选。已存在则跳过（由调用方先 listFields 判定） */
   async createField(
     tableId: string,
-    body: { field_name: string; type: number; property?: { options?: { name: string }[] } },
+    body: { field_name: string; type: number; property?: Record<string, unknown> },
   ): Promise<{ field_id: string; field_name: string; type: number }> {
     const d = await this.req<{
       field_id: string;

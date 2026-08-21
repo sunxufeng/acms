@@ -343,6 +343,20 @@ export const api = {
   createSourceFollowup: (data: Record<string, unknown>) => request<Record<string, unknown>>('/source-followups', { method: 'POST', body: JSON.stringify(data) }),
   updateSourceFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/source-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveSourceFollowup: (id: string) => request<{ ok: boolean }>(`/source-followups/${id}`, { method: 'DELETE' }),
+  /** 招生跟进单条记录（详情只读页用） */
+  getSourceFollowup: (id: string) => request<Record<string, unknown>>(`/source-followups/${id}`),
+
+  /** 招生跟进 AI 总结：准备数据（附件、当前明细/总结/沟通主题） */
+  sourceFollowupAiPrepare: (id: string) =>
+    request<{ attachments: { file_token: string; name: string }[]; currentDetail: string; currentSummary: string; content: string }>(
+      `/source-followups-ai/${id}/prepare`,
+    ),
+  /** 招生跟进 AI 总结：合并所有附件生成沟通明细与总结 */
+  sourceFollowupAiMergeAll: (id: string, overwriteDetail = false, overwriteSummary = false) =>
+    request<{ ok: boolean; 沟通明细: string; 沟通总结: string; parsedAttachments: number; totalAttachments: number }>(
+      `/source-followups-ai/${id}/merge-all`,
+      { method: 'POST', body: JSON.stringify({ overwriteDetail, overwriteSummary }) },
+    ),
 
   listStudentAttendances: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();

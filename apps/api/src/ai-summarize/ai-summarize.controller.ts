@@ -4,7 +4,7 @@ import type { Request } from 'express';
 import { SessionGuard } from '../auth/session.guard.js';
 import type { SessionUser } from '@acms/contracts';
 import { AiSummarizeService } from './ai-summarize.service.js';
-import { HOME_SCHOOL_COMMS_CONFIG, DAILY_FOLLOWUP_CONFIG, type AiSummarizeTableConfig } from './ai-summarize.config.js';
+import { HOME_SCHOOL_COMMS_CONFIG, DAILY_FOLLOWUP_CONFIG, SOURCE_FOLLOWUP_CONFIG, type AiSummarizeTableConfig } from './ai-summarize.config.js';
 
 /** 通用 AI 总结控制器，由子类指定路由前缀与表配置 */
 export class AiSummarizeController {
@@ -66,5 +66,13 @@ export class HomeSchoolCommsAiController extends AiSummarizeController {
 export class DailyFollowupAiController extends AiSummarizeController {
   constructor(svc: AiSummarizeService) {
     super(svc, DAILY_FOLLOWUP_CONFIG);
+  }
+}
+
+@Controller('source-followups-ai')
+@UseGuards(SessionGuard)
+export class SourceFollowupAiController extends AiSummarizeController {
+  constructor(svc: AiSummarizeService) {
+    super(svc, SOURCE_FOLLOWUP_CONFIG);
   }
 }

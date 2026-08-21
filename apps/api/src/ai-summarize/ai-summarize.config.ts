@@ -46,3 +46,19 @@ export const DAILY_FOLLOWUP_CONFIG: AiSummarizeTableConfig = {
     { label: '沟通时间', key: '沟通时间' },
   ],
 };
+
+export const SOURCE_FOLLOWUP_CONFIG: AiSummarizeTableConfig = {
+  prefix: 'source-followups-ai',
+  tableId: TABLES.sourceFollowup.tableId,
+  fieldAttach: '沟通附件清单',
+  fieldDetail: '沟通明细',
+  fieldSummary: '沟通总结',
+  fieldContent: '沟通主题',
+  metaFields: [
+    { label: '关联学生', key: '关联学生' },
+    { label: '家长', key: '家长' },
+    { label: '家长反馈态度', key: '家长反馈态度' },
+    { label: '沟通主题', key: '沟通主题' },
+    { label: '跟进时间', key: '跟进时间' },
+  ],
+};

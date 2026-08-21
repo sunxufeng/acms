@@ -120,10 +120,11 @@ export class DictService {
   }
 
   /**
-   * 确保「生源跟进记录表」的字典下拉字段存在且选项与字典一致：
-   * - 单选字段（活动类型/跟进状态/跟进方式/意向等级/闭环状态/原学校类型/合同状态/付款状态/家庭关键决策点）：
+   * 确保「生源跟进记录表」的字段存在且选项与字典一致：
+   * - 单选字段（活动类型/跟进状态/跟进方式/意向等级/闭环状态/原学校类型/合同状态/付款状态/家庭关键决策点/家长反馈态度）：
    *   不存在则创建（type=3，带字典选项）；已存在单选则追加缺失选项；已存在非单选则跳过（不删字段，避免丢数据）。
-   * - 文本字段（原学校/奖学金金额）：不存在则创建文本字段(type=1)。
+   * - 文本字段（原学校/奖学金金额/关联学生/家长/沟通主题/沟通明细/沟通总结/沟通附件清单）：不存在则创建文本字段(type=1)。
+   * - 跟进日期 → 跟进时间：重命名并启用「显示时间」(HH:mm)，与家校沟通一致。
    */
   private async ensureFollowupFields(): Promise<SyncResult> {
     const tableId = TABLES.sourceFollowup.tableId;
@@ -142,6 +143,7 @@ export class DictService {
         { name: '合同状态', dictKey: '合同状态' },
         { name: '付款状态', dictKey: '付款状态' },
         { name: '家庭关键决策点', dictKey: '家庭关键决策点' },
+        { name: '家长反馈态度', dictKey: '家长反馈态度' },
       ];
       for (const { name, dictKey } of singles) {
         const options = (this.store[dictKey] ?? []).map((o) => ({ name: o }));
@@ -174,13 +176,36 @@ export class DictService {
       }
 
       // 文本字段（自由输入）
-      for (const name of ['原学校', '奖学金金额']) {
+      for (const name of ['原学校', '奖学金金额', '关联学生', '家长', '沟通主题', '沟通明细', '沟通总结', '沟通附件清单']) {
         if (!byName.has(name)) {
           await this.base.createField(tableId, { field_name: name, type: 1 });
           result.synced.push(`${name}（已创建文本）`);
         } else {
           result.skipped.push(`${name}（已存在）`);
         }
+      }
+
+      // 跟进日期 → 跟进时间（启用时分）
+      const oldDate = byName.get('跟进日期');
+      const newTime = byName.get('跟进时间');
+      if (newTime && newTime.type === 5) {
+        const fmt = (newTime.property && newTime.property.date_formatter) || '';
+        if (!/H{1,2}/.test(fmt)) {
+          await this.base.updateField(tableId, newTime.id, {
+            field_name: '跟进时间', type: 5, property: { auto_fill: false, date_formatter: 'yyyy/MM/dd HH:mm' },
+          });
+          result.synced.push('跟进时间 已启用时分 (HH:mm)');
+        } else {
+          result.skipped.push('跟进时间 已带时分，跳过');
+        }
+      } else if (oldDate && oldDate.type === 5) {
+        await this.base.updateField(tableId, oldDate.id, {
+          field_name: '跟进时间', type: 5, property: { auto_fill: false, date_formatter: 'yyyy/MM/dd HH:mm' },
+        });
+        result.synced.push('跟进日期 → 跟进时间（已重命名并启用时分）');
+      } else if (!newTime) {
+        await this.base.createField(tableId, { field_name: '跟进时间', type: 5, property: { date_formatter: 'yyyy/MM/dd HH:mm' } });
+        result.synced.push('跟进时间（已新建日期时间字段）');
       }
     } catch (e) {
       result.errors.push(`ensureFollowupFields: ${(e as Error).message}`);

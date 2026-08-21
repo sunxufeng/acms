@@ -68,6 +68,14 @@ const SECTION_COLUMNS: Record<string, { key: string; label: string; width?: stri
     { key: '闭环状态', label: '闭环', width: '100px' },
     { key: '家长', label: '家长', width: '160px' },
   ],
+  'daily-followups': [
+    { key: '日常跟进编号', label: '编号', width: '110px' },
+    { key: '沟通人', label: '沟通人', width: '100px' },
+    { key: '沟通方式', label: '方式', width: '90px' },
+    { key: '沟通主题', label: '主题', width: '160px' },
+    { key: '沟通时间', label: '沟通时间', width: '120px' },
+    { key: '闭环状态', label: '闭环', width: '100px' },
+  ],
   'stage-evaluations': [
     { key: '评价编号', label: '编号', width: '110px' },
     { key: '评价周期', label: '周期', width: '100px' },

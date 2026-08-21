@@ -19,6 +19,7 @@ const SECTION_LABELS: Record<string, string> = {
   grades: '学业成绩',
   'practice-activities': '实践活动',
   'home-school-comms': '家校沟通',
+  'daily-followups': '日常跟进',
   'stage-evaluations': '阶段评价',
   'alumni-followups': '校友跟进',
 };

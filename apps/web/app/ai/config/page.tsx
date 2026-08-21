@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '../../../lib/api';
-import { providerDescription, type ApiConfig } from './ApiConfigForm';
+import { type ApiConfig } from './ApiConfigForm';
 
 export default function AiConfigPage() {
   const [config, setConfig] = useState<ApiConfig | null>(null);
@@ -66,7 +66,7 @@ export default function AiConfigPage() {
                 <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--fg-tertiary)' }}>暂无个人 API 配置</td></tr>
               ) : (
                 <tr>
-                  <td>{providerDescription(config.provider)}</td>
+                  <td>{config.provider || '—'}</td>
                   <td>{config.model || '—'}</td>
                   <td style={{ maxWidth: 320, overflowWrap: 'anywhere' }}>{config.baseUrl || '—'}</td>
                   <td><span className={`status-dot ${config.hasApiKey ? 'status-on' : 'status-off'}`}>{config.hasApiKey ? '已保存' : '未配置'}</span></td>

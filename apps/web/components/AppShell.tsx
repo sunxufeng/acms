@@ -33,9 +33,9 @@ const NAV_ITEMS = [
     items: [
       { key: 'aiChat', label: 'AI 对话', href: '/ai/chat', icon: AIIcon },
       { key: 'aiConfig', label: 'AI 设置', href: '/ai/config', icon: AIIcon },
-      { key: 'aiAgents', label: '智能体配置', href: '/ai/agents', icon: AIIcon, perm: 'ai:config' },
-      { key: 'aiSkills', label: '技能', href: '/ai/skills', icon: AIIcon, perm: 'ai:admin' },
-      { key: 'aiAutomations', label: '自动化任务', href: '/ai/automations', icon: AIIcon, perm: 'ai:automation' },
+      { key: 'aiAgents', label: 'Bot管理', href: '/ai/agents', icon: AIIcon, perm: 'ai:config' },
+      { key: 'aiSkills', label: '技能管理', href: '/ai/skills', icon: AIIcon, perm: 'ai:admin' },
+      { key: 'aiAutomations', label: '定时任务', href: '/ai/automations', icon: AIIcon, perm: 'ai:automation' },
       { key: 'aiAdmin', label: 'AI 用量', href: '/ai/admin', icon: AIIcon, perm: 'ai:admin' },
     ],
   },

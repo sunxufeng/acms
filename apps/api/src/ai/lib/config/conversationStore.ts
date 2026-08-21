@@ -67,3 +67,25 @@ export async function listSessions(openId, tag = null) {
     .map(([id, s]) => ({ id, ...s }))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
+
+/** 重命名会话（按 open_id 鉴权） */
+export async function renameSession(openId, sessionId, title) {
+  const db = await load();
+  const sess = db.sessions[sessionId];
+  if (!sess || sess.openId !== openId) return null;
+  sess.title = title;
+  sess.updatedAt = new Date().toISOString();
+  await save(db);
+  return { id: sessionId, ...sess };
+}
+
+/** 删除会话（按 open_id 鉴权） */
+export async function removeSession(openId, sessionId) {
+  const db = await load();
+  const sess = db.sessions[sessionId];
+  if (!sess || sess.openId !== openId) return false;
+  delete db.sessions[sessionId];
+  delete db.messages[sessionId];
+  await save(db);
+  return true;
+}

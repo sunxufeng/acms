@@ -468,6 +468,10 @@ export const api = {
     request<{ id: string }>('/ai/conversations', { method: 'POST', body: JSON.stringify(data) }),
   aiGetConversation: (id: string) =>
     request<{ role: string; content: string }[]>(`/ai/conversations/${encodeURIComponent(id)}`),
+  aiRenameConversation: (id: string, title: string) =>
+    request<{ id: string; title: string }>(`/ai/conversations/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  aiDeleteConversation: (id: string) =>
+    request<{ ok: boolean }>(`/ai/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   aiGetOrgDefault: () => request<Record<string, unknown> | null>('/ai/org-default'),
   aiSaveOrgDefault: (data: Record<string, unknown>) =>
     request<Record<string, unknown>>('/ai/org-default', { method: 'POST', body: JSON.stringify(data) }),

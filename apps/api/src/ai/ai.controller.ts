@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -124,6 +125,16 @@ export class AiController {
   @Get('conversations/:id')
   conversation(@Req() req: ReqWithUser, @Param('id') id: string) {
     return this.svc.getConversation(req.user, id);
+  }
+
+  @Patch('conversations/:id')
+  renameConversation(@Req() req: ReqWithUser, @Param('id') id: string, @Body() body: { title?: string }) {
+    return this.svc.renameConversation(req.user, id, body?.title || '');
+  }
+
+  @Delete('conversations/:id')
+  deleteConversation(@Req() req: ReqWithUser, @Param('id') id: string) {
+    return this.svc.deleteConversation(req.user, id);
   }
 
   // ---------------- 自动化 ----------------

@@ -22,18 +22,6 @@ export type ApiConfig = {
   updatedAt?: string;
 };
 
-const PROVIDER_DESCRIPTIONS: Record<string, string> = {
-  openai: 'OpenAI 兼容协议',
-  anthropic: 'Anthropic Messages 协议',
-  ollama: 'Ollama 本地推理',
-  custom: '自定义 OpenAI 兼容网关',
-  acplugin: 'AC Plugin 协议',
-};
-
-export function providerDescription(provider?: string) {
-  return provider ? PROVIDER_DESCRIPTIONS[provider] || provider : '—';
-}
-
 export function ApiConfigForm({ initial, onDone }: { initial?: ApiConfig | null; onDone: () => void }) {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [presetLabel, setPresetLabel] = useState('');
@@ -85,7 +73,7 @@ export function ApiConfigForm({ initial, onDone }: { initial?: ApiConfig | null;
   }
 
   function validate() {
-    if (!form.provider) return '请选择 Provider 描述';
+    if (!form.provider) return '请填写 Provider 描述';
     if (!form.baseUrl?.trim()) return '请填写 Base URL';
     if (!/^https?:\/\//.test(form.baseUrl.trim())) return 'Base URL 必须以 http:// 或 https:// 开头';
     if (!form.model?.trim()) return '请填写模型 Model';
@@ -149,11 +137,7 @@ export function ApiConfigForm({ initial, onDone }: { initial?: ApiConfig | null;
 
           <label className="form-label">
             <span className="form-label-text">Provider 描述 *</span>
-            <select className="form-input" value={form.provider || ''} onChange={(e) => setForm({ ...form, provider: e.target.value })}>
-              {Object.entries(PROVIDER_DESCRIPTIONS).map(([value, text]) => (
-                <option key={value} value={value}>{text}</option>
-              ))}
-            </select>
+            <input className="form-input" value={form.provider || ''} onChange={(e) => setForm({ ...form, provider: e.target.value })} placeholder="例如 openai / anthropic / deepseek 等自定义标识" />
           </label>
 
           <label className="form-label" style={{ gridColumn: '1 / -1' }}>

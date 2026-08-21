@@ -18,15 +18,18 @@ export type Agent = {
 };
 
 type Tool = { name: string; description: string };
+type BoundConfig = { provider?: string; model?: string; baseUrl?: string; hasApiKey?: boolean } | null;
 
 export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => void }) {
   const [form, setForm] = useState<Agent>({ ...initial, toolList: initial?.toolList || [] });
   const [tools, setTools] = useState<Tool[]>([]);
+  const [cfg, setCfg] = useState<BoundConfig>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.aiTools().then((data) => setTools(data as Tool[])).catch((e) => setError((e as Error).message));
+    api.aiGetConfig().then((data) => setCfg((data as BoundConfig) || null)).catch(() => null);
   }, []);
 
   function toggleTool(name: string) {
@@ -44,18 +47,22 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       setError('请填写智能体名称');
       return;
     }
+    if (!cfg?.provider) {
+      setError('请先在「AI 设置」中配置可用的模型，再绑定到智能体。');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
+      // 模型绑定直接复用个人 API 配置，不再重复填写 provider / model / baseUrl
       const payload = {
         name: form.name.trim(),
-        emoji: form.emoji?.trim() || '',
         description: form.description?.trim() || '',
         systemPrompt: form.systemPrompt?.trim() || '',
         toolList: form.toolList || [],
-        provider: form.provider?.trim() || '',
-        model: form.model?.trim() || '',
-        baseUrl: form.baseUrl?.trim() || '',
+        provider: cfg.provider,
+        model: cfg.model || '',
+        baseUrl: cfg.baseUrl || '',
       };
       if (initial?.id) await api.aiUpdateAgent(initial.id, payload);
       else await api.aiCreateAgent(payload);
@@ -76,10 +83,6 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
             <span className="form-label-text">名称 *</span>
             <input className="form-input" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </label>
-          <label className="form-label">
-            <span className="form-label-text">图标 Emoji</span>
-            <input className="form-input" value={form.emoji || ''} onChange={(e) => setForm({ ...form, emoji: e.target.value })} />
-          </label>
           <label className="form-label" style={{ gridColumn: '1 / -1' }}>
             <span className="form-label-text">描述</span>
             <input className="form-input" value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} />
@@ -93,20 +96,24 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
 
       <fieldset className="form-fieldset">
         <legend className="form-legend">模型绑定</legend>
-        <div className="form-grid">
-          <label className="form-label">
-            <span className="form-label-text">Provider</span>
-            <input className="form-input" value={form.provider || ''} onChange={(e) => setForm({ ...form, provider: e.target.value })} placeholder="openai" />
-          </label>
-          <label className="form-label">
-            <span className="form-label-text">模型 Model</span>
-            <input className="form-input" value={form.model || ''} onChange={(e) => setForm({ ...form, model: e.target.value })} />
-          </label>
-          <label className="form-label" style={{ gridColumn: '1 / -1' }}>
-            <span className="form-label-text">Base URL</span>
-            <input className="form-input" value={form.baseUrl || ''} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} />
-          </label>
-        </div>
+        <p className="page-subtitle" style={{ margin: '0 0 14px' }}>
+          智能体直接复用你在「AI 设置」中已配置并验证通过的 Provider / 模型，无需重复填写密钥与地址。
+        </p>
+        <label className="form-label" style={{ gridColumn: '1 / -1' }}>
+          <span className="form-label-text">绑定模型配置 *</span>
+          <select
+            className="form-input"
+            value={cfg?.provider || ''}
+            disabled
+          >
+            {!cfg?.provider && <option value="">请先在「AI 设置」配置模型</option>}
+            {cfg?.provider && (
+              <option value={cfg.provider}>
+                {cfg.provider}{cfg.model ? ` · ${cfg.model}` : ''}（来自个人 API 配置）
+              </option>
+            )}
+          </select>
+        </label>
       </fieldset>
 
       <fieldset className="form-fieldset">

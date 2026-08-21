@@ -38,9 +38,9 @@ export default function AiAgentsPage() {
       <div className="page-header">
         <div className="page-header-row">
           <div>
-            <div className="page-eyebrow">AI / AGENTS</div>
-            <h1 className="page-title">智能体配置</h1>
-            <p className="page-subtitle">管理智能体的人设、可用工具和模型绑定。</p>
+            <div className="page-eyebrow">AI / BOTS</div>
+            <h1 className="page-title">Bot 管理</h1>
+            <p className="page-subtitle">管理智能体的人设、可用工具和绑定的模型配置。</p>
           </div>
           <Link href="/ai/agents/new" className="btn btn-primary">＋ 新建智能体</Link>
         </div>
@@ -55,9 +55,9 @@ export default function AiAgentsPage() {
               {agents.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--fg-tertiary)' }}>暂无智能体</td></tr>}
               {agents.map((agent) => (
                 <tr key={agent.id}>
-                  <td><strong>{agent.emoji || 'AI'} {agent.name}</strong></td>
+                  <td><strong>{agent.name}</strong></td>
                   <td>{agent.description || '—'}</td>
-                  <td>{agent.provider || '—'} / {agent.model || '—'}</td>
+                  <td>{agent.provider ? `${agent.provider}${agent.model ? ` / ${agent.model}` : ''}` : '继承个人配置'}</td>
                   <td>{agent.toolList?.length ? `${agent.toolList.length} 项` : '全部'}</td>
                   <td>{agent.updatedAt ? new Date(agent.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '—'}</td>
                   <td><div style={{ display: 'flex', gap: 8 }}><Link href={`/ai/agents/${agent.id}/edit`} className="btn btn-outline btn-sm">编辑</Link><button className="btn btn-danger btn-sm" onClick={() => remove(agent)}>删除</button></div></td>

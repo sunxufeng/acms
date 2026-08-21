@@ -8,7 +8,7 @@ type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
 
 const wrap: React.CSSProperties = {
   display: 'flex',
-  height: 'calc(100vh - 120px)',
+  height: 'calc(100vh - 220px)',
   gap: 12,
 };
 const panel: React.CSSProperties = {
@@ -31,6 +31,7 @@ export default function AiChatPage() {
   const [convs, setConvs] = useState<{ id: string; title: string; updatedAt: string }[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string; provider?: string; model?: string; emoji?: string }[]>([]);
   const [agentId, setAgentId] = useState('');
+  const [menuId, setMenuId] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
@@ -87,8 +88,31 @@ export default function AiChatPage() {
     }
   }
 
+  async function renameConv(c: { id: string; title: string }) {
+    const next = window.prompt('修改对话名称', c.title || '');
+    if (next === null) return;
+    if (!next.trim()) { alert('名称不能为空'); return; }
+    try {
+      await api.aiRenameConversation(c.id, next.trim());
+      api.aiListConversations().then(setConvs).catch(() => null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function deleteConv(c: { id: string; title?: string }) {
+    if (!window.confirm(`确认删除对话「${c.title || '未命名'}」？此操作不可恢复。`)) return;
+    try {
+      await api.aiDeleteConversation(c.id);
+      if (sessionId === c.id) { setSessionId(null); setMessages([]); }
+      api.aiListConversations().then(setConvs).catch(() => null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   return (
-    <div style={{ padding: 16 }}>
+    <div style={{ padding: 16 }} onClick={() => menuId && setMenuId(null)}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
           <div>
             <h2 style={{ margin: 0 }}>AI 对话</h2>
@@ -105,13 +129,12 @@ export default function AiChatPage() {
                 <option value="">个人默认配置</option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.emoji ? `${a.emoji} ` : ''}{a.name}（{(a.provider || '—')}{a.model ? ` · ${a.model}` : ''}）
+                    {a.name}（{(a.provider || '—')}{a.model ? ` · ${a.model}` : ''}）
                   </option>
                 ))}
               </select>
             </label>
             <button style={btn()} onClick={newChat}>＋ 新对话</button>
-            <Link href="/ai/config" style={btn() as React.CSSProperties}>⚙ 模型设置</Link>
           </div>
         </div>
 
@@ -131,10 +154,46 @@ export default function AiChatPage() {
                   borderBottom: '1px solid var(--border)',
                   background: c.id === sessionId ? 'var(--bg-hover)' : 'transparent',
                   fontSize: 13,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
                 }}
               >
-                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title || '未命名'}</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>{c.updatedAt?.slice(0, 16) || ''}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title || '未命名'}</div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>{c.updatedAt?.slice(0, 16) || ''}</div>
+                </div>
+                <div style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
+                  <button
+                    title="更多操作"
+                    onClick={() => setMenuId(menuId === c.id ? null : c.id)}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 4px', borderRadius: 6 }}
+                  >⋯</button>
+                  {menuId === c.id && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        right: 0,
+                        top: '100%',
+                        zIndex: 10,
+                        background: 'var(--bg-primary)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 8,
+                        boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+                        minWidth: 120,
+                      }}
+                    >
+                      <button
+                        onClick={() => { setMenuId(null); renameConv(c); }}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}
+                      >✏️ 重命名</button>
+                      <button
+                        onClick={() => { setMenuId(null); deleteConv(c); }}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--danger, #ff5c5c)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}
+                      >🗑️ 删除</button>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>

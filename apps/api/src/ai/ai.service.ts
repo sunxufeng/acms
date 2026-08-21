@@ -25,6 +25,8 @@ import {
   appendMessage,
   getHistory,
   listSessions,
+  renameSession,
+  removeSession,
 } from './lib/config/conversationStore.js';
 import {
   listAutomations,
@@ -225,12 +227,14 @@ export class AiService implements OnModuleInit {
       if (!agent) throw new BadRequestException('智能体不存在');
       systemPrompt = (agent.systemPrompt as string) || undefined;
       const apiKey = decryptApiKey(user.openId) || '';
+      // 智能体未单独配置 provider/model/baseUrl 时，复用个人 API 配置（本期智能体直接绑定个人配置）
+      const personalCfg = (getConfig(user.openId) as Record<string, string>) || {};
       const agentCfg = {
         id: agent.id,
         name: agent.name,
-        provider: agent.provider,
-        model: agent.model,
-        baseUrl: agent.baseUrl,
+        provider: agent.provider || personalCfg.provider,
+        model: agent.model || personalCfg.model,
+        baseUrl: agent.baseUrl || personalCfg.baseUrl,
         displayName: agent.name,
       };
       chatFn = (messages) => routeChatConfig(agentCfg, apiKey, messages, { model: body.model }) as Promise<{ content: string }>;
@@ -283,6 +287,21 @@ export class AiService implements OnModuleInit {
     this.assert(user, 'ai:chat');
     const id = await createSession(user.openId, body.title || '新对话');
     return { id };
+  }
+
+  async renameConversation(user: SessionUser, sessionId: string, title: string) {
+    this.assert(user, 'ai:chat');
+    if (!title || !title.trim()) throw new BadRequestException('会话名称不能为空');
+    const updated = await renameSession(user.openId, sessionId, title.trim());
+    if (!updated) throw new BadRequestException('会话不存在');
+    return updated;
+  }
+
+  async deleteConversation(user: SessionUser, sessionId: string) {
+    this.assert(user, 'ai:chat');
+    const ok = await removeSession(user.openId, sessionId);
+    if (!ok) throw new BadRequestException('会话不存在');
+    return { ok: true };
   }
 
   // ---------------- 自动化 ----------------

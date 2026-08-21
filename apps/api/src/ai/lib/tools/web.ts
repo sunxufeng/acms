@@ -275,8 +275,17 @@ export async function readFeishuWiki({ url, maxChars = 16000 } = {}) {
         `https://open.feishu.cn/open-apis/wiki/v2/wikis/${encodeURIComponent(parsed.token)}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const d = await r.json();
-      if (d.code !== 0) return `读取 Wiki 节点失败：${d.msg}`;
+      const body = await r.text();
+      let d: any = null;
+      try { d = JSON.parse(body); } catch { /* 非 JSON（如网关 404 页） */ }
+      if (!d || d.code !== 0) {
+        return (
+          '读取该飞书 Wiki 失败：服务端飞书应用（ACMS）无法访问此知识空间。\n' +
+          '通常原因：① 应用未开通 wiki:readonly 与 docx:document:readonly 权限；' +
+          '② 应用（机器人）尚未被加入该 Wiki 空间并授予「可阅读」权限。\n' +
+          '请先在飞书开放平台为 ACMS 应用启用上述权限范围，并将该机器人添加为对应知识空间的成员后重试。'
+        );
+      }
       const node = d.data?.node;
       if (!node) return '未找到 Wiki 节点（可能无权限或未加入该知识空间）。';
       title = node.title || '';
@@ -287,7 +296,9 @@ export async function readFeishuWiki({ url, maxChars = 16000 } = {}) {
     }
 
     const text = await docxToText(documentId, token);
-    if (!text.trim()) return '（文档已读取但正文为空，可能是空文档或无读取权限）。';
+    if (!text.trim()) {
+      return '读取该飞书文档失败：服务端飞书应用（ACMS）无读取权限。请确认应用已开通 docx:document:readonly 权限，且已加入对应知识空间并具有「可阅读」权限。';
+    }
     const n = Math.max(500, Number(maxChars) || 16000);
     const clipped = text.length > n ? text.slice(0, n) + '…（正文已截断）' : text;
     return `📄 飞书文档：${title || documentId}\n链接：${url}\n\n正文如下，请基于它总结 / 翻译 / 回答，不要编造：\n\n${clipped}`;

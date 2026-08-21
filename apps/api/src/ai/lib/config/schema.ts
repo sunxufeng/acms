@@ -8,8 +8,10 @@ export function validateUserModelConfig(cfg, { requireApiKey = true } = {}) {
   if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) {
     return ['config 必须是对象'];
   }
-  if (!PROVIDER_TYPES.includes(cfg.provider)) {
-    errors.push(`provider 必须是 ${PROVIDER_TYPES.join(' / ')} 之一`);
+  if (!cfg.provider || typeof cfg.provider !== 'string' || !cfg.provider.trim()) {
+    errors.push('provider 必填');
+  } else if (cfg.provider.length > 40) {
+    errors.push('provider 长度不能超过 40 字符');
   }
   if (!cfg.baseUrl || !/^https?:\/\//.test(cfg.baseUrl)) {
     errors.push('baseUrl 必须是合法的 http(s) URL');

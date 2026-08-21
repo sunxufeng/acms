@@ -279,12 +279,25 @@ export async function readFeishuWiki({ url, maxChars = 16000 } = {}) {
       let d: any = null;
       try { d = JSON.parse(body); } catch { /* 非 JSON（如网关 404 页） */ }
       if (!d || d.code !== 0) {
-        return (
-          '读取该飞书 Wiki 失败：服务端飞书应用（ACMS）无法访问此知识空间。\n' +
-          '通常原因：① 应用未开通 wiki:readonly 与 docx:document:readonly 权限；' +
-          '② 应用（机器人）尚未被加入该 Wiki 空间并授予「可阅读」权限。\n' +
-          '请先在飞书开放平台为 ACMS 应用启用上述权限范围，并将该机器人添加为对应知识空间的成员后重试。'
-        );
+        // 探测应用是否已加入任何知识空间，给出更精准的指引
+        let hint =
+          '请确认已在飞书开放平台为 ACMS 应用启用 wiki:readonly、docx:document:readonly 权限范围，' +
+          '并在知识库空间的「成员管理」中把 ACMS 应用添加为「可阅读」成员。';
+        try {
+          const sp = await (
+            await fetch('https://open.feishu.cn/open-apis/wiki/v2/spaces', {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+          ).json();
+          if (sp && sp.code === 0 && (!sp.data?.items || sp.data.items.length === 0)) {
+            hint =
+              '检测发现 ACMS 应用当前未加入任何知识空间（wiki/v2/spaces 返回空列表）。' +
+              '请在飞书知识库对应空间的「设置 → 成员与权限 → 添加成员」中，将 ACMS 应用添加为成员并授予「可阅读」权限后重试。';
+          }
+        } catch {
+          /* 探测失败不影响主提示 */
+        }
+        return '读取该飞书 Wiki 失败：ACMS 应用无法访问此知识空间。\n' + hint;
       }
       const node = d.data?.node;
       if (!node) return '未找到 Wiki 节点（可能无权限或未加入该知识空间）。';

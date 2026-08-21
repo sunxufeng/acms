@@ -123,6 +123,10 @@ export class FileUploadService {
   /**
    * 用后端 token 请求飞书下载接口，返回原始 Response 供 Controller 透传。
    * fetch 默认 follow redirect，因此会追到底层 CDN 文件流。
+   *
+   * 注意：当多维表格开启了「高级权限」时，drive 素材下载必须携带额外的 extra
+   * 鉴权参数，否则返回 400/403。仅用 file_token 直连 download 接口在此场景下会失败，
+   * 应使用 {@link getBitableTmpDownloadUrl} 先换取带鉴权的临时下载链接。
    */
   async downloadFile(file_token: string): Promise<Response> {
     const token = await this.getToken();
@@ -130,6 +134,50 @@ export class FileUploadService {
     return fetch(`https://open.feishu.cn/open-apis/drive/v1/medias/${file_token}/download`, {
       headers: { Authorization: 'Bearer ' + token },
     });
+  }
+
+  /**
+   * 获取带「高级权限」鉴权的临时下载链接（有效期约 24h，可直接访问、无需 token）。
+   *
+   * 多维表格开启高级权限后，素材下载需要在 extra 里声明归属：
+   *   { "bitablePerm": { "tableId": <表ID>, "attachments": { <字段ID>: { <记录ID>: [file_token...] } } } }
+   * 缺少该参数时 batch_get_tmp_download_url 会返回空数组（等效下载失败）。
+   *
+   * @param tableId  多维表格的表 ID（如 tbl8Isr46G3BRQ52）
+   * @param recordId 记录 ID（如 recvsKfEY4LU0v）
+   * @param fieldId  附件所在字段 ID（如 fld18MYZ2u；用于归属鉴权，可与实际附件字段不同）
+   * @param fileToken 素材 file_token
+   */
+  async getBitableTmpDownloadUrl(
+    tableId: string,
+    recordId: string,
+    fieldId: string,
+    fileToken: string,
+  ): Promise<string> {
+    const token = await this.getToken();
+    if (!token) throw new Error('FEISHU_TOKEN_FAILED');
+    const extra = {
+      bitablePerm: {
+        tableId,
+        attachments: { [fieldId]: { [recordId]: [fileToken] } },
+      },
+    };
+    const qs = new URLSearchParams();
+    qs.append('file_tokens', fileToken);
+    qs.set('extra', JSON.stringify(extra));
+    const r = await fetch(
+      `https://open.feishu.cn/open-apis/drive/v1/medias/batch_get_tmp_download_url?${qs.toString()}`,
+      { headers: { Authorization: 'Bearer ' + token } },
+    );
+    const j = (await r.json()) as {
+      code?: number;
+      msg?: string;
+      data?: { tmp_download_urls?: Array<{ file_token: string; tmp_download_url: string }> };
+    };
+    if (j.code !== 0) throw new Error(`TMP_URL_FAILED:${j.code}:${j.msg}`);
+    const url = j.data?.tmp_download_urls?.[0]?.tmp_download_url;
+    if (!url) throw new Error('TMP_URL_EMPTY');
+    return url;
   }
 
   /**

@@ -101,7 +101,6 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     writePerm: PERM_W,
     dateFields: ['沟通时间', '跟进截止日期', '闭环日期'],
     readonly: ['待办负责人', '沟通附件'],
-    linkFields: [{ field: '关联学生', table: TABLES.studentProfile.tableId, nameField: '学生姓名' }],
     statusField: '闭环状态',
     defaultStatus: '无需跟进',
     searchField: '关联学生',

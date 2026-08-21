@@ -432,6 +432,8 @@ export const api = {
     const q = qs.toString();
     return request<Page<Record<string, unknown>>>(`/daily-followups${q ? `?${q}` : ''}`);
   },
+  /** 日常跟进单条记录（详情只读页用） */
+  getDailyFollowup: (id: string) => request<Record<string, unknown>>(`/daily-followups/${id}`),
   createDailyFollowup: (data: Record<string, unknown>) => request<Record<string, unknown>>('/daily-followups', { method: 'POST', body: JSON.stringify(data) }),
   updateDailyFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/daily-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveDailyFollowup: (id: string) => request<{ ok: boolean }>(`/daily-followups/${id}`, { method: 'DELETE' }),

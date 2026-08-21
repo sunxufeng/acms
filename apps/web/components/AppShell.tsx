@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { api } from '../lib/api';
 
 interface Me {
@@ -82,12 +82,12 @@ function initial(name: string): string {
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [myPerms, setMyPerms] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
   // Sidebar: init from localStorage
   useEffect(() => {
@@ -114,6 +114,44 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     setTheme(next);
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('acms-theme', next);
+  }
+
+  // 侧边栏大类折叠：默认全部收起；若当前路径命中某大类，则自动展开该类
+  useEffect(() => {
+    const saved = localStorage.getItem('acms-nav-sections');
+    let initial: Record<string, boolean> = {};
+    try {
+      initial = saved ? JSON.parse(saved) : {};
+    } catch { /* ignore */ }
+
+    NAV_ITEMS.forEach((g) => {
+      if (initial[g.section] === undefined) {
+        initial[g.section] = false;
+      }
+    });
+
+    const activeSection = NAV_ITEMS.find((g) => g.items.some((it) => isActive(it.href)));
+    if (activeSection && initial[activeSection.section] === false) {
+      initial[activeSection.section] = true;
+    }
+
+    setExpandedSections(initial);
+  }, []);
+
+  useEffect(() => {
+    const activeSection = NAV_ITEMS.find((g) => g.items.some((it) => isActive(it.href)));
+    if (activeSection && !expandedSections[activeSection.section]) {
+      toggleSection(activeSection.section, true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  function toggleSection(section: string, force?: boolean) {
+    setExpandedSections((prev) => {
+      const next = { ...prev, [section]: force !== undefined ? force : !prev[section] };
+      localStorage.setItem('acms-nav-sections', JSON.stringify(next));
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -159,10 +197,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="sidebar-nav">
           {NAV_ITEMS.map((group) => {
             if (group.items.length === 0) return null;
+            const expanded = expandedSections[group.section] ?? false;
             return (
-              <div key={group.section}>
-                <div className="sidebar-section-label">{group.section}</div>
-                {group.items.map((item) => {
+              <div key={group.section} className={`sidebar-section${expanded ? ' expanded' : ''}`}>
+                <button
+                  type="button"
+                  className="sidebar-section-header"
+                  onClick={() => toggleSection(group.section)}
+                  aria-expanded={expanded}
+                >
+                  <span className="sidebar-section-label">{group.section}</span>
+                  <span className="sidebar-section-chevron">{expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}</span>
+                </button>
+                <div className="sidebar-section-items">
+                {(!sidebarOpen || expanded) && group.items.map((item) => {
                   const Icon = item.icon;
                   const it = item as { adminOnly?: boolean; perm?: string };
                   if (it.adminOnly && !isAdmin) return null;
@@ -184,17 +232,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     </Link>
                   );
                 })}
+                </div>
               </div>
             );
           })}
         </nav>
-
-        <div className="sidebar-footer">
-          <button className="nav-item" onClick={() => router.push('/permissions')}>
-            <span className="nav-icon"><ShieldIcon /></span>
-            <span>用户与权限</span>
-          </button>
-        </div>
       </aside>
 
       {/* ── Main area ──────────────────────────── */}
@@ -321,6 +363,9 @@ function MoonIcon() {
 }
 function ChevronLeftIcon() {
   return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>);
+}
+function ChevronDownIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>);
 }
 function ChevronRightIcon() {
   return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>);

@@ -2,6 +2,8 @@
 // 实时信息工具：天气（open-meteo，无需 API Key）+ 联网搜索（Sogou 网页抓取）
 // 这两个工具让 Acaily 能回答天气、新闻、股价、最新事件等实时问题。
 
+import { getTenantToken } from '../feishu/client.js';
+
 const WMO = {
   0: '晴', 1: '大致晴朗', 2: '部分多云', 3: '阴',
   45: '雾', 48: '雾凇',
@@ -181,6 +183,119 @@ function extractMainText(html) {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+// 读取飞书 Wiki / 云文档（docx）正文，提取为纯文本交给模型总结。
+// 需要服务端配置飞书应用凭据（FEISHU_APP_ID / FEISHU_APP_SECRET），且该应用拥有
+// wiki:readonly、docx:document:readonly 权限并已加入对应知识空间。
+function parseFeishuUrl(url) {
+  let m =
+    url.match(/feishu\.cn\/wiki\/([A-Za-z0-9]+)/) ||
+    url.match(/larksuite\.com\/wiki\/([A-Za-z0-9]+)/);
+  if (m) return { kind: 'wiki', token: m[1] };
+  m =
+    url.match(/feishu\.cn\/docx\/([A-Za-z0-9]+)/) ||
+    url.match(/larksuite\.com\/docx\/([A-Za-z0-9]+)/);
+  if (m) return { kind: 'docx', token: m[1] };
+  return null;
+}
+
+// 将 docx 文档的块（blocks）拼成可读纯文本。
+async function docxToText(documentId, token) {
+  const HOST = 'https://open.feishu.cn';
+  const items = [];
+  let pageToken = '';
+  do {
+    const u =
+      `${HOST}/open-apis/docx/v1/documents/${encodeURIComponent(documentId)}/blocks?page_size=500` +
+      (pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : '');
+    const res = await fetch(u, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    if (data.code !== 0) throw new Error(data.msg || '读取文档块失败');
+    items.push(...(data.data?.items || []));
+    pageToken = data.data?.has_more ? data.data.page_token : '';
+  } while (pageToken);
+
+  const lines = [];
+  for (const b of items) {
+    const t = b.block_type;
+    let label = '';
+    let field = '';
+    if (t === 2) field = 'text';
+    else if (t === 3) { label = '# '; field = 'heading1'; }
+    else if (t === 4) { label = '## '; field = 'heading2'; }
+    else if (t === 5) { label = '### '; field = 'heading3'; }
+    else if (t === 6) { label = '#### '; field = 'heading4'; }
+    else if (t === 7) { label = '##### '; field = 'heading5'; }
+    else if (t === 8) { label = '###### '; field = 'heading6'; }
+    else if (t === 9) { label = '- '; field = 'bullet'; }
+    else if (t === 10) { label = '1. '; field = 'ordered'; }
+    else if (t === 13) { label = '- [ ] '; field = 'todo'; }
+    else if (t === 11) field = 'code';
+    else if (t === 12) field = 'quote';
+    else if (t === 14) { lines.push('---'); continue; }
+    else if (t === 15) { continue; } // 图片，无文本
+    else if (t === 16) { lines.push('[表格]'); continue; }
+    else continue;
+
+    const node = b[field];
+    if (!node) continue;
+    const elements = node.elements || [];
+    let txt = '';
+    for (const el of elements) {
+      if (el.text_run && el.text_run.content) txt += el.text_run.content;
+    }
+    if (t === 11) lines.push('```\n' + txt + '\n```');
+    else if (t === 12) lines.push('> ' + txt);
+    else lines.push(label + txt);
+  }
+  return lines.join('\n');
+}
+
+export async function readFeishuWiki({ url, maxChars = 16000 } = {}) {
+  if (!url || !/feishu\.cn|larksuite\.com/i.test(url)) {
+    return '请提供飞书 Wiki / 云文档链接（https://< tenant >.feishu.cn/wiki/... 或 /docx/...）。';
+  }
+  const parsed = parseFeishuUrl(url);
+  if (!parsed) return '未能识别该飞书链接（仅支持 /wiki/ 或 /docx/ 链接）。';
+
+  let token;
+  try {
+    token = await getTenantToken();
+  } catch (e) {
+    return `获取飞书访问令牌失败：${e.message}`;
+  }
+  if (!token) {
+    return '服务端未配置飞书应用凭据（FEISHU_APP_ID / FEISHU_APP_SECRET），无法读取飞书文档。请配置后重试。';
+  }
+
+  try {
+    let documentId;
+    let title = '';
+    if (parsed.kind === 'wiki') {
+      const r = await fetch(
+        `https://open.feishu.cn/open-apis/wiki/v2/wikis/${encodeURIComponent(parsed.token)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const d = await r.json();
+      if (d.code !== 0) return `读取 Wiki 节点失败：${d.msg}`;
+      const node = d.data?.node;
+      if (!node) return '未找到 Wiki 节点（可能无权限或未加入该知识空间）。';
+      title = node.title || '';
+      if (node.obj_type === 'docx' || node.obj_type === 'doc') documentId = node.obj_token;
+      else return `该 Wiki 节点类型为「${node.obj_type}」（暂仅支持文档类节点）。`;
+    } else {
+      documentId = parsed.token;
+    }
+
+    const text = await docxToText(documentId, token);
+    if (!text.trim()) return '（文档已读取但正文为空，可能是空文档或无读取权限）。';
+    const n = Math.max(500, Number(maxChars) || 16000);
+    const clipped = text.length > n ? text.slice(0, n) + '…（正文已截断）' : text;
+    return `📄 飞书文档：${title || documentId}\n链接：${url}\n\n正文如下，请基于它总结 / 翻译 / 回答，不要编造：\n\n${clipped}`;
+  } catch (e) {
+    return `读取飞书文档失败：${e.message}`;
+  }
+}
+
 // 导出为 Acaily AgentRuntime 工具定义
 export const webTools = [
   {
@@ -200,5 +315,11 @@ export const webTools = [
     description:
       '读取并提取指定网页链接的正文内容（自动去除脚本/导航/广告，保留文章主体），用于总结、翻译或问答该网页。参数：{"url":"网页链接(以 http(s):// 开头)","maxChars":最大抽取字数(默认12000)}。当用户发来一个链接并希望总结/翻译/解读该页面时使用，不要自己编造内容。',
     run: readWebPage,
+  },
+  {
+    name: 'read_feishu_wiki',
+    description:
+      '读取飞书 Wiki / 云文档（docx）的正文内容并交给模型总结。参数：{"url":"飞书文档链接"}。当用户发来的链接包含 feishu.cn/wiki/ 或 feishu.cn/docx/ 时优先使用；需要服务端已配置飞书应用凭据（FEISHU_APP_ID / FEISHU_APP_SECRET），且该应用拥有 wiki:readonly、docx:document:readonly 权限并已加入对应知识空间。',
+    run: readFeishuWiki,
   },
 ];

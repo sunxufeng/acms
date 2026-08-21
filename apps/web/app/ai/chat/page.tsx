@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api } from '../../../lib/api';
+import Markdown from '../../../components/Markdown';
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
 
@@ -216,12 +217,11 @@ export default function AiChatPage() {
                     color: m.role === 'user' ? '#fff' : 'var(--text)',
                     padding: '10px 14px',
                     borderRadius: 12,
-                    whiteSpace: 'pre-wrap',
                     fontSize: 14,
                     lineHeight: 1.6,
                   }}
                 >
-                  {m.content}
+                  <Markdown>{m.content}</Markdown>
                 </div>
               </div>
             ))}

@@ -23,7 +23,7 @@ import { Student360Module } from './student-360/student-360.module.js';
 import { MonitorModule } from './monitor/monitor.module.js';
 import { UsersModule } from './user/user.module.js';
 import { AiModule } from './ai/ai.module.js';
-import { HomeSchoolCommsModule } from './home-school-comms/home-school-comms.module.js';
+import { AiSummarizeModule } from './ai-summarize/ai-summarize.module.js';
 import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.meta.js';
 
 @Module({
@@ -54,7 +54,7 @@ import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.m
     Student360Module,
     UsersModule,
     AiModule,
-    HomeSchoolCommsModule,
+    AiSummarizeModule,
   ],
 })
 export class AppModule {}

@@ -11,6 +11,8 @@ interface Attachment {
 interface AiSummarizeModalProps {
   recordId: string;
   recordName?: string;
+  /** 区分数据来源表：家校沟通 / 日常跟进 */
+  kind?: 'home-school-comms' | 'daily-followups';
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -40,7 +42,7 @@ const sectionStyle: React.CSSProperties = {
   borderBottom: '1px solid var(--border)',
 };
 
-export default function AiSummarizeModal({ recordId, recordName, onClose, onSuccess }: AiSummarizeModalProps) {
+export default function AiSummarizeModal({ recordId, recordName, kind = 'home-school-comms', onClose, onSuccess }: AiSummarizeModalProps) {
   const [loading, setLoading] = useState(false);
   const [preparing, setPreparing] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,10 +53,13 @@ export default function AiSummarizeModal({ recordId, recordName, onClose, onSucc
   const [overwriteDetail, setOverwriteDetail] = useState(false);
   const [overwriteSummary, setOverwriteSummary] = useState(false);
 
+  const prepare = kind === 'daily-followups' ? api.dailyFollowupAiPrepare : api.aiSummarizePrepare;
+  const syncAttachment = kind === 'daily-followups' ? api.dailyFollowupAiSyncAttachment : api.aiSummarizeSyncAttachment;
+  const mergeAllApi = kind === 'daily-followups' ? api.dailyFollowupAiMergeAll : api.aiSummarizeMergeAll;
+
   useEffect(() => {
     let alive = true;
-    api
-      .aiSummarizePrepare(recordId)
+    prepare(recordId)
       .then((res) => {
         if (!alive) return;
         setAttachments(res.attachments || []);
@@ -83,7 +88,7 @@ export default function AiSummarizeModal({ recordId, recordName, onClose, onSucc
     setLoading(true);
     setError(null);
     try {
-      await api.aiSummarizeSyncAttachment(recordId, fileToken, overwriteDetail);
+      await syncAttachment(recordId, fileToken, overwriteDetail);
       onSuccess();
       onClose();
     } catch (e) {
@@ -97,7 +102,7 @@ export default function AiSummarizeModal({ recordId, recordName, onClose, onSucc
     setLoading(true);
     setError(null);
     try {
-      await api.aiSummarizeMergeAll(recordId, overwriteDetail, overwriteSummary);
+      await mergeAllApi(recordId, overwriteDetail, overwriteSummary);
       onSuccess();
       onClose();
     } catch (e) {

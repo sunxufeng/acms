@@ -404,6 +404,26 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ overwriteDetail, overwriteSummary }) },
     ),
 
+  /** 日常跟进 AI 总结：准备数据（附件、当前明细/总结/沟通内容） */
+  dailyFollowupAiPrepare: (id: string) =>
+    request<{ attachments: { file_token: string; name: string }[]; currentDetail: string; currentSummary: string; content: string }>(
+      `/daily-followups-ai/${id}/prepare`,
+    ),
+
+  /** 日常跟进 AI 总结：同步单个附件到沟通明细 */
+  dailyFollowupAiSyncAttachment: (id: string, fileToken: string, overwriteDetail = false) =>
+    request<{ ok: boolean; synced: string; overwritten: boolean; 沟通明细: string }>(
+      `/daily-followups-ai/${id}/sync-attachment`,
+      { method: 'POST', body: JSON.stringify({ fileToken, overwriteDetail }) },
+    ),
+
+  /** 日常跟进 AI 总结：合并所有附件生成沟通明细与总结 */
+  dailyFollowupAiMergeAll: (id: string, overwriteDetail = false, overwriteSummary = false) =>
+    request<{ ok: boolean; 沟通明细: string; 沟通总结: string; parsedAttachments: number; totalAttachments: number }>(
+      `/daily-followups-ai/${id}/merge-all`,
+      { method: 'POST', body: JSON.stringify({ overwriteDetail, overwriteSummary }) },
+    ),
+
   listDailyFollowups: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api as apiClient, type Page } from '../lib/api';
 import MarkdownField from './MarkdownField';
 
@@ -75,6 +76,8 @@ export interface CrudPageProps {
   createHref?: string;
   /** 编辑改为跳转到独立页面：行 id → href。设置后每行「编辑」按钮渲染为 <Link> */
   editHref?: (id: string) => string;
+  /** 点击 openRecord 列（如学生姓名）时跳转到只读详情页（行 id → href），而非打开编辑表单 */
+  detailHref?: (id: string) => string;
   /** 行级自定义操作按钮（如「AI 总结」）。run(row, reload) 执行后刷新列表；前端仅在非只读模式渲染 */
   rowExtraActions?: { label: string; run: (row: Record<string, unknown>, reload: () => void) => void | Promise<void> }[];
 }
@@ -146,7 +149,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, pageSize, extraLinks, createHref, editHref, rowExtraActions }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, pageSize, extraLinks, createHref, editHref, detailHref, rowExtraActions }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = pageSize ?? 5;
@@ -163,6 +166,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const [dicts, setDicts] = useState<Record<string, string[]>>({});
   /** 行级自定义操作的加载态：key = `${rowId}:${label}` */
   const [rowActionBusy, setRowActionBusy] = useState<string | null>(null);
+
+  const router = useRouter();
 
   const filterCols = columns.filter((c) => c.filter);
   const formCols = columns.filter((c) => c.form);
@@ -624,7 +629,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   {listCols.map((c) => (
                     <td
                       key={c.key}
-                      onClick={c.openRecord ? () => openEdit(row) : undefined}
+                      onClick={c.openRecord ? () => (detailHref ? router.push(detailHref(String(row.id))) : openEdit(row)) : undefined}
                       style={c.openRecord ? { cursor: 'pointer' } : undefined}
                     >
                       {statusField === c.key && st

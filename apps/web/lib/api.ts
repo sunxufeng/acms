@@ -380,6 +380,8 @@ export const api = {
     const q = qs.toString();
     return request<Page<Record<string, unknown>>>(`/home-school-comms${q ? `?${q}` : ''}`);
   },
+  /** 家校沟通单条记录（详情只读页用） */
+  getHomeSchoolComm: (id: string) => request<Record<string, unknown>>(`/home-school-comms/${id}`),
   createHomeSchoolComm: (data: Record<string, unknown>) => request<Record<string, unknown>>('/home-school-comms', { method: 'POST', body: JSON.stringify(data) }),
   updateHomeSchoolComm: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/home-school-comms/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveHomeSchoolComm: (id: string) => request<{ ok: boolean }>(`/home-school-comms/${id}`, { method: 'DELETE' }),

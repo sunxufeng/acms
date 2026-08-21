@@ -864,6 +864,14 @@ a:hover { color: var(--accent-hover); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .form-label { display: flex; flex-direction: column; gap: 6px; }
 .form-label-text { font-size: var(--font-xs); color: var(--fg-tertiary); font-weight: 600; letter-spacing: 0.02em; }
+
+/* 只读详情视图（CrudView）：与学生详情页一致的查看布局 */
+.crud-view { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px 24px; }
+.crud-view-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.crud-view-label { font-size: var(--font-xs); color: var(--fg-tertiary); font-weight: 600; letter-spacing: 0.02em; }
+.crud-view-value { font-size: var(--font-sm); color: var(--fg-primary); line-height: 1.6; word-break: break-word; }
+.crud-view-value .view-empty { color: var(--fg-tertiary); }
+.md-view { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-md); }
 /* 页内编辑表单（非弹出框） */
 .crud-inline-form {
   background: var(--bg-elevated); border: 1px solid var(--border);

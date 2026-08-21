@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 
 interface StudentHit {
@@ -126,6 +126,23 @@ export default function Student360Page() {
       alive = false;
     };
   }, []);
+
+  // 从列表页「学生」超链接带过来的 ?sid= （学生记录 id 或姓名），自动选中并加载其全景
+  const didAutoSelect = useRef(false);
+  useEffect(() => {
+    if (didAutoSelect.current || students.length === 0) return;
+    const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+    const sid = params.get('sid');
+    if (!sid) {
+      didAutoSelect.current = true;
+      return;
+    }
+    const match = students.find((s) => s.id === sid) || students.find((s) => str(s.学生姓名) === sid);
+    if (match) {
+      didAutoSelect.current = true;
+      selectStudent(match.id);
+    }
+  }, [students]);
 
   async function selectStudent(studentId: string) {
     const student = students.find((s) => s.id === studentId) ?? null;

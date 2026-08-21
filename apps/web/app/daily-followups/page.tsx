@@ -1,15 +1,32 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
-import AiSummarizeModal from '../home-school-comms/AiSummarizeModal';
 
 // 列表仅展示：学生 / 沟通人 / 沟通方式 / 沟通时间 / 沟通主题，外加组件自动的「操作」列。
 // 其余字段设为 list:false，仅在新建/编辑表单中可用。
 // 与「家校沟通」几乎一致，仅去掉 家长 / 家长反馈态度 / 家长反馈 三个家长相关字段。
 const COLUMNS: CrudColumn[] = [
-  { key: '关联学生', label: '学生', width: '120px', form: true, type: 'student', required: true },
+  {
+    key: '关联学生',
+    label: '学生',
+    width: '120px',
+    form: true,
+    type: 'student',
+    required: true,
+    render: (_v, row) => {
+      const name = studentName(row);
+      const linkIds = (Array.isArray(row['关联学生编号__link']) ? row['关联学生编号__link'] : []) as string[];
+      const target = linkIds[0] || name;
+      if (!target) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+      return (
+        <Link href={`/student-360?sid=${encodeURIComponent(target)}`} style={{ color: 'var(--accent)' }}>
+          {name}
+        </Link>
+      );
+    },
+  },
   { key: '沟通人', label: '沟通人', width: '100px', form: true, type: 'person' },
   { key: '沟通方式', label: '沟通方式', width: '110px', filter: true, form: true, type: 'select', dictKey: '沟通方式' },
   { key: '沟通主题', label: '沟通主题', width: '120px', form: true },
@@ -38,44 +55,34 @@ function studentName(row: Record<string, unknown>): string {
 }
 
 export default function DailyFollowupsPage() {
-  const [modal, setModal] = useState<{ id: string; name: string } | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
-
   return (
-    <>
-      <CrudPage
-        key={reloadKey}
-        title="日常跟进"
-        subtitle="学生日常跟进与待办闭环（M1 学生域）"
-        search={{ placeholder: '搜索学生…' }}
-        columns={COLUMNS}
-        statusField="闭环状态"
-        inlineEdit
-        standaloneForm
-        api={{
-          list: (p) => api.listDailyFollowups(p),
-          create: (d) => api.createDailyFollowup(d),
-          update: (id, d) => api.updateDailyFollowup(id, d),
-          archive: (id) => api.archiveDailyFollowup(id),
-        }}
-        rowExtraActions={[
-          {
-            label: 'AI 总结',
-            run: async (row) => {
-              setModal({ id: String(row.id), name: studentName(row) || String(row.id) });
-            },
+    <CrudPage
+      title="日常跟进"
+      subtitle="学生日常跟进与待办闭环（M1 学生域）"
+      search={{ placeholder: '搜索学生…' }}
+      columns={COLUMNS}
+      statusField="闭环状态"
+      inlineEdit
+      standaloneForm
+      api={{
+        list: (p) => api.listDailyFollowups(p),
+        create: (d) => api.createDailyFollowup(d),
+        update: (id, d) => api.updateDailyFollowup(id, d),
+        archive: (id) => api.archiveDailyFollowup(id),
+      }}
+      rowExtraActions={[
+        {
+          label: 'AI 总结',
+          run: async (row, reload) => {
+            const id = String(row.id);
+            const res = await api.dailyFollowupAiPrepare(id);
+            const hasSource = (res.attachments?.length ?? 0) > 0 || (res.content ?? '').trim().length > 0;
+            if (!hasSource) throw new Error('该记录没有可读取的附件或沟通内容，无法生成总结');
+            await api.dailyFollowupAiMergeAll(id, true, true);
+            reload();
           },
-        ]}
-      />
-      {modal && (
-        <AiSummarizeModal
-          kind="daily-followups"
-          recordId={modal.id}
-          recordName={modal.name}
-          onClose={() => setModal(null)}
-          onSuccess={() => setReloadKey((k) => k + 1)}
-        />
-      )}
-    </>
+        },
+      ]}
+    />
   );
 }

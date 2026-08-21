@@ -384,6 +384,13 @@ export const api = {
   updateHomeSchoolComm: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/home-school-comms/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveHomeSchoolComm: (id: string) => request<{ ok: boolean }>(`/home-school-comms/${id}`, { method: 'DELETE' }),
 
+  /** 家校沟通 AI 总结：下载附件 → 生成 MD 沟通明细 + 沟通总结并回写 */
+  aiSummarizeHomeSchoolComm: (id: string) =>
+    request<{ ok: boolean; 沟通明细: string; 沟通总结: string; parsedAttachments: number; totalAttachments: number }>(
+      `/home-school-comms-ai/${id}/summarize`,
+      { method: 'POST' },
+    ),
+
   listDailyFollowups: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);

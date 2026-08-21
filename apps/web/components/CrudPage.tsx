@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { api as apiClient, type Page } from '../lib/api';
+import MarkdownField from './MarkdownField';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect' | 'person' | 'student' | 'parent' | 'attachment';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect' | 'person' | 'student' | 'parent' | 'attachment' | 'markdown';
 
 export interface CrudColumn {
   key: string;
@@ -72,6 +73,8 @@ export interface CrudPageProps {
   createHref?: string;
   /** 编辑改为跳转到独立页面：行 id → href。设置后每行「编辑」按钮渲染为 <Link> */
   editHref?: (id: string) => string;
+  /** 行级自定义操作按钮（如「AI 总结」）。run(row, reload) 执行后刷新列表；前端仅在非只读模式渲染 */
+  rowExtraActions?: { label: string; run: (row: Record<string, unknown>, reload: () => void) => void | Promise<void> }[];
 }
 
 function str(v: unknown): string {
@@ -141,7 +144,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, pageSize, extraLinks, createHref, editHref }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, pageSize, extraLinks, createHref, editHref, rowExtraActions }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = pageSize ?? 5;
@@ -156,6 +159,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const [error, setError] = useState<string | null>(null);
   const [txMenu, setTxMenu] = useState<string | null>(null);
   const [dicts, setDicts] = useState<Record<string, string[]>>({});
+  /** 行级自定义操作的加载态：key = `${rowId}:${label}` */
+  const [rowActionBusy, setRowActionBusy] = useState<string | null>(null);
 
   const filterCols = columns.filter((c) => c.filter);
   const formCols = columns.filter((c) => c.form);
@@ -391,13 +396,29 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     }
   }
 
+  async function runRowAction(row: Record<string, unknown>, action: { label: string; run: (row: Record<string, unknown>, reload: () => void) => void | Promise<void> }) {
+    const key = `${String(row.id)}:${action.label}`;
+    if (rowActionBusy) return;
+    setRowActionBusy(key);
+    setError(null);
+    try {
+      await action.run(row, () => reload());
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : `${action.label} 失败`);
+    } finally {
+      setRowActionBusy(null);
+    }
+  }
+
   const formFields = (
     <div className="form-grid">
       {formCols.map((c) => (
-        <div key={c.key} className="form-label" style={c.type === 'textarea' ? { gridColumn: '1 / -1' } : undefined}>
+        <div key={c.key} className="form-label" style={c.type === 'textarea' || c.type === 'markdown' ? { gridColumn: '1 / -1' } : undefined}>
           <span className="form-label-text">{c.label}{c.required && <span style={{ color: 'var(--danger)' }}> *</span>}</span>
           {c.type === 'textarea' ? (
             <textarea className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} rows={3} />
+          ) : c.type === 'markdown' ? (
+            <MarkdownField value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} height={300} />
           ) : c.type === 'select' ? (
             <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
               <option value="">（未填）</option>
@@ -639,6 +660,19 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                           )}
                         </div>
                       )}
+                      {!readonly && rowExtraActions?.map((a) => {
+                        const busyKey = `${String(row.id)}:${a.label}`;
+                        return (
+                          <button
+                            key={a.label}
+                            className="btn btn-ghost btn-sm"
+                            disabled={Boolean(rowActionBusy) || loading}
+                            onClick={() => runRowAction(row, a)}
+                          >
+                            {rowActionBusy === busyKey ? `${a.label}…` : a.label}
+                          </button>
+                        );
+                      })}
                       {!readonly && <button className="btn btn-danger btn-sm" onClick={() => remove(row)}>删除</button>}
                     </div>
                   </td>

@@ -2,7 +2,7 @@ import { Controller, Get, Post, HttpException, HttpStatus, Logger, Param, Res, R
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import { SessionGuard } from '../auth/session.guard.js';
-import { FileUploadService } from './file-upload.service.js';
+import { FileUploadService, decodeOriginalFilename } from './file-upload.service.js';
 
 /**
  * 文件代理下载
@@ -80,7 +80,7 @@ export class FileController {
       const finalName =
         typeof clientFilename === 'string' && clientFilename.trim().length > 0
           ? clientFilename
-          : file.originalname;
+          : decodeOriginalFilename(file.originalname);
       const { file_token } = await this.fileUpload.uploadFile(file.buffer, finalName, file.mimetype);
       return { ok: true, file_token, name: finalName };
     } catch (e) {

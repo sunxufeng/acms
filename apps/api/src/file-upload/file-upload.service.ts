@@ -2,6 +2,26 @@ import { Injectable, Logger } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
 
 /**
+ * 还原被 multer/busboy 误判为 latin1 的中文文件名。
+ *
+ * multer 默认把 multipart 的 filename 参数按 latin1 解码，导致中文变乱码
+ * （如 心居.md → å¿ƒå±¿.md，即 UTF-8 字节被当 latin1 字符读回）。
+ * 这里把同样的字符按 latin1 取回原始字节，再用 UTF-8 重新解码还原。
+ * 若原串本身已含合法中文（说明未来 busboy 已修正解码，无需还原），则跳过，
+ * 避免二次转码。
+ */
+export function decodeOriginalFilename(name: string): string {
+  if (!name) return name;
+  try {
+    const recovered = Buffer.from(name, 'latin1').toString('utf8');
+    if (recovered !== name && /[一-鿿]/.test(recovered)) return recovered;
+  } catch {
+    /* 解码失败则保持原样 */
+  }
+  return name;
+}
+
+/**
  * 飞书文件上传服务：
  *  - 获取 tenant_access_token（复用 monitor 同款缓存逻辑）
  *  - 上传文件到飞书 Drive（upload_all 接口）

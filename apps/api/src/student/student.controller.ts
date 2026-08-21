@@ -21,7 +21,7 @@ import type { SessionUser } from '@acms/contracts';
 import { SessionGuard } from '../auth/session.guard.js';
 import { StudentService } from './student.service.js';
 import { CreateStudentDto, UpdateStudentDto, StudentFilterDto, ExportQueryDto } from './student.dto.js';
-import { FileUploadService } from '../file-upload/file-upload.service.js';
+import { FileUploadService, decodeOriginalFilename } from '../file-upload/file-upload.service.js';
 
 @Controller('students')
 @UseGuards(SessionGuard)
@@ -88,7 +88,7 @@ export class StudentController {
     if (!file) throw new Error('NO_FILE');
     // 限制 5MB
     if (file.size > 5 * 1024 * 1024) throw new Error('FILE_TOO_LARGE');
-    const { file_token } = await this.fileUpload.uploadFile(file.buffer, file.originalname, file.mimetype);
+    const { file_token } = await this.fileUpload.uploadFile(file.buffer, decodeOriginalFilename(file.originalname), file.mimetype);
     // 更新学生记录的「学生照片」字段
     const user = this.user(req);
     const existing = await this.svc.detail(user, id);
@@ -104,13 +104,14 @@ export class StudentController {
   async uploadAttachment(@Req() req: Request, @Param('id') id: string, @UploadedFile() file: any) {
     if (!file) throw new Error('NO_FILE');
     if (file.size > 20 * 1024 * 1024) throw new Error('FILE_TOO_LARGE');
-    const { file_token } = await this.fileUpload.uploadFile(file.buffer, file.originalname, file.mimetype);
+    const safeName = decodeOriginalFilename(file.originalname);
+    const { file_token } = await this.fileUpload.uploadFile(file.buffer, safeName, file.mimetype);
     const user = this.user(req);
-    const recordId = await this.svc.attachDoc(user, id, file_token, file.originalname);
+    const recordId = await this.svc.attachDoc(user, id, file_token, safeName);
     // 双向关联写入后刷新学生记录，换取浏览器可直接访问的临时链接
     const updated = await this.svc.detail(user, id);
     const newAtt = (updated['证件与文件'] as Array<{ file_token?: string; viewUrl?: string; name?: string }>)?.find((a) => a.file_token === file_token);
-    return { ok: true, file_token, name: file.originalname, record_id: recordId, viewUrl: newAtt?.viewUrl };
+    return { ok: true, file_token, name: safeName, record_id: recordId, viewUrl: newAtt?.viewUrl };
   }
 
   /** 获取附件下载 URL */

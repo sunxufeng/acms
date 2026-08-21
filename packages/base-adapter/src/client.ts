@@ -62,16 +62,23 @@ export class BaseClient {
     this.tokens = new TokenManager(cfg);
   }
 
-  /** 缓存每张表的 datetime 字段名（type=5），用于字符串↔毫秒时间戳互转 */
-  private readonly dtCache = new Map<string, Set<string>>();
+  /** 缓存每张表的 datetime 字段（type=5）：字段名 → 是否带时间（formatter 含 HH:mm）。
+   *  用于字符串↔毫秒时间戳互转，以及读取时是否回带「时:分」。 */
+  private readonly dtCache = new Map<string, Map<string, { hasTime: boolean }>>();
 
-  private async datetimeFields(tableId: string): Promise<Set<string>> {
+  private async datetimeFields(tableId: string): Promise<Map<string, { hasTime: boolean }>> {
     const cached = this.dtCache.get(tableId);
     if (cached) return cached;
     const fl = await this.listFields(tableId);
-    const set = new Set(fl.filter((f) => f.type === 5).map((f) => f.name));
-    this.dtCache.set(tableId, set);
-    return set;
+    const map = new Map<string, { hasTime: boolean }>();
+    for (const f of fl) {
+      if (f.type === 5) {
+        const fmt = (f.property as { date_formatter?: string }).date_formatter ?? '';
+        map.set(f.name, { hasTime: /H{1,2}/.test(fmt) });
+      }
+    }
+    this.dtCache.set(tableId, map);
+    return map;
   }
 
   /** 写入前：datetime 字段的日期字符串("YYYY-MM-DD")转毫秒时间戳（飞书要求数值） */
@@ -93,16 +100,23 @@ export class BaseClient {
     return out;
   }
 
-  /** 读取后：datetime 字段的毫秒时间戳转本地 "YYYY-MM-DD"（供 Web date 输入展示） */
-  private fromReadFields(fields: Record<string, unknown>, dt: Set<string>): Record<string, unknown> {
+  /** 读取后：datetime 字段的毫秒时间戳转本地 "YYYY-MM-DD" 或 "YYYY-MM-DD HH:mm"（带时间时） */
+  private fromReadFields(fields: Record<string, unknown>, dt: Map<string, { hasTime: boolean }>): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(fields)) {
-      if (dt.has(k) && typeof v === 'number' && !Number.isNaN(v)) {
+      const info = dt.get(k);
+      if (info && typeof v === 'number' && !Number.isNaN(v)) {
         const d = new Date(v);
         const y = d.getFullYear();
         const m = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
-        out[k] = `${y}-${m}-${day}`;
+        if (info.hasTime) {
+          const hh = String(d.getHours()).padStart(2, '0');
+          const mm = String(d.getMinutes()).padStart(2, '0');
+          out[k] = `${y}-${m}-${day} ${hh}:${mm}`;
+        } else {
+          out[k] = `${y}-${m}-${day}`;
+        }
       } else {
         out[k] = v;
       }
@@ -236,8 +250,8 @@ export class BaseClient {
    *  只能看到前 100 个字段，导致「已存在字段被误判为缺失 → FieldNameDuplicated」。 */
   async listFields(
     tableId: string,
-  ): Promise<{ id: string; name: string; type: number; property: { options?: { name: string; id?: string }[] } }[]> {
-    const out: { id: string; name: string; type: number; property: { options?: { name: string; id?: string }[] } }[] = [];
+  ): Promise<{ id: string; name: string; type: number; property: { options?: { name: string; id?: string }[]; date_formatter?: string } }[]> {
+    const out: { id: string; name: string; type: number; property: { options?: { name: string; id?: string }[]; date_formatter?: string } }[] = [];
     let pageToken: string | undefined;
     do {
       const path = `${this.url(tableId)}/fields?page_size=100${pageToken ? `&page_token=${pageToken}` : ''}`;
@@ -256,11 +270,11 @@ export class BaseClient {
     return out;
   }
 
-  /** 更新字段（合并单选/多选选项用）。飞书要求 PUT + 完整 property */
+  /** 更新字段（合并单选/多选选项、重命名、启用日期时间等用）。飞书要求 PUT + 完整 property */
   async updateField(
     tableId: string,
     fieldId: string,
-    body: { field_name: string; type: number; property: { options: { name: string }[] } },
+    body: { field_name: string; type: number; property?: Record<string, unknown> },
   ): Promise<void> {
     await this.req('PUT', `${this.url(tableId)}/fields/${fieldId}`, body);
   }

@@ -70,7 +70,7 @@ export class AiSummarizeService {
     const lower = (name || '').toLowerCase();
     const textExts = ['.txt', '.md', '.markdown', '.json', '.csv', '.log', '.yaml', '.yml'];
     if (!textExts.some((x) => lower.endsWith(x))) {
-      return `（附件「${name}」为二进制格式，暂不支持自动解析，请在「沟通内容」中补充要点）`;
+      return `（附件「${name}」为二进制格式，暂不支持自动解析，请在「沟通人备注」中补充要点）`;
     }
     if (buf.includes(0)) {
       return `（附件「${name}」疑似二进制，跳过自动解析）`;
@@ -102,7 +102,7 @@ export class AiSummarizeService {
     return { cfg, fields: rec.fields as Record<string, unknown> };
   }
 
-  /** 供前端弹窗使用：返回当前附件、已有明细/总结、沟通内容 */
+  /** 供前端弹窗使用：返回当前附件、已有明细/总结、沟通人备注 */
   async prepare(cfg: AiSummarizeTableConfig, user: SessionUser, id: string) {
     const { fields } = await this.getRecord(cfg, user, id);
     return {
@@ -171,11 +171,11 @@ export class AiSummarizeService {
 
     if (!corpus.trim()) {
       const content = toText(fields[cfg.fieldContent]);
-      if (content) corpus = `\n\n--- 沟通内容 ---\n${content}`;
+      if (content) corpus = `\n\n--- 沟通人备注 ---\n${content}`;
     }
 
     if (!corpus.trim()) {
-      throw new NotFoundException('NO_SOURCE:该记录既没有附件，也没有「沟通内容」文本，无法生成总结');
+      throw new NotFoundException('NO_SOURCE:该记录既没有附件，也没有「沟通人备注」文本，无法生成总结');
     }
 
     const meta = cfg.metaFields
@@ -224,7 +224,7 @@ export class AiSummarizeService {
       '要求：使用 Markdown 标题/列表/引用等结构；按对话双方还原发言；' +
       '保留关键事实、时间、诉求与共识；不要编造素材中不存在的信息；中文输出。';
     const userMsg =
-      `【记录基本信息】\n${meta}\n\n【沟通素材（附件/沟通内容）】\n${corpus}\n\n` +
+      `【记录基本信息】\n${meta}\n\n【沟通素材（附件/沟通人备注）】\n${corpus}\n\n` +
       `请输出 Markdown 格式的沟通明细（对话记录）。`;
     return this.chatWithRetry(user, system, userMsg);
   }

@@ -28,7 +28,7 @@ export default function HomeSchoolCommsPage() {
             const id = String(row.id);
             const res = await api.aiSummarizePrepare(id);
             const hasSource = (res.attachments?.length ?? 0) > 0 || (res.content ?? '').trim().length > 0;
-            if (!hasSource) throw new Error('该记录没有可读取的附件或沟通内容，无法生成总结');
+            if (!hasSource) throw new Error('该记录没有可读取的附件或沟通人备注，无法生成总结');
             await api.aiSummarizeMergeAll(id, true, true);
             reload();
           },

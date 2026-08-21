@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { api as apiClient, type Page } from '../lib/api';
 import MarkdownField from './MarkdownField';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect' | 'person' | 'student' | 'parent' | 'attachment' | 'markdown';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'parent' | 'attachment' | 'markdown';
 
 export interface CrudColumn {
   key: string;
@@ -87,6 +87,15 @@ function str(v: unknown): string {
   if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' ? x : String((x as { text?: string })?.text ?? ''))).join('、');
   if (typeof v === 'object') return String((v as { text?: string })?.text ?? '');
   return String(v);
+}
+
+/** 将存储值（"YYYY-MM-DD" 或 "YYYY-MM-DD HH:mm"）转为 <input type="datetime-local"> 所需的 "YYYY-MM-DDTHH:mm" */
+function toDateTimeLocal(v: unknown): string {
+  const s = str(v).trim();
+  if (!s) return '';
+  const t = s.replace(' ', 'T');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t + 'T00:00';
+  return t;
 }
 
 /** 附件字段值：可能为数组（表单态）或 JSON 字符串（飞书存储态） */
@@ -494,6 +503,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             </div>
           ) : c.type === 'date' ? (
             <input className="form-input" type="date" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
+          ) : c.type === 'datetime' ? (
+            <input className="form-input" type="datetime-local" value={toDateTimeLocal(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
           ) : (
             <input className="form-input" type="text" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
           )}

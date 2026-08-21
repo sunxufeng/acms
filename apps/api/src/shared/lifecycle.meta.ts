@@ -83,6 +83,7 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     tableId: TABLES.homeSchoolComm.tableId,
     readPerm: PERM_R,
     writePerm: PERM_W,
+    numbers: ['沟通时长(分钟)'],
     dateFields: ['沟通时间', '跟进截止日期', '闭环日期'],
     readonly: ['待办负责人', '沟通附件', '关联学生编号', '关联监护人'],
     linkFields: [
@@ -99,6 +100,7 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     tableId: TABLES.dailyFollowup.tableId,
     readPerm: PERM_R,
     writePerm: PERM_W,
+    numbers: ['沟通时长(分钟)'],
     dateFields: ['沟通时间', '跟进截止日期', '闭环日期'],
     readonly: ['待办负责人', '沟通附件'],
     statusField: '闭环状态',

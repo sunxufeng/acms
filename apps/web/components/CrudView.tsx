@@ -36,6 +36,10 @@ export default function CrudView({ columns, record }: { columns: CrudColumn[]; r
       const t = str(v);
       return t ? <span>{t}</span> : <span className="view-empty">—</span>;
     }
+    if (c.type === 'datetime') {
+      const t = str(v);
+      return t ? <span>{t}</span> : <span className="view-empty">—</span>;
+    }
     const text = str(v);
     return text ? <span>{text}</span> : <span className="view-empty">—</span>;
   }

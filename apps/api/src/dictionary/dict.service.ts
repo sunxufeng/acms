@@ -114,7 +114,7 @@ export class DictService {
     // 补齐文本字段（关联学生/家长/沟通人/沟通主题/沟通明细/沟通总结/沟通附件清单）。
     results.push(await this.ensureHomeSchoolCommFields());
     // 日常跟进表：确保「沟通方式/闭环状态/信息敏感级别」单选字段与字典一致；
-    // 补齐文本字段（关联学生/沟通人/沟通内容/沟通明细/沟通总结/沟通附件清单/待办事项/责任人/待办负责人）。
+    // 补齐文本字段（关联学生/沟通人/沟通人备注/沟通明细/沟通总结/沟通附件清单/待办事项/责任人/待办负责人）。
     results.push(await this.ensureDailyFollowupFields());
     return results;
   }
@@ -345,6 +345,43 @@ export class DictService {
   }
 
   /**
+   * 家校沟通 / 日常跟进 通用字段迁移（幂等）：
+   *  - 把「沟通内容」重命名为「沟通人备注」（数据保留，仅改字段名）。
+   *  - 给「沟通时间」(type=5) 启用「显示时间」(formatter 含 HH:mm)，使前端可录入/展示时分。
+   *  - 补齐数值字段「沟通时长(分钟)」（飞书 type=2）。
+   * 以上均按字段是否存在判定，重复执行安全。
+   */
+  private async ensureCommCommonFields(
+    tableId: string,
+    byName: Map<string, { id: string; name: string; type: number; property: Record<string, unknown> }>,
+    result: SyncResult,
+  ): Promise<void> {
+    // 1) 沟通内容 → 沟通人备注（重命名，数据保留）
+    const oldContent = byName.get('沟通内容');
+    if (oldContent && !byName.has('沟通人备注')) {
+      await this.base.updateField(tableId, oldContent.id, { field_name: '沟通人备注', type: 1, property: oldContent.property ?? {} });
+      result.synced.push('沟通内容→沟通人备注（已重命名）');
+      byName.delete('沟通内容');
+      byName.set('沟通人备注', { ...oldContent, name: '沟通人备注' });
+    }
+    // 2) 沟通时间 启用「显示时间」(HH:mm)
+    const timeField = byName.get('沟通时间');
+    if (timeField && timeField.type === 5) {
+      const fmt = (timeField.property && (timeField.property as { date_formatter?: string }).date_formatter) || '';
+      if (!/H{1,2}/.test(fmt)) {
+        await this.base.updateField(tableId, timeField.id, { field_name: '沟通时间', type: 5, property: { auto_fill: false, date_formatter: 'yyyy/MM/dd HH:mm' } });
+        result.synced.push('沟通时间（已启用时分）');
+      }
+    }
+    // 3) 沟通时长(分钟) 数值字段（飞书 type=2）
+    if (!byName.has('沟通时长(分钟)')) {
+      await this.base.createField(tableId, { field_name: '沟通时长(分钟)', type: 2 });
+      result.synced.push('沟通时长(分钟)（已创建数值）');
+      byName.set('沟通时长(分钟)', { name: '沟通时长(分钟)', id: '', type: 2, property: {} });
+    }
+  }
+
+  /**
    * 幂等确保家校沟通表的字典下拉字段存在且选项与字典一致：
    * - 单选字段（沟通方式/家长反馈态度/闭环状态/信息敏感级别）：不存在则创建（type=3，带字典选项）；
    *   已存在单选则追加缺失选项；已存在非单选则跳过（不删字段，避免丢数据）。
@@ -359,6 +396,9 @@ export class DictService {
     try {
       const fields = await this.base.listFields(tableId);
       const byName = new Map(fields.map((f) => [f.name, f]));
+
+      // 0) 通用迁移：沟通内容→沟通人备注 / 沟通时间启用时分 / 补齐沟通时长(分钟)
+      await this.ensureCommCommonFields(tableId, byName, result);
 
       // 0) 沟通人：原为飞书 User(11) 类型，本租户无法写入姓名（UserFieldConvFail）；
       // 删除后重建为 Text(1)，由应用侧用 open_id↔姓名 映射展示，前端 person 选择器写入姓名。
@@ -412,7 +452,7 @@ export class DictService {
 
       // 2) 文本字段（飞书 type=1 即文本，可存多行/长内容）
       const texts: string[] = [
-        '关联学生', '家长', '沟通人', '沟通明细', '沟通总结', '沟通附件清单', '责任人',
+        '关联学生', '家长', '沟通人', '沟通明细', '沟通总结', '沟通附件清单', '责任人', '沟通人备注',
       ];
       for (const name of texts) {
         if (byName.has(name)) {
@@ -432,7 +472,7 @@ export class DictService {
    * 幂等确保「日常跟进表」的字典下拉字段存在且选项与字典一致（与家校沟通表同源，删除家长相关字段）：
    * - 单选字段（沟通方式/闭环状态/信息敏感级别）：不存在则创建（type=3，带字典选项）；
    *   已存在单选则追加缺失选项；已存在非单选则跳过（不删字段，避免丢数据）。
-   * - 文本字段（关联学生/沟通人/沟通内容/沟通明细/沟通总结/沟通附件清单/待办事项/责任人/待办负责人）：
+   * - 文本字段（关联学生/沟通人/沟通人备注/沟通明细/沟通总结/沟通附件清单/待办事项/责任人/待办负责人）：
    *   不存在则创建文本字段(type=1)。
    * - 沟通主题：必须是文本(type=1)，自由文本主题；建表时误设为多选(type=4)则重建为文本。
    */
@@ -443,6 +483,9 @@ export class DictService {
     try {
       const fields = await this.base.listFields(tableId);
       const byName = new Map(fields.map((f) => [f.name, f]));
+
+      // 0) 通用迁移：沟通内容→沟通人备注 / 沟通时间启用时分 / 补齐沟通时长(分钟)
+      await this.ensureCommCommonFields(tableId, byName, result);
 
       // 1) 单选字段（带字典选项）
       const singles: { name: string; dictKey: string }[] = [
@@ -485,7 +528,7 @@ export class DictService {
 
       // 2) 文本字段（飞书 type=1）
       const texts: string[] = [
-        '关联学生', '沟通人', '沟通内容', '沟通明细', '沟通总结', '沟通附件清单', '待办事项', '责任人', '待办负责人',
+        '关联学生', '沟通人', '沟通人备注', '沟通明细', '沟通总结', '沟通附件清单', '待办事项', '责任人', '待办负责人',
       ];
       for (const name of texts) {
         if (byName.has(name)) {

@@ -20,7 +20,7 @@ export const HOME_SCHOOL_COMMS_CONFIG: AiSummarizeTableConfig = {
   fieldAttach: '沟通附件清单',
   fieldDetail: '沟通明细',
   fieldSummary: '沟通总结',
-  fieldContent: '沟通内容',
+  fieldContent: '沟通人备注',
   metaFields: [
     { label: '关联学生', key: '关联学生' },
     { label: '家长', key: '家长' },
@@ -37,7 +37,7 @@ export const DAILY_FOLLOWUP_CONFIG: AiSummarizeTableConfig = {
   fieldAttach: '沟通附件清单',
   fieldDetail: '沟通明细',
   fieldSummary: '沟通总结',
-  fieldContent: '沟通内容',
+  fieldContent: '沟通人备注',
   metaFields: [
     { label: '关联学生', key: '关联学生' },
     { label: '沟通人', key: '沟通人' },

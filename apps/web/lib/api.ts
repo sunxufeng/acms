@@ -386,7 +386,7 @@ export const api = {
   updateHomeSchoolComm: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/home-school-comms/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveHomeSchoolComm: (id: string) => request<{ ok: boolean }>(`/home-school-comms/${id}`, { method: 'DELETE' }),
 
-  /** 家校沟通 AI 总结：准备数据（附件、当前明细/总结/沟通内容） */
+  /** 家校沟通 AI 总结：准备数据（附件、当前明细/总结/沟通人备注） */
   aiSummarizePrepare: (id: string) =>
     request<{ attachments: { file_token: string; name: string }[]; currentDetail: string; currentSummary: string; content: string }>(
       `/home-school-comms-ai/${id}/prepare`,
@@ -406,7 +406,7 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ overwriteDetail, overwriteSummary }) },
     ),
 
-  /** 日常跟进 AI 总结：准备数据（附件、当前明细/总结/沟通内容） */
+  /** 日常跟进 AI 总结：准备数据（附件、当前明细/总结/沟通人备注） */
   dailyFollowupAiPrepare: (id: string) =>
     request<{ attachments: { file_token: string; name: string }[]; currentDetail: string; currentSummary: string; content: string }>(
       `/daily-followups-ai/${id}/prepare`,

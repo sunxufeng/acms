@@ -19,7 +19,7 @@ const COLUMNS: CrudColumn[] = [
   { key: '课程方案名称', label: '方案名称', width: '200px', form: true, required: true, type: 'text' },
   { key: '方案类型', label: '类型', width: '120px', filter: true, filterOptions: TYPE_OPTS, form: true, type: 'select', options: TYPE_OPTS },
   { key: '适用学段', label: '学段', width: '110px', filter: true, filterOptions: STAGE_OPTS, form: true, type: 'select', options: STAGE_OPTS },
-  { key: '适用年级', label: '适用年级', form: true, type: 'multiselect', options: GRADE_OPTS },
+  { key: '适用年级', label: '适用年级', form: true, type: 'select', options: GRADE_OPTS },
   { key: '方案状态', label: '状态', width: '100px', filter: true, filterOptions: STATUS_OPTS },
   { key: '标准总课时', label: '总课时', width: '90px', form: true, type: 'number' },
   { key: '版本号', label: '版本', width: '80px', form: true, type: 'text' },

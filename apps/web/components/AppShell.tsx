@@ -22,7 +22,7 @@ const NAV_ITEMS = [
     section: '业务域',
     items: [
       { key: 'students', label: '学生档案', href: '/students', icon: StudentsIcon },
-      { key: 'courses', label: '课程教学', href: '/courses', icon: CoursesIcon },
+      { key: 'courses', label: '课程方案', href: '/courses', icon: CoursesIcon },
       { key: 'teaching', label: '教学班级', href: '/teaching-classes', icon: CoursesIcon },
       { key: 'schedule', label: '排课课次', href: '/schedule', icon: ScheduleIcon },
       { key: 'portal', label: '学生门户', href: '/portal', icon: StudentsIcon },

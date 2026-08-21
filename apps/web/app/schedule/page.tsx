@@ -2,6 +2,7 @@
 
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
+import { formatDateTime } from '../../lib/date';
 
 const METHOD_OPTS = ['线下', '线上', '混合'];
 const STATUS_OPTS = ['待确认', '已确认', '已完成', '已取消', '已调课'];
@@ -25,7 +26,7 @@ const COLUMNS: CrudColumn[] = [
   { key: '结束时间', label: '结束', width: '80px', form: true, type: 'text' },
   { key: '授课方式', label: '方式', width: '90px', filter: true, filterOptions: METHOD_OPTS, form: true, type: 'select', options: METHOD_OPTS },
   { key: '课次状态', label: '状态', width: '100px', filter: true, filterOptions: STATUS_OPTS },
-  { key: '更新时间', label: '更新', width: '90px', render: (v) => <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-xs)' }}>{String(v ?? '').slice(0, 10)}</span> },
+  { key: '更新时间', label: '更新', width: '150px', render: (v) => <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-xs)' }}>{formatDateTime(v)}</span> },
 ];
 
 function statusClass(s: string): string {

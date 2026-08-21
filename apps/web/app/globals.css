@@ -812,6 +812,12 @@ a:hover { color: var(--accent-hover); }
   color: var(--fg-secondary); font-size: var(--font-sm); font-weight: 500;
   cursor: pointer; transition: all var(--dur-fast) var(--ease);
   white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+}
+.filter-select-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .filter-select-trigger:hover { border-color: var(--border-strong); color: var(--fg); }
 .filter-select-dropdown {

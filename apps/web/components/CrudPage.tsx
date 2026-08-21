@@ -28,6 +28,8 @@ export interface CrudColumn {
   required?: boolean;
   /** 联动来源字段 key（如 parent 类型从 student 类型所选学生的父亲/母亲取候选） */
   dependsOn?: string;
+  /** 点击该列单元格时打开当前记录的编辑/详情表单（而非导航到其它页面） */
+  openRecord?: boolean;
 }
 
 /** 时间范围筛选（如审计日志按操作时间区间过滤） */
@@ -620,7 +622,11 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               return (
                 <tr key={String(row.id)}>
                   {listCols.map((c) => (
-                    <td key={c.key}>
+                    <td
+                      key={c.key}
+                      onClick={c.openRecord ? () => openEdit(row) : undefined}
+                      style={c.openRecord ? { cursor: 'pointer' } : undefined}
+                    >
                       {statusField === c.key && st
                         ? <span className={`status-dot ${statusClass ? statusClass(st) : ''}`}>{st}</span>
                         : c.type === 'attachment'

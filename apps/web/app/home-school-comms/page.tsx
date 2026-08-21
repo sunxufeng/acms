@@ -1,11 +1,11 @@
 'use client';
 
-import Link from 'next/link';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 
 // 列表仅展示：学生 / 沟通人 / 沟通方式 / 沟通时间 / 沟通主题，外加组件自动的「操作」列。
 // 其余字段设为 list:false，仅在新建/编辑表单中可用。
+// 学生列点击直接打开「这一条家校沟通记录」的编辑/详情表单（不再跳转学生全景）。
 const COLUMNS: CrudColumn[] = [
   {
     key: '关联学生',
@@ -14,16 +14,11 @@ const COLUMNS: CrudColumn[] = [
     form: true,
     type: 'student',
     required: true,
+    openRecord: true,
     render: (_v, row) => {
       const name = studentName(row);
-      const linkIds = (Array.isArray(row['关联学生编号__link']) ? row['关联学生编号__link'] : []) as string[];
-      const target = linkIds[0] || name;
-      if (!target) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-      return (
-        <Link href={`/student-360?sid=${encodeURIComponent(target)}`} style={{ color: 'var(--accent)' }}>
-          {name}
-        </Link>
-      );
+      if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+      return <span style={{ color: 'var(--accent)' }}>{name}</span>;
     },
   },
   { key: '家长', label: '家长', width: '110px', list: false, form: true, type: 'parent', dependsOn: '关联学生', required: true },

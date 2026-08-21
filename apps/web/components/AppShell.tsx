@@ -257,7 +257,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div className="topbar-right">
             {me && (
               <>
-                <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>{me.name}</span>
+                <span style={{ fontSize: 'var(--font-sm)', color: 'var(--topbar-fg-secondary)' }}>{me.name}</span>
                 <div className="user-chip">
                   <span className="user-avatar-xs">{initial(me.name)}</span>
                   <span>{me.roles[0] || '用户'}</span>

@@ -56,7 +56,7 @@ const COLUMNS: CrudColumn[] = [
   { key: '离职或终止日期', label: '离职或终止日期', list: false, form: true, type: 'date' },
   { key: '授课学段', label: '授课学段', list: false, form: true, type: 'select', dictKey: '授课学段' },
   { key: '授课科目类型', label: '授课科目类型', list: false, form: true, type: 'select', dictKey: '授课科目类型' },
-  { key: '授课科目', label: '授课科目', list: false, form: true, type: 'multiselect', dictKey: '授课科目' },
+  { key: '授课科目', label: '授课科目', list: false, form: true, type: 'select', dictKey: '授课科目' },
   { key: '合作开始时间', label: '合作开始时间', list: false, form: true, type: 'select', dictKey: '合作开始时间' },
   { key: '开课人数说明', label: '开课人数说明', list: false, form: true, type: 'text' },
   { key: '个人描述', label: '个人描述', list: false, form: true, type: 'textarea' },

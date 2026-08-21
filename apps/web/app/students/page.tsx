@@ -310,7 +310,7 @@ export default function StudentsPage() {
       <div className="page-header">
         <div className="page-header-row">
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-md)' }}>
-            <h1 className="page-title">学生综合档案</h1>
+            <h1 className="page-title">学生档案</h1>
             <span className="stat-inline">{total} 条结果</span>
           </div>
           <p className="page-subtitle">基础档案、学籍状态与数据密级在同一授权视图中呈现。</p>

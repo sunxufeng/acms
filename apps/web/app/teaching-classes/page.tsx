@@ -35,7 +35,7 @@ function statusClass(s: string): string {
 export default function TeachingClassesPage() {
   return (
     <CrudPage
-      title="教学班"
+      title="教学班级"
       subtitle="教学班开设与运行状态管理（M2 教学域）"
       columns={COLUMNS}
       statusField="教学状态"

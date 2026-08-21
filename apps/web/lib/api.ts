@@ -384,11 +384,24 @@ export const api = {
   updateHomeSchoolComm: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/home-school-comms/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveHomeSchoolComm: (id: string) => request<{ ok: boolean }>(`/home-school-comms/${id}`, { method: 'DELETE' }),
 
-  /** 家校沟通 AI 总结：下载附件 → 生成 MD 沟通明细 + 沟通总结并回写 */
-  aiSummarizeHomeSchoolComm: (id: string) =>
+  /** 家校沟通 AI 总结：准备数据（附件、当前明细/总结/沟通内容） */
+  aiSummarizePrepare: (id: string) =>
+    request<{ attachments: { file_token: string; name: string }[]; currentDetail: string; currentSummary: string; content: string }>(
+      `/home-school-comms-ai/${id}/prepare`,
+    ),
+
+  /** 家校沟通 AI 总结：同步单个附件到沟通明细 */
+  aiSummarizeSyncAttachment: (id: string, fileToken: string, overwriteDetail = false) =>
+    request<{ ok: boolean; synced: string; overwritten: boolean; 沟通明细: string }>(
+      `/home-school-comms-ai/${id}/sync-attachment`,
+      { method: 'POST', body: JSON.stringify({ fileToken, overwriteDetail }) },
+    ),
+
+  /** 家校沟通 AI 总结：合并所有附件生成沟通明细与总结 */
+  aiSummarizeMergeAll: (id: string, overwriteDetail = false, overwriteSummary = false) =>
     request<{ ok: boolean; 沟通明细: string; 沟通总结: string; parsedAttachments: number; totalAttachments: number }>(
-      `/home-school-comms-ai/${id}/summarize`,
-      { method: 'POST' },
+      `/home-school-comms-ai/${id}/merge-all`,
+      { method: 'POST', body: JSON.stringify({ overwriteDetail, overwriteSummary }) },
     ),
 
   listDailyFollowups: (params: Record<string, string | undefined> = {}) => {

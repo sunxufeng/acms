@@ -187,13 +187,13 @@ export class AiSummarizeService {
 
     let detailMd = currentDetail;
     if (overwriteDetail || !currentDetail.trim()) {
-      detailMd = await this.generateDetail(meta, corpus);
+      detailMd = await this.generateDetail(user, meta, corpus);
       await this.base.update(cfg.tableId, id, { [cfg.fieldDetail]: detailMd });
     }
 
     let summary = currentSummary;
     if (overwriteSummary || !currentSummary.trim()) {
-      summary = await this.generateSummary(meta, detailMd);
+      summary = await this.generateSummary(user, meta, detailMd);
       await this.base.update(cfg.tableId, id, { [cfg.fieldSummary]: summary });
     }
 
@@ -218,7 +218,7 @@ export class AiSummarizeService {
     return (res && res.content) || '';
   }
 
-  private async generateDetail(meta: string, corpus: string): Promise<string> {
+  private async generateDetail(user: SessionUser, meta: string, corpus: string): Promise<string> {
     const system =
       '你是沟通记录整理助手。请把提供的沟通素材整理为规范的「沟通明细」Markdown 对话记录。' +
       '要求：使用 Markdown 标题/列表/引用等结构；按对话双方还原发言；' +
@@ -229,7 +229,7 @@ export class AiSummarizeService {
     return this.chatWithRetry(user, system, userMsg);
   }
 
-  private async generateSummary(meta: string, detailMd: string): Promise<string> {
+  private async generateSummary(user: SessionUser, meta: string, detailMd: string): Promise<string> {
     const system =
       '你是沟通总结助手。请基于「沟通明细」提炼一份结构化的「沟通总结（报告）」。' +
       '要求：使用 Markdown；包含「核心结论 / 关键议题 / 诉求与反馈 / 后续待办 / 风险提示（如有）」等小节；' +

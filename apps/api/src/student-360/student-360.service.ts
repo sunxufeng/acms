@@ -55,7 +55,7 @@ export class Student360Service {
     const sections: Student360Section[] = [];
     for (const meta of LIFECYCLE_METAS) {
       const studentLink = (meta.linkFields ?? []).find((l) => l.table === TABLES.studentProfile.tableId);
-      const items = studentLink ? await this.fetchSection(meta, studentLink.field, studentId) : [];
+      const items = await this.fetchSection(meta, studentLink, studentId, String(student['学生姓名'] ?? ''));
       sections.push({ key: meta.path, label: SECTION_LABELS[meta.path] ?? meta.path, items });
     }
     return { student, sections };
@@ -63,8 +63,9 @@ export class Student360Service {
 
   private async fetchSection(
     meta: RecordMeta,
-    studentField: string,
+    studentLink: { field: string; table: string; nameField: string } | undefined,
     studentId: string,
+    studentName: string,
   ): Promise<Record<string, unknown>[]> {
     // 拉全表
     const all: { recordId: string; fields: Record<string, unknown> }[] = [];
@@ -76,8 +77,16 @@ export class Student360Service {
       tok = res.hasMore ? res.pageToken : undefined;
     } while (tok && guard++ < 200);
 
-    // 按该学生过滤
-    const matched = all.filter((r) => linkIds(r.fields[studentField]).includes(studentId));
+    // 按该学生过滤：优先 studentMatch（可能按姓名匹配，如招生/家校/日常跟进），
+    // 否则回退到关联学生编号 link（record id 匹配）
+    const match = meta.studentMatch;
+    const matched = all.filter((r) => {
+      if (match) {
+        const v = toText(r.fields[match.field]);
+        return match.by === 'id' ? linkIds(r.fields[match.field]).includes(studentId) : v === studentName;
+      }
+      return studentLink ? linkIds(r.fields[studentLink.field]).includes(studentId) : false;
+    });
     if (!matched.length) return [];
 
     // 收集需解析的关联 id

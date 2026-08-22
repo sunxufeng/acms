@@ -10,7 +10,7 @@ const 考勤结果_OPTS = ['出勤', '迟到', '早退', '事假', '病假', '�
 const 通知状态_OPTS = ['无需通知', '待通知', '已通知', '已确认'];
 
 const COLUMNS: CrudColumn[] = [
-  { key: '关联学生编号', label: '学生', width: '110px' },
+  { key: '关联学生编号', label: '学生', width: '110px', form: true, type: 'studentLink', required: true },
   { key: '考勤状态', label: '考勤状态', width: '100px', filter: true, filterOptions: 考勤状态_OPTS, form: true, type: 'select', options: 考勤状态_OPTS },
   { key: '异常描述', label: '异常描述', form: true, type: 'textarea' },
   { key: '班主任', label: '班主任', width: '100px' },

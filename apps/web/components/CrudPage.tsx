@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { api as apiClient, type Page } from '../lib/api';
 import MarkdownField from './MarkdownField';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'parent' | 'attachment' | 'markdown';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'attachment' | 'markdown';
 
 export interface CrudColumn {
   key: string;
@@ -303,20 +303,24 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     return () => { alive = false; };
   }, [columns]);
 
-  // 学生字段（student / parent 联动）候选项：从学生档案读取「学生姓名 → 父亲姓名 / 母亲姓名」
+  // 学生字段（student / studentLink / parent 联动）候选项：从学生档案读取「学生姓名 → 父亲/母亲 + record id」
   const [studentOptions, setStudentOptions] = useState<{ value: string; label: string }[]>([]);
+  const [studentLinkOptions, setStudentLinkOptions] = useState<{ value: string; label: string }[]>([]);
   const [studentMap, setStudentMap] = useState<Record<string, { father: string; mother: string }>>({});
+  const [studentIdByName, setStudentIdByName] = useState<Record<string, string>>({});
   useEffect(() => {
-    if (!columns.some((c) => c.type === 'student' || c.type === 'parent')) return;
+    if (!columns.some((c) => c.type === 'student' || c.type === 'studentLink' || c.type === 'parent')) return;
     let alive = true;
-    const collected: { name: string; englishName: string; father: string; mother: string }[] = [];
+    const collected: { id: string; name: string; englishName: string; father: string; mother: string }[] = [];
     const fetchPage = async (token?: string): Promise<void> => {
       const params: Record<string, string | undefined> = { pageSize: '100' };
       if (token) params.pageToken = token;
       const p = await apiClient.listStudents(params);
       for (const s of p.items) {
         const name = String(s['学生姓名'] ?? '');
-        if (name) collected.push({
+        const id = String((s as { id?: string }).id ?? '');
+        if (name && id) collected.push({
+          id,
           name,
           englishName: String(s['英文名'] ?? ''),
           father: String(s['父亲姓名'] ?? ''),
@@ -329,19 +333,23 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       .then(() => {
         if (!alive) return;
         const map: Record<string, { father: string; mother: string }> = {};
-        for (const s of collected) map[s.name] = { father: s.father, mother: s.mother };
+        const idByName: Record<string, string> = {};
+        for (const s of collected) {
+          map[s.name] = { father: s.father, mother: s.mother };
+          idByName[s.name] = s.id;
+        }
         setStudentMap(map);
+        setStudentIdByName(idByName);
         const seen = new Set<string>();
-        setStudentOptions(
-          collected
-            .filter((s) => {
-              if (seen.has(s.name)) return false;
-              seen.add(s.name);
-              return true;
-            })
-            .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
-            .map((s) => ({ value: s.name, label: s.englishName ? `${s.name} / ${s.englishName}` : s.name })),
-        );
+        const opts = collected
+          .filter((s) => {
+            if (seen.has(s.name)) return false;
+            seen.add(s.name);
+            return true;
+          })
+          .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+        setStudentOptions(opts.map((s) => ({ value: s.name, label: s.englishName ? `${s.name} / ${s.englishName}` : s.name })));
+        setStudentLinkOptions(opts.map((s) => ({ value: s.id, label: s.englishName ? `${s.name} / ${s.englishName}` : s.name })));
       })
       .catch(() => {});
     return () => { alive = false; };
@@ -365,7 +373,11 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       if (c.type === 'attachment') init[c.key] = attachmentFiles(row[c.key]);
       else if (c.type === 'multiselect')
         init[c.key] = (Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split('、').filter(Boolean));
-      else init[c.key] = row[c.key] ?? '';
+      else if (c.type === 'studentLink') {
+        // 行中关联字段已解析为姓名，按姓名反查 record id 回填表单
+        const name = str(row[c.key]);
+        init[c.key] = (name && studentIdByName[name]) || '';
+      } else init[c.key] = row[c.key] ?? '';
     }
     setForm(init);
     setEditing({ mode: 'edit', row });
@@ -468,6 +480,11 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
               <option value="">（未选）</option>
               {studentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          ) : c.type === 'studentLink' ? (
+            <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
+              <option value="">（未选）</option>
+              {studentLinkOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           ) : c.type === 'parent' ? (
             (() => {

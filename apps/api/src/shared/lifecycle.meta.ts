@@ -20,6 +20,7 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     writePerm: PERM_W,
     dateFields: ['活动参与日期', '跟进时间', '下次跟进日期'],
     readonly: ['跟进负责人', '跟进附件', '关联学生编号'],
+    studentMatch: { field: '关联学生', by: 'name' },
     linkFields: [{ field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' }],
     statusField: '跟进状态',
     defaultStatus: '未跟进',
@@ -29,10 +30,11 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
   {
     path: 'student-attendances',
     tableId: TABLES.attendance.tableId,
+    studentMatch: { field: '关联学生编号', by: 'id' },
     readPerm: PERM_R,
     writePerm: PERM_W,
     dateFields: ['考勤日期', '到校时间', '离校时间'],
-    readonly: ['班主任', '记录人', '佐证附件', '关联学生编号', '学年', '班级'],
+    readonly: ['班主任', '记录人', '佐证附件', '学年', '班级'],
     linkFields: [
       { field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
       { field: '学年', table: TABLES.academicYear.tableId, nameField: '学年名称' },
@@ -46,11 +48,12 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
   {
     path: 'grades',
     tableId: TABLES.academicGrade.tableId,
+    studentMatch: { field: '关联学生编号', by: 'id' },
     readPerm: PERM_R,
     writePerm: PERM_W,
     numbers: ['成绩', '满分'],
     dateFields: ['考核日期'],
-    readonly: ['任课教师', '成绩附件', '关联学生编号', '学年', '课程'],
+    readonly: ['任课教师', '成绩附件', '学年', '课程'],
     linkFields: [
       { field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
       { field: '学年', table: TABLES.academicYear.tableId, nameField: '学年名称' },
@@ -64,11 +67,12 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
   {
     path: 'practice-activities',
     tableId: TABLES.practiceActivity.tableId,
+    studentMatch: { field: '关联学生编号', by: 'id' },
     readPerm: PERM_R,
     writePerm: PERM_W,
     numbers: ['服务或参与时长'],
     dateFields: ['活动开始日期', '活动结束日期'],
-    readonly: ['活动负责人', '活动证明', '关联学生编号', '关联授权'],
+    readonly: ['活动负责人', '活动证明', '关联授权'],
     linkFields: [
       { field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
       { field: '关联授权', table: TABLES.authorization.tableId, nameField: '授权事项' },
@@ -81,6 +85,7 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
   {
     path: 'home-school-comms',
     tableId: TABLES.homeSchoolComm.tableId,
+    studentMatch: { field: '关联学生', by: 'name' },
     readPerm: PERM_R,
     writePerm: PERM_W,
     numbers: ['沟通时长(分钟)'],
@@ -98,6 +103,7 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
   {
     path: 'daily-followups',
     tableId: TABLES.dailyFollowup.tableId,
+    studentMatch: { field: '关联学生', by: 'name' },
     readPerm: PERM_R,
     writePerm: PERM_W,
     numbers: ['沟通时长(分钟)'],
@@ -111,10 +117,11 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
   {
     path: 'stage-evaluations',
     tableId: TABLES.stageEvaluation.tableId,
+    studentMatch: { field: '关联学生编号', by: 'id' },
     readPerm: PERM_R,
     writePerm: PERM_W,
     dateFields: ['评价日期', '复核日期'],
-    readonly: ['班主任', '是否通过', '评价人', '评价附件', '关联学生编号', '学年'],
+    readonly: ['班主任', '是否通过', '评价人', '评价附件', '学年'],
     linkFields: [
       { field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
       { field: '学年', table: TABLES.academicYear.tableId, nameField: '学年名称' },
@@ -127,10 +134,11 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
   {
     path: 'alumni-followups',
     tableId: TABLES.alumniFollowup.tableId,
+    studentMatch: { field: '关联学生编号', by: 'id' },
     readPerm: PERM_R,
     writePerm: PERM_W,
     dateFields: ['跟进时间', '下次跟进日期'],
-    readonly: ['跟进负责人', '校友参与意愿', '跟进附件', '关联学生编号'],
+    readonly: ['跟进负责人', '校友参与意愿', '跟进附件'],
     linkFields: [{ field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' }],
     statusField: '跟进状态',
     defaultStatus: '待跟进',

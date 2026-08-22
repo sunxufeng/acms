@@ -9,7 +9,7 @@ const 活动类型_OPTS = ['校内活动', '社会实践', '志愿服务', '研�
 const 安全确认状态_OPTS = ['待确认', '已确认', '不适用'];
 
 const COLUMNS: CrudColumn[] = [
-  { key: '关联学生编号', label: '学生', width: '110px' },
+  { key: '关联学生编号', label: '学生', width: '110px', form: true, type: 'studentLink', required: true },
   { key: '活动名称', label: '活动名称', width: '140px', form: true, type: 'text' },
   { key: '活动内容', label: '活动内容', form: true, type: 'textarea' },
   { key: '参与情况', label: '参与情况', width: '100px', filter: true, filterOptions: 参与情况_OPTS, form: true, type: 'select', options: 参与情况_OPTS },

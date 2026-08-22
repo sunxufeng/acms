@@ -42,6 +42,10 @@ export interface RecordMeta {
   dateFields?: string[];
   /** 列表默认排序字段 */
   sortField?: string;
+  /** 学生 360 聚合时如何把记录关联到某学生：
+   *  - { field: '关联学生编号', by: 'id' }：关联字段为 link，存 record id（考勤/成绩/实践/评价/校友）
+   *  - { field: '关联学生', by: 'name' }：关联字段为文本，存学生姓名（招生/家校/日常跟进） */
+  studentMatch?: { field: string; by: 'id' | 'name' };
   /** 时间范围筛选字段（用于审计日志等的操作时间区间过滤，内存过滤） */
   rangeField?: string;
   /** 关联字段（type=18/21/22）：需跨表解析为可读名。field=本表字段名，table=目标表 tableId，nameField=目标表用于展示的字段名 */
@@ -270,6 +274,13 @@ export class BaseRecordService {
 
   private writeFields(dto: Record<string, unknown>) {
     const fields = buildWriteFields(dto, this.readonlySet(), this.numberSet());
+    // 关联字段（link）：前端提交单 record id 字符串，飞书 record link 写入要求 [{ record_id }]
+    for (const l of this.meta.linkFields ?? []) {
+      const v = fields[l.field];
+      if (typeof v === 'string' && v.trim()) fields[l.field] = [{ record_id: v.trim() }];
+      else if (Array.isArray(v) && v.length) fields[l.field] = v;
+      else if (l.field in dto && (v === '' || v == null)) fields[l.field] = [];
+    }
     for (const k of this.meta.dateFields ?? []) {
       const v = fields[k];
       if (typeof v === 'string') {

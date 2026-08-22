@@ -80,6 +80,8 @@ export interface CrudPageProps {
   editHref?: (id: string) => string;
   /** 点击 openRecord 列（如学生姓名）时跳转到只读详情页（行 id → href），而非打开编辑表单 */
   detailHref?: (id: string) => string;
+  /** studentLink 列（关联学生姓名）点击跳转：传入行，返回目标 href（如学生档案页） */
+  studentDetailHref?: (row: Record<string, unknown>) => string;
   /** 行级自定义操作按钮（如「AI 总结」）。run(row, reload) 执行后刷新列表；前端仅在非只读模式渲染 */
   rowExtraActions?: { label: string; run: (row: Record<string, unknown>, reload: () => void) => void | Promise<void> }[];
 }
@@ -160,7 +162,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, pageSize, extraLinks, createHref, editHref, detailHref, rowExtraActions }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = pageSize ?? 5;
@@ -678,7 +680,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                               </span>
                             );
                           })()
-                          : (c.render ? c.render(row[c.key], row) : str(row[c.key]))}
+                          : (c.type === 'studentLink' && studentDetailHref
+                            ? <Link href={studentDetailHref(row)} style={{ color: 'var(--accent)', fontWeight: 600 }}>{str(row[c.key])}</Link>
+                            : (c.render ? c.render(row[c.key],  row) : str(row[c.key])))}
                     </td>
                   ))}
                   <td>

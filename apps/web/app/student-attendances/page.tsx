@@ -10,21 +10,21 @@ const 考勤结果_OPTS = ['出勤', '迟到', '早退', '事假', '病假', '�
 const 通知状态_OPTS = ['无需通知', '待通知', '已通知', '已确认'];
 
 const COLUMNS: CrudColumn[] = [
-  { key: '关联学生编号', label: '学生', width: '110px', form: true, type: 'studentLink', required: true },
-  { key: '考勤状态', label: '考勤状态', width: '100px', filter: true, filterOptions: 考勤状态_OPTS, form: true, type: 'select', options: 考勤状态_OPTS },
-  { key: '异常描述', label: '异常描述', form: true, type: 'textarea' },
-  { key: '班主任', label: '班主任', width: '100px' },
-  { key: '时段', label: '时段', width: '90px', filter: true, filterOptions: 时段_OPTS, form: true, type: 'select', options: 时段_OPTS },
-  { key: '学年', label: '学年', width: '80px' },
-  { key: '考勤日期', label: '考勤日期', width: '120px', form: true, type: 'date' },
-  { key: '学期', label: '学期', width: '100px', filter: true, filterOptions: 学期_OPTS, form: true, type: 'select', options: 学期_OPTS },
-  { key: '班级', label: '班级', width: '100px' },
-  { key: '考勤结果', label: '考勤结果', width: '110px', filter: true, filterOptions: 考勤结果_OPTS, form: true, type: 'select', options: 考勤结果_OPTS },
-  { key: '到校时间', label: '到校时间', width: '120px', form: true, type: 'date' },
-  { key: '离校时间', label: '离校时间', width: '120px', form: true, type: 'date' },
-  { key: '记录人', label: '记录人', width: '100px' },
-  { key: '通知状态', label: '通知状态', width: '110px', filter: true, filterOptions: 通知状态_OPTS, form: true, type: 'select', options: 通知状态_OPTS },
-  { key: '处理结果', label: '处理结果', form: true, type: 'textarea' },
+  { key: '关联学生编号', label: '学生', width: '110px', form: true, type: 'studentLink', required: true, listOrder: 1 },
+  { key: '考勤状态', label: '考勤状态', width: '100px', filter: true, filterOptions: 考勤状态_OPTS, form: true, type: 'select', options: 考勤状态_OPTS, list: false },
+  { key: '异常描述', label: '异常描述', form: true, type: 'textarea', list: false },
+  { key: '班主任', label: '班主任', width: '100px', list: false },
+  { key: '时段', label: '时段', width: '90px', filter: true, filterOptions: 时段_OPTS, form: true, type: 'select', options: 时段_OPTS, listOrder: 6 },
+  { key: '学年', label: '学年', width: '80px', list: false },
+  { key: '考勤日期', label: '考勤日期', width: '120px', form: true, type: 'date', listOrder: 2 },
+  { key: '学期', label: '学期', width: '100px', filter: true, filterOptions: 学期_OPTS, form:  true, type: 'select', options: 学期_OPTS, listOrder: 5 },
+  { key: '班级', label: '班级', width: '100px', listOrder: 4 },
+  { key: '考勤结果', label: '考勤结果', width: '110px', filter: true, filterOptions: 考勤结果_OPTS, form: true, type: 'select', options: 考勤结果_OPTS, listOrder: 3 },
+  { key: '到校时间', label: '到校时间', width: '120px', form: true, type: 'date', list: false },
+  { key: '离校时间', label: '离校时间', width: '120px', form: true, type: 'date', list: false },
+  { key: '记录人', label: '记录人', width: '100px', list: false },
+  { key: '通知状态', label: '通知状态', width: '110px', filter: true, filterOptions: 通知状态_OPTS, form: true, type: 'select', options: 通知状态_OPTS, list: false },
+  { key: '处理结果', label: '处理结果', form: true, type: 'textarea', list: false },
 ];
 
 export default function StudentAttendancesPage() {
@@ -37,6 +37,7 @@ export default function StudentAttendancesPage() {
       statusField="考勤状态"
       inlineEdit
       standaloneForm
+      studentDetailHref={(row) => '/student-360?sid=' + String((row['关联学生编号__link'] as string[])?.[0] ?? '')}
       api={{
         list: (p) => api.listStudentAttendances(p),
         create: (d) => api.createStudentAttendance(d),

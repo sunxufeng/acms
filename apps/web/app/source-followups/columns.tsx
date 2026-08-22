@@ -1,6 +1,7 @@
 import type { CrudColumn } from '../../components/CrudPage';
 
-// 列表展示：学生 / 活动类型 / 跟进状态 / 负责人 / 付款状态 / 跟进时间，外加组件自动的「操作」列（含 AI 总结）。
+// 列表列顺序（listOrder）：学生 → 沟通主题 → 跟进时间 → 跟进状态 → 活动类型 → 负责人，
+// 外加组件自动追加的「操作」列（含 AI 总结）。付款状态 在列表中隐藏（保留在表单）。
 // 学生列点击直接跳转「这一条招生跟进记录」的只读详情页（不再打开编辑表单）。
 // 其余字段设为 list:false，仅在新建/编辑表单中可用；新建/编辑表单参考家校沟通编辑页面。
 export const COLUMNS: CrudColumn[] = [
@@ -12,17 +13,19 @@ export const COLUMNS: CrudColumn[] = [
     type: 'student',
     required: true,
     openRecord: true,
+    listOrder: 1,
     render: (_v, row) => {
       const name = studentName(row);
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
       return <span style={{ color: 'var(--accent)' }}>{name}</span>;
     },
   },
-  { key: '活动类型', label: '活动类型', width: '110px', filter: true, form: true, type: 'select', dictKey: '活动类型' },
-  { key: '跟进状态', label: '跟进状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '跟进状态' },
-  { key: '跟进负责人', label: '负责人', width: '110px' },
-  { key: '付款状态', label: '付款状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '付款状态' },
-  { key: '跟进时间', label: '跟进时间', width: '150px', form: true, type: 'datetime' },
+  { key: '沟通主题', label: '沟通主题', width: '120px', form: true, listOrder: 2 },
+  { key: '跟进时间', label: '跟进时间', width: '150px', form: true, type: 'datetime', listOrder: 3 },
+  { key: '跟进状态', label: '跟进状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '跟进状态', listOrder: 4 },
+  { key: '活动类型', label: '活动类型', width: '110px', filter: true, form: true, type: 'select', dictKey: '活动类型', listOrder: 5 },
+  { key: '跟进负责人', label: '负责人', width: '110px', listOrder: 6 },
+  { key: '付款状态', label: '付款状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '付款状态', list: false },
   // ── 参考家校沟通编辑页面新增的字段 ──
   { key: '家长', label: '家长', width: '110px', list: false, form: true, type: 'parent', dependsOn: '关联学生', required: true },
   { key: '家长反馈态度', label: '家长反馈态度', width: '130px', list: false, filter: true, form: true, type: 'select', dictKey: '家长反馈态度' },

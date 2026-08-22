@@ -22,6 +22,8 @@ export interface CrudColumn {
   form?: boolean;
   /** 是否在列表表格中显示（默认 true；设为 false 仅保留在表单中，例如敏感列） */
   list?: boolean;
+  /** 列表列排序权重（升序）；未设置的列排在已设置列之后，并保持原有相对顺序 */
+  listOrder?: number;
   type?: CrudFieldType;
   options?: string[];
   /** 候选项来自字典表（优先于 options；options 作为离线兜底） */
@@ -180,7 +182,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
 
   const filterCols = columns.filter((c) => c.filter);
   const formCols = columns.filter((c) => c.form);
-  const listCols = columns.filter((c) => c.list !== false);
+  const listCols = columns
+    .filter((c) => c.list !== false)
+    .sort((a, b) => (a.listOrder ?? Infinity) - (b.listOrder ?? Infinity));
   const showingInlineForm = Boolean(inlineEdit && editing);
   const showingStandaloneForm = Boolean(standaloneForm && editing);
 

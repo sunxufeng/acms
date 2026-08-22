@@ -93,6 +93,8 @@ export default function Student360Page() {
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [leftWidth, setLeftWidth] = useState(55);
   const [dragging, setDragging] = useState(false);
+  const [analysisHeight, setAnalysisHeight] = useState<number | null>(null);
+  const [vDragging, setVDragging] = useState(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -173,12 +175,38 @@ export default function Student360Page() {
   useEffect(() => {
     const pc = document.querySelector('.page-content');
     if (!pc) return;
-    if (analysisOpen) pc.classList.add('student-360-split-mode');
-    else pc.classList.remove('student-360-split-mode');
+    if (analysisOpen) {
+      pc.classList.add('student-360-split-mode');
+      // 每次打开重置面板高度（默认占满可用区域，输入框落在屏幕底部）
+      setAnalysisHeight(null);
+    } else {
+      pc.classList.remove('student-360-split-mode');
+    }
     return () => {
       pc.classList.remove('student-360-split-mode');
     };
   }, [analysisOpen]);
+
+  // 上下拖拽调节智能分析面板高度
+  useEffect(() => {
+    if (!vDragging) return;
+    function onMove(e: MouseEvent) {
+      const container = splitContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const h = rect.bottom - e.clientY;
+      setAnalysisHeight(Math.min(rect.height, Math.max(200, h)));
+    }
+    function onUp() {
+      setVDragging(false);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [vDragging]);
 
   // 拖拽调节左右分屏宽度
   useEffect(() => {
@@ -424,12 +452,36 @@ export default function Student360Page() {
               transition: 'background 0.15s',
             }}
           />
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <SmartAnalysisPanel
-              student={data?.student}
-              sections={data?.sections ?? []}
-              onClose={() => setAnalysisOpen(false)}
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              alignSelf: 'flex-end',
+              height: analysisHeight ? `${analysisHeight}px` : '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            {/* 顶部拖拽条：上下调节智能分析面板高度 */}
+            <div
+              onMouseDown={() => setVDragging(true)}
+              title="拖拽调整智能分析面板高度"
+              style={{
+                height: 8,
+                flexShrink: 0,
+                cursor: 'row-resize',
+                background: vDragging ? 'var(--accent)' : 'transparent',
+                transition: 'background 0.15s',
+              }}
             />
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <SmartAnalysisPanel
+                student={data?.student}
+                sections={data?.sections ?? []}
+                onClose={() => setAnalysisOpen(false)}
+              />
+            </div>
           </div>
         </>
       ) : (

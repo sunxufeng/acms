@@ -374,9 +374,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       else if (c.type === 'multiselect')
         init[c.key] = (Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split('、').filter(Boolean));
       else if (c.type === 'studentLink') {
-        // 行中关联字段已解析为姓名，按姓名反查 record id 回填表单
-        const name = str(row[c.key]);
-        init[c.key] = (name && studentIdByName[name]) || '';
+        // 行中关联字段已解析为姓名，但 __link 仍保留 record id，用 id 回填选择器
+        const linkIds = row[c.key + '__link'];
+        init[c.key] = (Array.isArray(linkIds) && linkIds[0]) || '';
       } else init[c.key] = row[c.key] ?? '';
     }
     setForm(init);

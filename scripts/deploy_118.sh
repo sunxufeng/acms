@@ -43,8 +43,10 @@ sshpass -e ssh $SSH_OPTS "${SSH_USER}@${SSH_HOST}" '
 set -e
 systemctl stop acms-api acms-web
 sleep 1
-# api dist
-tar xzf /tmp/api_dist.tar.gz -C /opt/acms/api/ 2>/dev/null
+# api dist（只替换 dist 目录，避免产物散落到 /opt/acms/api/ 根目录导致服务加载旧代码）
+rm -rf /opt/acms/api/dist
+mkdir -p /opt/acms/api/dist
+tar xzf /tmp/api_dist.tar.gz -C /opt/acms/api/dist 2>/dev/null
 # pkgs
 rm -rf /tmp/pkgs_extract && mkdir -p /tmp/pkgs_extract
 tar xzf /tmp/pkgs_dist.tar.gz -C /tmp/pkgs_extract/ 2>/dev/null

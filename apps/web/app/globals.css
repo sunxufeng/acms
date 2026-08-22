@@ -531,6 +531,25 @@ a:hover { color: var(--accent-hover); }
   margin: 0 auto;
 }
 
+/* ── 学生全景 智能分析 悬浮按钮 ────────────────────────────── */
+.ai-fab {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  z-index: 1900;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.ai-fab:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.ai-fab:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Theme toggle button ───────────────────────────────────── */
 

@@ -290,15 +290,6 @@ export default function Student360Page() {
           <h1 className="page-title">学生全景</h1>
           <p className="page-subtitle">以单个学生为中心，汇总其全生命周期记录（M1 学生域）</p>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={!selected}
-          title={selected ? '打开智能分析面板' : '请先选择学生'}
-          onClick={() => setAnalysisOpen((v) => !v)}
-        >
-          {analysisOpen ? '关闭分析' : '智能分析'}
-        </button>
       </div>
 
       {/* 学生选择器 + 时间段筛选 */}
@@ -486,8 +477,21 @@ export default function Student360Page() {
           document.body,
         )}
 
-      {analysisOpen &&
-        typeof document !== 'undefined' &&
+      {/* 悬浮「智能分析」按钮：折叠态时显示，点击展开对话框 */}
+      {!analysisOpen && (
+        <button
+          type="button"
+          className="ai-fab"
+          disabled={!selected}
+          title={selected ? '打开智能分析' : '请先选择学生'}
+          onClick={() => setAnalysisOpen(true)}
+        >
+          智能分析
+        </button>
+      )}
+
+      {/* 对话框常驻挂载（仅切换显示），避免收起后丢失对话 */}
+      {typeof document !== 'undefined' &&
         createPortal(
           <div
             style={{
@@ -496,7 +500,7 @@ export default function Student360Page() {
               top: dialog.y,
               width: dialog.width,
               height: dialog.height,
-              display: 'flex',
+              display: analysisOpen ? 'flex' : 'none',
               flexDirection: 'column',
               background: 'var(--bg)',
               border: '1px solid var(--border)',
@@ -704,7 +708,7 @@ function SmartAnalysisPanel({
               </option>
             ))}
           </select>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} title="关闭智能分析">×</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} title="收起智能分析">收起</button>
         </div>
       </div>
 

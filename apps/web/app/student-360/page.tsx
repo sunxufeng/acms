@@ -105,11 +105,15 @@ export default function Student360Page() {
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   const [analysisOpen, setAnalysisOpen] = useState(false);
-  const [dialog, setDialog] = useState<DialogRect>({ x: 0, y: 80, width: 560, height: 640 });
+  const [dialog, setDialog] = useState<DialogRect>({ x: 0, y: 80,  width: 560, height: 640 });
   const [dlgDragging, setDlgDragging] = useState(false);
   const [dlgResizing, setDlgResizing] = useState(false);
   const dlgDragStart = useRef({ x: 0, y: 0, startX: 0, startY: 0 });
   const dlgResizeStart = useRef({ x: 0, y: 0, startW: 0, startH: 0 });
+  // 悬浮按钮位置（可拖拽），默认右上角、与查询区同高
+  const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null);
+  const [fabDragging, setFabDragging] = useState(false);
+  const fabDragStart = useRef({ x: 0, y: 0, startX: 0, startY: 0, moved: false });
 
   useEffect(() => {
     let alive = true;
@@ -280,6 +284,40 @@ export default function Student360Page() {
       window.removeEventListener('mouseup', onUp);
     };
   }, [dlgResizing]);
+
+  // 悬浮按钮默认位置（右上角，与查询区同高）
+  useEffect(() => {
+    if (typeof window === 'undefined' || fabPos) return;
+    setFabPos({ x: Math.max(20, window.innerWidth - 160), y: 88 });
+  }, [fabPos]);
+
+  // 拖拽悬浮按钮
+  useEffect(() => {
+    if (!fabDragging) return;
+    function onMove(e: MouseEvent) {
+      const dx = e.clientX - fabDragStart.current.x;
+      const dy = e.clientY - fabDragStart.current.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) fabDragStart.current.moved = true;
+      setFabPos((p) => {
+        if (!p) return p;
+        const nextX = fabDragStart.current.startX + dx;
+        const nextY = fabDragStart.current.startY + dy;
+        return {
+          x: Math.max(0, Math.min(nextX, window.innerWidth - 140)),
+          y: Math.max(0, Math.min(nextY, window.innerHeight - 52)),
+        };
+      });
+    }
+    function onUp() {
+      setFabDragging(false);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [fabDragging]);
 
   const totalRecords = data ? data.sections.reduce((n, s) => n + s.items.length, 0) : 0;
 
@@ -477,16 +515,39 @@ export default function Student360Page() {
           document.body,
         )}
 
-      {/* 悬浮「智能分析」按钮：折叠态时显示，点击展开对话框 */}
+      {/* 悬浮「AI分析」按钮：折叠态时显示，可拖拽，点击展开对话框 */}
       {!analysisOpen && (
         <button
           type="button"
           className="ai-fab"
           disabled={!selected}
-          title={selected ? '打开智能分析' : '请先选择学生'}
-          onClick={() => setAnalysisOpen(true)}
+          title={selected ? '打开 AI 分析（可拖拽移动位置）' : '请先选择学生'}
+          style={
+            fabPos
+              ? { left: fabPos.x, top: fabPos.y, right: 'auto' }
+              : undefined
+          }
+          onMouseDown={(e) => {
+            if (!fabPos) return;
+            fabDragStart.current = {
+              x: e.clientX,
+              y: e.clientY,
+              startX: fabPos.x,
+              startY: fabPos.y,
+              moved: false,
+            };
+            setFabDragging(true);
+          }}
+          onClick={() => {
+            // 拖拽后不再触发展开
+            if (fabDragStart.current.moved) {
+              fabDragStart.current.moved = false;
+              return;
+            }
+            setAnalysisOpen(true);
+          }}
         >
-          智能分析
+          AI分析
         </button>
       )}
 
@@ -685,7 +746,7 @@ function SmartAnalysisPanel({
         }}
       >
         <div>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>智能分析</div>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>AI分析</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>当前学生：{studentName}</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

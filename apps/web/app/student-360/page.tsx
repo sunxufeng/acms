@@ -25,7 +25,7 @@ interface Section {
 // 沟通类模块：统一以「时间 / 负责人 / 活动主题 / 沟通明细 / 沟通总结」列表展示，
 // 其中 沟通明细、沟通总结 以超链接呈现，点击弹出框查看完整内容。
 const COMM_MODULES: Record<string, { time: string; owner: string; theme: string }> = {
-  'source-followups': { time: '跟进日期', owner: '跟进负责人', theme: '沟通主题' },
+  'source-followups': { time: '跟进时间', owner: '跟进负责人', theme: '沟通主题' },
   'home-school-comms': { time: '沟通时间', owner: '沟通人', theme: '沟通主题' },
   'daily-followups': { time: '沟通时间', owner: '沟通人', theme: '沟通主题' },
 };
@@ -49,22 +49,20 @@ const SECTION_COLUMNS: Record<string, { key: string; label: string; width?: stri
     { key: '课程', label: '课程', width: '120px' },
   ],
   'practice-activities': [
-    { key: '活动编号', label: '编号', width: '110px' },
+    { key: '活动开始日期', label: '开始时间', width: '120px' },
+    { key: '活动结束日期', label: '结束时间', width: '120px' },
     { key: '活动名称', label: '活动', width: '180px' },
-    { key: '活动开始日期', label: '开始日期', width: '120px' },
     { key: '活动类型', label: '类型', width: '100px' },
     { key: '参与情况', label: '参与', width: '90px' },
     { key: '活动表现', label: '表现', width: '90px' },
   ],
   'stage-evaluations': [
-    { key: '评价编号', label: '编号', width: '110px' },
+    { key: '评价日期', label: '评价日期', width: '120px' },
     { key: '评价周期', label: '周期', width: '100px' },
     { key: '评价等级', label: '等级', width: '90px' },
     { key: '评价完整度', label: '完整度', width: '100px' },
-    { key: '评价日期', label: '评价日期', width: '120px' },
   ],
   'alumni-followups': [
-    { key: '跟进编号', label: '编号', width: '110px' },
     { key: '跟进时间', label: '跟进时间', width: '120px' },
     { key: '跟进方式', label: '方式', width: '90px' },
     { key: '跟进状态', label: '状态', width: '100px' },

@@ -494,6 +494,17 @@ export const api = {
   updateSetting: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/settings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveSetting: (id: string) => request<{ ok: boolean }>(`/settings/${id}`, { method: 'DELETE' }),
 
+  // ── 考勤围栏（GPS / WiFi 打卡区域配置，通用 CRUD） ──
+  listAttendanceZones: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/attendance-zones${q ? `?${q}` : ''}`);
+  },
+  createAttendanceZone: (data: Record<string, unknown>) => request<Record<string, unknown>>('/attendance-zones', { method: 'POST', body: JSON.stringify(data) }),
+  updateAttendanceZone: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/attendance-zones/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveAttendanceZone: (id: string) => request<{ ok: boolean }>(`/attendance-zones/${id}`, { method: 'DELETE' }),
+
   // ── 审计日志（只读，需 admin:audit 权限） ─────────
   listAuditLogs: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();

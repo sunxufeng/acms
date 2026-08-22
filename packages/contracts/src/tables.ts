@@ -27,6 +27,8 @@ export const TABLES = {
   notificationLog: { tableId: 'tblvCNDUwF0qU547', name: '通知记录表' },
   // 系统配置
   systemConfig: { tableId: 'tblqeuKQlsuOIeUy', name: '系统配置表' },
+  // 考勤围栏（GPS/ WiFi 打卡区域配置，见 docs/student-portal-plan.md §7）
+  attendanceZone: { tableId: 'tbloFq0XJKpObwxQ', name: '考勤围栏表' },
   // 审计日志
   auditLog: { tableId: 'tbl0V2dbD9vqVL3N', name: '审计日志表' },
   // 生命周期域关联目标表（link 字段跨表解析用，2026-08-17 经 listFields 核对）

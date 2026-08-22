@@ -78,6 +78,7 @@ const NAV_ITEMS: NavGroup[] = [
       { key: 'permissions', label: '权限授权', href: '/permissions', icon: ShieldIcon, adminOnly: true },
       { key: 'notifications', label: '通知任务', href: '/notifications', icon: NotificationsIcon },
       { key: 'settings', label: '系统设置', href: '/settings', icon: SettingsIcon },
+      { key: 'attendance-zones', label: '考勤围栏', href: '/attendance-zones', icon: SettingsIcon },
     ],
   },
 ];

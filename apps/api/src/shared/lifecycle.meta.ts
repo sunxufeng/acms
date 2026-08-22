@@ -160,6 +160,17 @@ export const CONFIG_METAS: RecordMeta[] = [
     searchFields: ['配置键', '配置值'],
     sortField: '分组',
   },
+  {
+    path: 'attendance-zones',
+    tableId: TABLES.attendanceZone.tableId,
+    readPerm: 'config:read',
+    writePerm: 'config:write',
+    numbers: ['围栏中心(纬度)', '围栏中心(经度)', '围栏半径(米)'],
+    statusField: '状态',
+    defaultStatus: '启用',
+    searchField: '校区',
+    sortField: '校区',
+  },
 ];
 
 /** 审计日志表（独立模块 audit:write 权限不存在 → 仅经 AuditService 内部直写，API 只读） */

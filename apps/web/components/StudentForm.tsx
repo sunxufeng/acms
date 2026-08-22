@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
 
 export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone' | 'textarea' | 'number' | 'typescore';
@@ -366,6 +367,57 @@ function UserField({
     onChange([openId]);
     setOpen(false);
   };
+  const modal = (
+    <div className="modal-overlay" onClick={() => setOpen(false)}>
+      <div className="user-picker-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="user-picker-head">
+          <h3 className="user-picker-title">{title}</h3>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(false)}>×</button>
+        </div>
+        <div className="user-picker-search">
+          <input
+            className="form-input"
+            placeholder="搜索姓名 / 角色 / open_id"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            autoFocus
+          />
+        </div>
+        <div className="user-picker-list">
+          {filtered.length === 0 && <div className="user-picker-empty">无匹配用户</div>}
+          {filtered.map((u) => {
+            const isSel = u.openId === selectedId;
+            return (
+              <div
+                key={u.openId}
+                className={`user-picker-card${isSel ? ' selected' : ''}`}
+                onClick={() => pick(u.openId)}
+              >
+                <span className="user-pick-avatar" style={{ background: avatarColor(u.name) }}>
+                  {u.name.charAt(0)}
+                </span>
+                <div className="user-pick-meta">
+                  <div className="user-pick-name">{u.name}</div>
+                  <div className="user-pick-sub">{u.role || u.campus || u.openId}</div>
+                </div>
+                {isSel && <span className="user-pick-check">✓</span>}
+              </div>
+            );
+          })}
+        </div>
+        <div className="user-picker-foot">
+          {selected && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => pick('')}>
+              清除选择
+            </button>
+          )}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setOpen(false)}>
+            完成
+          </button>
+        </div>
+      </div>
+    </div>
+  );
   return (
     <div>
       {selected ? (
@@ -390,57 +442,7 @@ function UserField({
           </button>
         )
       )}
-      {open && (
-        <div className="modal-overlay" onClick={() => setOpen(false)}>
-          <div className="user-picker-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="user-picker-head">
-              <h3 className="user-picker-title">{title}</h3>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(false)}>×</button>
-            </div>
-            <div className="user-picker-search">
-              <input
-                className="form-input"
-                placeholder="搜索姓名 / 角色 / open_id"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="user-picker-list">
-              {filtered.length === 0 && <div className="user-picker-empty">无匹配用户</div>}
-              {filtered.map((u) => {
-                const isSel = u.openId === selectedId;
-                return (
-                  <div
-                    key={u.openId}
-                    className={`user-picker-card${isSel ? ' selected' : ''}`}
-                    onClick={() => pick(u.openId)}
-                  >
-                    <span className="user-pick-avatar" style={{ background: avatarColor(u.name) }}>
-                      {u.name.charAt(0)}
-                    </span>
-                    <div className="user-pick-meta">
-                      <div className="user-pick-name">{u.name}</div>
-                      <div className="user-pick-sub">{u.role || u.campus || u.openId}</div>
-                    </div>
-                    {isSel && <span className="user-pick-check">✓</span>}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="user-picker-foot">
-              {selected && (
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => pick('')}>
-                  清除选择
-                </button>
-              )}
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => setOpen(false)}>
-                完成
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {open && typeof document !== 'undefined' && createPortal(modal, document.body)}
     </div>
   );
 }
@@ -1075,11 +1077,22 @@ function PhotoAttachmentSection({
                       onChange={(v) => setField(f.key, v)}
                       readOnly={!!readOnly}
                     users={
-                      f.key === '招生负责老师'
-                        ? users.filter((u) => u.teacherType === '招生老师')
-                        : f.key === '升学导师'
-                          ? users.filter((u) => u.teacherType === '升学导师')
-                          : users.filter((u) => u.teacherType === '班主任')
+                      (() => {
+                        const hint =
+                          f.key === '招生负责老师'
+                            ? '招生'
+                            : f.key === '升学导师'
+                              ? '升学'
+                              : '班主任';
+                        const strict = users.filter((u) => u.teacherType === hint);
+                        if (strict.length) return strict;
+                        // 兜底：教师类型未维护时，按系统角色包含关键词匹配
+                        const loose = users.filter((u) =>
+                          (u.role ?? '').includes(hint) ||
+                          (u.teacherType ?? '').includes(hint),
+                        );
+                        return loose.length ? loose : users;
+                      })()
                     }
                     title={
                       f.label.includes('招生')

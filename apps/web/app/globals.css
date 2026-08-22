@@ -403,6 +403,19 @@ a:hover { color: var(--accent-hover); }
   animation: section-expand var(--dur-fast) var(--ease);
 }
 
+.sidebar-subsection {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-subsection-title {
+  font-size: var(--font-xs); font-weight: 600;
+  color: var(--sidebar-fg-tertiary);
+  padding: 6px 14px 4px;
+  letter-spacing: 0.04em;
+}
+
 @keyframes section-expand {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }

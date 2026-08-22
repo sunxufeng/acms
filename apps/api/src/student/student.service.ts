@@ -97,7 +97,10 @@ export class StudentService {
       };
     }
     const conditions: FilterGroup['conditions'] = [];
-    if (query.当前状态) conditions.push({ field: '当前状态', value: [query.当前状态] });
+    if (query.当前状态) {
+      const vals = String(query.当前状态).split(',').filter(Boolean);
+      if (vals.length) conditions.push({ field: '当前状态', value: vals });
+    }
     if (query.入学年级) conditions.push({ field: '入学年级', value: [query.入学年级] });
     if (query.入学年份) conditions.push({ field: '入学年份', value: [query.入学年份] });
     if (query.实际学制) conditions.push({ field: '实际学制', value: [query.实际学制] });

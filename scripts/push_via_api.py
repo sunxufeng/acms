@@ -100,8 +100,22 @@ def main():
         sys.exit(1)
     print("commit:", commit["sha"])
 
+    # 禁止强推：先验证 remote HEAD 是本地 HEAD 的祖先（fast-forward 安全）
+    remote_sha = parent
+    local_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    mb = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", remote_sha, local_sha],
+        capture_output=True, text=True,
+    )
+    if mb.returncode != 0:
+        print("REFUSE: remote main (%s) is not an ancestor of local HEAD (%s)" % (remote_sha, local_sha))
+        print("Please pull/rebase manually instead of force-pushing via REST API.")
+        sys.exit(1)
+
     st5, upd = api("PATCH", "/repos/%s/%s/git/refs/heads/main" % (OWNER, REPO),
-                   {"sha": commit["sha"], "force": True})
+                   {"sha": commit["sha"], "force": False})
     if st5 not in (200, 201):
         print("ref update failed", st5, upd)
         sys.exit(1)

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { api } from '../lib/api';
@@ -11,7 +11,11 @@ interface Me {
   roles: string[];
 }
 
-const NAV_ITEMS = [
+type NavItem = { key: string; label: string; href: string; icon: () => ReactNode; perm?: string; adminOnly?: boolean; disabled?: boolean };
+type NavSubsection = { title: string; items: NavItem[] };
+type NavGroup = { section: string; items: NavItem[]; subsections?: NavSubsection[] };
+
+const NAV_ITEMS: NavGroup[] = [
   {
     section: '工作台',
     items: [
@@ -19,7 +23,7 @@ const NAV_ITEMS = [
     ],
   },
   {
-    section: '业务域',
+    section: '业务管理',
     items: [
       { key: 'students', label: '学生档案', href: '/students', icon: StudentsIcon },
       { key: 'courses', label: '课程方案', href: '/courses', icon: CoursesIcon },
@@ -29,18 +33,7 @@ const NAV_ITEMS = [
     ],
   },
   {
-    section: 'AI 助手',
-    items: [
-      { key: 'aiChat', label: 'AI 对话', href: '/ai/chat', icon: AIIcon },
-      { key: 'aiConfig', label: 'AI 设置', href: '/ai/config', icon: AIIcon },
-      { key: 'aiAgents', label: 'Bot管理', href: '/ai/agents', icon: AIIcon, perm: 'ai:config' },
-      { key: 'aiSkills', label: '技能管理', href: '/ai/skills', icon: AIIcon, perm: 'ai:admin' },
-      { key: 'aiAutomations', label: '定时任务', href: '/ai/automations', icon: AIIcon, perm: 'ai:automation' },
-      { key: 'aiAdmin', label: 'AI 用量', href: '/ai/admin', icon: AIIcon, perm: 'ai:admin' },
-    ],
-  },
-  {
-    section: '学生全生命周期',
+    section: '学生闭环',
     items: [
       { key: 'student360', label: '学生全景', href: '/student-360', icon: StudentsIcon },
       { key: 'sourceFollowups', label: '招生跟进', href: '/source-followups', icon: AdmissionsIcon },
@@ -54,7 +47,7 @@ const NAV_ITEMS = [
     ],
   },
   {
-    section: '管理',
+    section: '教师管理',
     items: [
       { key: 'teachers', label: '教师档案', href: '/teachers', icon: TeachersIcon },
       { key: 'attendance', label: '教师履约', href: '/attendance', icon: TeachersIcon },
@@ -62,13 +55,31 @@ const NAV_ITEMS = [
       { key: 'settlements', label: '月度结算', href: '/settlements', icon: BillingIcon },
       { key: 'adjustments', label: '调整冲销', href: '/adjustments', icon: BillingIcon },
       { key: 'partnerships', label: '聘用合作', href: '/partnerships', icon: TeachersIcon },
-      { key: 'notifications', label: '通知任务', href: '/notifications', icon: NotificationsIcon },
+    ],
+    subsections: [
+      {
+        title: 'AI 助手',
+        items: [
+          { key: 'aiChat', label: 'AI 对话', href: '/ai/chat', icon: ChatIcon },
+          { key: 'aiConfig', label: 'AI 设置', href: '/ai/config', icon: ConfigIcon },
+          { key: 'aiAgents', label: 'Bot管理', href: '/ai/agents', icon: BotIcon, perm: 'ai:config' },
+          { key: 'aiSkills', label: '技能管理', href: '/ai/skills', icon: SkillIcon, perm: 'ai:admin' },
+          { key: 'aiAutomations', label: '定时任务', href: '/ai/automations', icon: ClockIcon, perm: 'ai:automation' },
+          { key: 'aiAdmin', label: 'AI 用量', href: '/ai/admin', icon: ChartIcon, perm: 'ai:admin' },
+        ],
+      },
+    ],
+  },
+  {
+    section: '后台管理',
+    items: [
       { key: 'dictionary', label: '字典数据', href: '/dictionaries', icon: DictionaryIcon },
       { key: 'export', label: '数据导出', href: '/export', icon: ReportsIcon },
-      { key: 'settings', label: '系统设置', href: '/settings', icon: SettingsIcon },
       { key: 'audit-logs', label: '审计日志', href: '/audit-logs', icon: AuditIcon },
       { key: 'users', label: '用户管理', href: '/users', icon: UserGroupIcon, adminOnly: true },
       { key: 'permissions', label: '权限授权', href: '/permissions', icon: ShieldIcon, adminOnly: true },
+      { key: 'notifications', label: '通知任务', href: '/notifications', icon: NotificationsIcon },
+      { key: 'settings', label: '系统设置', href: '/settings', icon: SettingsIcon },
     ],
   },
 ];
@@ -130,7 +141,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       }
     });
 
-    const activeSection = NAV_ITEMS.find((g) => g.items.some((it) => isActive(it.href)));
+    const activeSection = NAV_ITEMS.find((g) =>
+      g.items.some((it) => isActive(it.href)) ||
+      g.subsections?.some((s) => s.items.some((it) => isActive(it.href))),
+    );
     if (activeSection && initial[activeSection.section] === false) {
       initial[activeSection.section] = true;
     }
@@ -139,7 +153,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const activeSection = NAV_ITEMS.find((g) => g.items.some((it) => isActive(it.href)));
+    const activeSection = NAV_ITEMS.find((g) =>
+      g.items.some((it) => isActive(it.href)) ||
+      g.subsections?.some((s) => s.items.some((it) => isActive(it.href))),
+    );
     if (activeSection && !expandedSections[activeSection.section]) {
       toggleSection(activeSection.section, true);
     }
@@ -196,8 +213,33 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         <nav className="sidebar-nav">
           {NAV_ITEMS.map((group) => {
-            if (group.items.length === 0) return null;
+            const allItems = [
+              ...group.items,
+              ...(group.subsections?.flatMap((s) => s.items) ?? []),
+            ];
+            if (allItems.length === 0) return null;
             const expanded = expandedSections[group.section] ?? false;
+            const renderItem = (item: NavItem) => {
+              const Icon = item.icon;
+              if (item.adminOnly && !isAdmin) return null;
+              if (item.perm && !(myPerms || []).includes(item.perm)) return null;
+              if (item.disabled) {
+                return (
+                  <div key={item.key} className="nav-item nav-item--disabled" title="敬请期待">
+                    <span className="nav-icon"><Icon /></span>
+                    <span>{item.label}</span>
+                    <span className="nav-soon">敬请期待</span>
+                  </div>
+                );
+              }
+              const active = isActive(item.href);
+              return (
+                <Link key={item.key} href={item.href} className={`nav-item${active ? ' active' : ''}`}>
+                  <span className="nav-icon"><Icon /></span>
+                  <span>{item.label}</span>
+                </Link>
+              );
+            };
             return (
               <div key={group.section} className={`sidebar-section${expanded ? ' expanded' : ''}`}>
                 <button
@@ -210,28 +252,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   <span className="sidebar-section-chevron">{expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}</span>
                 </button>
                 <div className="sidebar-section-items">
-                {(!sidebarOpen || expanded) && group.items.map((item) => {
-                  const Icon = item.icon;
-                  const it = item as { adminOnly?: boolean; perm?: string };
-                  if (it.adminOnly && !isAdmin) return null;
-                  if (it.perm && !(myPerms || []).includes(it.perm)) return null;
-                  if ((item as { disabled?: boolean }).disabled) {
-                    return (
-                      <div key={item.key} className="nav-item nav-item--disabled" title="敬请期待">
-                        <span className="nav-icon"><Icon /></span>
-                        <span>{item.label}</span>
-                        <span className="nav-soon">敬请期待</span>
+                {(!sidebarOpen || expanded) && (
+                  <>
+                    {group.items.map(renderItem)}
+                    {group.subsections?.map((sub) => (
+                      <div key={sub.title} className="sidebar-subsection">
+                        <div className="sidebar-subsection-title">{sub.title}</div>
+                        {sub.items.map(renderItem)}
                       </div>
-                    );
-                  }
-                  const active = isActive(item.href);
-                  return (
-                    <Link key={item.key} href={item.href} className={`nav-item${active ? ' active' : ''}`}>
-                      <span className="nav-icon"><Icon /></span>
-                      <span>{item.label}</span>
-                    </Link>
-                  );
-                })}
+                    ))}
+                  </>
+                )}
                 </div>
               </div>
             );
@@ -319,8 +350,23 @@ function TeachersIcon() {
 function NotificationsIcon() {
   return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>);
 }
-function AIIcon() {
-  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M12 12v10"/><path d="M8 22h8"/></svg>);
+function ChatIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>);
+}
+function ConfigIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>);
+}
+function BotIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M12 11V7a4 4 0 0 1 4-4h0"/><circle cx="8.5" cy="15.5" r="1.5"/><circle cx="15.5" cy="15.5" r="1.5"/><path d="M12 21v-2"/></svg>);
+}
+function SkillIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>);
+}
+function ClockIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>);
+}
+function ChartIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>);
 }
 function BillingIcon() {
   return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>);

@@ -158,7 +158,7 @@ export default function StudentsPage() {
 
   const [q, setQ] = useState('');
   const [filters, setFilters] = useState<Record<string, string | string[]>>({
-    当前状态: '',
+    当前状态: ['在校在读'],
     入学年级: '',
     班主任: [],
     招生负责老师: [],
@@ -359,9 +359,10 @@ export default function StudentsPage() {
 
         <FilterSelect
           label="状态"
-          value={filters['当前状态'] as string}
+          value={filters['当前状态'] as string[]}
           onChange={(v) => setFilter('当前状态', v)}
           options={dicts['当前状态'] ?? ['已录未报到', '在校在读', '离校未毕(休学）', '离校未毕(保留学籍）', '毕业', '退学', '放弃入学', '潜在学生']}
+          multi
         />
         <FilterSelect
           label="年级"

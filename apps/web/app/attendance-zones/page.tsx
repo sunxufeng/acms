@@ -27,7 +27,8 @@ const COLUMNS: CrudColumn[] = [
     form: true,
     type: 'tags',
     listOrder: 5,
-    hint: '可添加多个；建议填入本机当前连接的 WiFi 名称（SSID）',
+    quickFill: 'wifi',
+    hint: '可添加多个。点「一键填入本机 WiFi」自动读取（需先运行 node scripts/wifi-helper.mjs 并用本地 dev http://localhost:3000 打开本页）；或手动填入本机当前连接的 WiFi 名称（SSID）。',
   },
   {
     key: 'WiFi_BSSID列表',

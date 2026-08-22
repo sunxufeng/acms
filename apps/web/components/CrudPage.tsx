@@ -45,6 +45,8 @@ export interface CrudColumn {
   tagOptions?: string[];
   /** tags 类型：额外的快捷添加按钮（如「添加当前 WiFi」） */
   tagQuickAdd?: React.ReactNode;
+  /** tags 类型：内置快捷填充动作；'wifi' = 一键读取本机当前连接的 WiFi（需运行 scripts/wifi-helper.mjs） */
+  quickFill?: 'wifi';
 }
 
 /** 时间范围筛选（如审计日志按操作时间区间过滤） */
@@ -191,6 +193,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const [dicts, setDicts] = useState<Record<string, string[]>>({});
   /** 行级自定义操作的加载态：key = `${rowId}:${label}` */
   const [rowActionBusy, setRowActionBusy] = useState<string | null>(null);
+  /** 一键读取本机 WiFi 的加载态 */
+  const [wifiBusy, setWifiBusy] = useState(false);
 
   const router = useRouter();
 
@@ -473,6 +477,37 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     }
   }
 
+  /** 一键读取本机当前连接的 WiFi（SSID + 最佳努力 BSSID），填入对应 tags 字段 */
+  async function quickFillWifi(c: CrudColumn) {
+    setWifiBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('http://127.0.0.1:8787/current-wifi');
+      if (!res.ok) throw new Error('bad');
+      const data = (await res.json()) as { ssid?: string; bssid?: string };
+      const ssid = (data.ssid ?? '').trim();
+      if (!ssid) throw new Error('empty');
+      setForm((f) => {
+        const arr = Array.isArray(f[c.key]) ? (f[c.key] as string[]) : [];
+        const next = arr.includes(ssid) ? arr : [...arr, ssid];
+        const out: Record<string, unknown> = { ...f, [c.key]: next };
+        const b = (data.bssid ?? '').trim();
+        if (b) {
+          const bkey = 'WiFi_BSSID列表';
+          const barr = Array.isArray(f[bkey]) ? (f[bkey] as string[]) : [];
+          out[bkey] = barr.includes(b) ? barr : [...barr, b];
+        }
+        return out;
+      });
+    } catch {
+      setError(
+        '未能读取本机 WiFi：请先在本机运行 `node scripts/wifi-helper.mjs`（保持运行），并用本地 dev 地址 http://localhost:3000 打开本页；或手动填写。',
+      );
+    } finally {
+      setWifiBusy(false);
+    }
+  }
+
   const formFields = (
     <div className="form-grid">
       {formCols.map((c) => (
@@ -485,13 +520,26 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               onChange={(la, ln) => setForm((f) => ({ ...f, [c.latKey ?? '']: la, [c.lngKey ?? '']: ln }))}
             />
           ) : c.type === 'tags' ? (
-            <TagInput
-              value={Array.isArray(form[c.key]) ? (form[c.key] as string[]) : []}
-              onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))}
-              options={c.tagOptions}
-              placeholder="输入或选择，回车添加"
-              quickAdd={c.tagQuickAdd}
-            />
+            <div>
+              <TagInput
+                value={Array.isArray(form[c.key]) ? (form[c.key] as string[]) : []}
+                onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))}
+                options={c.tagOptions}
+                placeholder="输入或选择，回车添加"
+                quickAdd={c.tagQuickAdd}
+              />
+              {c.quickFill === 'wifi' && (
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  style={{ marginTop: 6 }}
+                  disabled={wifiBusy}
+                  onClick={() => quickFillWifi(c)}
+                >
+                  {wifiBusy ? '读取中…' : '一键填入本机 WiFi'}
+                </button>
+              )}
+            </div>
           ) : c.type === 'textarea' ? (
             <textarea className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} rows={3} />
           ) : c.type === 'markdown' ? (

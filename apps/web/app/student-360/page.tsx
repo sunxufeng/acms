@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../../lib/api';
+import Markdown from '../../components/Markdown';
 
 interface StudentHit {
   id: string;
@@ -359,6 +360,7 @@ export default function Student360Page() {
 
 function DetailModal({ title, content, onClose }: { title: string; content: string; onClose: () => void }) {
   if (!title && !content) return null;
+  const isMarkdown = /(^|\n)(#{1,4}\s|[-*]\s+\S|\d+\.\s+\S|>|\*\*\*|---|```|\[[^\]]+\]\(https?:\/\/)/.test(content);
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="detail-modal" onClick={(e) => e.stopPropagation()}>
@@ -366,7 +368,13 @@ function DetailModal({ title, content, onClose }: { title: string; content: stri
           <h3 className="detail-modal-title">{title}</h3>
           <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>×</button>
         </div>
-        <div className="detail-modal-body">{content || '（无内容）'}</div>
+        <div className="detail-modal-body">
+          {content ? (
+            isMarkdown ? <Markdown>{content}</Markdown> : <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{content}</p>
+          ) : (
+            '（无内容）'
+          )}
+        </div>
         <div className="detail-modal-foot">
           <button type="button" className="btn btn-primary btn-sm" onClick={onClose}>关闭</button>
         </div>

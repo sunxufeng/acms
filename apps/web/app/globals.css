@@ -1231,6 +1231,14 @@ select.form-input:disabled { color: var(--fg); }
 }
 .hidden { display: none !important; }
 
+/* ── 表单字段辅助提示 ─────────────────────── */
+.form-hint {
+  margin: 6px 0 0;
+  font-size: var(--font-xs);
+  color: var(--fg-tertiary);
+  line-height: 1.5;
+}
+
 /* ── 标签输入（学生标签 / 特长标签） ──────── */
 .tag-input-wrap { position: relative; }
 .tag-chips {

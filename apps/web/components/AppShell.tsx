@@ -190,7 +190,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
-    return pathname.startsWith(href);
+    // Boundary match: exact path or a nested path (href + '/').
+    // Without the '/' boundary, '/attendance-zones' would wrongly match
+    // the '/attendance' (教师履约) menu because it is a prefix.
+    return pathname === href || pathname.startsWith(href + '/');
   };
 
   const isAdmin = !!me?.roles?.includes('系统管理员');

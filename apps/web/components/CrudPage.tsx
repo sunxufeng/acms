@@ -5,8 +5,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api as apiClient, type Page } from '../lib/api';
 import MarkdownField from './MarkdownField';
+import TagInput from './TagInput';
+import MapPicker from './MapPicker';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'attachment' | 'markdown';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'attachment' | 'markdown' | 'map' | 'tags';
 
 export interface CrudColumn {
   key: string;
@@ -33,6 +35,16 @@ export interface CrudColumn {
   dependsOn?: string;
   /** 点击该列单元格时打开当前记录的编辑/详情表单（而非导航到其它页面） */
   openRecord?: boolean;
+  /** 表单字段下方的辅助提示文字 */
+  hint?: string;
+  /** map 类型：写入纬度的目标字段 key */
+  latKey?: string;
+  /** map 类型：写入经度的目标字段 key */
+  lngKey?: string;
+  /** tags 类型：表单内候选建议（下拉展示未选中的项） */
+  tagOptions?: string[];
+  /** tags 类型：额外的快捷添加按钮（如「添加当前 WiFi」） */
+  tagQuickAdd?: React.ReactNode;
 }
 
 /** 时间范围筛选（如审计日志按操作时间区间过滤） */
@@ -363,7 +375,14 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
 
   function openCreate() {
     const init: Record<string, unknown> = {};
-    for (const c of formCols) init[c.key] = c.type === 'multiselect' || c.type === 'attachment' ? [] : '';
+    for (const c of formCols) {
+      if (c.type === 'map') {
+        if (c.latKey) init[c.latKey] = '';
+        if (c.lngKey) init[c.lngKey] = '';
+      } else {
+        init[c.key] = c.type === 'multiselect' || c.type === 'attachment' || c.type === 'tags' ? [] : '';
+      }
+    }
     setForm(init);
     setEditing({ mode: 'create' });
     setError(null);
@@ -372,9 +391,14 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   function openEdit(row: Record<string, unknown>) {
     const init: Record<string, unknown> = {};
     for (const c of formCols) {
-      if (c.type === 'attachment') init[c.key] = attachmentFiles(row[c.key]);
+      if (c.type === 'map') {
+        if (c.latKey) init[c.latKey] = row[c.latKey] ?? '';
+        if (c.lngKey) init[c.lngKey] = row[c.lngKey] ?? '';
+      } else if (c.type === 'attachment') init[c.key] = attachmentFiles(row[c.key]);
       else if (c.type === 'multiselect')
         init[c.key] = (Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split('、').filter(Boolean));
+      else if (c.type === 'tags')
+        init[c.key] = Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split(/[\n,，]/).map((s) => s.trim()).filter(Boolean);
       else if (c.type === 'studentLink') {
         // 行中关联字段已解析为姓名，但 __link 仍保留 record id，用 id 回填选择器
         const linkIds = row[c.key + '__link'];
@@ -393,7 +417,12 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       const payload: Record<string, unknown> = {};
       for (const c of formCols) {
         const v = form[c.key];
-        if (c.type === 'multiselect') payload[c.key] = Array.isArray(v) ? v : [];
+        if (c.type === 'map') {
+          // 经纬度已写入 latKey/lngKey 子字段，这里直接取子字段并转为数字
+          if (c.latKey) payload[c.latKey] = form[c.latKey] === '' || form[c.latKey] == null ? undefined : Number(form[c.latKey]);
+          if (c.lngKey) payload[c.lngKey] = form[c.lngKey] === '' || form[c.lngKey] == null ? undefined : Number(form[c.lngKey]);
+        } else if (c.type === 'multiselect') payload[c.key] = Array.isArray(v) ? v : [];
+        else if (c.type === 'tags') payload[c.key] = Array.isArray(v) && v.length ? (v as string[]).join('\n') : undefined;
         else if (c.type === 'attachment') payload[c.key] = Array.isArray(v) && (v as unknown[]).length ? JSON.stringify(v) : undefined;
         else if (c.type === 'number') payload[c.key] = v === '' || v == null ? undefined : Number(v);
         else payload[c.key] = v === '' ? undefined : v;
@@ -449,7 +478,21 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       {formCols.map((c) => (
         <div key={c.key} className="form-label" style={c.type === 'textarea' || c.type === 'markdown' ? { gridColumn: '1 / -1' } : undefined}>
           <span className="form-label-text">{c.label}{c.required && <span style={{ color: 'var(--danger)' }}> *</span>}</span>
-          {c.type === 'textarea' ? (
+          {c.type === 'map' ? (
+            <MapPicker
+              lat={form[c.latKey ?? ''] as string | number}
+              lng={form[c.lngKey ?? ''] as string | number}
+              onChange={(la, ln) => setForm((f) => ({ ...f, [c.latKey ?? '']: la, [c.lngKey ?? '']: ln }))}
+            />
+          ) : c.type === 'tags' ? (
+            <TagInput
+              value={Array.isArray(form[c.key]) ? (form[c.key] as string[]) : []}
+              onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))}
+              options={c.tagOptions}
+              placeholder="输入或选择，回车添加"
+              quickAdd={c.tagQuickAdd}
+            />
+          ) : c.type === 'textarea' ? (
             <textarea className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} rows={3} />
           ) : c.type === 'markdown' ? (
             <MarkdownField value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} height={300} />
@@ -531,6 +574,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           ) : (
             <input className="form-input" type="text" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
           )}
+          {c.hint && <p className="form-hint">{c.hint}</p>}
         </div>
       ))}
     </div>

@@ -52,10 +52,10 @@ for p in base-adapter contracts domain; do
   rm -rf /opt/acms/api/node_modules/@acms/$p/dist
   cp -r /tmp/pkgs_extract/packages/$p/dist /opt/acms/api/node_modules/@acms/$p/dist
 done
-# web
+# web（只替换 .next 目录，不要覆盖 apps/web/package.json 等源码/工作区文件）
 rm -rf /opt/acms/repo/apps/web/.next
-mkdir -p /opt/acms/repo/apps/web
-tar xzf /tmp/web_next.tar.gz -C /opt/acms/repo/apps/web/ 2>/dev/null
+mkdir -p /opt/acms/repo/apps/web/.next
+tar xzf /tmp/web_next.tar.gz -C /opt/acms/repo/apps/web/.next 2>/dev/null
 # web/public（可选）
 if [ -f /tmp/web_public.tar.gz ]; then
   mkdir -p /opt/acms/repo/apps/web/public

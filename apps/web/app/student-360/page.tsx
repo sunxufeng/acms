@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEventHandler } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../../lib/api';
 import Markdown from '../../components/Markdown';
@@ -23,6 +23,20 @@ interface Section {
 }
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
+type DialogRect = { x: number; y: number; width: number; height: number };
+
+const DIALOG_STORAGE_KEY = 'student360-analysis-dialog';
+function defaultDialogRect(): DialogRect {
+  if (typeof window === 'undefined') return { x: 0, y: 80, width: 560, height: 640 };
+  const width = 560;
+  const height = Math.min(640, window.innerHeight - 120);
+  return {
+    x: Math.max(20, window.innerWidth - width - 20),
+    y: 80,
+    width,
+    height,
+  };
+}
 
 // 沟通类模块：统一以「时间 / 负责人 / 活动主题 / 沟通明细 / 沟通总结」列表展示，
 // 其中 沟通明细、沟通总结 以超链接呈现，点击弹出框查看完整内容。
@@ -91,11 +105,11 @@ export default function Student360Page() {
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   const [analysisOpen, setAnalysisOpen] = useState(false);
-  const [leftWidth, setLeftWidth] = useState(55);
-  const [dragging, setDragging] = useState(false);
-  const [analysisHeight, setAnalysisHeight] = useState<number | null>(null);
-  const [vDragging, setVDragging] = useState(false);
-  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const [dialog, setDialog] = useState<DialogRect>({ x: 0, y: 80, width: 560, height: 640 });
+  const [dlgDragging, setDlgDragging] = useState(false);
+  const [dlgResizing, setDlgResizing] = useState(false);
+  const dlgDragStart = useRef({ x: 0, y: 0, startX: 0, startY: 0 });
+  const dlgResizeStart = useRef({ x: 0, y: 0, startW: 0, startH: 0 });
 
   useEffect(() => {
     let alive = true;
@@ -171,34 +185,66 @@ export default function Student360Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateFrom, dateTo]);
 
-  // 智能分析分屏时，让 .page-content 占满主区域
+  // 恢复上次悬浮窗位置/大小（若用户调整过窗口尺寸导致越界则自动拉回）
   useEffect(() => {
-    const pc = document.querySelector('.page-content');
-    if (!pc) return;
-    if (analysisOpen) {
-      pc.classList.add('student-360-split-mode');
-      // 每次打开重置面板高度（默认占满可用区域，输入框落在屏幕底部）
-      setAnalysisHeight(null);
-    } else {
-      pc.classList.remove('student-360-split-mode');
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(DIALOG_STORAGE_KEY);
+      if (!raw) {
+        setDialog(defaultDialogRect());
+        return;
+      }
+      const saved: DialogRect = JSON.parse(raw);
+      const maxW = window.innerWidth - 40;
+      const maxH = window.innerHeight - 80;
+      const width = Math.max(360, Math.min(saved.width || 560, maxW));
+      const height = Math.max(300, Math.min(saved.height || 640, maxH));
+      const x = Math.max(20, Math.min(saved.x || 0, window.innerWidth - width - 20));
+      const y = Math.max(20, Math.min(saved.y || 80, window.innerHeight - height - 20));
+      setDialog({ x, y, width, height });
+    } catch {
+      setDialog(defaultDialogRect());
     }
-    return () => {
-      pc.classList.remove('student-360-split-mode');
-    };
+  }, []);
+
+  // 保存悬浮窗位置/大小
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(DIALOG_STORAGE_KEY, JSON.stringify(dialog));
+  }, [dialog]);
+
+  // 智能分析打开时拉回到可视区（避免上次记录的位置超屏）
+  useEffect(() => {
+    if (!analysisOpen || typeof window === 'undefined') return;
+    setDialog((d) => {
+      const maxW = window.innerWidth - 40;
+      const maxH = window.innerHeight - 80;
+      const width = Math.max(360, Math.min(d.width, maxW));
+      const height = Math.max(300, Math.min(d.height, maxH));
+      const x = Math.max(20, Math.min(d.x, window.innerWidth - width - 20));
+      const y = Math.max(20, Math.min(d.y, window.innerHeight - height - 20));
+      return { x, y, width, height };
+    });
   }, [analysisOpen]);
 
-  // 上下拖拽调节智能分析面板高度
+  // 拖动悬浮窗标题栏
   useEffect(() => {
-    if (!vDragging) return;
+    if (!dlgDragging) return;
     function onMove(e: MouseEvent) {
-      const container = splitContainerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const h = rect.bottom - e.clientY;
-      setAnalysisHeight(Math.min(rect.height, Math.max(200, h)));
+      const dx = e.clientX - dlgDragStart.current.x;
+      const dy = e.clientY - dlgDragStart.current.y;
+      setDialog((d) => {
+        const nextX = dlgDragStart.current.startX + dx;
+        const nextY = dlgDragStart.current.startY + dy;
+        return {
+          ...d,
+          x: Math.max(0, Math.min(nextX, window.innerWidth - d.width)),
+          y: Math.max(0, Math.min(nextY, window.innerHeight - d.height)),
+        };
+      });
     }
     function onUp() {
-      setVDragging(false);
+      setDlgDragging(false);
     }
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -206,20 +252,26 @@ export default function Student360Page() {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [vDragging]);
+  }, [dlgDragging]);
 
-  // 拖拽调节左右分屏宽度
+  // 拖拽右下角改变悬浮窗大小
   useEffect(() => {
-    if (!dragging) return;
+    if (!dlgResizing) return;
     function onMove(e: MouseEvent) {
-      const container = splitContainerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const pct = ((e.clientX - rect.left) / rect.width) * 100;
-      setLeftWidth(Math.min(70, Math.max(30, pct)));
+      const dx = e.clientX - dlgResizeStart.current.x;
+      const dy = e.clientY - dlgResizeStart.current.y;
+      setDialog((d) => {
+        const maxW = window.innerWidth - d.x - 20;
+        const maxH = window.innerHeight - d.y - 20;
+        return {
+          ...d,
+          width: Math.max(360, Math.min(dlgResizeStart.current.startW + dx, maxW)),
+          height: Math.max(300, Math.min(dlgResizeStart.current.startH + dy, maxH)),
+        };
+      });
     }
     function onUp() {
-      setDragging(false);
+      setDlgResizing(false);
     }
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -227,7 +279,7 @@ export default function Student360Page() {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [dragging]);
+  }, [dlgResizing]);
 
   const totalRecords = data ? data.sections.reduce((n, s) => n + s.items.length, 0) : 0;
 
@@ -425,72 +477,74 @@ export default function Student360Page() {
   );
 
   return (
-    <div className="crud-page" ref={splitContainerRef}>
-      {analysisOpen ? (
-        <>
-          <div
-            style={{
-              width: `${leftWidth}%`,
-              flexShrink: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              borderRight: '1px solid var(--border)',
-            }}
-          >
-            <div style={{ flex: 1, overflow: 'auto', padding: 'var(--space-xl) var(--space-2xl)' }}>
-              {mainBody}
-            </div>
-          </div>
-          <div
-            onMouseDown={() => setDragging(true)}
-            style={{
-              width: 6,
-              flexShrink: 0,
-              cursor: 'col-resize',
-              background: dragging ? 'var(--accent)' : 'var(--border)',
-              transition: 'background 0.15s',
-            }}
-          />
-          <div
-            style={{
-              flex: 1,
-              minWidth: 0,
-              alignSelf: 'flex-end',
-              height: analysisHeight ? `${analysisHeight}px` : '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
-            {/* 顶部拖拽条：上下调节智能分析面板高度 */}
-            <div
-              onMouseDown={() => setVDragging(true)}
-              title="拖拽调整智能分析面板高度"
-              style={{
-                height: 8,
-                flexShrink: 0,
-                cursor: 'row-resize',
-                background: vDragging ? 'var(--accent)' : 'transparent',
-                transition: 'background 0.15s',
-              }}
-            />
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <SmartAnalysisPanel
-                student={data?.student}
-                sections={data?.sections ?? []}
-                onClose={() => setAnalysisOpen(false)}
-              />
-            </div>
-          </div>
-        </>
-      ) : (
-        mainBody
-      )}
+    <div className="crud-page">
+      {mainBody}
 
       {typeof document !== 'undefined' &&
         createPortal(
           <DetailModal title={popup?.title ?? ''} content={popup?.content ?? ''} onClose={() => setPopup(null)} />,
+          document.body,
+        )}
+
+      {analysisOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              left: dialog.x,
+              top: dialog.y,
+              width: dialog.width,
+              height: dialog.height,
+              display: 'flex',
+              flexDirection: 'column',
+              background: 'var(--bg)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+              zIndex: 2000,
+              overflow: 'hidden',
+            }}
+          >
+            <SmartAnalysisPanel
+              student={data?.student}
+              sections={data?.sections ?? []}
+              onClose={() => setAnalysisOpen(false)}
+              onHeaderMouseDown={(e) => {
+                dlgDragStart.current = {
+                  x: e.clientX,
+                  y: e.clientY,
+                  startX: dialog.x,
+                  startY: dialog.y,
+                };
+                setDlgDragging(true);
+              }}
+            />
+            {/* 右下角缩放手柄 */}
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                dlgResizeStart.current = {
+                  x: e.clientX,
+                  y: e.clientY,
+                  startW: dialog.width,
+                  startH: dialog.height,
+                };
+                setDlgResizing(true);
+              }}
+              title="拖拽缩放对话框"
+              style={{
+                position: 'absolute',
+                right: 0,
+                bottom: 0,
+                width: 18,
+                height: 18,
+                cursor: 'nwse-resize',
+                background:
+                  'linear-gradient(135deg, transparent 50%, var(--border) 50%, var(--border) 60%, transparent 60%, transparent 70%, var(--border) 70%, var(--border) 80%, transparent 80%, transparent 90%, var(--border) 90%, var(--border) 100%)',
+              }}
+            />
+          </div>,
           document.body,
         )}
     </div>
@@ -549,10 +603,12 @@ function SmartAnalysisPanel({
   student,
   sections,
   onClose,
+  onHeaderMouseDown,
 }: {
   student?: Record<string, unknown>;
   sections: Section[];
   onClose: () => void;
+  onHeaderMouseDown?: MouseEventHandler<HTMLDivElement>;
 }) {
   const [agents, setAgents] = useState<{ id: string; name: string; provider?: string; model?: string }[]>([]);
   const [agentId, setAgentId] = useState('');
@@ -611,6 +667,7 @@ function SmartAnalysisPanel({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <div
+        onMouseDown={onHeaderMouseDown}
         style={{
           flexShrink: 0,
           padding: '14px 18px',
@@ -619,6 +676,8 @@ function SmartAnalysisPanel({
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 12,
+          cursor: onHeaderMouseDown ? 'move' : 'default',
+          userSelect: 'none',
         }}
       >
         <div>

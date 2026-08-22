@@ -531,22 +531,6 @@ a:hover { color: var(--accent-hover); }
   margin: 0 auto;
 }
 
-/* 学生全景 - 智能分析分屏模式：让页面内容占满主区域 */
-.page-content.student-360-split-mode {
-  max-width: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  /* 减去顶部 topbar 高度，避免面板超出视口把输入框挤出屏幕底部 */
-  height: calc(100dvh - var(--topbar-height));
-  overflow: hidden;
-}
-.student-360-split-mode .crud-page {
-  display: flex;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
 
 /* ── Theme toggle button ───────────────────────────────────── */
 

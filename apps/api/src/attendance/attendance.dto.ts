@@ -30,6 +30,7 @@ export interface AttendanceFilterDto {
   q?: string;
   出勤状态?: string;
   时段?: string;
+  教学班文本?: string;
   授课教师文本?: string;
   校区?: string;
   sortBy?: '出勤日期' | '更新时间';

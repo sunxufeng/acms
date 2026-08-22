@@ -1,5 +1,5 @@
 /** 通用记录读写辅助（M2 各模块复用，避免重复 student 模式代码） */
-import { toWriteSingle, toWriteMulti, toStringArray, toText } from '@acms/base-adapter';
+import { toWriteSingle, toWriteMulti, toStringArray, toText, type FilterCondition, type FilterGroup } from '@acms/base-adapter';
 
 export function buildWriteFields(
   dto: Record<string, unknown>,
@@ -43,8 +43,8 @@ export function toFlatRecord(
 }
 
 export function buildFilter(
-  conditions: { field: string; op?: string; value: string[] }[],
-): { conjunction: 'and'; conditions: { field: string; op?: string; value: string[] }[] } {
+  conditions: (FilterCondition | FilterGroup)[],
+): FilterGroup {
   return { conjunction: 'and', conditions };
 }
 

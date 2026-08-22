@@ -47,6 +47,7 @@ export class SessionService {
     if (query.课次状态) conditions.push({ field: '课次状态', value: [query.课次状态] });
     if (query.教学班文本) conditions.push({ field: '教学班文本', op: 'contains', value: [query.教学班文本] });
     if (query.授课教师文本) conditions.push({ field: '授课教师文本', op: 'contains', value: [query.授课教师文本] });
+    if (query.场地文本) conditions.push({ field: '场地文本', op: 'contains', value: [query.场地文本] });
     const sort = query.sortBy
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]
       : [{ field: '更新时间', desc: true }];

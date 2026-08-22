@@ -32,9 +32,9 @@ const COLUMNS: CrudColumn[] = [
   // ── 列表展示列（仅这些列出现在表格；其余仅出现在新建/编辑表单） ──
   { key: '教师姓名', label: '教师姓名', width: '120px', form: true, required: true, type: 'text' },
   { key: '英文名', label: '英文名', form: true, type: 'text' },
-  { key: '教师类别', label: '教师类别', width: '100px', form: true, type: 'select', dictKey: '教师类别' },
-  { key: '主要学科', label: '主要学科', form: true, type: 'select', dictKey: '主要学科' },
-  { key: '在职合作状态', label: '合作状态', width: '100px', form: true, type: 'select', options: STATUS_OPTS },
+  { key: '教师类别', label: '教师类别', width: '100px', filter: true, form: true, type: 'select', dictKey: '教师类别' },
+  { key: '主要学科', label: '主要学科', filter: true, form: true, type: 'select', dictKey: '主要学科' },
+  { key: '在职合作状态', label: '合作状态', width: '100px', filter: true, form: true, type: 'select', options: STATUS_OPTS },
   { key: '更新时间', label: '更新', width: '160px', render: (v) => <span className="muted">{fmtUpdate(v)}</span> },
 
   // ── 仅表单字段 ───────────────────────────────────
@@ -78,6 +78,7 @@ export default function TeachersPage() {
       columns={COLUMNS}
       inlineEdit
       standaloneForm
+      search={{ placeholder: '教师姓名、英文名' }}
       api={{
         list: (p) => api.listTeachers(p),
         create: (d) => api.createTeacher(d),

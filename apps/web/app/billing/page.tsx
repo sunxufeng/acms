@@ -13,8 +13,8 @@ const TRANSITIONS: Record<string, string[]> = {
 
 const COLUMNS: CrudColumn[] = [
   { key: '教学班文本', label: '教学班', width: '150px', form: true, type: 'text' },
-  { key: '教师文本', label: '教师', width: '110px', filter: true, form: true, type: 'text' },
-  { key: '计费周期', label: '计费周期', width: '110px', filter: true, form: true, type: 'text' },
+  { key: '教师文本', label: '教师', width: '110px', filter: true, filterType: 'text', form: true, type: 'text' },
+  { key: '计费周期', label: '计费周期', width: '110px', filter: true, filterType: 'text', form: true, type: 'text' },
   { key: '课时数量', label: '课时', width: '80px', form: true, type: 'number' },
   { key: '单价', label: '单价', width: '90px', form: true, type: 'number' },
   { key: '金额', label: '金额', width: '100px', form: true, type: 'number' },
@@ -40,6 +40,7 @@ export default function BillingPage() {
       }}
       statusField="计费状态"
       transitions={TRANSITIONS}
+      search={{ placeholder: '教学班名称' }}
       extraActions={[
         {
           label: '从履约生成',

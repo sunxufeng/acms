@@ -12,7 +12,7 @@ import { ForbiddenException, NotFoundException, BadRequestException } from '@nes
 import type { SessionUser } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
-import { toText } from '@acms/base-adapter';
+import { toText, type FilterCondition, type FilterGroup } from '@acms/base-adapter';
 import { BASE_CLIENT, baseClientProvider } from '../base.provider.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -34,8 +34,10 @@ export interface RecordMeta {
   /** 状态字段（展示 + 可编辑） */
   statusField?: string;
   defaultStatus?: string;
-  /** q 关键字检索字段 */
+  /** q 关键字检索字段（单字段 contains）。与 searchFields 二选一，searchFields 优先 */
   searchField?: string;
+  /** q 关键字检索字段（多字段 OR 匹配，如配置键 + 配置值） */
+  searchFields?: string[];
   /** 日期字段（写时字符串→毫秒时间戳） */
   dateFields?: string[];
   /** 列表默认排序字段 */
@@ -110,13 +112,29 @@ export class BaseRecordService {
     if (query.q && this.meta.searchField && this.linkSet().has(this.meta.searchField)) {
       return this.listByLinkSearch(query);
     }
-    const conditions: { field: string; op?: string; value: string[] }[] = [];
+    const conditions: (FilterCondition | FilterGroup)[] = [];
     for (const [k, v] of Object.entries(query)) {
       if (['pageToken', 'sortBy', 'sortOrder', 'q', 'pageSize'].includes(k)) continue;
       if (v) conditions.push({ field: k, value: [v] });
     }
-    if (query.q && this.meta.searchField) {
-      conditions.push({ field: this.meta.searchField, op: 'contains', value: [query.q] });
+    if (query.q) {
+      const q = query.q;
+      const fields = this.meta.searchFields?.length
+        ? this.meta.searchFields
+        : this.meta.searchField
+          ? [this.meta.searchField]
+          : undefined;
+      if (fields?.length) {
+        const f0 = fields[0];
+        conditions.push(
+          fields.length > 1 && f0 !== undefined
+            ? {
+                conjunction: 'or',
+                conditions: fields.map((f) => ({ field: f, op: 'contains', value: [q] })),
+              }
+            : { field: f0 ?? '', op: 'contains', value: [q] },
+        );
+      }
     }
     const sort = query.sortBy
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]

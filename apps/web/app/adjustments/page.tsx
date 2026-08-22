@@ -11,7 +11,7 @@ const TRANSITIONS: Record<string, string[]> = {
 };
 
 const COLUMNS: CrudColumn[] = [
-  { key: '关联结算文本', label: '关联结算', width: '150px', filter: true, form: true, type: 'text' },
+  { key: '关联结算文本', label: '关联结算', width: '150px', filter: true, filterType: 'text', form: true, type: 'text' },
   { key: '关联计费文本', label: '关联计费', width: '150px', form: true, type: 'text' },
   { key: '方向', label: '方向', width: '90px', filter: true, filterOptions: DIR_OPTS, form: true, required: true, type: 'select', options: DIR_OPTS },
   { key: '金额', label: '金额', width: '100px', form: true, type: 'number' },
@@ -38,6 +38,7 @@ export default function AdjustmentsPage() {
       }}
       statusField="状态"
       transitions={TRANSITIONS}
+      search={{ placeholder: '关联结算 / 关联计费' }}
     />
   );
 }

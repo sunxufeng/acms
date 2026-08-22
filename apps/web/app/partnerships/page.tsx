@@ -7,7 +7,7 @@ const STATUS_OPTS = ['生效中', '已结束', '暂停'];
 const METHOD_OPTS = ['按课时', '按月', '打包'];
 
 const COLUMNS: CrudColumn[] = [
-  { key: '教师文本', label: '教师', width: '120px', filter: true, form: true, required: true, type: 'text' },
+  { key: '教师文本', label: '教师', width: '120px', filter: true, filterType: 'text', form: true, required: true, type: 'text' },
   { key: '合作机构文本', label: '合作机构', width: '140px', form: true, type: 'text' },
   { key: '计费方式', label: '计费方式', width: '100px', filter: true, filterOptions: METHOD_OPTS, form: true, type: 'select', options: METHOD_OPTS },
   { key: '费率', label: '费率', width: '90px', form: true, type: 'number' },
@@ -26,6 +26,7 @@ export default function PartnershipsPage() {
       columns={COLUMNS}
       inlineEdit
       standaloneForm
+      search={{ placeholder: '教师姓名' }}
       api={{
         list: (p) => api.listPartnerships(p),
         create: (d) => api.createPartnership(d),

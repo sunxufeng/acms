@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
-import { BaseClient } from '@acms/base-adapter';
+import { BaseClient, type FilterCondition, type FilterGroup } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { buildWriteFields, toFlatRecord, buildFilter } from '../shared/record.util.js';
@@ -21,8 +21,18 @@ export class AdjustmentService {
 
   async list(user: SessionUser, query: AdjustmentFilterDto) {
     if (!authorize(toPrincipal(user), 'finance:read').allowed) throw new ForbiddenException('FORBIDDEN:finance:read');
-    const conditions: { field: string; op?: string; value: string[] }[] = [];
-    if (query.q) conditions.push({ field: '关联结算文本', op: 'contains', value: [query.q] });
+    const conditions: (FilterCondition | FilterGroup)[] = [];
+    if (query.q) {
+      const q = query.q;
+      conditions.push({
+        conjunction: 'or',
+        conditions: [
+          { field: '关联结算文本', op: 'contains', value: [q] },
+          { field: '关联计费文本', op: 'contains', value: [q] },
+        ],
+      });
+    }
+    if (query.关联结算文本) conditions.push({ field: '关联结算文本', op: 'contains', value: [query.关联结算文本] });
     if (query.方向) conditions.push({ field: '方向', value: [query.方向] });
     if (query.状态) conditions.push({ field: '状态', value: [query.状态] });
     const sort = [{ field: '更新时间', desc: query.sortOrder !== 'asc' }];

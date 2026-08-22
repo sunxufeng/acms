@@ -20,6 +20,7 @@ export interface UpdateAdjustmentDto {
 
 export interface AdjustmentFilterDto {
   q?: string;
+  关联结算文本?: string;
   方向?: string;
   状态?: string;
   sortBy?: '更新时间';

@@ -42,6 +42,7 @@ export interface SessionFilterDto {
   课次状态?: string;
   教学班文本?: string;
   授课教师文本?: string;
+  场地文本?: string;
   sortBy?: '课次名称' | '课次日期' | '更新时间';
   sortOrder?: 'asc' | 'desc';
   pageToken?: string;

@@ -13,7 +13,7 @@ const TRANSITIONS: Record<string, string[]> = {
 };
 
 const COLUMNS: CrudColumn[] = [
-  { key: '结算周期', label: '结算周期', width: '120px', filter: true, form: true, required: true, type: 'text' },
+  { key: '结算周期', label: '结算周期', width: '120px', filter: true, filterType: 'text', form: true, required: true, type: 'text' },
   { key: '结算主体', label: '结算主体', width: '140px', form: true, type: 'text' },
   { key: '明细数量', label: '明细数', width: '90px', form: true, type: 'number' },
   { key: '总金额', label: '总金额', width: '110px', form: true, type: 'number' },
@@ -40,6 +40,7 @@ export default function SettlementsPage() {
       }}
       statusField="结算状态"
       transitions={TRANSITIONS}
+      search={{ placeholder: '结算主体' }}
       extraActions={[
         {
           label: '按周期聚合',

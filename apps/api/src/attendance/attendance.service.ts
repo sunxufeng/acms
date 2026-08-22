@@ -25,6 +25,7 @@ export class AttendanceService {
     if (query.q) conditions.push({ field: '教学班文本', op: 'contains', value: [query.q] });
     if (query.出勤状态) conditions.push({ field: '出勤状态', value: [query.出勤状态] });
     if (query.时段) conditions.push({ field: '时段', value: [query.时段] });
+    if (query.教学班文本) conditions.push({ field: '教学班文本', op: 'contains', value: [query.教学班文本] });
     if (query.授课教师文本) conditions.push({ field: '授课教师文本', op: 'contains', value: [query.授课教师文本] });
     if (query.校区) conditions.push({ field: '校区', value: [query.校区] });
     const sort = query.sortBy

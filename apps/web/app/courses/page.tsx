@@ -44,6 +44,7 @@ export default function CoursesPage() {
       statusClass={statusClass}
       inlineEdit
       standaloneForm
+      search={{ placeholder: '方案名称' }}
       api={{
         list: (p) => api.listCoursePlans(p),
         create: (d) => api.createCoursePlan(d),

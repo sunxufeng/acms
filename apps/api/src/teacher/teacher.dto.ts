@@ -81,6 +81,7 @@ export interface UpdateTeacherDto {
 export interface TeacherFilterDto {
   q?: string;
   教师类别?: string;
+  主要学科?: string;
   在职合作状态?: string;
   所属部门?: string;
   数据密级?: string;

@@ -14,8 +14,8 @@ const TRANSITIONS: Record<string, string[]> = {
 };
 
 const COLUMNS: CrudColumn[] = [
-  { key: '教学班文本', label: '教学班', width: '150px', filter: true, form: true, type: 'text' },
-  { key: '授课教师文本', label: '授课教师', width: '120px', filter: true, form: true, required: true, type: 'text' },
+  { key: '教学班文本', label: '教学班', width: '150px', filter: true, filterType: 'text', form: true, type: 'text' },
+  { key: '授课教师文本', label: '授课教师', width: '120px', filter: true, filterType: 'text', form: true, required: true, type: 'text' },
   { key: '出勤日期', label: '出勤日期', width: '130px', form: true, type: 'date' },
   { key: '时段', label: '时段', width: '90px', filter: true, filterOptions: PERIOD_OPTS, form: true, type: 'select', options: PERIOD_OPTS },
   { key: '计划课时', label: '计划课时', width: '90px', form: true, type: 'number' },
@@ -42,6 +42,7 @@ export default function AttendancePage() {
       }}
       statusField="出勤状态"
       transitions={TRANSITIONS}
+      search={{ placeholder: '教学班名称' }}
     />
   );
 }

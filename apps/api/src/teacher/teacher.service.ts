@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
-import { BaseClient, toWriteSingle, toWriteMulti, toStringArray, toText } from '@acms/base-adapter';
+import { BaseClient, toWriteSingle, toWriteMulti, toStringArray, toText, type FilterGroup } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import type { CreateTeacherDto, UpdateTeacherDto, TeacherFilterDto } from './teacher.dto.js';
@@ -39,11 +39,21 @@ export class TeacherService {
 
   private buildFilter(query: TeacherFilterDto): {
     conjunction: 'and';
-    conditions: { field: string; op?: string; value: string[] }[];
+    conditions: ({ field: string; op?: string; value: string[] } | FilterGroup)[];
   } {
-    const conditions: { field: string; op?: string; value: string[] }[] = [];
-    if (query.q) conditions.push({ field: '教师姓名', op: 'contains', value: [query.q] });
+    const conditions: ({ field: string; op?: string; value: string[] } | FilterGroup)[] = [];
+    // 关键字搜索：教师姓名 或 英文名 任意匹配（OR）
+    if (query.q) {
+      conditions.push({
+        conjunction: 'or',
+        conditions: [
+          { field: '教师姓名', op: 'contains', value: [query.q] },
+          { field: '英文名', op: 'contains', value: [query.q] },
+        ],
+      });
+    }
     if (query.教师类别) conditions.push({ field: '教师类别', value: [query.教师类别] });
+    if (query.主要学科) conditions.push({ field: '主要学科', value: [query.主要学科] });
     if (query.在职合作状态) conditions.push({ field: '在职合作状态', value: [query.在职合作状态] });
     if (query.所属部门) conditions.push({ field: '所属部门', value: [query.所属部门] });
     if (query.数据密级) conditions.push({ field: '数据密级', value: [query.数据密级] });

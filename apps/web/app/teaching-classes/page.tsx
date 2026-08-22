@@ -44,6 +44,7 @@ export default function TeachingClassesPage() {
       statusClass={statusClass}
       inlineEdit
       standaloneForm
+      search={{ placeholder: '教学班名称' }}
       api={{
         list: (p) => api.listTeachingClasses(p),
         create: (d) => api.createTeachingClass(d),

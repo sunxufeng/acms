@@ -149,6 +149,7 @@ export const CONFIG_METAS: RecordMeta[] = [
     statusField: '状态',
     defaultStatus: '启用',
     searchField: '配置键',
+    searchFields: ['配置键', '配置值'],
     sortField: '分组',
   },
 ];

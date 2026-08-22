@@ -31,15 +31,14 @@ const COMM_MODULES: Record<string, { time: string; owner: string; theme: string 
 
 const SECTION_COLUMNS: Record<string, { key: string; label: string; width?: string }[]> = {
   'student-attendances': [
-    { key: '考勤编号', label: '编号', width: '110px' },
     { key: '考勤日期', label: '考勤日期', width: '120px' },
-    { key: '考勤状态', label: '状态', width: '100px' },
+    { key: '考勤状态', label: '考勤状态', width: '100px' },
     { key: '时段', label: '时段', width: '90px' },
     { key: '学年', label: '学年', width: '110px' },
     { key: '班级', label: '班级', width: '110px' },
   ],
   grades: [
-    { key: '成绩编号', label: '编号', width: '110px' },
+    { key: '考核日期', label: '考核日期', width: '120px' },
     { key: '学科', label: '学科', width: '90px' },
     { key: '考核名称', label: '考核', width: '180px' },
     { key: '成绩', label: '成绩', width: '80px' },
@@ -88,6 +87,8 @@ export default function Student360Page() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [popup, setPopup] = useState<{ title: string; content: string } | null>(null);
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
 
   useEffect(() => {
     let alive = true;
@@ -133,7 +134,7 @@ export default function Student360Page() {
     }
   }, [students]);
 
-  async function selectStudent(studentId: string) {
+  async function load360(studentId: string, from?: string, to?: string) {
     const student = students.find((s) => s.id === studentId) ?? null;
     setSelected(student);
     setData(null);
@@ -142,7 +143,7 @@ export default function Student360Page() {
 
     setLoading(true);
     try {
-      const d = await api.student360(student.id);
+      const d = await api.student360(student.id, { from, to });
       setData(d);
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败');
@@ -150,6 +151,18 @@ export default function Student360Page() {
       setLoading(false);
     }
   }
+
+  function selectStudent(studentId: string) {
+    load360(studentId, dateFrom, dateTo);
+  }
+
+  // 时间段变化时自动重新加载
+  useEffect(() => {
+    if (selected) {
+      load360(selected.id, dateFrom, dateTo);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateFrom, dateTo]);
 
   const totalRecords = data ? data.sections.reduce((n, s) => n + s.items.length, 0) : 0;
 
@@ -162,7 +175,7 @@ export default function Student360Page() {
         </div>
       </div>
 
-      {/* 学生选择器 */}
+      {/* 学生选择器 + 时间段筛选 */}
       <div className="filter-bar">
         <label className="form-label" style={{ width: 'min(420px, 100%)' }}>
           <span className="form-label-text">选择学生</span>
@@ -183,6 +196,24 @@ export default function Student360Page() {
               );
             })}
           </select>
+        </label>
+        <label className="form-label" style={{ width: '160px' }}>
+          <span className="form-label-text">开始日期</span>
+          <input
+            type="date"
+            className="form-input"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </label>
+        <label className="form-label" style={{ width: '160px' }}>
+          <span className="form-label-text">结束日期</span>
+          <input
+            type="date"
+            className="form-input"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
         </label>
         {selected && (
           <span className="badge">

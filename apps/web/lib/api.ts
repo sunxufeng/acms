@@ -473,8 +473,15 @@ export const api = {
   archiveAlumniFollowup: (id: string) => request<{ ok: boolean }>(`/alumni-followups/${id}`, { method: 'DELETE' }),
 
   /** 学生 360 视图：聚合某学生的全生命周期记录 */
-  student360: (studentId: string) =>
-    request<{ student: Record<string, unknown>; sections: { key: string; label: string; items: Record<string, unknown>[] }[] }>(`/student-360/${studentId}`),
+  student360: (studentId: string, params: { from?: string; to?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    const q = qs.toString();
+    return request<{ student: Record<string, unknown>; sections: { key: string; label: string; items: Record<string, unknown>[] }[] }>(
+      `/student-360/${studentId}${q ? `?${q}` : ''}`,
+    );
+  },
 
   // ── 系统配置（通用 CRUD） ───────────────────
   listSettings: (params: Record<string, string | undefined> = {}) => {

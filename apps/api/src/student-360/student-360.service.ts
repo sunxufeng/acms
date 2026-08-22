@@ -13,6 +13,28 @@ function toPrincipal(user: SessionUser): Principal {
   return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
 }
 
+/** 把飞书字段原始值解析为毫秒时间戳（支持 number / 'YYYY-MM-DD' / [{text}] 等） */
+function parseRecordDate(raw: unknown): number | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw === 'number') return raw;
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (!s) return undefined;
+    const t = new Date(s).getTime();
+    return Number.isNaN(t) ? undefined : t;
+  }
+  if (Array.isArray(raw)) {
+    const first = raw
+      .map((it) => (typeof it === 'string' ? it : (it as { text?: string })?.text ?? ''))
+      .find((s) => s.trim());
+    return first ? parseRecordDate(first) : undefined;
+  }
+  if (typeof raw === 'object') {
+    return parseRecordDate((raw as { text?: string }).text);
+  }
+  return undefined;
+}
+
 const SECTION_LABELS: Record<string, string> = {
   'source-followups': '招生跟进',
   'student-attendances': '学生考勤',
@@ -42,7 +64,11 @@ export class Student360Service {
     private readonly studentSvc: StudentService,
   ) {}
 
-  async getByStudent(user: SessionUser, studentId: string): Promise<{
+  async getByStudent(
+    user: SessionUser,
+    studentId: string,
+    range?: { from?: string; to?: string },
+  ): Promise<{
     student: Record<string, unknown>;
     sections: Student360Section[];
   }> {
@@ -55,7 +81,7 @@ export class Student360Service {
     const sections: Student360Section[] = [];
     for (const meta of LIFECYCLE_METAS) {
       const studentLink = (meta.linkFields ?? []).find((l) => l.table === TABLES.studentProfile.tableId);
-      const items = await this.fetchSection(meta, studentLink, studentId, String(student['学生姓名'] ?? ''));
+      const items = await this.fetchSection(meta, studentLink, studentId, String(student['学生姓名'] ?? ''), range);
       sections.push({ key: meta.path, label: SECTION_LABELS[meta.path] ?? meta.path, items });
     }
     return { student, sections };
@@ -66,6 +92,7 @@ export class Student360Service {
     studentLink: { field: string; table: string; nameField: string } | undefined,
     studentId: string,
     studentName: string,
+    range?: { from?: string; to?: string },
   ): Promise<Record<string, unknown>[]> {
     // 拉全表
     const all: { recordId: string; fields: Record<string, unknown> }[] = [];
@@ -80,13 +107,26 @@ export class Student360Service {
     // 按该学生过滤：优先 studentMatch（可能按姓名匹配，如招生/家校/日常跟进），
     // 否则回退到关联学生编号 link（record id 匹配）
     const match = meta.studentMatch;
-    const matched = all.filter((r) => {
+    let matched = all.filter((r) => {
       if (match) {
         const v = toText(r.fields[match.field]);
         return match.by === 'id' ? linkIds(r.fields[match.field]).includes(studentId) : v === studentName;
       }
       return studentLink ? linkIds(r.fields[studentLink.field]).includes(studentId) : false;
     });
+
+    // 按时间段筛选（以 sortField/rangeField 为日期基准）
+    const rangeField = meta.rangeField ?? meta.sortField;
+    if (rangeField && (range?.from || range?.to)) {
+      const fromMs = range.from ? new Date(`${range.from}T00:00:00`).getTime() : -Infinity;
+      const toMs = range.to ? new Date(`${range.to}T23:59:59.999`).getTime() : Infinity;
+      matched = matched.filter((r) => {
+        const t = parseRecordDate(r.fields[rangeField]);
+        if (t == null) return true; // 无日期字段的记录保守保留，避免误删
+        return t >= fromMs && t <= toMs;
+      });
+    }
+
     if (!matched.length) return [];
 
     // 收集需解析的关联 id

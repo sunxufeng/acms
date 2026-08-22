@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import type { SessionUser } from '@acms/contracts';
 import { SessionGuard } from '../auth/session.guard.js';
@@ -15,7 +15,12 @@ export class Student360Controller {
 
   /** 学生 360 视图：聚合某学生的全生命周期记录 */
   @Get(':studentId')
-  get(@Req() req: Request, @Param('studentId') studentId: string) {
-    return this.svc.getByStudent(this.user(req), studentId);
+  get(
+    @Req() req: Request,
+    @Param('studentId') studentId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.svc.getByStudent(this.user(req), studentId, { from, to });
   }
 }

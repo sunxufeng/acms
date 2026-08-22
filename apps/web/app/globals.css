@@ -118,6 +118,15 @@
   --login-label:     #4ECDC4;
   --login-line:      rgba(255, 255, 255, 0.08);
   --login-status:    #FFD700;
+
+  /* Alias tokens used by modals / pickers */
+  --bg:              var(--content-bg);
+  --bg-elevated:     var(--surface);
+  --bg-subtle:       var(--content-bg);
+  --bg-hover:        var(--surface-hover);
+  --accent-soft:     var(--accent-muted);
+  --accent-strong:   var(--accent-hover);
+  --shadow-card:     var(--shadow-md);
 }
 
 /* ── Light Theme — 月之明面 (opt-in via toggle) ───────────

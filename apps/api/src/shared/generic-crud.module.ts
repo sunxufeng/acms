@@ -274,11 +274,11 @@ export class BaseRecordService {
 
   private writeFields(dto: Record<string, unknown>) {
     const fields = buildWriteFields(dto, this.readonlySet(), this.numberSet());
-    // 关联字段（link）：前端提交单 record id 字符串，飞书 record link 写入要求 [{ record_id }]
+    // 关联字段（link）：前端提交单 record id 字符串，飞书 record link 写入要求 [record_id]
     for (const l of this.meta.linkFields ?? []) {
       const v = fields[l.field];
-      if (typeof v === 'string' && v.trim()) fields[l.field] = [{ record_id: v.trim() }];
-      else if (Array.isArray(v) && v.length) fields[l.field] = v;
+      if (typeof v === 'string' && v.trim()) fields[l.field] = [v.trim()];
+      else if (Array.isArray(v) && v.length) fields[l.field] = v.map((it) => (typeof it === 'string' ? it : (it as { record_id?: string })?.record_id)).filter(Boolean);
       else if (l.field in dto && (v === '' || v == null)) fields[l.field] = [];
     }
     for (const k of this.meta.dateFields ?? []) {

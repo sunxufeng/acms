@@ -99,7 +99,8 @@ export class StudentService {
     const conditions: FilterGroup['conditions'] = [];
     if (query.当前状态) {
       const vals = String(query.当前状态).split(',').filter(Boolean);
-      if (vals.length) conditions.push({ field: '当前状态', value: vals });
+      // 飞书 `is` 操作符对多值数组支持不稳定，多选时改为内存过滤（见 list）
+      if (vals.length === 1) conditions.push({ field: '当前状态', value: vals });
     }
     if (query.入学年级) conditions.push({ field: '入学年级', value: [query.入学年级] });
     if (query.入学年份) conditions.push({ field: '入学年份', value: [query.入学年份] });
@@ -173,6 +174,11 @@ export class StudentService {
     if (!allowed.allowed) throw new ForbiddenException('FORBIDDEN:student:read');
 
     const hasQ = !!query.q;
+    const multiStatus = (() => {
+      const v = query.当前状态;
+      return v ? String(v).split(',').filter(Boolean).length > 1 : false;
+    })();
+    const hasMemoryFilter = hasQ || multiStatus;
     const filter = this.buildFilter(query);
     const sort = query.sortBy
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]
@@ -180,7 +186,7 @@ export class StudentService {
     const psRaw = query.pageSize;
     const pageSize = (typeof psRaw === 'number' ? psRaw : Number(psRaw)) || 50;
 
-    // q 搜索：飞书不支持嵌套过滤组，故 q 用顶层 OR 在飞书侧执行，
+    // q 搜索或多选状态：飞书不支持嵌套过滤组/多值 is，故 q 用顶层 OR 在飞书侧执行，
     // 其余筛选与分页在内存中执行；无 q 时维持原有服务端分页。
     const abacPass = (s: StudentRecord) =>
       authorize(principal, 'student:read', {
@@ -190,8 +196,12 @@ export class StudentService {
     const enrichAll = (arr: StudentRecord[]) =>
       Promise.all(arr.map((s) => this.enrichAttachmentViewUrls(s).catch(() => undefined)));
 
-    if (hasQ) {
-      const all = await this.fetchAll(TABLE, { filter, sort });
+    if (hasMemoryFilter) {
+      // 多选状态时不在服务端 filter 里传当前状态，避免 500；由 matchesNonQ 在内存过滤
+      const serverFilter = multiStatus && !hasQ
+        ? this.buildFilter({ ...query, q: undefined })
+        : filter;
+      const all = await this.fetchAll(TABLE, { filter: serverFilter, sort });
       let students = all.map((r) => this.toStudent(r)).filter(abacPass);
       students = students.filter((s) => this.matchesNonQ(s, query));
       await enrichAll(students);

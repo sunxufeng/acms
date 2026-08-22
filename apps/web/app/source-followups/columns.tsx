@@ -20,7 +20,6 @@ export const COLUMNS: CrudColumn[] = [
       return <span style={{ color: 'var(--accent)' }}>{name}</span>;
     },
   },
-  { key: '沟通主题', label: '沟通主题', width: '120px', form: true, listOrder: 2 },
   { key: '跟进时间', label: '跟进时间', width: '150px', form: true, type: 'datetime', listOrder: 3 },
   { key: '跟进状态', label: '跟进状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '跟进状态', listOrder: 4 },
   { key: '活动类型', label: '活动类型', width: '110px', filter: true, form: true, type: 'select', dictKey: '活动类型', listOrder: 5 },
@@ -29,7 +28,7 @@ export const COLUMNS: CrudColumn[] = [
   // ── 参考家校沟通编辑页面新增的字段 ──
   { key: '家长', label: '家长', width: '110px', list: false, form: true, type: 'parent', dependsOn: '关联学生', required: true },
   { key: '家长反馈态度', label: '家长反馈态度', width: '130px', list: false, filter: true, form: true, type: 'select', dictKey: '家长反馈态度' },
-  { key: '沟通主题', label: '沟通主题', width: '120px', form: true },
+  { key: '沟通主题', label: '沟通主题', width: '120px', form: true, listOrder: 2 },
   { key: '沟通明细', label: '沟通明细（MD 对话记录）', list: false, form: true, type: 'markdown' },
   { key: '沟通总结', label: '沟通总结（报告）', list: false, form: true, type: 'markdown' },
   { key: '沟通附件清单', label: '附件', width: '180px', list: false, form: true, type: 'attachment' },

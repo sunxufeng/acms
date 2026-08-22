@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../../lib/api';
 
 interface StudentHit {
@@ -20,20 +21,15 @@ interface Section {
   items: Record<string, unknown>[];
 }
 
+// 沟通类模块：统一以「时间 / 负责人 / 活动主题 / 沟通明细 / 沟通总结」列表展示，
+// 其中 沟通明细、沟通总结 以超链接呈现，点击弹出框查看完整内容。
+const COMM_MODULES: Record<string, { time: string; owner: string; theme: string }> = {
+  'source-followups': { time: '跟进日期', owner: '跟进负责人', theme: '沟通主题' },
+  'home-school-comms': { time: '沟通时间', owner: '沟通人', theme: '沟通主题' },
+  'daily-followups': { time: '沟通时间', owner: '沟通人', theme: '沟通主题' },
+};
+
 const SECTION_COLUMNS: Record<string, { key: string; label: string; width?: string }[]> = {
-  'source-followups': [
-    { key: '跟进编号', label: '编号', width: '110px' },
-    { key: '活动类型', label: '活动类型', width: '100px' },
-    { key: '跟进日期', label: '跟进日期', width: '120px' },
-    { key: '跟进状态', label: '状态', width: '100px' },
-    { key: '原学校', label: '原学校', width: '140px' },
-    { key: '原学校类型', label: '原学校类型', width: '120px' },
-    { key: '合同状态', label: '合同状态', width: '110px' },
-    { key: '付款状态', label: '付款状态', width: '110px' },
-    { key: '奖学金金额', label: '奖学金金额', width: '120px' },
-    { key: '家庭关键决策点', label: '家庭关键决策点', width: '140px' },
-    { key: '跟进内容', label: '跟进内容' },
-  ],
   'student-attendances': [
     { key: '考勤编号', label: '编号', width: '110px' },
     { key: '考勤日期', label: '考勤日期', width: '120px' },
@@ -59,22 +55,6 @@ const SECTION_COLUMNS: Record<string, { key: string; label: string; width?: stri
     { key: '活动类型', label: '类型', width: '100px' },
     { key: '参与情况', label: '参与', width: '90px' },
     { key: '活动表现', label: '表现', width: '90px' },
-  ],
-  'home-school-comms': [
-    { key: '沟通编号', label: '编号', width: '110px' },
-    { key: '沟通时间', label: '沟通时间', width: '120px' },
-    { key: '沟通方式', label: '方式', width: '90px' },
-    { key: '沟通主题', label: '主题', width: '160px' },
-    { key: '闭环状态', label: '闭环', width: '100px' },
-    { key: '家长', label: '家长', width: '160px' },
-  ],
-  'daily-followups': [
-    { key: '日常跟进编号', label: '编号', width: '110px' },
-    { key: '沟通人', label: '沟通人', width: '100px' },
-    { key: '沟通方式', label: '方式', width: '90px' },
-    { key: '沟通主题', label: '主题', width: '160px' },
-    { key: '沟通时间', label: '沟通时间', width: '120px' },
-    { key: '闭环状态', label: '闭环', width: '100px' },
   ],
   'stage-evaluations': [
     { key: '评价编号', label: '编号', width: '110px' },
@@ -107,6 +87,7 @@ export default function Student360Page() {
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [popup, setPopup] = useState<{ title: string; content: string } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -238,6 +219,61 @@ export default function Student360Page() {
 
           {/* 各生命周期分段 */}
           {data.sections.map((sec) => {
+            const comm = COMM_MODULES[sec.key];
+            if (comm) {
+              return (
+                <div className="section" key={sec.key}>
+                  <div className="section-head">
+                    <h2>{sec.label}</h2>
+                    <span className="badge">{sec.items.length}</span>
+                  </div>
+                  {sec.items.length === 0 ? (
+                    <div className="empty-state">暂无记录</div>
+                  ) : (
+                    <div className="table-wrap">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: '130px' }}>时间</th>
+                            <th style={{ width: '120px' }}>负责人</th>
+                            <th style={{ width: '180px' }}>活动主题</th>
+                            <th>沟通明细</th>
+                            <th>沟通总结</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sec.items.map((it) => (
+                            <tr key={String(it.id)}>
+                              <td>{str(it[comm.time]) || <span className="muted">—</span>}</td>
+                              <td>{str(it[comm.owner]) || <span className="muted">—</span>}</td>
+                              <td>{str(it[comm.theme]) || <span className="muted">—</span>}</td>
+                              <td>
+                                {str(it['沟通明细']) ? (
+                                  <button type="button" className="link-btn" onClick={() => setPopup({ title: `${sec.label} · 沟通明细`, content: str(it['沟通明细']) })}>
+                                    查看
+                                  </button>
+                                ) : (
+                                  <span className="muted">—</span>
+                                )}
+                              </td>
+                              <td>
+                                {str(it['沟通总结']) ? (
+                                  <button type="button" className="link-btn" onClick={() => setPopup({ title: `${sec.label} · 沟通总结`, content: str(it['沟通总结']) })}>
+                                    查看
+                                  </button>
+                                ) : (
+                                  <span className="muted">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            }
             const cols = SECTION_COLUMNS[sec.key] ?? [];
             return (
               <div className="section" key={sec.key}>
@@ -280,6 +316,30 @@ export default function Student360Page() {
       {!selected && !loading && (
         <div className="empty-state">请选择一名学生，查看其招生、考勤、成绩、实践、家校、评价与校友的全景记录。</div>
       )}
+
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <DetailModal title={popup?.title ?? ''} content={popup?.content ?? ''} onClose={() => setPopup(null)} />,
+          document.body,
+        )}
+    </div>
+  );
+}
+
+function DetailModal({ title, content, onClose }: { title: string; content: string; onClose: () => void }) {
+  if (!title && !content) return null;
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="detail-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="detail-modal-head">
+          <h3 className="detail-modal-title">{title}</h3>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>×</button>
+        </div>
+        <div className="detail-modal-body">{content || '（无内容）'}</div>
+        <div className="detail-modal-foot">
+          <button type="button" className="btn btn-primary btn-sm" onClick={onClose}>关闭</button>
+        </div>
+      </div>
     </div>
   );
 }

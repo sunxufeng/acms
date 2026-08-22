@@ -56,18 +56,16 @@ const NAV_ITEMS: NavGroup[] = [
       { key: 'adjustments', label: '调整冲销', href: '/adjustments', icon: BillingIcon },
       { key: 'partnerships', label: '聘用合作', href: '/partnerships', icon: TeachersIcon },
     ],
-    subsections: [
-      {
-        title: 'AI 助手',
-        items: [
-          { key: 'aiChat', label: 'AI 对话', href: '/ai/chat', icon: ChatIcon },
-          { key: 'aiConfig', label: 'AI 设置', href: '/ai/config', icon: ConfigIcon },
-          { key: 'aiAgents', label: 'Bot管理', href: '/ai/agents', icon: BotIcon, perm: 'ai:config' },
-          { key: 'aiSkills', label: '技能管理', href: '/ai/skills', icon: SkillIcon, perm: 'ai:admin' },
-          { key: 'aiAutomations', label: '定时任务', href: '/ai/automations', icon: ClockIcon, perm: 'ai:automation' },
-          { key: 'aiAdmin', label: 'AI 用量', href: '/ai/admin', icon: ChartIcon, perm: 'ai:admin' },
-        ],
-      },
+  },
+  {
+    section: '智能助手',
+    items: [
+      { key: 'aiChat', label: 'AI 对话', href: '/ai/chat', icon: ChatIcon },
+      { key: 'aiConfig', label: 'AI 设置', href: '/ai/config', icon: ConfigIcon },
+      { key: 'aiAgents', label: 'Bot管理', href: '/ai/agents', icon: BotIcon, perm: 'ai:config' },
+      { key: 'aiSkills', label: '技能管理', href: '/ai/skills', icon: SkillIcon, perm: 'ai:admin' },
+      { key: 'aiAutomations', label: '定时任务', href: '/ai/automations', icon: ClockIcon, perm: 'ai:automation' },
+      { key: 'aiAdmin', label: 'AI 用量', href: '/ai/admin', icon: ChartIcon, perm: 'ai:admin' },
     ],
   },
   {

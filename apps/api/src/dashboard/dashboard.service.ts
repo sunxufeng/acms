@@ -33,7 +33,7 @@ export class DashboardService {
 
     const [在读学生, 今日课次, 待确认课次, 待履约, 待教务审核, 待确认计费, 待审批结算, 待审核调整, 失败通知, 考勤异常] =
       await Promise.all([
-        safe(() => count(TABLES.studentProfile.tableId, [{ field: '当前状态', value: ['在读'] }])),
+        safe(() => count(TABLES.studentProfile.tableId, [{ field: '当前状态', value: ['在校在读'] }])),
         safe(async () => {
           const items = await countAll(TABLES.session.tableId);
           return items.filter((r) => (r.fields['课次日期'] as string) === today).length;

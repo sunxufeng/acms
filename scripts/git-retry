@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# git-retry: run a git command, retrying past the sandbox proxy's intermittent
+# 502 / CONNECT-tunnel / HTTP2-framing errors (which hit github.com:443 but not
+# api.github.com). For `push`, after git retries are exhausted it falls back to
+# scripts/push_via_api.py (GitHub Git Database REST API, which is reliable).
+#
+# Install as a git alias:
+#   git config --global alias.retry '!/abs/path/to/scripts/git-retry'
+# Usage:
+#   git retry push origin main
+#   git retry fetch origin
+#   git retry pull origin main
+set -u
+
+MAX_ATTEMPTS=12
+BASE_SLEEP=2
+MAX_SLEEP=30
+
+# network-ish failure signatures we are willing to retry
+is_network_error() {
+  printf '%s' "$1" | grep -qiE \
+    '502|CONNECT tunnel failed|HTTP/2|framing error|timed out|SSL_ERROR|unable to access|Could not resolve|Connection reset|Connection refused|Connection established.*502|EOF occurred|stream error'
+}
+
+extract_token() {
+  # 1) explicit env
+  if [ -n "${GH_TOKEN:-}" ]; then echo "$GH_TOKEN"; return; fi
+  # 2) embedded in remote URL: https://<token>@github.com/...
+  local url
+  url=$(git remote get-url origin 2>/dev/null)
+  if printf '%s' "$url" | grep -qE 'https://[^@]+@github\.com'; then
+    printf '%s' "$url" | sed -E 's#https://([^@]+)@github\.com.*#\1#'
+    return
+  fi
+  return 1
+}
+
+attempt=0
+last_out=""
+while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
+  attempt=$((attempt + 1))
+  out=$(git "$@" 2>&1)
+  code=$?
+  last_out="$out"
+  if [ "$code" -eq 0 ]; then
+    printf '%s\n' "$out"
+    exit 0
+  fi
+  if is_network_error "$out"; then
+    echo "[git-retry] attempt $attempt failed (proxy/network): $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)" >&2
+    if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+      sleep "$BASE_SLEEP"
+      BASE_SLEEP=$((BASE_SLEEP * 2 > MAX_SLEEP ? MAX_SLEEP : BASE_SLEEP * 2))
+      continue
+    fi
+  else
+    # non-network error (rejected / non-fast-forward / auth) — do not retry
+    printf '%s\n' "$out" >&2
+    exit "$code"
+  fi
+done
+
+# Exhausted git retries.
+if [ "${1:-}" = "push" ] && command -v python3 >/dev/null 2>&1; then
+  ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+  SCRIPT="$ROOT/scripts/push_via_api.py"
+  if [ -f "$SCRIPT" ]; then
+    TOKEN=$(extract_token) || {
+      echo "[git-retry] push fallback skipped: cannot find GH_TOKEN (set env or embed in remote URL)." >&2
+      printf '%s\n' "$last_out" >&2
+      exit 1
+    }
+    MSG=$(git log -1 --format=%s 2>/dev/null)
+    echo "[git-retry] git push exhausted retries (proxy 502); falling back to REST API push..." >&2
+    GH_TOKEN="$TOKEN" COMMIT_MESSAGE="$MSG" python3 "$SCRIPT"
+    exit $?
+  fi
+fi
+
+echo "[git-retry] giving up after $MAX_ATTEMPTS attempts:" >&2
+printf '%s\n' "$last_out" >&2
+exit 1

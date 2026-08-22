@@ -22,6 +22,8 @@ interface Section {
   items: Record<string, unknown>[];
 }
 
+type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
+
 // 沟通类模块：统一以「时间 / 负责人 / 活动主题 / 沟通明细 / 沟通总结」列表展示，
 // 其中 沟通明细、沟通总结 以超链接呈现，点击弹出框查看完整内容。
 const COMM_MODULES: Record<string, { time: string; owner: string; theme: string }> = {
@@ -88,6 +90,10 @@ export default function Student360Page() {
   const [popup, setPopup] = useState<{ title: string; content: string } | null>(null);
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [leftWidth, setLeftWidth] = useState(55);
+  const [dragging, setDragging] = useState(false);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let alive = true;
@@ -163,15 +169,56 @@ export default function Student360Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateFrom, dateTo]);
 
+  // 智能分析分屏时，让 .page-content 占满主区域
+  useEffect(() => {
+    const pc = document.querySelector('.page-content');
+    if (!pc) return;
+    if (analysisOpen) pc.classList.add('student-360-split-mode');
+    else pc.classList.remove('student-360-split-mode');
+    return () => {
+      pc.classList.remove('student-360-split-mode');
+    };
+  }, [analysisOpen]);
+
+  // 拖拽调节左右分屏宽度
+  useEffect(() => {
+    if (!dragging) return;
+    function onMove(e: MouseEvent) {
+      const container = splitContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
+      setLeftWidth(Math.min(70, Math.max(30, pct)));
+    }
+    function onUp() {
+      setDragging(false);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [dragging]);
+
   const totalRecords = data ? data.sections.reduce((n, s) => n + s.items.length, 0) : 0;
 
-  return (
-    <div className="crud-page">
-      <div className="page-header">
+  const mainBody = (
+    <>
+      <div className="page-header page-header-row">
         <div>
           <h1 className="page-title">学生全景</h1>
           <p className="page-subtitle">以单个学生为中心，汇总其全生命周期记录（M1 学生域）</p>
         </div>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={!selected}
+          title={selected ? '打开智能分析面板' : '请先选择学生'}
+          onClick={() => setAnalysisOpen((v) => !v)}
+        >
+          {analysisOpen ? '关闭分析' : '智能分析'}
+        </button>
       </div>
 
       {/* 学生选择器 + 时间段筛选 */}
@@ -346,12 +393,267 @@ export default function Student360Page() {
       {!selected && !loading && (
         <div className="empty-state">请选择一名学生，查看其招生、考勤、成绩、实践、家校、评价与校友的全景记录。</div>
       )}
+    </>
+  );
+
+  return (
+    <div className="crud-page" ref={splitContainerRef}>
+      {analysisOpen ? (
+        <>
+          <div
+            style={{
+              width: `${leftWidth}%`,
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              borderRight: '1px solid var(--border)',
+            }}
+          >
+            <div style={{ flex: 1, overflow: 'auto', padding: 'var(--space-xl) var(--space-2xl)' }}>
+              {mainBody}
+            </div>
+          </div>
+          <div
+            onMouseDown={() => setDragging(true)}
+            style={{
+              width: 6,
+              flexShrink: 0,
+              cursor: 'col-resize',
+              background: dragging ? 'var(--accent)' : 'var(--border)',
+              transition: 'background 0.15s',
+            }}
+          />
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <SmartAnalysisPanel
+              student={data?.student}
+              sections={data?.sections ?? []}
+              onClose={() => setAnalysisOpen(false)}
+            />
+          </div>
+        </>
+      ) : (
+        mainBody
+      )}
 
       {typeof document !== 'undefined' &&
         createPortal(
           <DetailModal title={popup?.title ?? ''} content={popup?.content ?? ''} onClose={() => setPopup(null)} />,
           document.body,
         )}
+    </div>
+  );
+}
+
+function buildStudentContext(student: Record<string, unknown> | undefined, sections: Section[]): string {
+  if (!student) return '（未选择学生）';
+  const lines: string[] = [];
+  lines.push('你是 ACMS 学生全景智能分析助手。请基于以下学生信息回答用户问题，若信息不足请明确说明。');
+  lines.push('');
+  lines.push('【学生基本信息】');
+  lines.push(`- 姓名：${str(student.学生姓名) || '未知'}`);
+  lines.push(`- 学生编号：${str(student.学生编号) || '—'}`);
+  lines.push(`- 当前状态：${str(student.当前状态) || '—'}`);
+  lines.push(`- 校区：${str(student.校区) || '—'}`);
+  lines.push(`- 入学年级：${str(student.入学年级) || '—'}`);
+  lines.push(`- 班级：${str(student.班级) || '—'}`);
+  lines.push(`- 当前学段：${str(student.当前学段) || '—'}`);
+  lines.push(`- 英文名：${str(student.英文名) || '—'}`);
+  lines.push('');
+
+  const total = sections.reduce((n, s) => n + s.items.length, 0);
+  lines.push(`【全生命周期记录】（共 ${total} 条）`);
+  for (const sec of sections) {
+    if (sec.items.length === 0) {
+      lines.push(`- ${sec.label}：无记录`);
+      continue;
+    }
+    lines.push(`- ${sec.label}：${sec.items.length} 条`);
+    const recent = sec.items.slice(0, 3);
+    for (const it of recent) {
+      const comm = COMM_MODULES[sec.key];
+      if (comm) {
+        const parts = [
+          `时间：${str(it[comm.time]) || '—'}`,
+          `负责人：${str(it[comm.owner]) || '—'}`,
+          `主题：${str(it[comm.theme]) || '—'}`,
+        ];
+        lines.push(`  · ${parts.join(' | ')}`);
+        const detail = str(it['沟通明细']);
+        const summary = str(it['沟通总结']);
+        if (summary) lines.push(`    沟通总结：${summary.slice(0, 160)}${summary.length > 160 ? '...' : ''}`);
+        else if (detail) lines.push(`    沟通明细：${detail.slice(0, 160)}${detail.length > 160 ? '...' : ''}`);
+      } else {
+        const cols = SECTION_COLUMNS[sec.key] ?? [];
+        const parts = cols.slice(0, 4).map((c) => `${c.label}：${str(it[c.key]) || '—'}`);
+        lines.push(`  · ${parts.join(' | ')}`);
+      }
+    }
+  }
+  return lines.join('\n');
+}
+
+function SmartAnalysisPanel({
+  student,
+  sections,
+  onClose,
+}: {
+  student?: Record<string, unknown>;
+  sections: Section[];
+  onClose: () => void;
+}) {
+  const [agents, setAgents] = useState<{ id: string; name: string; provider?: string; model?: string }[]>([]);
+  const [agentId, setAgentId] = useState('');
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    api.aiListAgents().then((list) => setAgents((list as { id: string; name: string; provider?: string; model?: string }[]) || [])).catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    const ctx = buildStudentContext(student, sections);
+    setMessages([{ role: 'system', content: ctx }]);
+    setSessionId(null);
+    setInput('');
+  }, [student, sections]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' });
+  }, [messages]);
+
+  async function send() {
+    const text = input.trim();
+    if (!text || sending || !student) return;
+    setInput('');
+    const next = [...messages, { role: 'user' as const, content: text }];
+    setMessages(next);
+    setSending(true);
+
+    let sid = sessionId;
+    if (!sid) {
+      try {
+        const r = await api.aiCreateConversation({ title: `学生分析 · ${str(student.学生姓名) || '未命名'}` });
+        sid = r.id;
+        setSessionId(sid);
+      } catch {
+        // 会话创建失败时继续用临时 history，不阻塞对话
+      }
+    }
+
+    try {
+      const r = await api.aiChat({ message: text, sessionId: sid ?? undefined, agentId: agentId || undefined, history: messages });
+      setMessages([...next, { role: 'assistant', content: r.content }]);
+      if (r.sessionId && !sessionId) setSessionId(r.sessionId);
+    } catch (e) {
+      setMessages([...next, { role: 'assistant', content: `⚠️ ${e instanceof Error ? e.message : String(e)}` }]);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const studentName = str(student?.学生姓名) || '未选学生';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      <div
+        style={{
+          flexShrink: 0,
+          padding: '14px 18px',
+          borderBottom: '1px solid var(--border)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>智能分析</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>当前学生：{studentName}</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <select
+            value={agentId}
+            onChange={(e) => setAgentId(e.target.value)}
+            style={{
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: '6px 10px',
+              fontSize: 13,
+            }}
+          >
+            <option value="">个人默认配置</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}（{a.provider || '—'}{a.model ? ` · ${a.model}` : ''}）
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} title="关闭智能分析">×</button>
+        </div>
+      </div>
+
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {messages.length <= 1 && (
+          <div style={{ color: 'var(--text-muted)', margin: 'auto', textAlign: 'center', maxWidth: 360 }}>
+            已加载「{studentName}」的全景摘要，可询问学习情况、考勤趋势、家校沟通总结、招生意向等任何问题。
+          </div>
+        )}
+        {messages.map((m, i) => {
+          if (m.role === 'system') return null;
+          return (
+            <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+              <div
+                style={{
+                  maxWidth: '86%',
+                  background: m.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)',
+                  color: m.role === 'user' ? '#fff' : 'var(--text)',
+                  padding: '10px 14px',
+                  borderRadius: 12,
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                }}
+              >
+                <Markdown>{m.content}</Markdown>
+              </div>
+            </div>
+          );
+        })}
+        {sending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>思考中…</div>}
+      </div>
+
+      <div style={{ flexShrink: 0, borderTop: '1px solid var(--border)', padding: 12, display: 'flex', gap: 8 }}>
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+          placeholder="输入与学生相关的问题，Enter 发送…"
+          disabled={!student || sending}
+          style={{
+            flex: 1,
+            resize: 'none',
+            height: 44,
+            background: 'var(--bg-tertiary)',
+            color: 'var(--text)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: 10,
+            fontSize: 14,
+          }}
+        />
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={!student || sending || !input.trim()}
+          onClick={send}
+        >
+          {sending ? '发送中' : '发送'}
+        </button>
+      </div>
     </div>
   );
 }

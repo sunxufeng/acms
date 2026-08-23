@@ -86,6 +86,8 @@ export interface CrudPageProps {
   inlineEdit?: boolean;
   /** 新建/编辑时使用独立页面风格，隐藏列表页标题、操作与筛选区 */
   standaloneForm?: boolean;
+  /** 新建/编辑状态变化回调（true=进入表单，false=返回列表） */
+  onEditingChange?: (editing: boolean) => void;
   /** 每页记录数（默认 5，参考学生列表页） */
   pageSize?: number;
   /** 额外链接按钮（如「排课与课次」跳转预检页），渲染为 <Link> */
@@ -178,7 +180,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = pageSize ?? 5;
@@ -207,6 +209,10 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     .sort((a, b) => (a.listOrder ?? Infinity) - (b.listOrder ?? Infinity));
   const showingInlineForm = Boolean(inlineEdit && editing);
   const showingStandaloneForm = Boolean(standaloneForm && editing);
+
+  useEffect(() => {
+    onEditingChange?.(!!editing);
+  }, [editing, onEditingChange]);
 
   // 用 ref 持有最新的 api / filters / rangeFilters，避免 load 因这些依赖变化而反复重建，
   // 否则每次渲染都会重新触发拉取 -> 页面（尤其按姓名搜索时）不停刷新闪烁。

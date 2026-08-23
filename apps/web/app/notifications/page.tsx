@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 
+
 const CHANNEL_OPTS = ['飞书', '短信', '邮件'];
 const RECEIPT_OPTS = ['待发送', '已发送', '已送达', '失败', '已读'];
 const RECEIPT_TX: Record<string, string[]> = {
@@ -83,9 +84,10 @@ function SendPanel() {
 }
 
 export default function NotificationsPage() {
+  const [editing, setEditing] = useState(false);
   return (
     <div>
-      <SendPanel />
+      {!editing && <SendPanel />}
       <CrudPage
         title="通知发送记录"
         subtitle="单发 / 批量发送与回执状态机（M4 通知闭环）。新建/编辑时进入独立表单，顶部不再显示「新建」「查询」"
@@ -93,6 +95,7 @@ export default function NotificationsPage() {
         inlineEdit
         standaloneForm
         hideCreate
+        onEditingChange={setEditing}
         api={{
           list: (p) => api.listNotificationLogs(p),
           create: () => Promise.reject(new Error('请使用上方发送工作台创建记录')),

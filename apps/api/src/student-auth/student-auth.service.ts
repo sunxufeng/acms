@@ -151,27 +151,41 @@ export class StudentAuthService {
   > {
     const kw = String(keyword ?? '').trim();
     if (!kw) return [];
-    const res = await this.base.search(STUDENT_TABLE, {
-      pageSize: 100,
-      filter: {
-        conjunction: 'or',
-        conditions: [
-          { field: '学生姓名', op: 'contains', value: [kw] },
-          { field: '学生编号', op: 'contains', value: [kw] },
-        ],
-      },
-    });
-    return res.items.map((r) => {
-      const f = r.fields;
-      const no = String(toText(f['学生编号']) ?? '').trim();
-      return {
-        studentNo: no,
-        name: toText(f['学生姓名']) ?? '',
-        studentId: r.recordId,
-        campus: toText(f['校区']) ?? '',
-        hasAccount: this.accounts.has(no),
-      };
-    });
+    // 姓名用 contains（文本字段安全）；学号用精确 is（学号可能是数字/自动编号字段，
+    // 对其使用 contains 会触发飞书 InvalidFilter 导致整接口 500）。
+    // 两个检索独立执行，任一个失败都不影响另一个，避免整接口 500。
+    const [byName, byNo] = await Promise.allSettled([
+      this.base.search(STUDENT_TABLE, {
+        pageSize: 100,
+        filter: buildFilter([{ field: '学生姓名', op: 'contains', value: [kw] }]),
+      }),
+      this.base.search(STUDENT_TABLE, {
+        pageSize: 100,
+        filter: buildFilter([{ field: '学生编号', value: [kw] }]),
+      }),
+    ]);
+    const out = new Map<
+      string,
+      { studentNo: string; name: string; studentId: string; campus: string; hasAccount: boolean }
+    >();
+    const collect = (res?: { items: BaseRecord[] }) => {
+      if (!res) return;
+      for (const r of res.items) {
+        const f = r.fields;
+        const no = String(toText(f['学生编号']) ?? '').trim();
+        if (!no || out.has(no)) continue;
+        out.set(no, {
+          studentNo: no,
+          name: toText(f['学生姓名']) ?? '',
+          studentId: r.recordId,
+          campus: toText(f['校区']) ?? '',
+          hasAccount: this.accounts.has(no),
+        });
+      }
+    };
+    if (byName.status === 'fulfilled') collect(byName.value);
+    if (byNo.status === 'fulfilled') collect(byNo.value);
+    return [...out.values()];
   }
 
   /** 学生密码登录 → 签发会话 */

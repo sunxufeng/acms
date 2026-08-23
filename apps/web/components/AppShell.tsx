@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { api } from '../lib/api';
-import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
+import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
 
 interface Me {
   name: string;
@@ -173,6 +173,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [dashboardTheme, setDashboardTheme] = useState<DashboardTheme | null>(null);
   const [menuConfig, setMenuConfig] = useState<NavMenuConfig>(DEFAULT_NAV_MENU_CONFIG);
+  const [menuGroups, setMenuGroups] = useState<NavMenuGroupConfig | null>(null);
   const [logoError, setLogoError] = useState(false);
 
   // Sidebar: init from localStorage
@@ -214,6 +215,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       .then((d) => {
         if (d?.items?.length) setMenuConfig(d);
       })
+      .catch(() => null);
+    api.getMenuGroups()
+      .then((d) => setMenuGroups(d))
       .catch(() => null);
   }, []);
 
@@ -307,6 +311,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   });
   const navGroups = Object.entries(sectionsMap).map(([section, items]) => ({ section, items }));
 
+  // 侧边栏「分组（大类）」顺序以菜单分组配置为准；未配置分组则维持原顺序。
+  const groupOrder = new Map<string, number>();
+  for (const g of menuGroups?.items ?? []) {
+    if (g.order != null) {
+      groupOrder.set(g.key, g.order);
+      groupOrder.set(g.label, g.order);
+    }
+  }
+  const navGroupsSorted = navGroups.slice().sort((a, b) => {
+    const oa = groupOrder.has(a.section) ? (groupOrder.get(a.section) as number) : Number.MAX_SAFE_INTEGER;
+    const ob = groupOrder.has(b.section) ? (groupOrder.get(b.section) as number) : Number.MAX_SAFE_INTEGER;
+    return oa - ob;
+  });
+
   // Theme-derived values
   const sidebarStyle = themeCssVars(dashboardTheme);
   const sidebarLogoUrl = dashboardTheme?.logoUrl ? imageUrl(dashboardTheme.logoUrl) : '/logo.png';
@@ -339,7 +357,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="sidebar-nav">
-          {navGroups.map((group) => {
+          {navGroupsSorted.map((group) => {
             if (group.items.length === 0) return null;
             const expanded = expandedSections[group.section] ?? false;
             const renderItem = (item: NavMenuItem) => {

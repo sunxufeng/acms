@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import { BaseClient } from '@acms/base-adapter';
+import { BaseClient, toText } from '@acms/base-adapter';
 import { TABLES, USER_TABLE } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import {
@@ -244,31 +244,83 @@ export class DictService {
         result.skipped.push(`教师类别（已存在但非单选 type=${catDef.type}，跳过）`);
       }
 
-      // 2) 主要学科：单选（下拉）。原为多选字段，改为单选下拉需重建字段类型。
+      // 2) 主要学科：多选（下拉）。教师可担任多个学科，故改为多选。
+      //    原为单选字段时，需先快照存量单值，删除重建为多选后再写回，避免数据丢失。
       const majorDef = byName.get('主要学科');
       if (!majorDef) {
         await this.base.createField(tableId, {
-          field_name: '主要学科', type: SINGLE_SELECT, property: { options: opt('主要学科') },
+          field_name: '主要学科', type: MULTI_SELECT, property: { options: opt('主要学科') },
         });
-        result.synced.push('主要学科（已创建单选）');
-      } else if (majorDef.type !== SINGLE_SELECT) {
-        // 多选/文本等非单选 → 删除重建为单选（字段数据会丢失，符合「改为单选下拉」需求）
+        result.synced.push('主要学科（已创建多选）');
+      } else if (majorDef.type !== MULTI_SELECT) {
+        // 单选/文本等非多选 → 迁移存量单值后重建为多选
+        const snapshot: { id: string; value: string }[] = [];
+        try {
+          let token: string | undefined;
+          do {
+            const page = await this.base.search(tableId, { pageSize: 100, pageToken: token });
+            for (const r of page.items) {
+              const v = toText(r.fields['主要学科']);
+              if (v) snapshot.push({ id: r.recordId, value: v });
+            }
+            token = page.hasMore ? page.pageToken : undefined;
+          } while (token);
+        } catch {
+          /* 读取失败仅影响迁移，不阻断 */
+        }
         await this.base.deleteField(tableId, majorDef.id);
         await this.base.createField(tableId, {
-          field_name: '主要学科', type: SINGLE_SELECT, property: { options: opt('主要学科') },
+          field_name: '主要学科', type: MULTI_SELECT, property: { options: opt('主要学科') },
         });
-        result.synced.push('主要学科（多选→单选重建）');
+        let restored = 0;
+        for (const s of snapshot) {
+          try {
+            await this.base.update(tableId, s.id, { 主要学科: [s.value] });
+            restored++;
+          } catch {
+            /* 单条写回失败忽略 */
+          }
+        }
+        result.synced.push(`主要学科（单选→多选重建，迁移 ${restored} 条）`);
       } else {
         const existing = new Set((majorDef.property.options ?? []).map((o) => o.name));
         const toAdd = opt('主要学科').filter((o) => !existing.has(o.name));
         if (toAdd.length) {
           await this.base.updateField(tableId, majorDef.id, {
-            field_name: '主要学科', type: SINGLE_SELECT,
+            field_name: '主要学科', type: MULTI_SELECT,
             property: { options: [...(majorDef.property.options ?? []).map((o) => ({ name: o.name })), ...toAdd] },
           });
           result.synced.push(`主要学科（+${toAdd.length}）`);
         } else {
           result.skipped.push('主要学科（已是最新）');
+        }
+      }
+
+      // 2.4) 教师合作等级：单选（下拉），候选项来自字典 L1/L2/L3。
+      //      原为文本字段，改为单选下拉需重建字段类型（新字段一般无数据）。
+      const levelDef = byName.get('教师合作等级');
+      if (!levelDef) {
+        await this.base.createField(tableId, {
+          field_name: '教师合作等级', type: SINGLE_SELECT, property: { options: opt('教师合作等级') },
+        });
+        result.synced.push('教师合作等级（已创建单选）');
+      } else if (levelDef.type !== SINGLE_SELECT) {
+        await this.base.deleteField(tableId, levelDef.id);
+        await this.base.createField(tableId, {
+          field_name: '教师合作等级', type: SINGLE_SELECT, property: { options: opt('教师合作等级') },
+        });
+        result.synced.push('教师合作等级（文本→单选重建）');
+      } else {
+        const existing = new Set((levelDef.property.options ?? []).map((o) => o.name));
+        const toAdd = opt('教师合作等级').filter((o) => !existing.has(o.name));
+        if (toAdd.length) {
+          await this.base.updateField(tableId, levelDef.id, {
+            field_name: '教师合作等级', type: SINGLE_SELECT,
+            property: { options: [...(levelDef.property.options ?? []).map((o) => ({ name: o.name })), ...toAdd] },
+          });
+          result.synced.push(`教师合作等级（+${toAdd.length}）`);
+        } else {
+          result.skipped.push('教师合作等级（已是最新）');
         }
       }
 
@@ -319,7 +371,6 @@ export class DictService {
         { name: '开课人数说明', type: 1 },
         { name: '个人描述', type: 1 },
         { name: '附件', type: 1 },
-        { name: '教师合作等级', type: 1 },
         { name: '教学评估', type: 1 },
         // ── 教师档案新增文本字段（含原先仅在后端 DTO、未暴露到表单的字段） ──
         { name: '外聘归属类型', type: 1 },

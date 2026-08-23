@@ -13,8 +13,18 @@ import { linkIds } from '../shared/record.util.js';
 export class PortalService {
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
-  /** 由 openId 解析当前学生档案（含 id） */
+  /** 由 openId / studentId 解析当前学生档案（含 id）。
+   *  微信小程序等外部会话走 user.studentId（record_id）；飞书会话走 飞书 Open ID。 */
   private async resolveStudent(user: SessionUser): Promise<{ id: string; fields: Record<string, unknown> } | null> {
+    // 优先：会话已携带绑定的学生 record_id（微信/家长端）
+    if (user.studentId) {
+      try {
+        const rec = await this.base.get(TABLES.studentProfile.tableId, user.studentId);
+        if (rec) return { id: rec.recordId, fields: rec.fields };
+      } catch {
+        /* 失效的 studentId 回退到 openId 解析 */
+      }
+    }
     const res = await this.base.search(TABLES.studentProfile.tableId, {
       pageSize: 10,
       filter: { conjunction: 'and', conditions: [{ field: '飞书 Open ID', value: [user.openId] }] },

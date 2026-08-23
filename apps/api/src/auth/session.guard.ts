@@ -31,6 +31,10 @@ export class SessionGuard implements CanActivate {
       const [k, ...v] = part.trim().split('=');
       if (k === name) return decodeURIComponent(v.join('='));
     }
+    // 小程序端（微信/家长 H5）无法携带 httpOnly cookie，改用自定义请求头传递会话 id
+    const headerSid = req.headers['x-acms-sid'];
+    if (typeof headerSid === 'string' && headerSid) return headerSid;
+    if (Array.isArray(headerSid) && headerSid[0]) return headerSid[0];
     return null;
   }
 }

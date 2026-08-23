@@ -18,6 +18,9 @@ export class SignController {
 
   @Post('sign')
   sign(@Req() req: Request, @Body() dto: SignDto) {
-    return this.svc.sign(userOf(req), dto);
+    const user = userOf(req);
+    // 学生会话：以会话绑定的 studentId 为准，避免客户端伪造他人学号
+    if (user.studentId) dto.studentId = user.studentId;
+    return this.svc.sign(user, dto);
   }
 }

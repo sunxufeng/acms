@@ -41,6 +41,8 @@ export interface SessionUser {
   roles: string[];
   campuses: string[];
   maxDataLevel: string;
+  /** 学生端/家长端会话：绑定的学生档案 record_id（同时作为关联学生编号的 link 值） */
+  studentId?: string;
   sessionId: string;
   expiresAt: number;
 }

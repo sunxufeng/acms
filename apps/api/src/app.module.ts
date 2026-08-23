@@ -10,6 +10,8 @@ import { ScheduleModule } from './schedule/schedule.module.js';
 import { EnrollmentModule } from './enrollment/enrollment.module.js';
 import { PortalModule } from './portal/portal.module.js';
 import { AttendanceModule } from './attendance/attendance.module.js';
+import { MiniProgramModule } from './mini-program/mini-program.module.js';
+import { ParentModule } from './parent/parent.module.js';
 import { PartnershipModule } from './partnership/partnership.module.js';
 import { BillingModule } from './billing/billing.module.js';
 import { SettlementModule } from './settlement/settlement.module.js';
@@ -39,6 +41,8 @@ import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.m
     EnrollmentModule,
     PortalModule,
     AttendanceModule,
+    MiniProgramModule,
+    ParentModule,
     PartnershipModule,
     BillingModule,
     SettlementModule,

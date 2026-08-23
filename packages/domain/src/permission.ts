@@ -116,6 +116,17 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'export:run', 'admin:audit', 'config:read',
     'ai:chat',
   ],
+  // 微信小程序学生端：仅本人数据（门户只读 + 打卡写）。不授予 student:write/archive，
+  // 避免越权修改其他学生档案；打卡写仅校验 attendance:write。
+  student: [
+    'student:read',
+    'attendance:read', 'attendance:write',
+  ],
+  // 家长 H5：仅可查看所绑定子女的考勤/档案摘要，并提交通知反馈（反馈写由专用端点处理，不需 communication:write）。
+  parent: [
+    'student:read',
+    'attendance:read',
+  ],
 };
 
 /** 角色 → 默认数据密级上限（引擎等级 L1–L4） */
@@ -129,6 +140,8 @@ const ROLE_MAX_LEVEL: Record<Role, DataLevel> = {
   招生: 'L2',
   HR行政: 'L3',
   审计: 'L4',
+  student: 'L1',
+  parent: 'L1',
 };
 
 export interface Principal {

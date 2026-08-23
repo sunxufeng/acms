@@ -1,4 +1,6 @@
-/** 系统角色（与 Base 系统用户表「系统角色」多选字段选项完全一致） */
+/** 系统角色（与 Base 系统用户表「系统角色」多选字段选项完全一致）。
+ *  注：student / parent 为外部用户（微信小程序 / 家长 H5）角色，不出现在飞书系统用户表，
+ *  仅由后端在签发会话时写入。 */
 export const ROLES = [
   '系统管理员',
   '院级管理',
@@ -9,6 +11,8 @@ export const ROLES = [
   '招生',
   'HR行政',
   '审计',
+  'student',
+  'parent',
 ] as const;
 
 export type Role = (typeof ROLES)[number];

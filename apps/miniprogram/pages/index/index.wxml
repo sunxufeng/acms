@@ -1,0 +1,38 @@
+<view class="container">
+  <view wx:if="{{needBind}}" class="card">
+    <view class="title">尚未登录</view>
+    <view class="subtitle">请先绑定学生账号后再打卡</view>
+    <view class="btn" bindtap="goBind">去绑定</view>
+  </view>
+
+  <block wx:else>
+    <view class="card">
+      <view class="title">到校打卡</view>
+      <view class="subtitle">打开小程序即自动判定到校 / 离校</view>
+
+      <view wx:if="{{loading}}" class="status-big muted">检测中…</view>
+
+      <block wx:elif="{{result}}">
+        <view class="status-big {{result.passed ? 'status-pass' : 'status-fail'}}">
+          {{result.passed ? '✅ 已签到' : '⚠️ 未到校'}}
+        </view>
+        <view class="row"><text class="k">方向</text><text class="v">{{result.direction || '—'}}</text></view>
+        <view class="row"><text class="k">方式</text><text class="v">{{result.method === 'wifi' ? 'WiFi' : 'GPS'}}{{result.duplicated ? '（已记录）' : ''}}</text></view>
+        <view class="row"><text class="k">校区</text><text class="v">{{result.matchedCampus || '—'}}</text></view>
+        <view class="row"><text class="k">距离</text><text class="v">{{result.distanceMeters != null ? result.distanceMeters + ' 米' : '—'}}</text></view>
+        <view class="row"><text class="k">时间</text><text class="v">{{result.time || '—'}}</text></view>
+      </block>
+
+      <view wx:if="{{errMsg}}" class="muted" style="color:#e54848;margin-top:16rpx;">{{errMsg}}</view>
+
+      <view class="btn" bindtap="refresh" wx:if="{{!loading}}">刷新</view>
+      <view class="btn btn-ghost" bindtap="goPortal" wx:if="{{!loading}}">我的门户</view>
+    </view>
+
+    <view class="card">
+      <view class="row"><text class="k">当前 WiFi</text><text class="v">{{ssid || '未连接'}}</text></view>
+      <view class="row"><text class="k">GPS（gcj02）</text><text class="v">{{gpsText || '—'}}</text></view>
+      <view class="row"><text class="k">最近检测</text><text class="v">{{lastAt || '—'}}</text></view>
+    </view>
+  </block>
+</view>

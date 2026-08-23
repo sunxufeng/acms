@@ -1,0 +1,18 @@
+<view class="container">
+  <view class="card">
+    <view class="title">绑定学生账号</view>
+    <view class="subtitle">首次使用需用学号 + 姓名绑定微信，之后打开即自动签到</view>
+
+    <block wx:if="{{needForm}}">
+      <input class="input" placeholder="学号" value="{{studentNo}}" data-field="studentNo" bindinput="onInput" />
+      <input class="input" placeholder="姓名" value="{{name}}" data-field="name" bindinput="onInput" />
+      <view wx:if="{{errMsg}}" class="muted" style="color:#e54848;margin-bottom:12rpx;">{{errMsg}}</view>
+      <view class="btn" bindtap="submit" wx:if="{{!loading}}">绑定并登录</view>
+      <view class="btn" wx:else>绑定中…</view>
+    </block>
+
+    <block wx:else>
+      <view class="muted" style="text-align:center;">正在登录…</view>
+    </block>
+  </view>
+</view>

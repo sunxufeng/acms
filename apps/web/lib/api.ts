@@ -505,7 +505,7 @@ export const api = {
   updateAttendanceZone: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/attendance-zones/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveAttendanceZone: (id: string) => request<{ ok: boolean }>(`/attendance-zones/${id}`, { method: 'DELETE' }),
 
-  // ── 微信登录用户（家长/学生登录绑定记录，通用 CRUD + 解绑/强制下线动作） ──
+  // ── 微信用户（家长/学生登录绑定记录，通用 CRUD + 解绑/强制下线动作） ──
   listWechatBindings: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);

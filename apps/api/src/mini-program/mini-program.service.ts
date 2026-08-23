@@ -84,10 +84,28 @@ export class MiniProgramService {
     };
   }
 
-  /** code2Session 换 openid；未配置真实凭证时回退开发模式 */
+  /** 从系统配置表读取配置值（配置键命中且状态=启用），否则 null。
+   *  配置键约定：wechat_mini_appid / wechat_mini_secret（管理员在「系统设置」维护）。 */
+  private async getConfigValue(key: string): Promise<string | null> {
+    try {
+      const res = await this.base.search(TABLES.systemConfig.tableId, {
+        pageSize: 10,
+        filter: buildFilter([{ field: '配置键', value: [key] }]),
+      });
+      const rec = res.items[0];
+      if (!rec) return null;
+      const status = toText(rec.fields['状态']);
+      if (status && status !== '启用') return null;
+      return toText(rec.fields['配置值']) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** code2Session 换 openid；优先系统配置表，回退 env；都无则开发模式 */
   private async resolveOpenid(dto: WechatLoginDto): Promise<string> {
-    const appid = process.env.WECHAT_MINI_APPID;
-    const secret = process.env.WECHAT_MINI_SECRET;
+    const appid = (await this.getConfigValue('wechat_mini_appid')) ?? process.env.WECHAT_MINI_APPID;
+    const secret = (await this.getConfigValue('wechat_mini_secret')) ?? process.env.WECHAT_MINI_SECRET;
     if (appid && secret) {
       const url =
         `https://api.weixin.qq.com/sns/jscode2session?appid=${encodeURIComponent(appid)}` +

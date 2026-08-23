@@ -2,33 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { DEFAULT_NAV_MENU_CONFIG, type NavMenuConfig, type NavMenuItem } from '@acms/contracts';
+import {
+  DEFAULT_NAV_MENU_CONFIG,
+  ICON_NAMES,
+  type NavMenuConfig,
+  type NavMenuItem,
+  type NavMenuGroupConfig,
+} from '@acms/contracts';
 import { api } from '../../lib/api';
-
-const ICON_NAMES = [
-  'dashboard',
-  'students',
-  'admissions',
-  'courses',
-  'schedule',
-  'teachers',
-  'notifications',
-  'chat',
-  'config',
-  'bot',
-  'skill',
-  'clock',
-  'chart',
-  'billing',
-  'audit',
-  'system',
-  'integration',
-  'userGroup',
-  'shield',
-  'dictionary',
-  'reports',
-  'settings',
-];
+import { ICONS } from '../../components/AppShell';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -63,8 +45,82 @@ function emptyItem(): NavMenuItem {
   };
 }
 
+/** 图标选择器：按钮展示当前图标预览，展开为图标网格，支持搜索 */
+function IconPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const Current = ICONS[value] ?? ICONS['settings'];
+  const list = ICON_NAMES.filter((n) => n.includes(q.trim().toLowerCase()));
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className="input"
+        onClick={() => setOpen((o) => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 96, cursor: 'pointer' }}
+      >
+        <span style={{ display: 'inline-flex', width: 16, height: 16, color: 'var(--accent)' }}><Current /></span>
+        <span style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>{value}</span>
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            zIndex: 50,
+            top: 'calc(100% + 4px)',
+            left: 0,
+            width: 280,
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 12,
+            padding: 10,
+            boxShadow: 'var(--shadow-lg)',
+          }}
+        >
+          <input
+            className="input"
+            placeholder="搜索图标…"
+            value={q}
+            autoFocus
+            onChange={(e) => setQ(e.target.value)}
+            style={{ marginBottom: 8, width: '100%' }}
+          />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+            {list.map((name) => {
+              const C = ICONS[name] ?? ICONS['settings'];
+              const active = name === value;
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  title={name}
+                  onClick={() => { onChange(name); setOpen(false); setQ(''); }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: 34,
+                    borderRadius: 8,
+                    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                    background: active ? 'var(--accent-soft)' : 'transparent',
+                    color: active ? 'var(--accent)' : 'var(--fg)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ display: 'inline-flex', width: 18, height: 18 }}><C /></span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function MenuSettingsPage() {
   const [items, setItems] = useState<NavMenuItem[]>(DEFAULT_NAV_MENU_CONFIG.items);
+  const [groups, setGroups] = useState<NavMenuGroupConfig['items']>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -75,13 +131,14 @@ export default function MenuSettingsPage() {
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    api
-      .getMenuConfig()
-      .then((d) => {
-        if (Array.isArray(d?.items)) {
-          setItems(d.items);
-        }
-      })
+    Promise.all([
+      api.getMenuConfig().then((d) => {
+        if (Array.isArray(d?.items)) setItems(d.items);
+      }),
+      api.getMenuGroups().then((g) => {
+        if (Array.isArray(g?.items)) setGroups(g.items);
+      }),
+    ])
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -279,26 +336,25 @@ export default function MenuSettingsPage() {
                     />
                   </td>
                   <td style={{ padding: '6px 10px' }}>
-                    <select
-                      className="input"
-                      value={it.icon}
-                      onChange={(e) => updateItem(idx, { icon: e.target.value })}
-                    >
-                      {ICON_NAMES.map((name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
+                    <IconPicker value={it.icon} onChange={(v) => updateItem(idx, { icon: v })} />
                   </td>
                   <td style={{ padding: '6px 10px' }}>
-                    <input
+                    <select
                       className="input"
                       value={it.section || ''}
                       onChange={(e) => updateItem(idx, { section: e.target.value || null })}
-                      placeholder="分组"
-                      style={{ minWidth: 80 }}
-                    />
+                      style={{ minWidth: 90 }}
+                    >
+                      {groups.length === 0 && <option value="">（无分组）</option>}
+                      {groups.map((g) => (
+                        <option key={g.key} value={g.label}>
+                          {g.label}
+                        </option>
+                      ))}
+                      {groups.length > 0 && it.section && !groups.some((g) => g.label === it.section) && (
+                        <option value={it.section}>{it.section}（旧）</option>
+                      )}
+                    </select>
                   </td>
                   <td style={{ padding: '6px 10px' }}>
                     <select

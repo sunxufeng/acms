@@ -31,6 +31,8 @@ export const TABLES = {
   attendanceZone: { tableId: 'tbloFq0XJKpObwxQ', name: '考勤围栏表' },
   // 审计日志
   auditLog: { tableId: 'tbl0V2dbD9vqVL3N', name: '审计日志表' },
+  // 微信登录用户（家长/学生通过微信小程序、家长 H5 登录的绑定记录，后台可管理）
+  wechatBinding: { tableId: 'tblbZ43Nkenwfu8D', name: '微信登录用户表' },
   // 生命周期域关联目标表（link 字段跨表解析用，2026-08-17 经 listFields 核对）
   academicYear: { tableId: 'tblg8hWV4A0rVHvR', name: '学年表' },
   classLink: { tableId: 'tblAy1JpNjVRb2d3', name: '班级表' },

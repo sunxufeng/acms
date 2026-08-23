@@ -505,6 +505,19 @@ export const api = {
   updateAttendanceZone: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/attendance-zones/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveAttendanceZone: (id: string) => request<{ ok: boolean }>(`/attendance-zones/${id}`, { method: 'DELETE' }),
 
+  // ── 微信登录用户（家长/学生登录绑定记录，通用 CRUD + 解绑/强制下线动作） ──
+  listWechatBindings: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/wechat-bindings${q ? `?${q}` : ''}`);
+  },
+  createWechatBinding: (data: Record<string, unknown>) => request<Record<string, unknown>>('/wechat-bindings', { method: 'POST', body: JSON.stringify(data) }),
+  updateWechatBinding: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/wechat-bindings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveWechatBinding: (id: string) => request<{ ok: boolean }>(`/wechat-bindings/${id}`, { method: 'DELETE' }),
+  unbindWechatBinding: (id: string) => request<{ ok: boolean }>(`/wechat-binding-actions/unbind`, { method: 'POST', body: JSON.stringify({ id }) }),
+  forceLogoutWechatBinding: (id: string) => request<{ ok: boolean }>(`/wechat-binding-actions/force-logout`, { method: 'POST', body: JSON.stringify({ id }) }),
+
   // ── 审计日志（只读，需 admin:audit 权限） ─────────
   listAuditLogs: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();

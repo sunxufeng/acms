@@ -6,6 +6,7 @@ import { REDIS } from '../redis.provider.js';
 import { BASE_CLIENT } from '../base.provider.js';
 import { SessionService } from '../auth/session.service.js';
 import { buildFilter, toFlatRecord } from '../shared/record.util.js';
+import { WechatBindingService } from '../wechat-binding/wechat-binding.service.js';
 import type { SessionUser } from '@acms/contracts';
 
 const STUDENT_TABLE = TABLES.studentProfile.tableId;
@@ -27,6 +28,7 @@ export class ParentService {
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
     private readonly sessions: SessionService,
+    private readonly wechatBinding: WechatBindingService,
   ) {}
 
   /** 学号 + 姓名 → 学生 record_id（与小程序绑定逻辑一致，但不写 Redis 绑定键） */
@@ -54,7 +56,7 @@ export class ParentService {
     if (!stu) throw new UnauthorizedException('STUDENT_NOT_FOUND:学号或姓名不匹配');
     const campus = toText(stu.fields['校区']) ?? '';
     const displayName = toText(stu.fields['学生姓名']) ?? name;
-    return this.sessions.create({
+    const session = this.sessions.create({
       openId: `parent_${stu.recordId}`,
       name: displayName,
       roles: ['parent'],
@@ -62,6 +64,16 @@ export class ParentService {
       maxDataLevel: 'L1',
       studentId: stu.recordId,
     });
+    // 写入/更新「微信登录用户」绑定记录（供后台查看、解绑、强制下线）
+    await this.wechatBinding.upsertBinding({
+      openId: `parent_${stu.recordId}`,
+      studentId: stu.recordId,
+      studentNo,
+      name: displayName,
+      role: 'parent',
+      loginMethod: '家长H5',
+    });
+    return session;
   }
 
   /** 家长只读所绑定学生的考勤记录 */

@@ -171,6 +171,20 @@ export const CONFIG_METAS: RecordMeta[] = [
     searchField: '校区',
     sortField: '校区',
   },
+  {
+    // 微信登录用户（家长/学生通过微信小程序、家长 H5 登录的绑定记录，后台可管理）
+    path: 'wechat-bindings',
+    tableId: TABLES.wechatBinding.tableId,
+    readPerm: 'config:read',
+    writePerm: 'config:write',
+    dateFields: ['绑定时间', '最近登录'],
+    readonly: ['绑定时间', '最近登录'],
+    statusField: '状态',
+    defaultStatus: '已绑定',
+    searchField: '标识',
+    searchFields: ['标识', '姓名', '学号'],
+    sortField: '最近登录',
+  },
 ];
 
 /** 审计日志表（独立模块 audit:write 权限不存在 → 仅经 AuditService 内部直写，API 只读） */

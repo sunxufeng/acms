@@ -6,6 +6,7 @@ import { REDIS } from '../redis.provider.js';
 import { BASE_CLIENT } from '../base.provider.js';
 import { SessionService } from '../auth/session.service.js';
 import { buildFilter } from '../shared/record.util.js';
+import { WechatBindingService } from '../wechat-binding/wechat-binding.service.js';
 import type { WechatLoginDto, ZoneQueryDto } from './mini-program.dto.js';
 
 const STUDENT_TABLE = TABLES.studentProfile.tableId;
@@ -44,6 +45,7 @@ export class MiniProgramService {
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
     private readonly sessions: SessionService,
+    private readonly wechatBinding: WechatBindingService,
   ) {}
 
   // ── P0 微信登录 + 学号绑定 ─────────────────────────────────────────────
@@ -73,6 +75,15 @@ export class MiniProgramService {
       campuses: campus ? [campus] : [],
       maxDataLevel: 'L1',
       studentId,
+    });
+    // 写入/更新「微信登录用户」绑定记录（供后台查看、解绑、强制下线）
+    await this.wechatBinding.upsertBinding({
+      openId: openid,
+      studentId,
+      studentNo: dto.studentNo,
+      name,
+      role: 'student',
+      loginMethod: '微信小程序',
     });
     return {
       needBind: false,

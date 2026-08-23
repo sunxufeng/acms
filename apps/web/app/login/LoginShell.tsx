@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { imageUrl, type HomepageConfig } from '@acms/contracts';
 
 function featureIcon(name: string) {
@@ -68,15 +69,25 @@ function bgStyle(color: string, image?: string | null): React.CSSProperties {
 
 interface LoginShellProps {
   config: HomepageConfig;
+  preview?: boolean;
 }
 
-export default function LoginShell({ config }: LoginShellProps) {
+export default function LoginShell({ config, preview }: LoginShellProps) {
+  const [logoError, setLogoError] = useState(false);
+
   const shellStyle: React.CSSProperties = {
     fontFamily: config.fontFamily,
     fontSize: config.bodyFontSize,
+    minHeight: preview ? undefined : '100dvh',
+    height: preview ? '100%' : undefined,
   };
 
   const firstLetter = config.brandName?.charAt(0).toUpperCase() ?? 'A';
+
+  // 当 logoUrl 改变时重置错误状态，允许重新加载
+  useEffect(() => {
+    setLogoError(false);
+  }, [config.logoUrl]);
 
   return (
     <div className="login-shell" style={shellStyle}>
@@ -90,12 +101,13 @@ export default function LoginShell({ config }: LoginShellProps) {
       >
         <div className="left-inner">
           <div className="brand-mark">
-            {config.logoUrl ? (
+            {config.logoUrl && !logoError ? (
               <img
                 src={imageUrl(config.logoUrl)}
                 alt={config.brandName}
                 className="mark-box"
                 style={{ objectFit: 'contain', background: 'transparent', padding: 4 }}
+                onError={() => setLogoError(true)}
               />
             ) : (
               <span className="mark-box">{firstLetter}</span>

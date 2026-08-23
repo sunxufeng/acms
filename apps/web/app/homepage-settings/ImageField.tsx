@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { imageUrl } from '@acms/contracts';
 import { api } from '../../lib/api';
 
@@ -14,6 +14,11 @@ interface ImageFieldProps {
 export default function ImageField({ label, value, onChange, placeholder }: ImageFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [value]);
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -53,20 +58,38 @@ export default function ImageField({ label, value, onChange, placeholder }: Imag
         </button>
         <input ref={inputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
       </div>
-      {previewUrl && (
+      {previewUrl && !imgError ? (
+        <img
+          src={previewUrl}
+          alt="预览"
+          onError={() => setImgError(true)}
+          style={{
+            width: '100%',
+            height: 80,
+            borderRadius: 6,
+            border: '1px solid var(--border)',
+            objectFit: 'contain',
+            background: 'var(--bg-secondary)',
+          }}
+        />
+      ) : previewUrl ? (
         <div
           style={{
             width: '100%',
             height: 80,
             borderRadius: 6,
             border: '1px solid var(--border)',
-            backgroundImage: `url(${previewUrl})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            backgroundRepeat: 'no-repeat',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 12,
+            color: 'var(--fg-tertiary)',
+            background: 'var(--bg-secondary)',
           }}
-        />
-      )}
+        >
+          图片无法加载，请检查链接或重新上传
+        </div>
+      ) : null}
     </div>
   );
 }

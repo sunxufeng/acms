@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { DEFAULT_HOMEPAGE_CONFIG, type HomepageConfig, type LoginFeature } from '@acms/contracts';
 import { api } from '../../lib/api';
 import LoginShell from '../login/LoginShell';
@@ -80,6 +80,63 @@ function NumberInput({
         if (!Number.isNaN(n)) onChange(n);
       }}
     />
+  );
+}
+
+function RangeNumberInput({
+  value,
+  onChange,
+  min,
+  max,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+}) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => {
+    setText(String(value));
+  }, [value]);
+
+  const commit = (v: number) => {
+    const clamped = Math.max(min ?? 0, Math.min(max ?? 100, v));
+    if (clamped !== value) onChange(clamped);
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ flex: 1, minWidth: 60 }}
+      />
+      <input
+        className="input"
+        type="number"
+        min={min}
+        max={max}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          const n = Number(e.target.value);
+          if (!Number.isNaN(n)) commit(n);
+        }}
+        onBlur={() => {
+          const n = Number(text);
+          if (Number.isNaN(n)) {
+            setText(String(value));
+          } else {
+            commit(n);
+          }
+        }}
+        style={{ width: 70, textAlign: 'center' }}
+      />
+      <span style={{ fontSize: 12, color: 'var(--fg-tertiary)', width: 16 }}>%</span>
+    </div>
   );
 }
 
@@ -184,7 +241,7 @@ export default function HomepageSettingsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     function computeScale() {
       if (!previewRef.current) return;
       const containerWidth = previewRef.current.clientWidth;
@@ -262,26 +319,24 @@ export default function HomepageSettingsPage() {
           <Section title="布局比例">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <Field label="左侧面板宽度 (%)">
-                <NumberInput
+                <RangeNumberInput
                   value={config.leftWidth}
                   min={20}
                   max={80}
                   onChange={(v) => {
-                    const left = Math.max(20, Math.min(80, v));
-                    update('leftWidth', left);
-                    update('rightWidth', 100 - left);
+                    update('leftWidth', v);
+                    update('rightWidth', 100 - v);
                   }}
                 />
               </Field>
               <Field label="右侧面板宽度 (%)">
-                <NumberInput
+                <RangeNumberInput
                   value={config.rightWidth}
                   min={20}
                   max={80}
                   onChange={(v) => {
-                    const right = Math.max(20, Math.min(80, v));
-                    update('rightWidth', right);
-                    update('leftWidth', 100 - right);
+                    update('rightWidth', v);
+                    update('leftWidth', 100 - v);
                   }}
                 />
               </Field>
@@ -427,17 +482,32 @@ export default function HomepageSettingsPage() {
               borderRadius: 8,
               border: '1px solid var(--border)',
               background: '#000',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             <div
               style={{
-                width: PREVIEW_BASE_W,
-                height: PREVIEW_BASE_H,
-                transform: `scale(${scale})`,
-                transformOrigin: 'top left',
+                width: PREVIEW_BASE_W * scale,
+                height: PREVIEW_BASE_H * scale,
+                overflow: 'hidden',
+                position: 'relative',
               }}
             >
-              <LoginShell config={config} />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: PREVIEW_BASE_W,
+                  height: PREVIEW_BASE_H,
+                  transform: `scale(${scale})`,
+                  transformOrigin: 'top left',
+                }}
+              >
+                <LoginShell config={config} preview />
+              </div>
             </div>
           </div>
           <div style={{ fontSize: 12, color: 'var(--fg-tertiary)' }}>

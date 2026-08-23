@@ -17,7 +17,7 @@ import { SessionGuard } from '../auth/session.guard.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
 import { HomepageConfigService } from './homepage-config.service.js';
 import type { HomepageConfigDto } from './homepage-config.dto.js';
-import type { NavMenuConfig } from '@acms/contracts';
+import type { NavMenuConfig, NavMenuGroupConfig } from '@acms/contracts';
 
 @Controller('homepage-config')
 export class HomepageConfigController {
@@ -60,6 +60,23 @@ export class HomepageConfigController {
       throw new ForbiddenException('ADMIN_ONLY');
     }
     return this.service.saveMenu(dto);
+  }
+
+  /** 公开读取菜单分组（菜单管理下拉使用） */
+  @Get('menu-groups')
+  async getMenuGroups() {
+    return this.service.getMenuGroups();
+  }
+
+  /** 保存菜单分组：仅系统管理员 */
+  @Put('menu-groups')
+  @UseGuards(SessionGuard)
+  async saveMenuGroups(@Body() dto: NavMenuGroupConfig, @Req() req: Request) {
+    const user = (req as Request & { user?: { roles?: string[] } }).user;
+    if (!user?.roles?.includes('系统管理员')) {
+      throw new ForbiddenException('ADMIN_ONLY');
+    }
+    return this.service.saveMenuGroups(dto);
   }
 
   /** 公开图片代理：登录页需展示上传的 logo / 背景图 */

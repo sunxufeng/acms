@@ -4,28 +4,14 @@ import { BaseClient, toText } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { linkIds } from '../shared/record.util.js';
-import { SignService } from '../attendance/sign.service.js';
-
-/** 学生自助门户一键打卡请求体（studentId 由会话解析，不暴露给前端） */
-export interface PortalSignDto {
-  mode: 'gps' | 'wifi';
-  gps?: string;
-  ssid?: string;
-  bssid?: string;
-  at?: string;
-  campus?: string;
-}
 
 /**
  * 学生自助门户（M5）：以登录用户的 openId 映射到「学生档案表.飞书 Open ID」，
- * 所有查询严格限定到该学生本人（ABAC 仅本人隔离）；打卡写复用 SignService。
+ * 所有查询严格限定到该学生本人（ABAC 仅本人隔离），只读。
  */
 @Injectable()
 export class PortalService {
-  constructor(
-    @Inject(BASE_CLIENT) private readonly base: BaseClient,
-    private readonly signService: SignService,
-  ) {}
+  constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
   /** 由 openId / studentId 解析当前学生档案（含 id）。
    *  微信小程序等外部会话走 user.studentId（record_id）；飞书会话走 飞书 Open ID。 */
@@ -173,47 +159,5 @@ export class PortalService {
       };
     });
     return { items, total: items.length };
-  }
-
-  /** 本人考勤记录（只读，按关联学生过滤，最近 100 条倒序） */
-  async attendances(user: SessionUser) {
-    const stu = await this.requireStudent(user);
-    const res = await this.base.search(TABLES.attendance.tableId, {
-      pageSize: 100,
-      filter: { conjunction: 'and', conditions: [{ field: '关联学生编号', value: [stu.id] }] },
-    });
-    const items = res.items
-      .map((r) => {
-        const f = r.fields;
-        const date = typeof f['考勤日期'] === 'string' ? (f['考勤日期'] as string).slice(0, 10) : '';
-        return {
-          id: r.recordId,
-          考勤日期: date,
-          方向: toText(f['方向']) ?? '',
-          考勤状态: toText(f['考勤状态']) ?? '',
-          签到方式: toText(f['签到方式']) ?? '',
-          校区: toText(f['校区']) ?? '',
-          到校时间: toText(f['到校时间']) ?? '',
-          离校时间: toText(f['离校时间']) ?? '',
-          签到距离: toText(f['签到距离(米)']) ?? '',
-          考勤结果: toText(f['考勤结果']) ?? '',
-        };
-      })
-      .sort((a, b) => `${b.考勤日期}${b.到校时间}`.localeCompare(`${a.考勤日期}${a.到校时间}`));
-    return { items, total: items.length };
-  }
-
-  /** 一键打卡：复用 SignService 的围栏校验与去重逻辑，studentId 由会话解析（仅本人） */
-  async sign(user: SessionUser, dto: PortalSignDto) {
-    const stu = await this.requireStudent(user);
-    return this.signService.sign(user, {
-      studentId: stu.id,
-      mode: dto.mode,
-      gps: dto.gps,
-      ssid: dto.ssid,
-      bssid: dto.bssid,
-      at: dto.at,
-      campus: dto.campus,
-    });
   }
 }

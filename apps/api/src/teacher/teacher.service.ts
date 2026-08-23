@@ -4,7 +4,6 @@ import { authorize, type Principal } from '@acms/domain';
 import { BaseClient, toWriteSingle, toWriteMulti, toStringArray, toText, type FilterGroup } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
-import { DictService } from '../dictionary/dict.service.js';
 import type { CreateTeacherDto, UpdateTeacherDto, TeacherFilterDto } from './teacher.dto.js';
 
 const TABLE = TABLES.teacherProfile.tableId;
@@ -24,10 +23,7 @@ function toPrincipal(user: SessionUser): Principal {
 
 @Injectable()
 export class TeacherService {
-  constructor(
-    @Inject(BASE_CLIENT) private readonly base: BaseClient,
-    private readonly dict: DictService,
-  ) {}
+  constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
   private toWriteFields(dto: CreateTeacherDto | UpdateTeacherDto): Record<string, unknown> {
     const fields: Record<string, unknown> = {};
@@ -39,26 +35,6 @@ export class TeacherService {
       else fields[k] = v;
     }
     return fields;
-  }
-
-  /** 写入前，把各字典字段里用户新增的候选项同步进飞书字段枚举，避免「选项不在枚举内」写入失败 */
-  private async ensureTeacherOptions(dto: CreateTeacherDto | UpdateTeacherDto): Promise<void> {
-    const singleKeys = ['教师类别', '性别', '学历/学位', '授课学段', '授课科目类型', '合作开始时间', '收款主体', '数据密级', '教师合作等级'];
-    const multiKeys = ['授课科目', '主要学科'];
-    const tasks: Promise<void>[] = [];
-    for (const key of singleKeys) {
-      const val = (dto as Record<string, unknown>)[key];
-      if (typeof val === 'string' && val.trim()) {
-        tasks.push(this.dict.ensureOptions(TABLE, key, [val.trim()]));
-      }
-    }
-    for (const key of multiKeys) {
-      const val = (dto as Record<string, unknown>)[key];
-      if (Array.isArray(val) && val.length) {
-        tasks.push(this.dict.ensureOptions(TABLE, key, val as string[]));
-      }
-    }
-    await Promise.all(tasks);
   }
 
   private buildFilter(query: TeacherFilterDto): {
@@ -111,7 +87,6 @@ export class TeacherService {
     const fields = this.toWriteFields(dto);
     if (!fields['数据密级']) fields['数据密级'] = '内部';
     if (!fields['在职合作状态']) fields['在职合作状态'] = '候选';
-    await this.ensureTeacherOptions(dto);
     const recordId = await this.base.create(TABLE, fields);
     return this.detail(user, recordId);
   }
@@ -122,7 +97,6 @@ export class TeacherService {
     if (!authorize(principal, 'teacher:write').allowed) throw new ForbiddenException('FORBIDDEN:teacher:write');
     const fields = this.toWriteFields(dto);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
-    await this.ensureTeacherOptions(dto);
     await this.base.update(TABLE, id, fields);
     return this.detail(user, id);
   }
@@ -139,7 +113,7 @@ export class TeacherService {
     const f = rec.fields;
     const obj: TeacherRecord = { id: rec.recordId };
     for (const [k, v] of Object.entries(f)) {
-      if (k === '授课科目' || k === '主要学科') obj[k] = toStringArray(v);
+      if (k === '授课科目') obj[k] = toStringArray(v);
       else if (READONLY_FIELDS.has(k)) obj[k] = v;
       else obj[k] = toText(v);
     }

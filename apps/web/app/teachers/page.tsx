@@ -33,7 +33,7 @@ const COLUMNS: CrudColumn[] = [
   { key: '教师姓名', label: '教师姓名', width: '120px', form: true, required: true, type: 'text' },
   { key: '英文名', label: '英文名', form: true, type: 'text' },
   { key: '教师类别', label: '教师类别', width: '100px', filter: true, form: true, type: 'select', dictKey: '教师类别' },
-  { key: '主要学科', label: '主要学科', filter: true, form: true, type: 'multiselect', dictKey: '主要学科' },
+  { key: '主要学科', label: '主要学科', filter: true, form: true, type: 'select', dictKey: '主要学科' },
   { key: '在职合作状态', label: '合作状态', width: '100px', filter: true, form: true, type: 'select', options: STATUS_OPTS },
   { key: '更新时间', label: '更新', width: '160px', render: (v) => <span className="muted">{fmtUpdate(v)}</span> },
 
@@ -56,18 +56,18 @@ const COLUMNS: CrudColumn[] = [
   { key: '离职或终止日期', label: '离职或终止日期', list: false, form: true, type: 'date' },
   { key: '授课学段', label: '授课学段', list: false, form: true, type: 'select', dictKey: '授课学段' },
   { key: '授课科目类型', label: '授课科目类型', list: false, form: true, type: 'select', dictKey: '授课科目类型' },
-  { key: '授课科目', label: '授课科目', list: false, form: true, type: 'multiselect', dictKey: '授课科目' },
-  { key: '教师合作等级', label: '教师合作等级', list: false, form: true, type: 'select', dictKey: '教师合作等级' },
+  { key: '授课科目', label: '授课科目', list: false, form: true, type: 'select', dictKey: '授课科目' },
   { key: '合作开始时间', label: '合作开始时间', list: false, form: true, type: 'select', dictKey: '合作开始时间' },
   { key: '开课人数说明', label: '开课人数说明', list: false, form: true, type: 'text' },
   { key: '个人描述', label: '个人描述', list: false, form: true, type: 'textarea' },
+  { key: '附件', label: '附件', list: false, form: true, type: 'textarea' },
+  { key: '教师合作等级', label: '教师合作等级', list: false, form: true, type: 'text' },
   { key: '教学评估', label: '教学评估', list: false, form: true, type: 'textarea' },
   { key: '收款主体', label: '收款主体', list: false, form: true, type: 'select', dictKey: '收款主体' },
   { key: '可授年级与课程', label: '可授年级与课程', list: false, form: true, type: 'text' },
   { key: '资质与证书摘要', label: '资质与证书摘要', list: false, form: true, type: 'textarea' },
-  { key: '备注', label: '备注', list: false, form: true, type: 'textarea' },
-  { key: '附件', label: '附件', list: false, form: true, type: 'attachment' },
   { key: '数据密级', label: '密级', list: false, form: true, type: 'select', dictKey: '数据密级' },
+  { key: '备注', label: '备注', list: false, form: true, type: 'textarea' },
 ];
 
 export default function TeachersPage() {

@@ -1,4 +1,4 @@
-import type { HomepageConfig, NavMenuConfig, NavMenuGroupConfig } from '@acms/contracts';
+import type { HomepageConfig, NavMenuConfig } from '@acms/contracts';
 
 /** 前端 API 客户端：统一 fetch 封装，自动带 cookie、统一错误处理、401 跳登录 */
 const API_BASE = '/api/v1';
@@ -262,48 +262,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ studentNo, name }),
     }),
-
-  /** 学生门户：本人考勤记录 */
-  portalAttendances: () => request<{ items: Record<string, unknown>[]; total: number }>('/portal/attendances'),
   /** 退出学生网页会话 */
   studentLogout: () => request<unknown>('/auth/logout', { method: 'POST' }),
-
-  /** 学生密码登录：学号 + 密码 → 种 cookie 会话（角色 student） */
-  studentPasswordLogin: (studentNo: string, password: string) =>
-    request<{ ok: boolean; studentId: string; name: string; campus: string }>('/student-auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ studentNo, password }),
-    }),
-  /** 学生自助设置密码：学号 + 姓名验证身份，成功后登录 */
-  studentSetPassword: (studentNo: string, name: string, password: string) =>
-    request<{ ok: boolean; studentId: string; name: string; campus: string }>('/student-auth/set-password', {
-      method: 'POST',
-      body: JSON.stringify({ studentNo, name, password }),
-    }),
-  /** 管理员为学生设置密码 */
-  adminSetStudentPassword: (studentNo: string, password: string) =>
-    request<{ ok: boolean }>('/student-auth/admin/set-password', {
-      method: 'POST',
-      body: JSON.stringify({ studentNo, password }),
-    }),
-  /** 管理员查看已开户学生密码账号清单 */
-  studentAccounts: () =>
-    request<{ items: Array<{ studentNo: string; name: string; studentId: string; campus: string; createdAt: string; updatedAt: string }> }>('/student-auth/accounts'),
-  /** 管理员按学号 / 姓名检索学生并标注是否已开户 */
-  studentSearch: (keyword: string) =>
-    request<{ items: Array<{ studentNo: string; name: string; studentId: string; campus: string; hasAccount: boolean }> }>(`/student-auth/search?keyword=${encodeURIComponent(keyword)}`),
-
-  /** 学生门户一键打卡：gps / wifi 二选一（studentId 由会话决定） */
-  portalSign: (data: { mode: 'gps' | 'wifi'; gps?: string; ssid?: string; bssid?: string; at?: string }) =>
-    request<{
-      duplicated: boolean;
-      passed: boolean;
-      direction: string;
-      method: string;
-      distanceMeters: number | null;
-      matchedCampus: string;
-      record?: Record<string, unknown>;
-    }>('/student-attendances/sign', { method: 'POST', body: JSON.stringify(data) }),
 
   // ── M3 教师履约 ─────────────────────────────
   listAttendances: (params: Record<string, string | undefined> = {}) => {
@@ -548,10 +508,6 @@ export const api = {
   getMenuConfig: () => request<NavMenuConfig>('/homepage-config/menu'),
   updateMenuConfig: (data: NavMenuConfig) =>
     request<{ ok: boolean }>('/homepage-config/menu', { method: 'PUT', body: JSON.stringify(data) }),
-
-  getMenuGroups: () => request<NavMenuGroupConfig>('/homepage-config/menu-groups'),
-  updateMenuGroups: (data: NavMenuGroupConfig) =>
-    request<{ ok: boolean }>('/homepage-config/menu-groups', { method: 'PUT', body: JSON.stringify(data) }),
 
   // ── 系统配置（通用 CRUD） ───────────────────
   listSettings: (params: Record<string, string | undefined> = {}) => {

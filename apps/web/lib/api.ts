@@ -21,9 +21,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
   });
   if (res.status === 401) {
-    // 已在登录页（或正前往登录页）时不再跳转，避免 /login 自刷新死循环
-    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-      window.location.href = '/login';
+    // 未登录：根据当前路径决定跳转目标，避免自刷新死循环。
+    // 学生自助门户/学生登录走学生网页登录页，其余走飞书登录页。
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname;
+      if (p === '/student-login' || p === '/portal') {
+        if (p !== '/student-login') window.location.href = '/student-login';
+      } else if (p !== '/login') {
+        window.location.href = '/login';
+      }
     }
     throw new Error('UNAUTHENTICATED');
   }
@@ -249,6 +255,15 @@ export const api = {
   portalGrades: () => request<{ items: Record<string, unknown>[]; total: number }>('/portal/grades'),
   portalSchedule: () => request<{ items: Record<string, unknown>[]; total: number; classes: string[] }>('/portal/schedule'),
   portalTeachers: () => request<{ items: Record<string, unknown>[]; total: number }>('/portal/teachers'),
+
+  /** 学生网页自助登录：学号 + 姓名 → 种 cookie 会话（角色 student） */
+  studentLogin: (studentNo: string, name: string) =>
+    request<{ ok: boolean; studentId: string; name: string; campus: string }>('/student/auth/bind', {
+      method: 'POST',
+      body: JSON.stringify({ studentNo, name }),
+    }),
+  /** 退出学生网页会话 */
+  studentLogout: () => request<unknown>('/auth/logout', { method: 'POST' }),
 
   // ── M3 教师履约 ─────────────────────────────
   listAttendances: (params: Record<string, string | undefined> = {}) => {
@@ -624,9 +639,14 @@ export interface PermissionsPayload {
 export async function exportTable(table: string): Promise<void> {
   const res = await fetch(`${API_BASE}/export/${table}`, { credentials: 'include' });
   if (res.status === 401) {
-    // 已在登录页（或正前往登录页）时不再跳转，避免 /login 自刷新死循环
-    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-      window.location.href = '/login';
+    // 未登录：与 request() 一致，按当前路径分流到飞书/学生登录页
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname;
+      if (p === '/student-login' || p === '/portal') {
+        if (p !== '/student-login') window.location.href = '/student-login';
+      } else if (p !== '/login') {
+        window.location.href = '/login';
+      }
     }
     throw new Error('UNAUTHENTICATED');
   }
@@ -648,6 +668,7 @@ export interface SessionUser {
   roles: string[];
   campuses: string[];
   maxDataLevel: string;
+  studentId?: string;
   sessionId: string;
   expiresAt: number;
 }

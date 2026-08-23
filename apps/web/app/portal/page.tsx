@@ -29,12 +29,26 @@ export default function PortalPage() {
   const [tab, setTab] = useState<Tab>('profile');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [me, setMe] = useState<{ name: string } | null>(null);
   const [profile, setProfile] = useState<Record<string, unknown> | null>(null);
   const [schedule, setSchedule] = useState<Record<string, unknown>[]>([]);
   const [grades, setGrades] = useState<Record<string, unknown>[]>([]);
   const [teachers, setTeachers] = useState<Record<string, unknown>[]>([]);
 
+  useEffect(() => {
+    api.me().then((m) => setMe(m as { name: string })).catch(() => {});
+  }, []);
+
   useEffect(() => { void load(tab); }, [tab]);
+
+  async function logout() {
+    try {
+      await api.studentLogout();
+    } catch {
+      /* 忽略错误，直接跳转 */
+    }
+    window.location.href = '/student-login';
+  }
 
   async function load(t: Tab) {
     setLoading(true);
@@ -58,6 +72,12 @@ export default function PortalPage() {
         <div>
           <h1 className="page-title">学生自助门户</h1>
           <p className="page-subtitle">本人档案、周课表、成绩与授课教师（仅可查看本人数据）</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {me?.name && <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>{me.name}</span>}
+          <button className="filter-select-trigger" style={{ borderRadius: 999 }} onClick={logout}>
+            退出
+          </button>
         </div>
       </div>
 

@@ -170,6 +170,21 @@ export default function LoginShell({ config, preview }: LoginShellProps) {
             {config.ctaText}
           </a>
 
+          <a
+            href="/student-login"
+            style={{
+              display: 'block',
+              textAlign: 'center',
+              marginTop: 14,
+              color: 'var(--right-text-color, #8a90a2)',
+              fontSize: 'var(--font-sm)',
+              textDecoration: 'underline',
+              opacity: 0.9,
+            }}
+          >
+            我是学生？用学号 + 姓名登录
+          </a>
+
           <div className="status-block">
             <span className="status-tag">{config.statusTag}</span>
             <p className="status-text">{config.statusText}</p>

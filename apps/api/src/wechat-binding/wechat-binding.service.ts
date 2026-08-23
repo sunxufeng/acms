@@ -18,7 +18,7 @@ export interface UpsertBindingInput {
   studentNo?: string;
   name?: string;
   role: 'student' | 'parent';
-  loginMethod: '微信小程序' | '家长H5';
+  loginMethod: '微信小程序' | '家长H5' | '学生网页';
 }
 
 /**

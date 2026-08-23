@@ -1,7 +1,7 @@
-import { Inject, Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { Inject, Injectable, UnauthorizedException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { BaseClient, toText, type BaseRecord } from '@acms/base-adapter';
-import { TABLES } from '@acms/contracts';
+import { TABLES, type SessionUser } from '@acms/contracts';
 import { REDIS } from '../redis.provider.js';
 import { BASE_CLIENT } from '../base.provider.js';
 import { SessionService } from '../auth/session.service.js';
@@ -137,24 +137,31 @@ export class MiniProgramService {
     return v || null;
   }
 
-  /** 用学号 + 姓名绑定 openid ↔ 学生档案，返回学生 record_id 或 null */
-  private async bind(openid: string, studentNo: string, name: string): Promise<string | null> {
+  /** 学号 + 姓名 → 学生档案（与小程序绑定逻辑一致），找不到返回 null */
+  private async findStudent(studentNo: string, name: string): Promise<BaseRecord | null> {
     const res = await this.base.search(STUDENT_TABLE, {
       pageSize: 50,
       filter: buildFilter([{ field: '学生姓名', value: [name] }]),
     });
     const no = String(studentNo).trim();
-    const rec = res.items.find((r) => {
-      const f = r.fields;
-      const nameOk = toText(f['学生姓名']) === name.trim();
-      if (!nameOk) return false;
-      const noOk =
-        String(toText(f['学生编号']) ?? '').trim() === no ||
-        String(toText(f['学籍号（脱敏）']) ?? '').trim() === no;
-      return noOk;
-    });
-    if (!rec) return null;
-    const id = rec.recordId;
+    return (
+      res.items.find((r) => {
+        const f = r.fields;
+        const nameOk = toText(f['学生姓名']) === name.trim();
+        if (!nameOk) return false;
+        const noOk =
+          String(toText(f['学生编号']) ?? '').trim() === no ||
+          String(toText(f['学籍号（脱敏）']) ?? '').trim() === no;
+        return noOk;
+      }) || null
+    );
+  }
+
+  /** 用学号 + 姓名绑定 openid ↔ 学生档案，返回学生 record_id 或 null */
+  private async bind(openid: string, studentNo: string, name: string): Promise<string | null> {
+    const stu = await this.findStudent(studentNo, name);
+    if (!stu) return null;
+    const id = stu.recordId;
     await this.redis.set(`wxbind:${openid}`, id, 'EX', this.bindTtl);
     // 最佳努力回写「微信 Open ID」字段（若 Base 已加该字段；否则忽略）
     try {
@@ -163,6 +170,36 @@ export class MiniProgramService {
       /* 字段不存在则跳过，绑定以 Redis 为准 */
     }
     return id;
+  }
+
+  /**
+   * 学生网页自助登录：学号 + 姓名 → 签发 cookie 会话（角色 student）。
+   * 与小程序绑定不同：不写 Redis 绑定键（wxbind:），仅建立一次性网页会话，
+   * 并把登录记录写入 wechat_binding 表（loginMethod='学生网页'）供后台查看。
+   */
+  async bindByCredentials(studentNo: string, name: string): Promise<SessionUser> {
+    if (!studentNo || !name) throw new BadRequestException('VALIDATION:需学号与姓名');
+    const stu = await this.findStudent(studentNo, name);
+    if (!stu) throw new UnauthorizedException('STUDENT_NOT_FOUND:学号或姓名不匹配');
+    const campus = toText(stu.fields['校区']) ?? '';
+    const displayName = toText(stu.fields['学生姓名']) ?? name;
+    const session = await this.sessions.create({
+      openId: `student_${stu.recordId}`,
+      name: displayName,
+      roles: ['student'],
+      campuses: campus ? [campus] : [],
+      maxDataLevel: 'L1',
+      studentId: stu.recordId,
+    });
+    await this.wechatBinding.upsertBinding({
+      openId: `student_${stu.recordId}`,
+      studentId: stu.recordId,
+      studentNo,
+      name: displayName,
+      role: 'student',
+      loginMethod: '学生网页',
+    });
+    return session;
   }
 
   private async loadStudent(id: string): Promise<BaseRecord | null> {

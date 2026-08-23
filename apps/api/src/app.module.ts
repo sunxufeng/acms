@@ -27,6 +27,7 @@ import { UsersModule } from './user/user.module.js';
 import { AiModule } from './ai/ai.module.js';
 import { AiSummarizeModule } from './ai-summarize/ai-summarize.module.js';
 import { WechatBindingModule } from './wechat-binding/wechat-binding.module.js';
+import { HomepageConfigModule } from './homepage-config/homepage-config.module.js';
 import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.meta.js';
 
 @Module({
@@ -61,6 +62,7 @@ import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.m
     AiModule,
     AiSummarizeModule,
     WechatBindingModule,
+    HomepageConfigModule,
   ],
 })
 export class AppModule {}

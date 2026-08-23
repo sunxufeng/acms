@@ -81,6 +81,7 @@ const NAV_ITEMS: NavGroup[] = [
       { key: 'settings', label: '系统设置', href: '/settings', icon: SettingsIcon },
       { key: 'attendance-zones', label: '考勤围栏', href: '/attendance-zones', icon: SettingsIcon },
       { key: 'wechat-bindings', label: '微信用户', href: '/wechat-bindings', icon: UserGroupIcon, adminOnly: true },
+      { key: 'homepage-settings', label: '主页管理', href: '/homepage-settings', icon: SettingsIcon, adminOnly: true },
     ],
   },
 ];
@@ -324,6 +325,7 @@ function breadcrumbLabel(path: string): string {
   if (path.startsWith('/users')) return '用户管理';
   if (path.startsWith('/permissions')) return '权限授权';
   if (path.startsWith('/wechat-bindings')) return '微信用户';
+  if (path.startsWith('/homepage-settings')) return '主页管理';
   if (path.startsWith('/notification-templates')) return '通知模板';
   if (path.startsWith('/students')) {
     if (path === '/students/new') return '新建学生';

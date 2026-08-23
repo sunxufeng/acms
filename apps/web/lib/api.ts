@@ -483,6 +483,11 @@ export const api = {
     );
   },
 
+  // ── 主页配置（登录页 / 主页管理编辑器） ─────
+  getHomepageConfig: () => request<Record<string, unknown>>('/homepage-config'),
+  updateHomepageConfig: (data: Record<string, unknown>) =>
+    request<{ ok: boolean }>('/homepage-config', { method: 'PUT', body: JSON.stringify(data) }),
+
   // ── 系统配置（通用 CRUD） ───────────────────
   listSettings: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();

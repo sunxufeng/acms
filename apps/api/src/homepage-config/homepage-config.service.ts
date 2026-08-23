@@ -53,19 +53,25 @@ export class HomepageConfigService {
     return { ok: true };
   }
 
-  /** 读取导航菜单配置 */
+  /** 读取导航菜单配置；将默认系统菜单中缺失的项自动补充进去 */
   async getMenu(): Promise<NavMenuConfig> {
     const rec = await this.findRecord(MENU_CONFIG_KEY);
-    if (!rec) return DEFAULT_NAV_MENU_CONFIG;
-    const raw = toText(rec.fields['配置值']);
-    if (!raw) return DEFAULT_NAV_MENU_CONFIG;
-    try {
-      const parsed = JSON.parse(raw) as Partial<NavMenuConfig>;
-      if (Array.isArray(parsed.items)) return parsed as NavMenuConfig;
-      return DEFAULT_NAV_MENU_CONFIG;
-    } catch {
-      return DEFAULT_NAV_MENU_CONFIG;
+    let stored: NavMenuConfig = { items: [] };
+    if (rec) {
+      const raw = toText(rec.fields['配置值']);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as Partial<NavMenuConfig>;
+          if (Array.isArray(parsed.items)) stored = parsed as NavMenuConfig;
+        } catch { /* ignore */ }
+      }
     }
+    const storedKeys = new Set(stored.items.map((it) => it.key));
+    const mergedItems = [
+      ...stored.items,
+      ...DEFAULT_NAV_MENU_CONFIG.items.filter((it) => !storedKeys.has(it.key)),
+    ];
+    return { items: mergedItems };
   }
 
   /** 保存导航菜单配置 */

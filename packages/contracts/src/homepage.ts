@@ -23,12 +23,20 @@ export interface DashboardTheme {
   /** 侧边栏边框色 */
   sidebarBorderColor: string;
 
+  /** 侧边栏展开宽度（px） */
+  sidebarWidth?: number;
+
   /** 顶部 header 背景色 */
   headerBgColor: string;
   /** 顶部 header 文字色 */
   headerTextColor: string;
   /** 顶部 header 边框色 */
   headerBorderColor: string;
+
+  /** 主内容区背景色 */
+  mainBgColor?: string;
+  /** 主内容区文字色 */
+  mainTextColor?: string;
 
   /** 工作台左上角 Logo（URL 或 file_token），为空则使用登录页 logoUrl */
   logoUrl?: string | null;
@@ -170,6 +178,7 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'settings', label: '系统设置', href: '/settings', icon: 'settings', section: '后台管理', order: 80 },
     { key: 'attendance-zones', label: '考勤围栏', href: '/attendance-zones', icon: 'settings', section: '后台管理', order: 90 },
     { key: 'wechat-bindings', label: '微信用户', href: '/wechat-bindings', icon: 'userGroup', section: '后台管理', order: 100, adminOnly: true },
+    { key: 'homepage-management', label: '主页管理', href: '/homepage-management', icon: 'settings', section: '后台管理', order: 105, adminOnly: true },
     { key: 'homepage-settings', label: '首页管理', href: '/homepage-settings', icon: 'settings', section: '后台管理', order: 110, adminOnly: true },
     { key: 'menu-settings', label: '菜单管理', href: '/menu-settings', icon: 'dictionary', section: '后台管理', order: 120, adminOnly: true },
   ],
@@ -225,10 +234,18 @@ export const DEFAULT_HOMEPAGE_CONFIG: HomepageConfig = {
     sidebarActiveTextColor: '#FFFFFF',
     sidebarSectionColor: '#8FBDB7',
     sidebarBorderColor: 'rgba(255,255,255,0.08)',
+    sidebarWidth: 252,
 
     headerBgColor: 'rgba(11,34,31,0.90)',
     headerTextColor: '#F0F7F6',
     headerBorderColor: 'rgba(255,255,255,0.08)',
+
+    mainBgColor: '#F4F7F6',
+    mainTextColor: '#111827',
+
+    logoUrl: null,
+    brandName: 'ARETE',
+    brandSubtitle: 'COLLEGE OPS',
   },
 };
 

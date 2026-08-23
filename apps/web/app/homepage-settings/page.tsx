@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { DEFAULT_HOMEPAGE_CONFIG, type HomepageConfig, type LoginFeature, type DashboardTheme } from '@acms/contracts';
+import { DEFAULT_HOMEPAGE_CONFIG, type HomepageConfig, type LoginFeature } from '@acms/contracts';
 import { api } from '../../lib/api';
 import LoginShell from '../login/LoginShell';
 import ImageField from './ImageField';
@@ -263,13 +263,6 @@ export default function HomepageSettingsPage() {
     update('features', list);
   }
 
-  function updateDashboardTheme<K extends keyof DashboardTheme>(key: K, value: DashboardTheme[K]) {
-    setConfig((prev) => ({
-      ...prev,
-      dashboardTheme: { ...(prev.dashboardTheme ?? DEFAULT_HOMEPAGE_CONFIG.dashboardTheme!), [key]: value },
-    }));
-  }
-
   async function handleSave() {
     setSaving(true);
     try {
@@ -298,7 +291,7 @@ export default function HomepageSettingsPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div className="page-title">首页管理</div>
-          <div className="page-subtitle">配置登录页与工作台的布局、配色、Logo、文案与字体，右侧实时预览并保存。</div>
+          <div className="page-subtitle">配置登录页的布局、配色、Logo、文案与字体，右侧实时预览并保存。</div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button type="button" className="btn btn-outline" onClick={handleReset}>
@@ -395,92 +388,6 @@ export default function HomepageSettingsPage() {
               label="Logo（留空则显示品牌首字母）"
               value={config.logoUrl}
               onChange={(v) => update('logoUrl', v || null)}
-            />
-          </Section>
-
-          <Section title="工作台主题（登录后）">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <Field label="侧边栏背景色">
-                <ColorInput
-                  value={config.dashboardTheme?.sidebarBgColor ?? '#0F2E2B'}
-                  onChange={(v) => updateDashboardTheme('sidebarBgColor', v)}
-                />
-              </Field>
-              <Field label="侧边栏文字色">
-                <ColorInput
-                  value={config.dashboardTheme?.sidebarTextColor ?? '#D4E8E4'}
-                  onChange={(v) => updateDashboardTheme('sidebarTextColor', v)}
-                />
-              </Field>
-              <Field label="侧边栏 hover 背景">
-                <ColorInput
-                  value={config.dashboardTheme?.sidebarHoverBgColor ?? '#174A45'}
-                  onChange={(v) => updateDashboardTheme('sidebarHoverBgColor', v)}
-                />
-              </Field>
-              <Field label="侧边栏选中背景">
-                <ColorInput
-                  value={config.dashboardTheme?.sidebarActiveBgColor ?? '#1A5C56'}
-                  onChange={(v) => updateDashboardTheme('sidebarActiveBgColor', v)}
-                />
-              </Field>
-              <Field label="侧边栏选中文字">
-                <ColorInput
-                  value={config.dashboardTheme?.sidebarActiveTextColor ?? '#FFFFFF'}
-                  onChange={(v) => updateDashboardTheme('sidebarActiveTextColor', v)}
-                />
-              </Field>
-              <Field label="侧边栏分组标题色">
-                <ColorInput
-                  value={config.dashboardTheme?.sidebarSectionColor ?? '#8FBDB7'}
-                  onChange={(v) => updateDashboardTheme('sidebarSectionColor', v)}
-                />
-              </Field>
-              <Field label="侧边栏边框色">
-                <ColorInput
-                  value={config.dashboardTheme?.sidebarBorderColor ?? 'rgba(255,255,255,0.08)'}
-                  onChange={(v) => updateDashboardTheme('sidebarBorderColor', v)}
-                />
-              </Field>
-              <Field label="顶部 Header 背景">
-                <ColorInput
-                  value={config.dashboardTheme?.headerBgColor ?? 'rgba(11,34,31,0.90)'}
-                  onChange={(v) => updateDashboardTheme('headerBgColor', v)}
-                />
-              </Field>
-              <Field label="顶部 Header 文字">
-                <ColorInput
-                  value={config.dashboardTheme?.headerTextColor ?? '#F0F7F6'}
-                  onChange={(v) => updateDashboardTheme('headerTextColor', v)}
-                />
-              </Field>
-              <Field label="顶部 Header 边框">
-                <ColorInput
-                  value={config.dashboardTheme?.headerBorderColor ?? 'rgba(255,255,255,0.08)'}
-                  onChange={(v) => updateDashboardTheme('headerBorderColor', v)}
-                />
-              </Field>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <Field label="工作台品牌名">
-                <TextInput
-                  value={config.dashboardTheme?.brandName || ''}
-                  onChange={(v) => updateDashboardTheme('brandName', v || undefined)}
-                  placeholder={config.brandName}
-                />
-              </Field>
-              <Field label="工作台品牌副标题">
-                <TextInput
-                  value={config.dashboardTheme?.brandSubtitle || ''}
-                  onChange={(v) => updateDashboardTheme('brandSubtitle', v || undefined)}
-                  placeholder={config.brandSubtitle}
-                />
-              </Field>
-            </div>
-            <ImageField
-              label="工作台 Logo（留空则使用登录页 Logo）"
-              value={config.dashboardTheme?.logoUrl || ''}
-              onChange={(v) => updateDashboardTheme('logoUrl', v || null)}
             />
           </Section>
 
@@ -604,7 +511,7 @@ export default function HomepageSettingsPage() {
             </div>
           </div>
           <div style={{ fontSize: 12, color: 'var(--fg-tertiary)' }}>
-            提示：保存后刷新 /login 即可看到登录页效果；工作台主题在登录后的侧边栏/顶栏生效。
+            提示：保存后刷新 /login 即可看到登录页效果。
           </div>
         </div>
       </div>

@@ -69,6 +69,11 @@ export default function MenuSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  // 拖拽排序状态
+  const [dragRow, setDragRow] = useState<number | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
   useEffect(() => {
     api
       .getMenuConfig()
@@ -118,6 +123,43 @@ export default function MenuSettingsPage() {
       list[nextIdx] = tmp;
       return list;
     });
+  }
+
+  // 拖拽排序：把 from 位置的项移动到 to 位置
+  function reorderByDrag(from: number, to: number) {
+    if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return;
+    setItems((prev) => {
+      const list = prev.slice();
+      const [moved] = list.splice(from, 1);
+      list.splice(to, 0, moved);
+      return list;
+    });
+  }
+
+  function handleDragStart(e: React.DragEvent, idx: number) {
+    setDragIndex(idx);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(idx));
+  }
+
+  function handleDragOver(e: React.DragEvent, idx: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (overIndex !== idx) setOverIndex(idx);
+  }
+
+  function handleDrop(e: React.DragEvent, idx: number) {
+    e.preventDefault();
+    if (dragIndex !== null) reorderByDrag(dragIndex, idx);
+    setDragIndex(null);
+    setOverIndex(null);
+    setDragRow(null);
+  }
+
+  function handleDragEnd() {
+    setDragIndex(null);
+    setOverIndex(null);
+    setDragRow(null);
   }
 
   async function handleSave() {
@@ -171,6 +213,7 @@ export default function MenuSettingsPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ color: 'var(--fg-secondary)', borderBottom: '1px solid var(--border)' }}>
+                <th style={{ textAlign: 'center', padding: '8px 6px', width: 36 }} title="拖动排序">⠿</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', width: 40 }}>#</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>名称</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>路径 (href)</th>
@@ -184,7 +227,40 @@ export default function MenuSettingsPage() {
             </thead>
             <tbody>
               {items.map((it, idx) => (
-                <tr key={it.key} style={{ borderBottom: '1px solid var(--border)' }}>
+                <tr
+                  key={it.key}
+                  draggable={idx === dragRow}
+                  onDragStart={(e) => handleDragStart(e, idx)}
+                  onDragOver={(e) => handleDragOver(e, idx)}
+                  onDrop={(e) => handleDrop(e, idx)}
+                  onDragEnd={handleDragEnd}
+                  style={{
+                    borderBottom: '1px solid var(--border)',
+                    background:
+                      overIndex === idx && dragIndex !== null && dragIndex !== idx
+                        ? 'var(--accent-soft)'
+                        : dragIndex === idx
+                          ? 'var(--accent-muted)'
+                          : 'transparent',
+                    cursor: idx === dragRow ? 'grabbing' : 'default',
+                  }}
+                >
+                  <td style={{ padding: '6px 6px', textAlign: 'center' }}>
+                    <span
+                      title="按住拖动排序"
+                      onMouseDown={() => setDragRow(idx)}
+                      style={{
+                        cursor: 'grab',
+                        display: 'inline-block',
+                        color: 'var(--fg-tertiary)',
+                        fontSize: 16,
+                        lineHeight: 1,
+                        userSelect: 'none',
+                      }}
+                    >
+                      ⠿
+                    </span>
+                  </td>
                   <td style={{ padding: '6px 10px', color: 'var(--fg-tertiary)' }}>{idx + 1}</td>
                   <td style={{ padding: '6px 10px' }}>
                     <input

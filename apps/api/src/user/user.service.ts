@@ -118,7 +118,6 @@ export class UsersService {
     this.requireAdmin(user);
     const openId = toText(dto['飞书 Open ID']);
     const name = toText(dto['姓名']);
-    if (!openId) throw new BadRequestException('VALIDATION:飞书 Open ID 必填');
     if (!name) throw new BadRequestException('VALIDATION:姓名 必填');
 
     const roles = toStringArray(dto['系统角色']).filter((r) => (ROLES as readonly string[]).includes(r));
@@ -130,12 +129,12 @@ export class UsersService {
     const teacherType = toText(dto['教师类型']);
 
     const fields: Record<string, unknown> = {
-      '飞书 Open ID': openId,
       姓名: name,
       系统角色: roles.length ? roles : [ADMIN_ROLE],
       数据密级上限: level,
       账号状态: status,
     };
+    if (openId) fields['飞书 Open ID'] = openId;
     if (campus) fields['默认校区'] = campus;
     if (teacherType) fields['教师类型'] = teacherType;
     const recordId = await this.base.create(USER_TABLE.tableId, fields);

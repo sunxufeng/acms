@@ -468,6 +468,15 @@ export class StudentService {
     migrateTypeScore('学术标化成绩', '学术标化类型', '学术标化成绩');
     migrateTypeScore('语言标化成绩', '语言标化类型', '语言标化成绩');
 
+    // #201 语言标化合并：旧「英语标化成绩」一次性并入「语言标化成绩」（语言类标化统一展示，避免重复）
+    const langRaw = obj['语言标化成绩'];
+    const hasLang = (typeof langRaw === 'string' && langRaw.trim().length > 0) || (Array.isArray(langRaw) && langRaw.length > 0);
+    if (!hasLang) {
+      const engRaw = obj['英语标化成绩'];
+      const hasEng = (typeof engRaw === 'string' && engRaw.trim().length > 0) || (Array.isArray(engRaw) && engRaw.length > 0);
+      if (hasEng) obj['语言标化成绩'] = engRaw;
+    }
+
     return obj;
   }
 }

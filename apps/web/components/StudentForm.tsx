@@ -123,7 +123,6 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '家长面谈情况', label: '家长面谈情况', type: 'textarea' },
       { key: '学生面试情况', label: '学生面试情况', type: 'textarea' },
       { key: '作品集/附加材料评价', label: '作品集/附加材料评价', type: 'textarea' },
-      { key: '英语标化成绩', label: '英语标化（类型 + 成绩）', type: 'typescore', dictKey: '英语标化类型', typeLabel: '英语标化类型', scoreLabel: '英语标化成绩' },
       { key: '综合评定等级', label: '综合评定等级', type: 'select', dictKey: '综合评定等级' },
     ],
   },
@@ -132,7 +131,7 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     fields: [
       { key: 'GPA成绩', label: 'GPA成绩（类型 + 成绩）', type: 'typescore', dictKey: 'GPA成绩类型', typeLabel: 'GPA成绩类型', scoreLabel: 'GPA成绩' },
       { key: '学术标化成绩', label: '学术标化（类型 + 成绩）', type: 'typescore', dictKey: '学术标化类型', typeLabel: '学术标化类型', scoreLabel: '学术标化成绩' },
-      { key: '语言标化成绩', label: '语言标化（类型 + 成绩）', type: 'typescore', dictKey: '语言标化类型', typeLabel: '语言标化类型', scoreLabel: '语言标化成绩' },
+      { key: '语言标化成绩', label: '语言标化（含英语，类型 + 成绩）', type: 'typescore', dictKey: '语言标化类型', typeLabel: '语言标化类型', scoreLabel: '语言标化成绩' },
       { key: '预警科目', label: '预警科目', type: 'text' },
       { key: '提升成果', label: '提升成果', type: 'text' },
       { key: '出勤率', label: '出勤率（0%-100%）', type: 'number', min: 0, max: 100 },

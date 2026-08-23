@@ -220,7 +220,7 @@ a:hover { color: var(--accent-hover); }
 
 .login-left {
   position: relative;
-  flex: 1 1 55%;
+  flex: 1 1 40%;
   background: var(--login-left-bg);
   color: var(--login-text);
   overflow: hidden;
@@ -260,13 +260,13 @@ a:hover { color: var(--accent-hover); }
 .geo-line path { stroke: var(--login-line); stroke-width: 1; }
 
 .login-right {
-  flex: 1 1 45%; background: var(--login-right-bg); color: var(--login-text);
+  flex: 1 1 60%; background: #F4F7F6; color: #111827;
   display: flex; align-items: center; justify-content: center; padding: 48px 56px;
 }
-.right-inner { max-width: 400px; width: 100%; }
-.right-label { font-size: 10px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: var(--login-label); margin-bottom: 24px; }
-.right-head { font-size: clamp(26px, 3vw, 36px); font-weight: 800; line-height: 1.2; letter-spacing: -0.01em; margin-bottom: 20px; }
-.right-desc { font-size: 13px; line-height: 1.75; color: var(--login-muted); margin-bottom: 36px; }
+.right-inner { max-width: 460px; width: 100%; }
+.right-label { font-size: 10px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: #0E9B8E; margin-bottom: 24px; }
+.right-head { font-size: clamp(26px, 3vw, 36px); font-weight: 800; line-height: 1.2; letter-spacing: -0.01em; margin-bottom: 20px; color: #111827; }
+.right-desc { font-size: 13px; line-height: 1.75; color: #4B5563; margin-bottom: 36px; }
 
 .cta-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -278,9 +278,9 @@ a:hover { color: var(--accent-hover); }
 .cta-btn:active { transform: translateY(0); }
 .cta-arrow { font-size: 16px; font-weight: 400; }
 
-.status-block { margin-top: 40px; padding-top: 24px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
-.status-tag { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--login-status); display: block; margin-bottom: 10px; }
-.status-text { font-size: 12px; line-height: 1.65; color: var(--login-muted); }
+.status-block { margin-top: 40px; padding-top: 24px; border-top: 1px solid rgba(0, 0, 0, 0.08); }
+.status-tag { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #B8860B; display: block; margin-bottom: 10px; }
+.status-text { font-size: 12px; line-height: 1.65; color: #6B7280; }
 
 /* ================================================================ */
 /*  APP SHELL – Sidebar + Topbar + Content                          */

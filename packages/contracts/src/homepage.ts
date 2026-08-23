@@ -71,6 +71,42 @@ export interface NavMenuConfig {
   items: NavMenuItem[];
 }
 
+/** 图标名称（与 AppShell 中 ICONS 映射一一对应）。新增图标时同步更新 AppShell 的组件与 ICON_NAMES。 */
+export type IconName =
+  | 'dashboard' | 'students' | 'admissions' | 'courses' | 'schedule' | 'teachers'
+  | 'notifications' | 'chat' | 'config' | 'bot' | 'skill' | 'clock' | 'chart'
+  | 'billing' | 'audit' | 'system' | 'integration' | 'userGroup' | 'shield'
+  | 'dictionary' | 'reports' | 'settings'
+  // 新增同风格图标（B6）
+  | 'user' | 'key' | 'lock' | 'location' | 'calendar' | 'file' | 'folder'
+  | 'star' | 'check' | 'book' | 'graduation' | 'mail' | 'phone' | 'list'
+  | 'grid' | 'target' | 'wallet' | 'award' | 'flag' | 'compass';
+
+export const ICON_NAMES: readonly IconName[] = [
+  'dashboard', 'students', 'admissions', 'courses', 'schedule', 'teachers',
+  'notifications', 'chat', 'config', 'bot', 'skill', 'clock', 'chart',
+  'billing', 'audit', 'system', 'integration', 'userGroup', 'shield',
+  'dictionary', 'reports', 'settings',
+  // 新增同风格图标（B6）
+  'user', 'key', 'lock', 'location', 'calendar', 'file', 'folder',
+  'star', 'check', 'book', 'graduation', 'mail', 'phone', 'list',
+  'grid', 'target', 'wallet', 'award', 'flag', 'compass',
+];
+
+/** 菜单分组（用于「菜单管理」的分组下拉与侧边栏分组的展示顺序） */
+export interface NavMenuGroup {
+  /** 分组标识（与 NavMenuItem.section 对应，唯一） */
+  key: string;
+  /** 分组显示名 */
+  label: string;
+  /** 同级排序，越小越靠前 */
+  order: number;
+}
+
+export interface NavMenuGroupConfig {
+  items: NavMenuGroup[];
+}
+
 export interface HomepageConfig {
   /** 左侧面板宽度百分比（0-100） */
   leftWidth: number;
@@ -181,6 +217,8 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'homepage-management', label: '主页管理', href: '/homepage-management', icon: 'settings', section: '后台管理', order: 105, adminOnly: true },
     { key: 'homepage-settings', label: '首页管理', href: '/homepage-settings', icon: 'settings', section: '后台管理', order: 110, adminOnly: true },
     { key: 'menu-settings', label: '菜单管理', href: '/menu-settings', icon: 'dictionary', section: '后台管理', order: 120, adminOnly: true },
+    { key: 'menu-groups-settings', label: '菜单分组', href: '/menu-groups-settings', icon: 'list', section: '后台管理', order: 122, adminOnly: true },
+    { key: 'student-users', label: '学生账号', href: '/student-users', icon: 'user', section: '后台管理', order: 130, adminOnly: true, perm: 'admin:studentUser' },
   ],
 };
 

@@ -92,6 +92,7 @@ export const PERMISSIONS = [
   'schedule:write',
   'export:run',
   'admin:user',
+  'admin:studentUser',
   'admin:audit',
   'config:read',
   'config:write',

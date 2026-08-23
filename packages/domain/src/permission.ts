@@ -27,7 +27,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'course:read', 'course:write',
     'venue:read', 'venue:write',
     'schedule:read', 'schedule:write',
-    'export:run', 'admin:user', 'admin:audit', 'config:read', 'config:write',
+    'export:run', 'admin:user', 'admin:studentUser', 'admin:audit', 'config:read', 'config:write',
     // AI 域
     'ai:chat', 'ai:config', 'ai:automation', 'ai:admin',
   ],

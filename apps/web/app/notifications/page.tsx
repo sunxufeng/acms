@@ -5,7 +5,6 @@ import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 
 const CHANNEL_OPTS = ['飞书', '短信', '邮件'];
-const TPL_STATUS_OPTS = ['启用', '停用'];
 const RECEIPT_OPTS = ['待发送', '已发送', '已送达', '失败', '已读'];
 const RECEIPT_TX: Record<string, string[]> = {
   待发送: ['已发送', '失败'],
@@ -13,15 +12,6 @@ const RECEIPT_TX: Record<string, string[]> = {
   已送达: ['已读'],
   失败: ['待发送'],
 };
-
-const TPL_COLUMNS: CrudColumn[] = [
-  { key: '模板名称', label: '模板名称', width: '150px', filter: true, form: true, required: true, type: 'text' },
-  { key: '渠道', label: '渠道', width: '90px', filter: true, filterOptions: CHANNEL_OPTS, form: true, type: 'select', options: CHANNEL_OPTS },
-  { key: '标题', label: '标题', width: '160px', form: true, type: 'text' },
-  { key: '内容模板', label: '内容模板', form: true, type: 'textarea' },
-  { key: '状态', label: '状态', width: '90px', filter: true, filterOptions: TPL_STATUS_OPTS, form: true, type: 'select', options: TPL_STATUS_OPTS },
-  { key: '备注', label: '备注', form: true, type: 'text' },
-];
 
 const LOG_COLUMNS: CrudColumn[] = [
   { key: '模板文本', label: '模板', width: '140px', filter: true, form: true, type: 'text' },
@@ -93,46 +83,26 @@ function SendPanel() {
 }
 
 export default function NotificationsPage() {
-  const [tab, setTab] = useState<'logs' | 'templates'>('logs');
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 'var(--space-md)' }}>
-        <button className={`btn btn-sm ${tab === 'logs' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('logs')}>发送记录</button>
-        <button className={`btn btn-sm ${tab === 'templates' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('templates')}>通知模板</button>
-      </div>
-      {tab === 'logs' ? (
-        <>
-          <SendPanel />
-          <CrudPage
-            title="通知发送记录"
-            subtitle="单发 / 批量发送与回执状态机（M4 通知闭环）"
-            columns={LOG_COLUMNS}
-            inlineEdit
-            api={{
-              list: (p) => api.listNotificationLogs(p),
-              create: () => Promise.reject(new Error('请使用上方发送工作台创建记录')),
-              update: () => Promise.reject(new Error('通知记录不可编辑')),
-              archive: () => Promise.reject(new Error('通知记录不可删除')),
-              transition: (id, to) => api.transitionNotificationLog(id, to),
-            }}
-            statusField="发送状态"
-            transitions={RECEIPT_TX}
-          />
-        </>
-      ) : (
-        <CrudPage
-          title="通知模板"
-          subtitle="消息模板维护（M4 通知闭环）"
-          columns={TPL_COLUMNS}
-          inlineEdit
-          api={{
-            list: (p) => api.listTemplates(p),
-            create: (d) => api.createTemplate(d),
-            update: (id, d) => api.updateTemplate(id, d),
-            archive: (id) => api.archiveTemplate(id),
-          }}
-        />
-      )}
+      <SendPanel />
+      <CrudPage
+        title="通知发送记录"
+        subtitle="单发 / 批量发送与回执状态机（M4 通知闭环）。新建/编辑时进入独立表单，顶部不再显示「新建」「查询」"
+        columns={LOG_COLUMNS}
+        inlineEdit
+        standaloneForm
+        hideCreate
+        api={{
+          list: (p) => api.listNotificationLogs(p),
+          create: () => Promise.reject(new Error('请使用上方发送工作台创建记录')),
+          update: () => Promise.reject(new Error('通知记录不可编辑')),
+          archive: () => Promise.reject(new Error('通知记录不可删除')),
+          transition: (id, to) => api.transitionNotificationLog(id, to),
+        }}
+        statusField="发送状态"
+        transitions={RECEIPT_TX}
+      />
     </div>
   );
 }

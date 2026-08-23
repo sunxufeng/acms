@@ -21,6 +21,7 @@ export default function SettingsPage() {
       columns={COLUMNS}
       statusField="状态"
       inlineEdit
+      standaloneForm
       search={{ placeholder: '配置键、配置值' }}
       api={{
         list: (p) => api.listSettings(p),

@@ -28,6 +28,7 @@ export default function UsersPage() {
       transitions={{ 启用: ['停用'], 停用: ['启用'] }}
       search={{ placeholder: '搜索姓名 / 飞书 Open ID' }}
       inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listUsers(p),
         create: (d) => api.createUser(d),

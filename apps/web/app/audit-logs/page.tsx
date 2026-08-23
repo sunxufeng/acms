@@ -30,6 +30,7 @@ export default function AuditLogsPage() {
       subtitle="关键写操作（创建/更新/删除）留痕，仅系统内部记录，不可修改（需审计权限）"
       columns={COLUMNS}
       readonly
+      hideCreate
       rangeFilters={[{ key: 'time', label: '操作时间', fromParam: 'from', toParam: 'to' }]}
       api={{
         list: (p) => api.listAuditLogs(p),

@@ -76,6 +76,8 @@ export interface CrudPageProps {
   extraActions?: { label: string; run: (reload: () => void) => void | Promise<void> }[];
   /** 只读模式：隐藏新建/编辑/删除按钮与弹窗（用于审计日志等仅查看的表） */
   readonly?: boolean;
+  /** 隐藏「新建」按钮（如审计日志等不可新增的表；readonly 已隐含隐藏，此属性用于非只读但也不允许新增的场景） */
+  hideCreate?: boolean;
   /** 时间范围筛选（起止日期） */
   rangeFilters?: RangeFilter[];
   /** 全局关键字搜索框：发送 q 参数，由后端 searchField 决定检索字段（支持关联字段跨表解析后模糊匹配） */
@@ -176,7 +178,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = pageSize ?? 5;
@@ -644,11 +646,11 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             {extraLinks?.map((l) => (
               <Link key={l.href} href={l.href} className="btn btn-outline">{l.label}</Link>
             ))}
-            {createHref ? (
+            {!hideCreate && (createHref ? (
               <Link href={createHref} className="btn btn-primary">+ 新建</Link>
             ) : (
               <button className="btn btn-primary" onClick={openCreate} disabled={loading || readonly}>+ 新建</button>
-            )}
+            ))}
           </div>
         </div>
       )}

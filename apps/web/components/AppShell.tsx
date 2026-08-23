@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { api } from '../lib/api';
+import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
 
 interface Me {
   name: string;
@@ -11,11 +12,38 @@ interface Me {
   roles: string[];
 }
 
-type NavItem = { key: string; label: string; href: string; icon: () => ReactNode; perm?: string; adminOnly?: boolean; disabled?: boolean };
-type NavSubsection = { title: string; items: NavItem[] };
-type NavGroup = { section: string; items: NavItem[]; subsections?: NavSubsection[] };
+/** 图标名称 → 组件（与 NavMenuItem.icon 对应） */
+const ICONS: Record<string, () => ReactNode> = {
+  dashboard: DashboardIcon,
+  students: StudentsIcon,
+  admissions: AdmissionsIcon,
+  courses: CoursesIcon,
+  schedule: ScheduleIcon,
+  teachers: TeachersIcon,
+  notifications: NotificationsIcon,
+  chat: ChatIcon,
+  config: ConfigIcon,
+  bot: BotIcon,
+  skill: SkillIcon,
+  clock: ClockIcon,
+  chart: ChartIcon,
+  billing: BillingIcon,
+  audit: AuditIcon,
+  system: SystemIcon,
+  integration: IntegrationIcon,
+  userGroup: UserGroupIcon,
+  shield: ShieldIcon,
+  dictionary: DictionaryIcon,
+  reports: ReportsIcon,
+  settings: SettingsIcon,
+};
 
-const NAV_ITEMS: NavGroup[] = [
+/** 历史硬编码菜单（配置读取失败时回退） */
+type LegacyNavItem = { key: string; label: string; href: string; icon: () => ReactNode; perm?: string; adminOnly?: boolean; disabled?: boolean };
+type LegacyNavSubsection = { title: string; items: LegacyNavItem[] };
+type LegacyNavGroup = { section: string; items: LegacyNavItem[]; subsections?: LegacyNavSubsection[] };
+
+const LEGACY_NAV_ITEMS: LegacyNavGroup[] = [
   {
     section: '工作台',
     items: [
@@ -81,10 +109,28 @@ const NAV_ITEMS: NavGroup[] = [
       { key: 'settings', label: '系统设置', href: '/settings', icon: SettingsIcon },
       { key: 'attendance-zones', label: '考勤围栏', href: '/attendance-zones', icon: SettingsIcon },
       { key: 'wechat-bindings', label: '微信用户', href: '/wechat-bindings', icon: UserGroupIcon, adminOnly: true },
-      { key: 'homepage-settings', label: '主页管理', href: '/homepage-settings', icon: SettingsIcon, adminOnly: true },
+      { key: 'homepage-settings', label: '首页管理', href: '/homepage-settings', icon: SettingsIcon, adminOnly: true },
+      { key: 'menu-settings', label: '菜单管理', href: '/menu-settings', icon: DictionaryIcon, adminOnly: true },
     ],
   },
 ];
+
+function themeCssVars(t: DashboardTheme | null): React.CSSProperties {
+  if (!t) return {};
+  return {
+    '--sidebar-bg': t.sidebarBgColor,
+    '--sidebar-hover': t.sidebarHoverBgColor,
+    '--sidebar-active': t.sidebarActiveBgColor,
+    '--sidebar-fg': t.sidebarTextColor,
+    '--sidebar-fg-secondary': t.sidebarTextColor,
+    '--sidebar-fg-tertiary': t.sidebarSectionColor,
+    '--topbar-chip-border': t.sidebarBorderColor,
+    '--topbar-bg': t.headerBgColor,
+    '--topbar-fg': t.headerTextColor,
+    '--topbar-fg-secondary': t.headerTextColor,
+    '--topbar-fg-tertiary': t.headerTextColor,
+  } as React.CSSProperties;
+}
 
 function initial(name: string): string {
   if (!name) return '?';
@@ -99,8 +145,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [myPerms, setMyPerms] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>('dark');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+  const [dashboardTheme, setDashboardTheme] = useState<DashboardTheme | null>(null);
+  const [menuConfig, setMenuConfig] = useState<NavMenuConfig>(DEFAULT_NAV_MENU_CONFIG);
+  const [logoError, setLogoError] = useState(false);
 
   // Sidebar: init from localStorage
   useEffect(() => {
@@ -118,16 +167,31 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const saved = localStorage.getItem('acms-theme') as 'light' | 'dark' | null;
     const t = saved || 'dark';
-    setTheme(t);
+    setThemeMode(t);
     document.documentElement.setAttribute('data-theme', t);
   }, []);
 
   function toggleTheme() {
-    const next = theme === 'light' ? 'dark' : 'light';
-    setTheme(next);
+    const next = themeMode === 'light' ? 'dark' : 'light';
+    setThemeMode(next);
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('acms-theme', next);
   }
+
+  // Load dashboard theme + menu config
+  useEffect(() => {
+    fetch('/api/v1/homepage-config', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.dashboardTheme) setDashboardTheme(d.dashboardTheme);
+      })
+      .catch(() => null);
+    api.getMenuConfig()
+      .then((d) => {
+        if (d?.items?.length) setMenuConfig(d);
+      })
+      .catch(() => null);
+  }, []);
 
   // 侧边栏大类折叠：默认全部收起；若当前路径命中某大类，则自动展开该类
   useEffect(() => {
@@ -137,15 +201,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       initial = saved ? JSON.parse(saved) : {};
     } catch { /* ignore */ }
 
-    NAV_ITEMS.forEach((g) => {
+    navGroups.forEach((g) => {
       if (initial[g.section] === undefined) {
         initial[g.section] = false;
       }
     });
 
-    const activeSection = NAV_ITEMS.find((g) =>
+    const activeSection = navGroups.find((g) =>
       g.items.some((it) => isActive(it.href)) ||
-      g.subsections?.some((s) => s.items.some((it) => isActive(it.href))),
+      g.items.some((it) => childrenMap[it.key]?.some((c) => isActive(c.href))),
     );
     if (activeSection && initial[activeSection.section] === false) {
       initial[activeSection.section] = true;
@@ -155,9 +219,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const activeSection = NAV_ITEMS.find((g) =>
+    const activeSection = navGroups.find((g) =>
       g.items.some((it) => isActive(it.href)) ||
-      g.subsections?.some((s) => s.items.some((it) => isActive(it.href))),
+      g.items.some((it) => childrenMap[it.key]?.some((c) => isActive(c.href))),
     );
     if (activeSection && !expandedSections[activeSection.section]) {
       toggleSection(activeSection.section, true);
@@ -201,15 +265,49 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const isAdmin = !!me?.roles?.includes('系统管理员');
 
+  // Build navigable menu groups from config
+  const sortedItems = menuConfig.items.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const childrenMap: Record<string, NavMenuItem[]> = {};
+  sortedItems.forEach((it) => {
+    if (it.parentKey) {
+      if (!childrenMap[it.parentKey]) childrenMap[it.parentKey] = [];
+      childrenMap[it.parentKey].push(it);
+    }
+  });
+  const sectionsMap: Record<string, NavMenuItem[]> = {};
+  sortedItems.forEach((it) => {
+    if (it.parentKey) return;
+    const section = it.section || '其他';
+    if (!sectionsMap[section]) sectionsMap[section] = [];
+    sectionsMap[section].push(it);
+  });
+  const navGroups = Object.entries(sectionsMap).map(([section, items]) => ({ section, items }));
+
+  // Theme-derived values
+  const sidebarStyle = themeCssVars(dashboardTheme);
+  const sidebarLogoUrl = dashboardTheme?.logoUrl ? imageUrl(dashboardTheme.logoUrl) : '/logo.png';
+  const sidebarBrandName = dashboardTheme?.brandName || 'ARETE';
+  const sidebarBrandSubtitle = dashboardTheme?.brandSubtitle || 'COLLEGE OPS';
+
   return (
     <div className="app-shell">
       {/* ── Sidebar ─────────────────────────────── */}
-      <aside className={`sidebar${sidebarOpen ? '' : ' collapsed'}`}>
+      <aside className={`sidebar${sidebarOpen ? '' : ' collapsed'}`} style={sidebarStyle}>
         <div className="sidebar-header">
-          <img src="/logo.png" alt="Arete" className="sidebar-logo" style={{ objectFit: 'contain', padding: 2, background: 'var(--bg-primary)' }} />
+          {dashboardTheme?.logoUrl && !logoError ? (
+            <img
+              src={sidebarLogoUrl}
+              alt={sidebarBrandName}
+              className="sidebar-logo"
+              style={{ objectFit: 'contain', padding: 2, background: 'transparent' }}
+              onError={() => setLogoError(true)}
+            />
+          ) : (
+            <div className="sidebar-logo">{sidebarBrandName.charAt(0).toUpperCase()}</div>
+          )}
           <div className="sidebar-brand">
-            <strong>ARETE</strong>
-            <small>COLLEGE OPS</small>
+            <strong>{sidebarBrandName}</strong>
+            <small>{sidebarBrandSubtitle}</small>
           </div>
           <button className="sidebar-collapse-btn" onClick={toggleSidebar} title={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}>
             {sidebarOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
@@ -217,15 +315,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map((group) => {
-            const allItems = [
-              ...group.items,
-              ...(group.subsections?.flatMap((s) => s.items) ?? []),
-            ];
-            if (allItems.length === 0) return null;
+          {navGroups.map((group) => {
+            if (group.items.length === 0) return null;
             const expanded = expandedSections[group.section] ?? false;
-            const renderItem = (item: NavItem) => {
-              const Icon = item.icon;
+            const renderItem = (item: NavMenuItem) => {
+              const Icon = ICONS[item.icon] ?? (() => null);
               if (item.adminOnly && !isAdmin) return null;
               if (item.perm && !(myPerms || []).includes(item.perm)) return null;
               if (item.disabled) {
@@ -238,11 +332,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 );
               }
               const active = isActive(item.href);
+              const children = childrenMap[item.key];
               return (
-                <Link key={item.key} href={item.href} className={`nav-item${active ? ' active' : ''}`}>
-                  <span className="nav-icon"><Icon /></span>
-                  <span>{item.label}</span>
-                </Link>
+                <div key={item.key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Link href={item.href} className={`nav-item${active ? ' active' : ''}`}>
+                    <span className="nav-icon"><Icon /></span>
+                    <span>{item.label}</span>
+                  </Link>
+                  {children && children.length > 0 && (
+                    <div style={{ paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {children.map(renderItem)}
+                    </div>
+                  )}
+                </div>
               );
             };
             return (
@@ -260,12 +362,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 {(!sidebarOpen || expanded) && (
                   <>
                     {group.items.map(renderItem)}
-                    {group.subsections?.map((sub) => (
-                      <div key={sub.title} className="sidebar-subsection">
-                        <div className="sidebar-subsection-title">{sub.title}</div>
-                        {sub.items.map(renderItem)}
-                      </div>
-                    ))}
                   </>
                 )}
                 </div>
@@ -278,7 +374,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* ── Main area ──────────────────────────── */}
       <div className="main-area">
         {/* Top bar */}
-        <header className="topbar">
+        <header className="topbar" style={sidebarStyle}>
           <div className="topbar-left">
             <button className="btn-icon" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="切换侧边栏">
               <MenuIcon />
@@ -300,8 +396,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               </>
             )}
-            <button className="theme-toggle" onClick={toggleTheme} title={theme === 'light' ? '切换深色模式' : '切换浅色模式'}>
-              {theme === 'light' ? <SunIcon /> : <MoonIcon />}
+            <button className="theme-toggle" onClick={toggleTheme} title={themeMode === 'light' ? '切换深色模式' : '切换浅色模式'}>
+              {themeMode === 'light' ? <SunIcon /> : <MoonIcon />}
             </button>
             <button className="btn-icon" onClick={handleLogout} title="退出登录" disabled={loggingOut}>
               <LogoutIcon />
@@ -325,7 +421,8 @@ function breadcrumbLabel(path: string): string {
   if (path.startsWith('/users')) return '用户管理';
   if (path.startsWith('/permissions')) return '权限授权';
   if (path.startsWith('/wechat-bindings')) return '微信用户';
-  if (path.startsWith('/homepage-settings')) return '主页管理';
+  if (path.startsWith('/homepage-settings')) return '首页管理';
+  if (path.startsWith('/menu-settings')) return '菜单管理';
   if (path.startsWith('/notification-templates')) return '通知模板';
   if (path.startsWith('/students')) {
     if (path === '/students/new') return '新建学生';

@@ -17,6 +17,7 @@ import { SessionGuard } from '../auth/session.guard.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
 import { HomepageConfigService } from './homepage-config.service.js';
 import type { HomepageConfigDto } from './homepage-config.dto.js';
+import type { NavMenuConfig } from '@acms/contracts';
 
 @Controller('homepage-config')
 export class HomepageConfigController {
@@ -42,6 +43,23 @@ export class HomepageConfigController {
       throw new ForbiddenException('ADMIN_ONLY');
     }
     return this.service.save(dto);
+  }
+
+  /** 公开读取导航菜单（登录后渲染侧边栏需要） */
+  @Get('menu')
+  async getMenuConfig() {
+    return this.service.getMenu();
+  }
+
+  /** 保存导航菜单：仅系统管理员 */
+  @Put('menu')
+  @UseGuards(SessionGuard)
+  async saveMenuConfig(@Body() dto: NavMenuConfig, @Req() req: Request) {
+    const user = (req as Request & { user?: { roles?: string[] } }).user;
+    if (!user?.roles?.includes('系统管理员')) {
+      throw new ForbiddenException('ADMIN_ONLY');
+    }
+    return this.service.saveMenu(dto);
   }
 
   /** 公开图片代理：登录页需展示上传的 logo / 背景图 */

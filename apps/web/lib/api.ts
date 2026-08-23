@@ -1,3 +1,5 @@
+import type { HomepageConfig, NavMenuConfig } from '@acms/contracts';
+
 /** 前端 API 客户端：统一 fetch 封装，自动带 cookie、统一错误处理、401 跳登录 */
 const API_BASE = '/api/v1';
 
@@ -483,10 +485,14 @@ export const api = {
     );
   },
 
-  // ── 主页配置（登录页 / 主页管理编辑器） ─────
-  getHomepageConfig: () => request<Record<string, unknown>>('/homepage-config'),
-  updateHomepageConfig: (data: Record<string, unknown>) =>
+  // ── 首页配置（登录页 / 首页管理编辑器） ─────
+  getHomepageConfig: () => request<HomepageConfig>('/homepage-config'),
+  updateHomepageConfig: (data: HomepageConfig) =>
     request<{ ok: boolean }>('/homepage-config', { method: 'PUT', body: JSON.stringify(data) }),
+
+  getMenuConfig: () => request<NavMenuConfig>('/homepage-config/menu'),
+  updateMenuConfig: (data: NavMenuConfig) =>
+    request<{ ok: boolean }>('/homepage-config/menu', { method: 'PUT', body: JSON.stringify(data) }),
 
   // ── 系统配置（通用 CRUD） ───────────────────
   listSettings: (params: Record<string, string | undefined> = {}) => {

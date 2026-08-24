@@ -20,6 +20,7 @@ import {
 import { PROVIDER_PRESETS } from './lib/providers/presets.js';
 import { AgentRuntime } from './lib/agent/runtime.js';
 import { webTools } from './lib/tools/web.js';
+import { createFeishuDocTool } from './lib/tools/feishuDoc.js';
 import {
   createSession,
   appendMessage,
@@ -67,14 +68,14 @@ export class AiService implements OnModuleInit {
   private runtime: AgentRuntime;
 
   constructor() {
-    this.runtime = new AgentRuntime({ tools: webTools });
+    this.runtime = new AgentRuntime({ tools: [...webTools, createFeishuDocTool] });
   }
 
   async onModuleInit() {
     // 把共享 AgentRuntime 注入给自动化执行器（供 cron 触发时复用工具）
     initRunner({
       agent: this.runtime,
-      makeRuntime: () => new AgentRuntime({ tools: webTools }),
+      makeRuntime: () => new AgentRuntime({ tools: [...webTools, createFeishuDocTool] }),
     });
     try {
       await ensureLoaded();
@@ -183,7 +184,7 @@ export class AiService implements OnModuleInit {
 
   // 可用工具清单（供智能体「工具开关」使用）
   listTools(_user: SessionUser) {
-    return (webTools || []).map((t) => ({ name: t.name, description: t.description || '' }));
+    return [...webTools, createFeishuDocTool].map((t) => ({ name: t.name, description: t.description || '' }));
   }
 
   // ---------------- 技能（工具文档） ----------------

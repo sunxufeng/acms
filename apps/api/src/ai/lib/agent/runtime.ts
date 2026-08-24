@@ -49,6 +49,7 @@ const TOOL_PROTOCOL = `【工具调用协议】
   TOOL: <工具名>(<JSON 参数>)
 参数必须是合法 JSON 对象。例如读取会话列表：TOOL: feishu_my_chats({})
 例如读取某群历史：TOOL: feishu_chat_history({"chat_id":"oc_xxx","limit":50,"days":7})
+例如创建飞书云文档：TOOL: create_feishu_doc({"title":"周报","content":"# 本周概览\\n- 完成事项\\n- 待办"})
 如果没有合适的工具可用，再直接给出自然语言回答。`;
 
 // 从模型输出里剥离工具声明行（避免把 TOOL: ... 透传给用户）

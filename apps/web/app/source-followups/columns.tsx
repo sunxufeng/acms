@@ -17,7 +17,7 @@ export const COLUMNS: CrudColumn[] = [
     render: (_v, row) => {
       const name = studentName(row);
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-      return <span style={{ color: 'var(--accent)' }}>{name}</span>;
+      return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{name}</span>;
     },
   },
   { key: '跟进时间', label: '跟进时间', width: '150px', form: true, type: 'datetime', listOrder: 3 },

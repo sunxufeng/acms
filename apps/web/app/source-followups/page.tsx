@@ -75,19 +75,6 @@ export default function SourceFollowupsPage() {
           update: (id, d) => api.updateSourceFollowup(id, d),
           archive: (id) => api.archiveSourceFollowup(id),
         }}
-        rowExtraActions={[
-          {
-            label: 'AI 总结',
-            run: async (row, reload) => {
-              const id = String(row.id);
-              const res = await api.sourceFollowupAiPrepare(id);
-              const hasSource = (res.attachments?.length ?? 0) > 0 || (res.content ?? '').trim().length > 0;
-              if (!hasSource) throw new Error('该记录没有可读取的附件或沟通主题，无法生成总结');
-              await api.sourceFollowupAiMergeAll(id, true, true);
-              reload();
-            },
-          },
-        ]}
       />
 
       {/* 右侧悬浮「AI」：参考学生全景，按勾选的一条或多条招生跟进记录做分析 */}

@@ -16,7 +16,7 @@ export const COLUMNS: CrudColumn[] = [
     render: (_v, row) => {
       const name = studentName(row);
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-      return <span style={{ color: 'var(--accent)' }}>{name}</span>;
+      return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{name}</span>;
     },
   },
   { key: '沟通人', label: '沟通人', width: '100px', form: true, type: 'person' },

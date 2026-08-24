@@ -83,7 +83,7 @@ async function createFeishuDoc({ title, content, owner_open_id } = {}, context =
     );
     const cData = await cRes.json();
     if (cData.code !== 0) {
-      return `飞书文档已创建，但正文写入失败：${cData.msg}。文档链接：${url}`;
+      return `飞书文档已创建，但正文写入失败：${cData.msg}。文档链接：[点击打开文档](${url})`;
     }
   }
 
@@ -104,7 +104,7 @@ async function createFeishuDoc({ title, content, owner_open_id } = {}, context =
     }
   }
 
-  return `已创建飞书云文档：《${docTitle}》\n链接：${url}\n（文档 ID：${documentId}）`;
+  return `已创建飞书云文档：《${docTitle}》\n链接：[点击打开文档](${url})\n（文档 ID：${documentId}）`;
 }
 
 export const createFeishuDocTool = {

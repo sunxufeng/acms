@@ -120,4 +120,15 @@ export class StudentController {
     const url = await this.fileUpload.getDownloadUrl(fileToken);
     return { url };
   }
+
+  /** 移除学生附件（从关联表删除对应记录，双向关联自动解除） */
+  @Delete(':id/attachments/:file_token')
+  @HttpCode(200)
+  async removeAttachment(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('file_token') fileToken: string,
+  ) {
+    return this.svc.removeDoc(this.user(req), id, fileToken);
+  }
 }

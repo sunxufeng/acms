@@ -706,7 +706,7 @@ function getFileUrl(att: FileAttachment): string {
 /** 照片与附件展示组件（独立子组件，避免类型推断污染主表单） */
 function PhotoAttachmentSection({
   photos, attachments, readOnly, studentId,
-  uploadingPhoto, uploadingAtt, onPhotoUpload, onAttUpload,
+  uploadingPhoto, uploadingAtt, onPhotoUpload, onAttUpload, onAttRemove,
 }: {
   photos: FileAttachment[];
   attachments: FileAttachment[];
@@ -716,6 +716,7 @@ function PhotoAttachmentSection({
   uploadingAtt: boolean;
   onPhotoUpload: () => void;
   onAttUpload: () => void;
+  onAttRemove: (fileToken: string) => void;
 }) {
   return (
     <div className="photo-att-row">
@@ -761,9 +762,21 @@ function PhotoAttachmentSection({
           ) : (
             <div className="attachment-list">
               {attachments.map((att, i) => (
-                <a key={i} href={getFileUrl(att)} target="_blank" rel="noreferrer" className="attachment-item">
-                  <span>{att.name || `文件${i + 1}`}</span>
-                </a>
+                <div key={att.file_token ?? i} className="attachment-item" style={{ justifyContent: 'space-between' }}>
+                  <a href={getFileUrl(att)} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>
+                    <span>{att.name || `文件${i + 1}`}</span>
+                  </a>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{ marginLeft: 8, flexShrink: 0 }}
+                      onClick={() => onAttRemove(att.file_token)}
+                    >
+                      移除
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -945,7 +958,22 @@ function PhotoAttachmentSection({
       const res = await api.uploadStudentAttachment(id, file);
       setAttachments((prev) => [...prev, { file_token: res.file_token, name: res.name, viewUrl: res.viewUrl }]);
     } catch (err) { alert('上传失败：' + (err as Error).message); }
-    finally { setUploadingAtt(false); if (attInputRef.current) attInputRef.current.value = ''; }
+    finally {     setUploadingAtt(false); if (attInputRef.current) attInputRef.current.value = ''; }
+  };
+
+  /** 移除附件 */
+  const handleAttRemove = async (fileToken: string) => {
+    if (!fileToken) return;
+    if (!studentId) {
+      // 尚未落库的新建态：仅本地移除
+      setAttachments((prev) => prev.filter((a) => a.file_token !== fileToken));
+      return;
+    }
+    if (!confirm('确定移除该附件？')) return;
+    try {
+      await api.deleteStudentAttachment(studentId, fileToken);
+      setAttachments((prev) => prev.filter((a) => a.file_token !== fileToken));
+    } catch (err) { alert('移除失败：' + (err as Error).message); }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -976,6 +1004,7 @@ function PhotoAttachmentSection({
         uploadingAtt={uploadingAtt}
         onPhotoUpload={() => photoInputRef.current?.click()}
         onAttUpload={() => attInputRef.current?.click()}
+        onAttRemove={handleAttRemove}
       />
       <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
       <input ref={attInputRef} type="file" onChange={handleAttUpload} style={{ display: 'none' }} />

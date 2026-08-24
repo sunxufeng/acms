@@ -138,6 +138,12 @@ export const api = {
   getAttachmentUrl: (studentId: string, fileToken: string) =>
     request<{ url: string }>(`/students/${studentId}/attachment-url?file_token=${encodeURIComponent(fileToken)}`),
 
+  /** 移除学生附件（删除关联表记录，双向关联自动解除） */
+  deleteStudentAttachment: (id: string, fileToken: string) =>
+    request<{ ok: boolean }>(`/students/${id}/attachments/${encodeURIComponent(fileToken)}`, {
+      method: 'DELETE',
+    }),
+
   /** 通用文件上传（家校沟通附件等）：音频 / 文本 / MD 等，返回 { ok, file_token, name } */
   uploadFile: (file: File) => {
     const form = new FormData();

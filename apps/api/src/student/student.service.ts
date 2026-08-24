@@ -325,6 +325,39 @@ export class StudentService {
     } as Record<string, unknown>);
   }
 
+  /**
+   * 移除「证件与文件」中的某个附件：找到关联表(tblJDhpAEOVhCwE2)中
+   * 「关联学生」含该学生且「文件附件」file_token 匹配的记录并删除，
+   * 飞书双向关联会自动从学生的「证件与文件」移除对应引用。
+   */
+  async removeDoc(user: SessionUser, studentId: string, fileToken: string): Promise<{ ok: boolean }> {
+    const principal = toPrincipal(user);
+    const student = await this.detail(user, studentId); // 存在性 + read ABAC，且解析附件
+    const decision = authorize(principal, 'student:write', {
+      campus: student.校区 as string | undefined,
+      dataLevel: student.数据密级 as string | undefined,
+    });
+    if (!decision.allowed) {
+      throw new ForbiddenException(`FORBIDDEN:student:write:${decision.reason}`);
+    }
+    // 取学生「证件与文件」原始关联引用，得到关联记录 id 列表
+    const rec = await this.base.get(TABLE, studentId);
+    const link = rec?.fields?.['证件与文件'];
+    const recordIds = Array.isArray(link) ? (link[0]?.record_ids ?? []) : [];
+    for (const rid of recordIds) {
+      const doc = await this.base.get(DOC_TABLE, rid).catch(() => null);
+      if (!doc) continue;
+      const att = Array.isArray(doc.fields['文件附件'])
+        ? (doc.fields['文件附件'] as Array<{ file_token?: string }>)[0]
+        : null;
+      if (att?.file_token === fileToken) {
+        await this.base.delete(DOC_TABLE, rid);
+        break;
+      }
+    }
+    return { ok: true };
+  }
+
   /** 新建（ABAC write 校验） */
   async create(user: SessionUser, dto: CreateStudentDto) {
     const principal = toPrincipal(user);

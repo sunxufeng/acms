@@ -14,6 +14,7 @@ import {
   Header,
   UseInterceptors,
   UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
@@ -85,9 +86,9 @@ export class StudentController {
   @Post(':id/photo')
   @UseInterceptors(FileInterceptor('file'))
   async uploadPhoto(@Req() req: Request, @Param('id') id: string, @UploadedFile() file: any) {
-    if (!file) throw new Error('NO_FILE');
-    // 限制 5MB
-    if (file.size > 5 * 1024 * 1024) throw new Error('FILE_TOO_LARGE');
+    if (!file) throw new BadRequestException('未选择文件');
+    // 限制 10MB
+    if (file.size > 10 * 1024 * 1024) throw new BadRequestException('照片文件过大，上限 10MB');
     const { file_token } = await this.fileUpload.uploadFile(file.buffer, decodeOriginalFilename(file.originalname), file.mimetype);
     // 更新学生记录的「学生照片」字段
     const user = this.user(req);
@@ -102,8 +103,9 @@ export class StudentController {
   @Post(':id/attachments')
   @UseInterceptors(FileInterceptor('file'))
   async uploadAttachment(@Req() req: Request, @Param('id') id: string, @UploadedFile() file: any) {
-    if (!file) throw new Error('NO_FILE');
-    if (file.size > 20 * 1024 * 1024) throw new Error('FILE_TOO_LARGE');
+    if (!file) throw new BadRequestException('未选择文件');
+    // 限制 200MB（与 Nginx client_max_body_size 对齐，避免大文件被后端拦截）
+    if (file.size > 200 * 1024 * 1024) throw new BadRequestException('附件文件过大，上限 200MB');
     const safeName = decodeOriginalFilename(file.originalname);
     const { file_token } = await this.fileUpload.uploadFile(file.buffer, safeName, file.mimetype);
     const user = this.user(req);

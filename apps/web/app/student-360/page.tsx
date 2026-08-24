@@ -134,7 +134,7 @@ export default function Student360Page() {
       .catch(() => setDimensionOptions([]));
   }, []);
 
-  // 从列表页「学生」超链接带过来的 ?sid= （学生记录 id 或姓名），自动选中（不自动加载，需点查询）
+  // 从列表页「学生」超链接带过来的 ?sid= （学生记录 id 或姓名），自动选中并直接加载全景（无需再点查询）
   const didAutoSelect = useRef(false);
   useEffect(() => {
     if (didAutoSelect.current || students.length === 0) return;
@@ -147,7 +147,7 @@ export default function Student360Page() {
     const match = students.find((s) => s.id === sid) || students.find((s) => str(s.学生姓名) === sid);
     if (match) {
       didAutoSelect.current = true;
-      setSelected(match);
+      load360(match.id); // 自动加载该学生全景（默认全部维度、全部时间段）
     }
   }, [students]);
 

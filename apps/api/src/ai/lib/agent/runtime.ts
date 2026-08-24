@@ -216,7 +216,10 @@ export class AgentRuntime {
     const wantDoc = /飞书文档|飞书云文档|飞书\s*(云?文档|doc)|写到飞书|导出(到|至)?飞书|保存(到|为)?飞书/.test(toPlainText(userInput));
     if (docTool && wantDoc) {
       const plain = toPlainText(userInput);
-      // 正文来源：历史里最后一条 assistant 消息（即「这份报告」），否则本轮输入本身
+      // 正文来源：
+      // 1) 历史里最近一条 assistant 消息（模型刚刚生成的报告）
+      // 2) 历史里最近一条非 user 消息（FloatingAIPanel 注入的 system context/预加载报告）
+      // 3) 本轮输入本身
       let content = '';
       if (Array.isArray(history)) {
         for (let i = history.length - 1; i >= 0; i--) {
@@ -226,15 +229,32 @@ export class AgentRuntime {
             break;
           }
         }
+        if (!content) {
+          for (let i = history.length - 1; i >= 0; i--) {
+            const h = history[i];
+            if (h?.role !== 'user' && typeof h.content === 'string' && h.content.trim()) {
+              content = h.content.trim();
+              break;
+            }
+          }
+        }
       }
       if (!content) content = plain;
-      // 标题：优先报告首行 # 标题，否则从输入里「XX报告/分析」附近取，默认 ACMS 文档
-      let title = 'ACMS 文档';
+      // 如果提取到的只是命令本身（没有报告正文），直接提示用户
+      if (!content || content.length < 10) {
+        return {
+          answer: '未找到要生成的报告正文。请先生成一份报告，或直接把报告内容贴到消息里，再说「生成飞书文档」。',
+          transcript: [],
+          steps: 0,
+        };
+      }
+      // 标题：优先报告首行 # 标题；否则从输入里「XX报告/分析/总结/纪要」附近取；最后默认 ACMS 报告
+      let title = 'ACMS 报告';
       const h1 = content.match(/^#\s+(.+)$/m);
       if (h1) title = h1[1].trim();
       else {
         const m = plain.match(/(.{2,20}?)(报告|分析|总结|纪要)/);
-        if (m) title = m[0].trim();
+        if (m) title = (m[1].trim() + m[2]).trim();
       }
       try {
         const obs = await docTool.run({ title, content }, context);

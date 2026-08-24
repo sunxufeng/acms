@@ -678,6 +678,7 @@ export function StudentForm({
             file_token: String(item.file_token ?? item ?? ''),
             name: item.name ? String(item.name) : undefined,
             viewUrl: item.viewUrl ? String(item.viewUrl) : undefined,
+            uploadedAt: item.createdAt ? String(item.createdAt) : (item.uploadedAt ? String(item.uploadedAt) : undefined),
           })).filter((x: FileAttachment) => x.file_token);
         }
         // 单个对象
@@ -686,6 +687,7 @@ export function StudentForm({
             file_token: String((v as any).file_token),
             name: (v as any).name ? String((v as any).name) : undefined,
             viewUrl: (v as any).viewUrl ? String((v as any).viewUrl) : undefined,
+            uploadedAt: (v as any).createdAt ? String((v as any).createdAt) : ((v as any).uploadedAt ? String((v as any).uploadedAt) : undefined),
           }];
         }
         return [];
@@ -695,12 +697,21 @@ export function StudentForm({
     }
   }, [initial]);
 
-type FileAttachment = { file_token: string; name?: string; viewUrl?: string };
+type FileAttachment = { file_token: string; name?: string; viewUrl?: string; uploadedAt?: string };
 
 /** 附件可访问 URL：优先用后端换发的免 token 临时链接，否则走代理 */
 function getFileUrl(att: FileAttachment): string {
   if (att.viewUrl) return att.viewUrl;
   return `/api/v1/files/${encodeURIComponent(att.file_token)}`;
+}
+
+/** 格式化上传时间（ISO → YYYY-MM-DD HH:mm）；缺失则返回空串 */
+function formatUploadTime(iso?: string): string {
+  if (!iso) return '';
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`;
 }
 
 /** 照片与附件展示组件（独立子组件，避免类型推断污染主表单） */
@@ -763,19 +774,24 @@ function PhotoAttachmentSection({
             <div className="attachment-list">
               {attachments.map((att, i) => (
                 <div key={att.file_token ?? i} className="attachment-item" style={{ justifyContent: 'space-between' }}>
-                  <a href={getFileUrl(att)} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>
+                  <a href={getFileUrl(att)} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <span>{att.name || `文件${i + 1}`}</span>
                   </a>
-                  {!readOnly && (
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      style={{ marginLeft: 8, flexShrink: 0 }}
-                      onClick={() => onAttRemove(att.file_token)}
-                    >
-                      移除
-                    </button>
-                  )}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    {formatUploadTime(att.uploadedAt) && (
+                      <span className="attachment-meta">{formatUploadTime(att.uploadedAt)}</span>
+                    )}
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        style={{ marginLeft: 0, flexShrink: 0 }}
+                        onClick={() => onAttRemove(att.file_token)}
+                      >
+                        移除
+                      </button>
+                    )}
+                  </span>
                 </div>
               ))}
             </div>
@@ -956,7 +972,7 @@ function PhotoAttachmentSection({
     try {
       const id = await ensureRecord();
       const res = await api.uploadStudentAttachment(id, file);
-      setAttachments((prev) => [...prev, { file_token: res.file_token, name: res.name, viewUrl: res.viewUrl }]);
+      setAttachments((prev) => [...prev, { file_token: res.file_token, name: res.name, viewUrl: res.viewUrl, uploadedAt: new Date().toISOString() }]);
     } catch (err) { alert('上传失败：' + (err as Error).message); }
     finally {     setUploadingAtt(false); if (attInputRef.current) attInputRef.current.value = ''; }
   };

@@ -1218,6 +1218,11 @@ select.form-input:disabled { color: var(--fg); }
 /* ── 附件列表 ─────────────────────────────── */
 .attachment-list {
   display: flex; flex-direction: column; gap: 6px;
+  max-height: 240px; overflow-y: auto; padding-right: 4px;
+}
+.attachment-meta {
+  font-size: var(--font-xs); color: var(--fg-tertiary); white-space: nowrap;
+  flex-shrink: 0;
 }
 .attachment-item {
   display: inline-flex; align-items: center; gap: 8px;

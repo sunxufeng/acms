@@ -3,6 +3,16 @@ import { TokenManager, type FeishuConfig } from './token.js';
 export interface BaseRecord {
   recordId: string;
   fields: Record<string, unknown>;
+  /** 飞书记录创建时间（已转 ISO 字符串）；部分接口不返回则为 undefined */
+  createdAt?: string;
+}
+
+/** 飞书时间戳（毫秒数字或字符串）转 ISO 字符串；无法解析则原样返回 */
+function toIso(v: unknown): string | undefined {
+  if (v == null) return undefined;
+  const n = typeof v === 'number' ? v : Number(String(v).trim());
+  if (!Number.isNaN(n) && n > 0) return new Date(n).toISOString();
+  return typeof v === 'string' ? v : undefined;
 }
 
 export interface FilterCondition {
@@ -205,6 +215,7 @@ export class BaseClient {
       items: (d.items ?? []).map((r) => ({
         recordId: r.record_id,
         fields: this.fromReadFields(r.fields, dt),
+        createdAt: toIso((r as { created_at?: unknown }).created_at),
       })),
       total: d.total ?? 0,
       hasMore: d.has_more ?? false,
@@ -219,7 +230,11 @@ export class BaseClient {
         `${this.url(tableId)}/records/${recordId}`,
       );
       const dt = await this.datetimeFields(tableId);
-      return { recordId: d.record.record_id, fields: this.fromReadFields(d.record.fields, dt) };
+      return {
+        recordId: d.record.record_id,
+        fields: this.fromReadFields(d.record.fields, dt),
+        createdAt: toIso((d.record as { created_at?: unknown }).created_at),
+      };
     } catch {
       return null;
     }

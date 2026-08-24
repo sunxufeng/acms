@@ -254,20 +254,25 @@ export class StudentService {
    * 把学生记录的「证件与文件」关联字段（[{record_ids:[...],...}]）解析为附件列表。
    * 关联表(tblJDhpAEOVhCwE2)的「文件附件」存实际 file_token，「文件名称」存文件名。
    */
-  private async resolveDocFiles(link: unknown): Promise<Array<{ file_token: string; name?: string; url?: string }>> {
+  private async resolveDocFiles(link: unknown): Promise<Array<{ file_token: string; name?: string; url?: string; createdAt?: string }>> {
     const arr = Array.isArray(link) ? (link as Array<{ record_ids?: string[] }>) : [];
     const recordIds = arr[0]?.record_ids ?? [];
     if (recordIds.length === 0) return [];
     const docs = await Promise.all(
       recordIds.map((rid) => this.base.get(DOC_TABLE, rid).catch(() => null)),
     );
-    const out: Array<{ file_token: string; name?: string; url?: string }> = [];
+    const out: Array<{ file_token: string; name?: string; url?: string; createdAt?: string }> = [];
     for (const d of docs) {
       if (!d) continue;
       const att = Array.isArray(d.fields['文件附件']) ? (d.fields['文件附件'] as Array<{ file_token?: string; url?: string }>)[0] : undefined;
       const ft = att?.file_token;
       if (!ft) continue;
-      out.push({ file_token: ft, name: (d.fields['文件名称'] as string) || undefined, url: att?.url });
+      out.push({
+        file_token: ft,
+        name: (d.fields['文件名称'] as string) || undefined,
+        url: att?.url,
+        createdAt: d.createdAt,
+      });
     }
     return out;
   }

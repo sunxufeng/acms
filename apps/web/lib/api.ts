@@ -424,6 +424,8 @@ export const api = {
   createStudentAttendance: (data: Record<string, unknown>) => request<Record<string, unknown>>('/student-attendances', { method: 'POST', body: JSON.stringify(data) }),
   updateStudentAttendance: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/student-attendances/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveStudentAttendance: (id: string) => request<{ ok: boolean }>(`/student-attendances/${id}`, { method: 'DELETE' }),
+  /** 学生考勤单条记录（详情只读页用） */
+  getStudentAttendance: (id: string) => request<Record<string, unknown>>(`/student-attendances/${id}`),
 
   listGrades: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
@@ -434,6 +436,8 @@ export const api = {
   createGrade: (data: Record<string, unknown>) => request<Record<string, unknown>>('/grades', { method: 'POST', body: JSON.stringify(data) }),
   updateGrade: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/grades/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveGrade: (id: string) => request<{ ok: boolean }>(`/grades/${id}`, { method: 'DELETE' }),
+  /** 学业成绩单条记录（详情只读页用） */
+  getGrade: (id: string) => request<Record<string, unknown>>(`/grades/${id}`),
 
   listPracticeActivities: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
@@ -444,6 +448,8 @@ export const api = {
   createPracticeActivity: (data: Record<string, unknown>) => request<Record<string, unknown>>('/practice-activities', { method: 'POST', body: JSON.stringify(data) }),
   updatePracticeActivity: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/practice-activities/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archivePracticeActivity: (id: string) => request<{ ok: boolean }>(`/practice-activities/${id}`, { method: 'DELETE' }),
+  /** 实践活动单条记录（详情只读页用） */
+  getPracticeActivity: (id: string) => request<Record<string, unknown>>(`/practice-activities/${id}`),
 
   listHomeSchoolComms: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
@@ -518,6 +524,8 @@ export const api = {
   createStageEvaluation: (data: Record<string, unknown>) => request<Record<string, unknown>>('/stage-evaluations', { method: 'POST', body: JSON.stringify(data) }),
   updateStageEvaluation: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/stage-evaluations/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveStageEvaluation: (id: string) => request<{ ok: boolean }>(`/stage-evaluations/${id}`, { method: 'DELETE' }),
+  /** 阶段评价单条记录（详情只读页用） */
+  getStageEvaluation: (id: string) => request<Record<string, unknown>>(`/stage-evaluations/${id}`),
 
   listAlumniFollowups: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
@@ -528,6 +536,8 @@ export const api = {
   createAlumniFollowup: (data: Record<string, unknown>) => request<Record<string, unknown>>('/alumni-followups', { method: 'POST', body: JSON.stringify(data) }),
   updateAlumniFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/alumni-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveAlumniFollowup: (id: string) => request<{ ok: boolean }>(`/alumni-followups/${id}`, { method: 'DELETE' }),
+  /** 校友跟进单条记录（详情只读页用） */
+  getAlumniFollowup: (id: string) => request<Record<string, unknown>>(`/alumni-followups/${id}`),
 
   /** 学生 360 视图：聚合某学生的全生命周期记录（sections 为维度中文名；为空表示全部维度） */
   student360: (studentId: string, params: { from?: string; to?: string; sections?: string[] } = {}) => {

@@ -84,6 +84,13 @@ const SECTION_COLUMNS: Record<string, { key: string; label: string; width?: stri
     { key: '跟进状态', label: '状态', width: '100px' },
     { key: '当前去向类型', label: '去向', width: '120px' },
   ],
+  'idp-plans': [
+    { key: '学期', label: '学期', width: '100px' },
+    { key: '导师', label: '导师', width: '100px' },
+    { key: '状态', label: '状态', width: '100px' },
+    { key: '制定日期', label: '制定日期', width: '120px' },
+    { key: '展示方式', label: '展示方式', width: '100px' },
+  ],
 };
 
 function str(v: unknown): string {

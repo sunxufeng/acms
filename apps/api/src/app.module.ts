@@ -22,6 +22,7 @@ import { ExportModule } from './export/export.module.js';
 import { GenericCrudModule } from './shared/generic-crud.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { Student360Module } from './student-360/student-360.module.js';
+import { IdpModule } from './idp/idp.module.js';
 import { MonitorModule } from './monitor/monitor.module.js';
 import { UsersModule } from './user/user.module.js';
 import { AiModule } from './ai/ai.module.js';
@@ -59,6 +60,7 @@ import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.m
     GenericCrudModule.registerAll(CONFIG_METAS),
     GenericCrudModule.registerAll(AUDIT_METAS),
     Student360Module,
+    IdpModule,
     UsersModule,
     AiModule,
     AiSummarizeModule,

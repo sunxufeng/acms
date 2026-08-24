@@ -187,6 +187,7 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'practiceActivities', label: '实践活动', href: '/practice-activities', icon: 'students', section: '学生闭环', order: 50 },
     { key: 'homeSchoolComms', label: '家校沟通', href: '/home-school-comms', icon: 'notifications', section: '学生闭环', order: 60 },
     { key: 'dailyFollowups', label: '日常跟进', href: '/daily-followups', icon: 'notifications', section: '学生闭环', order: 70 },
+    { key: 'idpPlans', label: 'IDP管理', href: '/idp-plans', icon: 'target', section: '学生闭环', order: 75 },
     { key: 'stageEvaluations', label: '阶段评价', href: '/stage-evaluations', icon: 'students', section: '学生闭环', order: 80 },
     { key: 'alumniFollowups', label: '校友跟进', href: '/alumni-followups', icon: 'students', section: '学生闭环', order: 90 },
 

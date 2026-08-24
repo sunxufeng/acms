@@ -6,6 +6,7 @@ import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { StudentService } from '../student/student.service.js';
 import { LIFECYCLE_METAS } from '../shared/lifecycle.meta.js';
+import { IDP_PLAN_META } from '../idp/idp.meta.js';
 import type { RecordMeta } from '../shared/generic-crud.module.js';
 import { linkIds } from '../shared/record.util.js';
 
@@ -44,6 +45,7 @@ const SECTION_LABELS: Record<string, string> = {
   'daily-followups': '日常跟进',
   'stage-evaluations': '阶段评价',
   'alumni-followups': '校友跟进',
+  'idp-plans': 'IDP方案',
 };
 
 export interface Student360Section {
@@ -79,7 +81,7 @@ export class Student360Service {
     const student = await this.studentSvc.detail(user, studentId);
 
     const sections: Student360Section[] = [];
-    for (const meta of LIFECYCLE_METAS) {
+    for (const meta of [...LIFECYCLE_METAS, IDP_PLAN_META]) {
       const studentLink = (meta.linkFields ?? []).find((l) => l.table === TABLES.studentProfile.tableId);
       const items = await this.fetchSection(meta, studentLink, studentId, String(student['学生姓名'] ?? ''), range);
       sections.push({ key: meta.path, label: SECTION_LABELS[meta.path] ?? meta.path, items });

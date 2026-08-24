@@ -667,6 +667,35 @@ export const api = {
 
   /** 权限模型 + 当前用户有效权限（菜单「权限与授权」使用） */
   getPermissions: () => request<PermissionsPayload>('/auth/permissions'),
+
+  // ── IDP 管理 ───────────────────────────────
+  listIdpPlans: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/idp-plans${q ? `?${q}` : ''}`);
+  },
+  getIdpPlan: (id: string) => request<Record<string, unknown>>(`/idp-plans/${id}`),
+  createIdpPlan: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/idp-plans', { method: 'POST', body: JSON.stringify(data) }),
+  updateIdpPlan: (id: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/idp-plans/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveIdpPlan: (id: string) => request<{ ok: boolean }>(`/idp-plans/${id}`, { method: 'DELETE' }),
+  transitionIdpPlan: (id: string, to: string) =>
+    request<Record<string, unknown>>(`/idp-plans/${id}/transition`, { method: 'POST', body: JSON.stringify({ to }) }),
+
+  listIdpCommunications: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/idp-communications${q ? `?${q}` : ''}`);
+  },
+  getIdpCommunication: (id: string) => request<Record<string, unknown>>(`/idp-communications/${id}`),
+  createIdpCommunication: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/idp-communications', { method: 'POST', body: JSON.stringify(data) }),
+  updateIdpCommunication: (id: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/idp-communications/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveIdpCommunication: (id: string) => request<{ ok: boolean }>(`/idp-communications/${id}`, { method: 'DELETE' }),
 };
 
 export interface PermissionsPayload {

@@ -23,6 +23,9 @@ export default function DictionariesPage() {
   /* 正在编辑的选项：{ key, oldValue } */
   const [editingOpt, setEditingOpt] = useState<{ key: string; value: string } | null>(null);
 
+  /* 拖拽排序：当前正在拖拽的项位置 */
+  const [dragIdx, setDragIdx] = useState<{ key: string; idx: number } | null>(null);
+
   const flash = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(''), 3000);
@@ -106,6 +109,18 @@ export default function DictionariesPage() {
     setEditingOpt(null);
   };
 
+  /** 拖拽 / 上下移：重排某个字典内的选项顺序（保存时按此顺序持久化） */
+  const moveOption = (key: string, from: number, to: number) => {
+    if (from === to) return;
+    setDrafts((d) => {
+      const cur = [...(d[key] ?? [])];
+      if (from < 0 || from >= cur.length || to < 0 || to >= cur.length) return d;
+      const [moved] = cur.splice(from, 1);
+      cur.splice(to, 0, moved);
+      return { ...d, [key]: cur };
+    });
+  };
+
   /** 创建新字典类型 */
   const createDict = async () => {
     const name = newDictName.trim();
@@ -168,33 +183,78 @@ export default function DictionariesPage() {
                 </div>
                 <div className="dict-options">
                   {options.length === 0 && <div className="dict-empty">暂无选项</div>}
-                  {options.map((opt) => {
+                  {options.map((opt, idx) => {
                     const isEditing =
                       editingOpt?.key === key && editingOpt?.value === opt;
-                    return isEditing ? (
-                      <EditableOption
-                        key={opt}
-                        value={opt}
-                        onBlur={(v) => renameOption(key, opt, v)}
-                        onCancel={() => setEditingOpt(null)}
-                        autoFocus
-                      />
-                    ) : (
+                    if (isEditing) {
+                      return (
+                        <EditableOption
+                          key={opt}
+                          value={opt}
+                          onBlur={(v) => renameOption(key, opt, v)}
+                          onCancel={() => setEditingOpt(null)}
+                          autoFocus
+                        />
+                      );
+                    }
+                    const isDragging = dragIdx?.key === key && dragIdx.idx === idx;
+                    return (
                       <span
-                        className="dict-option"
+                        className={`dict-option${isDragging ? ' dragging' : ''}`}
                         key={opt}
+                        draggable
+                        onDragStart={(e) => {
+                          setDragIdx({ key, idx });
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.stopPropagation();
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (dragIdx && dragIdx.key === key && dragIdx.idx !== idx) {
+                            moveOption(key, dragIdx.idx, idx);
+                          }
+                          setDragIdx(null);
+                        }}
+                        onDragEnd={() => setDragIdx(null)}
                         onDoubleClick={() => setEditingOpt({ key, value: opt })}
-                        title="双击编辑"
+                        title="双击编辑；拖拽或点击上下箭头排序"
                       >
-                        {opt}
-                        <button
-                          className="dict-option-remove"
-                          onClick={() => removeOption(key, opt)}
-                          title="移除"
-                          aria-label={`移除 ${opt}`}
-                        >
-                          ×
-                        </button>
+                        <span className="dict-drag-handle" title="拖拽排序">⠿</span>
+                        <span className="dict-opt-label">{opt}</span>
+                        <span className="dict-opt-actions">
+                          <button
+                            type="button"
+                            className="dict-option-move"
+                            onClick={() => moveOption(key, idx, idx - 1)}
+                            disabled={idx === 0}
+                            title="上移"
+                            aria-label={`上移 ${opt}`}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="dict-option-move"
+                            onClick={() => moveOption(key, idx, idx + 1)}
+                            disabled={idx === options.length - 1}
+                            title="下移"
+                            aria-label={`下移 ${opt}`}
+                          >
+                            ↓
+                          </button>
+                          <button
+                            className="dict-option-remove"
+                            onClick={() => removeOption(key, opt)}
+                            title="移除"
+                            aria-label={`移除 ${opt}`}
+                          >
+                            ×
+                          </button>
+                        </span>
                       </span>
                     );
                   })}

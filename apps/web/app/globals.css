@@ -628,19 +628,36 @@ a:hover { color: var(--accent-hover); }
   display: inline-flex; align-items: center; gap: 4px;
   font-size: var(--font-sm); color: var(--fg);
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-full); padding: 4px 6px 4px 12px;
-  cursor: default;
-  transition: background 0.15s, border-color 0.15s;
+  border-radius: var(--radius-full); padding: 4px 6px 4px 8px;
+  cursor: grab;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s, box-shadow 0.15s;
 }
 .dict-option:hover {
   background: var(--surface-hover);
   border-color: var(--accent);
 }
+.dict-option:active { cursor: grabbing; }
+.dict-option.dragging { opacity: 0.45; box-shadow: 0 0 0 2px var(--accent); }
 .dict-option.editing {
   cursor: text;
   border-color: var(--accent);
   background: var(--content-bg);
 }
+.dict-drag-handle {
+  color: var(--fg-tertiary); font-size: 13px; line-height: 1;
+  cursor: grab; user-select: none; padding: 0 2px;
+}
+.dict-drag-handle:hover { color: var(--accent); }
+.dict-opt-label { padding: 0 2px; }
+.dict-opt-actions { display: inline-flex; align-items: center; gap: 1px; margin-left: 2px; }
+.dict-option-move {
+  border: none; background: transparent; color: var(--fg-tertiary);
+  cursor: pointer; font-size: 12px; line-height: 1; padding: 0 3px;
+  border-radius: 4px; width: 18px; height: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.dict-option-move:hover:not(:disabled) { background: var(--accent-muted); color: var(--accent); }
+.dict-option-move:disabled { opacity: 0.3; cursor: not-allowed; }
 .dict-option-remove {
   border: none; background: transparent; color: var(--fg-tertiary);
   cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px;
@@ -843,6 +860,24 @@ a:hover { color: var(--accent-hover); }
   margin-bottom: var(--space-lg);
   flex-wrap: wrap;
 }
+
+/* ── 多选 Chips（学生维度筛选） ──────────────────────── */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 14px; border-radius: var(--radius-full);
+  font-size: var(--font-sm); font-weight: 500; cursor: pointer;
+  background: var(--bg-tertiary); color: var(--text);
+  border: 1px solid var(--border);
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+  user-select: none;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip:active { transform: scale(0.97); }
+.chip-active {
+  background: var(--gradient-accent); color: var(--fg-on-accent);
+  border-color: transparent; font-weight: 600;
+}
+.chip-active:hover { color: var(--fg-on-accent); filter: brightness(1.06); }
 
 /* ── Dropdown filter select ─────────────────────────────────── */
 

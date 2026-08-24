@@ -13,14 +13,21 @@ export class Student360Controller {
     return (req as Request & { user: SessionUser }).user;
   }
 
-  /** 学生 360 视图：聚合某学生的全生命周期记录 */
+  /** 学生 360 视图：聚合某学生的全生命周期记录（sections 为维度中文名，逗号分隔；为空表示全部维度） */
   @Get(':studentId')
   get(
     @Req() req: Request,
     @Param('studentId') studentId: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('sections') sections?: string,
   ) {
-    return this.svc.getByStudent(this.user(req), studentId, { from, to });
+    const sectionArr = sections
+      ? sections
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined;
+    return this.svc.getByStudent(this.user(req), studentId, { from, to }, sectionArr);
   }
 }

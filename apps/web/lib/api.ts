@@ -529,11 +529,12 @@ export const api = {
   updateAlumniFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/alumni-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveAlumniFollowup: (id: string) => request<{ ok: boolean }>(`/alumni-followups/${id}`, { method: 'DELETE' }),
 
-  /** 学生 360 视图：聚合某学生的全生命周期记录 */
-  student360: (studentId: string, params: { from?: string; to?: string } = {}) => {
+  /** 学生 360 视图：聚合某学生的全生命周期记录（sections 为维度中文名；为空表示全部维度） */
+  student360: (studentId: string, params: { from?: string; to?: string; sections?: string[] } = {}) => {
     const qs = new URLSearchParams();
     if (params.from) qs.set('from', params.from);
     if (params.to) qs.set('to', params.to);
+    if (params.sections && params.sections.length) qs.set('sections', params.sections.join(','));
     const q = qs.toString();
     return request<{ student: Record<string, unknown>; sections: { key: string; label: string; items: Record<string, unknown>[] }[] }>(
       `/student-360/${studentId}${q ? `?${q}` : ''}`,

@@ -70,6 +70,7 @@ export class Student360Service {
     user: SessionUser,
     studentId: string,
     range?: { from?: string; to?: string },
+    sections?: string[],
   ): Promise<{
     student: Record<string, unknown>;
     sections: Student360Section[];
@@ -80,13 +81,16 @@ export class Student360Service {
     // 复用 StudentService.detail：自带存在性 + ABAC 行级校验
     const student = await this.studentSvc.detail(user, studentId);
 
-    const sections: Student360Section[] = [];
+    const resultSections: Student360Section[] = [];
     for (const meta of [...LIFECYCLE_METAS, IDP_PLAN_META]) {
+      // 维度过滤：若传入 sections（中文维度名），只返回命中维度；空数组/未传表示全部
+      const label = SECTION_LABELS[meta.path] ?? meta.path;
+      if (sections && sections.length && !sections.includes(label)) continue;
       const studentLink = (meta.linkFields ?? []).find((l) => l.table === TABLES.studentProfile.tableId);
       const items = await this.fetchSection(meta, studentLink, studentId, String(student['学生姓名'] ?? ''), range);
-      sections.push({ key: meta.path, label: SECTION_LABELS[meta.path] ?? meta.path, items });
+      resultSections.push({ key: meta.path, label, items });
     }
-    return { student, sections };
+    return { student, sections: resultSections };
   }
 
   private async fetchSection(

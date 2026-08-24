@@ -111,6 +111,8 @@ export default function Student360Page() {
   const [popup, setPopup] = useState<{ title: string; content: string } | null>(null);
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
+  const [dimensionOptions, setDimensionOptions] = useState<string[]>([]);
+  const [selectedDimensions, setSelectedDimensions] = useState<string[]>([]);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [dialog, setDialog] = useState<DialogRect>({ x: 0, y: 80,  width: 560, height: 640 });
   const [dlgDragging, setDlgDragging] = useState(false);
@@ -149,7 +151,15 @@ export default function Student360Page() {
     };
   }, []);
 
-  // 从列表页「学生」超链接带过来的 ?sid= （学生记录 id 或姓名），自动选中并加载其全景
+  // 加载字典：学生维度选项（顺序即下拉展示顺序）
+  useEffect(() => {
+    api
+      .dictionaries()
+      .then((d) => setDimensionOptions((d as Record<string, string[]>)['学生维度'] ?? []))
+      .catch(() => setDimensionOptions([]));
+  }, []);
+
+  // 从列表页「学生」超链接带过来的 ?sid= （学生记录 id 或姓名），自动选中（不自动加载，需点查询）
   const didAutoSelect = useRef(false);
   useEffect(() => {
     if (didAutoSelect.current || students.length === 0) return;
@@ -162,11 +172,11 @@ export default function Student360Page() {
     const match = students.find((s) => s.id === sid) || students.find((s) => str(s.学生姓名) === sid);
     if (match) {
       didAutoSelect.current = true;
-      selectStudent(match.id);
+      setSelected(match);
     }
   }, [students]);
 
-  async function load360(studentId: string, from?: string, to?: string) {
+  async function load360(studentId: string, from?: string, to?: string, sections?: string[]) {
     const student = students.find((s) => s.id === studentId) ?? null;
     setSelected(student);
     setData(null);
@@ -175,7 +185,7 @@ export default function Student360Page() {
 
     setLoading(true);
     try {
-      const d = await api.student360(student.id, { from, to });
+      const d = await api.student360(student.id, { from, to, sections });
       setData(d);
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败');
@@ -184,17 +194,22 @@ export default function Student360Page() {
     }
   }
 
+  // 仅切换学生（清空旧报告，不自动加载；需点「查询」）
   function selectStudent(studentId: string) {
-    load360(studentId, dateFrom, dateTo);
+    const student = students.find((s) => s.id === studentId) ?? null;
+    setSelected(student);
+    setData(null);
+    setError(null);
   }
 
-  // 时间段变化时自动重新加载
-  useEffect(() => {
-    if (selected) {
-      load360(selected.id, dateFrom, dateTo);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateFrom, dateTo]);
+  // 点「查询」按钮才加载（学生 + 维度 + 日期 选好后再查）
+  function handleQuery() {
+    if (!selected) return;
+    load360(selected.id, dateFrom, dateTo, selectedDimensions);
+  }
+
+  // 已移除「时间段变化自动重新加载」逻辑：改为点击查询按钮触发，避免边选边出、卡顿
+
 
   // 恢复上次悬浮窗位置/大小（若用户调整过窗口尺寸导致越界则自动拉回）
   useEffect(() => {
@@ -337,7 +352,7 @@ export default function Student360Page() {
         </div>
       </div>
 
-      {/* 学生选择器 + 时间段筛选 */}
+      {/* 学生选择器 + 时间段筛选 + 维度筛选 + 查询 */}
       <div className="filter-bar">
         <label className="form-label" style={{ width: 'min(420px, 100%)' }}>
           <span className="form-label-text">选择学生</span>
@@ -377,11 +392,48 @@ export default function Student360Page() {
             onChange={(e) => setDateTo(e.target.value)}
           />
         </label>
+        <button type="button" className="btn btn-primary" onClick={handleQuery} disabled={!selected || loading}>
+          {loading ? '查询中…' : '查询'}
+        </button>
         {selected && (
           <span className="badge">
             已选：{str(selected.学生姓名)}{str(selected.英文名) ? ` / ${str(selected.英文名)}` : ''}
           </span>
         )}
+      </div>
+
+      {/* 学生维度筛选（多选 chips，来源字典「学生维度」；未选表示展示全部维度） */}
+      <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 8, marginTop: -6 }}>
+        <span className="form-label-text" style={{ alignSelf: 'center' }}>学生维度</span>
+        {dimensionOptions.map((dim) => {
+          const active = selectedDimensions.includes(dim);
+          return (
+            <button
+              type="button"
+              key={dim}
+              className={`chip ${active ? 'chip-active' : ''}`}
+              onClick={() =>
+                setSelectedDimensions((prev) =>
+                  prev.includes(dim) ? prev.filter((d) => d !== dim) : [...prev, dim],
+                )
+              }
+            >
+              {dim}
+            </button>
+          );
+        })}
+        {dimensionOptions.length === 0 && <span className="muted">（字典「学生维度」加载中或为空）</span>}
+        {selectedDimensions.length > 0 && (
+          <button
+            type="button"
+            className="link-btn"
+            onClick={() => setSelectedDimensions([])}
+            title="清空已选维度，恢复全部维度"
+          >
+            清空
+          </button>
+        )}
+        {selectedDimensions.length === 0 && <span className="muted" style={{ alignSelf: 'center' }}>未选维度将展示全部</span>}
       </div>
 
       {loading && <div className="empty-state">加载中…</div>}

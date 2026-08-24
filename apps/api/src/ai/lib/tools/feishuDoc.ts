@@ -23,15 +23,15 @@ function markdownToBlocks(md) {
     const h = line.match(/^(#{1,6})\s+(.*)$/);
     if (h) {
       const level = h[1].length; // 1..6
-      blockType = 2 + level; // 3..8
+      blockType = 2 + level; // heading1=3 .. heading6=8
       field = 'heading' + level;
       content = h[2];
     } else if (/^\s*[-*]\s+/.test(line)) {
-      blockType = 9; // bullet
+      blockType = 12; // bullet
       field = 'bullet';
       content = line.replace(/^\s*[-*]\s+/, '');
     } else if (/^\s*\d+\.\s+/.test(line)) {
-      blockType = 10; // ordered
+      blockType = 13; // ordered
       field = 'ordered';
       content = line.replace(/^\s*\d+\.\s+/, '');
     }
@@ -40,7 +40,6 @@ function markdownToBlocks(md) {
       block_type: blockType,
       [field]: {
         elements: [{ text_run: { content } }],
-        style: { align: 1 },
       },
     });
   }
@@ -75,7 +74,7 @@ async function createFeishuDoc({ title, content, owner_open_id } = {}, context =
   const blocks = markdownToBlocks(content);
   if (blocks.length) {
     const cRes = await fetch(
-      `${FEISHU_HOST}/open-apis/docx/v1/documents/${encodeURIComponent(documentId)}/blocks/0/children`,
+      `${FEISHU_HOST}/open-apis/docx/v1/documents/${encodeURIComponent(documentId)}/blocks/${encodeURIComponent(documentId)}/children?document_revision_id=-1`,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },

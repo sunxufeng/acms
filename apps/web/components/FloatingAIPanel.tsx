@@ -29,9 +29,9 @@ export interface FloatingAIPanelProps {
   disabled?: boolean;
   /** 禁用时的提示文案 */
   disabledHint?: string;
-  /** 悬浮按钮文案，默认「AI助手」 */
+  /** 悬浮按钮文案，默认「AI」 */
   label?: string;
-  /** 对话框标题，默认「AI助手」 */
+  /** 对话框标题，默认「AI」 */
   title?: string;
   /** 当前对象名称（显示在副标题，如学生姓名 / 已选学生列表） */
   subject?: string;
@@ -50,8 +50,8 @@ export default function FloatingAIPanel({
   resetKey,
   disabled = false,
   disabledHint,
-  label = 'AI助手',
-  title = 'AI助手',
+  label = 'AI',
+  title = 'AI',
   subject,
   storageKey,
   placeholder = '输入你的问题，Enter 发送…',
@@ -196,7 +196,7 @@ export default function FloatingAIPanel({
   // 悬浮按钮默认位置（右上角）
   useEffect(() => {
     if (typeof window === 'undefined' || fabPos) return;
-    setFabPos({ x: Math.max(20, window.innerWidth - 160), y: 88 });
+    setFabPos({ x: Math.max(20, window.innerWidth - 76), y: 120 });
   }, [fabPos]);
 
   // 拖拽悬浮按钮
@@ -211,7 +211,7 @@ export default function FloatingAIPanel({
         const nextX = fabDragStart.current.startX + dx;
         const nextY = fabDragStart.current.startY + dy;
         return {
-          x: Math.max(0, Math.min(nextX, window.innerWidth - 140)),
+          x: Math.max(0, Math.min(nextX, window.innerWidth - 72)),
           y: Math.max(0, Math.min(nextY, window.innerHeight - 52)),
         };
       });

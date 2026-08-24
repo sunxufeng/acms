@@ -531,11 +531,11 @@ a:hover { color: var(--accent-hover); }
   margin: 0 auto;
 }
 
-/* ── 学生全景 AI 分析 悬浮按钮 ─────────────────────────────── */
+/* ── 学生全景 / 招生跟进 AI 悬浮按钮 ─────────────────────────────── */
 .ai-fab {
   position: fixed;
-  right: 24px;
-  top: 88px;
+  right: 16px;
+  top: 120px;
   z-index: 1900;
   padding: 12px 20px;
   border: none;

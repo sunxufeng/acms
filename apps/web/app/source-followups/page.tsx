@@ -90,14 +90,14 @@ export default function SourceFollowupsPage() {
         ]}
       />
 
-      {/* 右侧悬浮「AI助手」：参考学生全景，按勾选的一条或多条招生跟进记录做分析 */}
+      {/* 右侧悬浮「AI」：参考学生全景，按勾选的一条或多条招生跟进记录做分析 */}
       <FloatingAIPanel
         context={context}
         resetKey={resetKey}
         disabled={selected.length === 0}
         disabledHint="请在列表前勾选一条或多条招生跟进记录"
-        label="AI助手"
-        title="AI助手"
+        label="AI"
+        title="AI"
         subject={subject}
         storageKey="sourcefollowups-ai-dialog"
         placeholder="输入与招生跟进相关的问题，Enter 发送…"

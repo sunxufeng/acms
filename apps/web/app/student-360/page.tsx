@@ -419,14 +419,14 @@ export default function Student360Page() {
           document.body,
         )}
 
-      {/* 悬浮「AI助手」：可拖拽，点击展开对话框，复用通用 FloatingAIPanel */}
+      {/* 悬浮「AI」：可拖拽，点击展开对话框，复用通用 FloatingAIPanel */}
       <FloatingAIPanel
         context={buildStudentContext(data?.student, data?.sections ?? [])}
         resetKey={selected?.id ?? 'none'}
         disabled={!selected}
         disabledHint="请先选择学生"
-        label="AI助手"
-        title="AI助手"
+        label="AI"
+        title="AI"
         subject={str(data?.student?.学生姓名) || '未选学生'}
         storageKey="student360-analysis-dialog"
         placeholder="输入与学生相关的问题，Enter 发送…"

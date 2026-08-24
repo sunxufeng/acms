@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState, type MouseEventHandler } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../../lib/api';
 import Markdown from '../../components/Markdown';
+import FloatingAIPanel from '../../components/FloatingAIPanel';
 
 interface StudentHit {
   id: string;
@@ -20,22 +21,6 @@ interface Section {
   key: string;
   label: string;
   items: Record<string, unknown>[];
-}
-
-type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
-type DialogRect = { x: number; y: number; width: number; height: number };
-
-const DIALOG_STORAGE_KEY = 'student360-analysis-dialog';
-function defaultDialogRect(): DialogRect {
-  if (typeof window === 'undefined') return { x: 0, y: 80, width: 560, height: 640 };
-  const width = 560;
-  const height = Math.min(640, window.innerHeight - 120);
-  return {
-    x: Math.max(20, window.innerWidth - width - 20),
-    y: 80,
-    width,
-    height,
-  };
 }
 
 // 沟通类模块：统一以「时间 / 负责人 / 活动主题 / 沟通明细 / 沟通总结」列表展示，
@@ -113,16 +98,6 @@ export default function Student360Page() {
   const [dateTo, setDateTo] = useState<string>('');
   const [dimensionOptions, setDimensionOptions] = useState<string[]>([]);
   const [selectedDimensions, setSelectedDimensions] = useState<string[]>([]);
-  const [analysisOpen, setAnalysisOpen] = useState(false);
-  const [dialog, setDialog] = useState<DialogRect>({ x: 0, y: 80,  width: 560, height: 640 });
-  const [dlgDragging, setDlgDragging] = useState(false);
-  const [dlgResizing, setDlgResizing] = useState(false);
-  const dlgDragStart = useRef({ x: 0, y: 0, startX: 0, startY: 0 });
-  const dlgResizeStart = useRef({ x: 0, y: 0, startW: 0, startH: 0 });
-  // 悬浮按钮位置（可拖拽），默认右上角、与查询区同高
-  const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null);
-  const [fabDragging, setFabDragging] = useState(false);
-  const fabDragStart = useRef({ x: 0, y: 0, startX: 0, startY: 0, moved: false });
 
   useEffect(() => {
     let alive = true;
@@ -210,136 +185,6 @@ export default function Student360Page() {
 
   // 已移除「时间段变化自动重新加载」逻辑：改为点击查询按钮触发，避免边选边出、卡顿
 
-
-  // 恢复上次悬浮窗位置/大小（若用户调整过窗口尺寸导致越界则自动拉回）
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      const raw = localStorage.getItem(DIALOG_STORAGE_KEY);
-      if (!raw) {
-        setDialog(defaultDialogRect());
-        return;
-      }
-      const saved: DialogRect = JSON.parse(raw);
-      const maxW = window.innerWidth - 40;
-      const maxH = window.innerHeight - 80;
-      const width = Math.max(360, Math.min(saved.width || 560, maxW));
-      const height = Math.max(300, Math.min(saved.height || 640, maxH));
-      const x = Math.max(20, Math.min(saved.x || 0, window.innerWidth - width - 20));
-      const y = Math.max(20, Math.min(saved.y || 80, window.innerHeight - height - 20));
-      setDialog({ x, y, width, height });
-    } catch {
-      setDialog(defaultDialogRect());
-    }
-  }, []);
-
-  // 保存悬浮窗位置/大小
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(DIALOG_STORAGE_KEY, JSON.stringify(dialog));
-  }, [dialog]);
-
-  // 智能分析打开时拉回到可视区（避免上次记录的位置超屏）
-  useEffect(() => {
-    if (!analysisOpen || typeof window === 'undefined') return;
-    setDialog((d) => {
-      const maxW = window.innerWidth - 40;
-      const maxH = window.innerHeight - 80;
-      const width = Math.max(360, Math.min(d.width, maxW));
-      const height = Math.max(300, Math.min(d.height, maxH));
-      const x = Math.max(20, Math.min(d.x, window.innerWidth - width - 20));
-      const y = Math.max(20, Math.min(d.y, window.innerHeight - height - 20));
-      return { x, y, width, height };
-    });
-  }, [analysisOpen]);
-
-  // 拖动悬浮窗标题栏
-  useEffect(() => {
-    if (!dlgDragging) return;
-    function onMove(e: MouseEvent) {
-      const dx = e.clientX - dlgDragStart.current.x;
-      const dy = e.clientY - dlgDragStart.current.y;
-      setDialog((d) => {
-        const nextX = dlgDragStart.current.startX + dx;
-        const nextY = dlgDragStart.current.startY + dy;
-        return {
-          ...d,
-          x: Math.max(0, Math.min(nextX, window.innerWidth - d.width)),
-          y: Math.max(0, Math.min(nextY, window.innerHeight - d.height)),
-        };
-      });
-    }
-    function onUp() {
-      setDlgDragging(false);
-    }
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [dlgDragging]);
-
-  // 拖拽右下角改变悬浮窗大小
-  useEffect(() => {
-    if (!dlgResizing) return;
-    function onMove(e: MouseEvent) {
-      const dx = e.clientX - dlgResizeStart.current.x;
-      const dy = e.clientY - dlgResizeStart.current.y;
-      setDialog((d) => {
-        const maxW = window.innerWidth - d.x - 20;
-        const maxH = window.innerHeight - d.y - 20;
-        return {
-          ...d,
-          width: Math.max(360, Math.min(dlgResizeStart.current.startW + dx, maxW)),
-          height: Math.max(300, Math.min(dlgResizeStart.current.startH + dy, maxH)),
-        };
-      });
-    }
-    function onUp() {
-      setDlgResizing(false);
-    }
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [dlgResizing]);
-
-  // 悬浮按钮默认位置（右上角，与查询区同高）
-  useEffect(() => {
-    if (typeof window === 'undefined' || fabPos) return;
-    setFabPos({ x: Math.max(20, window.innerWidth - 160), y: 88 });
-  }, [fabPos]);
-
-  // 拖拽悬浮按钮
-  useEffect(() => {
-    if (!fabDragging) return;
-    function onMove(e: MouseEvent) {
-      const dx = e.clientX - fabDragStart.current.x;
-      const dy = e.clientY - fabDragStart.current.y;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) fabDragStart.current.moved = true;
-      setFabPos((p) => {
-        if (!p) return p;
-        const nextX = fabDragStart.current.startX + dx;
-        const nextY = fabDragStart.current.startY + dy;
-        return {
-          x: Math.max(0, Math.min(nextX, window.innerWidth - 140)),
-          y: Math.max(0, Math.min(nextY, window.innerHeight - 52)),
-        };
-      });
-    }
-    function onUp() {
-      setFabDragging(false);
-    }
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [fabDragging]);
 
   const totalRecords = data ? data.sections.reduce((n, s) => n + s.items.length, 0) : 0;
 
@@ -574,103 +419,19 @@ export default function Student360Page() {
           document.body,
         )}
 
-      {/* 悬浮「AI分析」按钮：折叠态时显示，可拖拽，点击展开对话框 */}
-      {!analysisOpen && (
-        <button
-          type="button"
-          className="ai-fab"
-          disabled={!selected}
-          title={selected ? '打开 AI 分析（可拖拽移动位置）' : '请先选择学生'}
-          style={
-            fabPos
-              ? { left: fabPos.x, top: fabPos.y, right: 'auto' }
-              : undefined
-          }
-          onMouseDown={(e) => {
-            if (!fabPos) return;
-            fabDragStart.current = {
-              x: e.clientX,
-              y: e.clientY,
-              startX: fabPos.x,
-              startY: fabPos.y,
-              moved: false,
-            };
-            setFabDragging(true);
-          }}
-          onClick={() => {
-            // 拖拽后不再触发展开
-            if (fabDragStart.current.moved) {
-              fabDragStart.current.moved = false;
-              return;
-            }
-            setAnalysisOpen(true);
-          }}
-        >
-          AI分析
-        </button>
-      )}
+      {/* 悬浮「AI助手」：可拖拽，点击展开对话框，复用通用 FloatingAIPanel */}
+      <FloatingAIPanel
+        context={buildStudentContext(data?.student, data?.sections ?? [])}
+        resetKey={selected?.id ?? 'none'}
+        disabled={!selected}
+        disabledHint="请先选择学生"
+        label="AI助手"
+        title="AI助手"
+        subject={str(data?.student?.学生姓名) || '未选学生'}
+        storageKey="student360-analysis-dialog"
+        placeholder="输入与学生相关的问题，Enter 发送…"
+      />
 
-      {/* 对话框常驻挂载（仅切换显示），避免收起后丢失对话 */}
-      {typeof document !== 'undefined' &&
-        createPortal(
-          <div
-            style={{
-              position: 'fixed',
-              left: dialog.x,
-              top: dialog.y,
-              width: dialog.width,
-              height: dialog.height,
-              display: analysisOpen ? 'flex' : 'none',
-              flexDirection: 'column',
-              background: 'var(--bg)',
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
-              zIndex: 2000,
-              overflow: 'hidden',
-            }}
-          >
-            <SmartAnalysisPanel
-              student={data?.student}
-              sections={data?.sections ?? []}
-              onClose={() => setAnalysisOpen(false)}
-              onHeaderMouseDown={(e) => {
-                dlgDragStart.current = {
-                  x: e.clientX,
-                  y: e.clientY,
-                  startX: dialog.x,
-                  startY: dialog.y,
-                };
-                setDlgDragging(true);
-              }}
-            />
-            {/* 右下角缩放手柄 */}
-            <div
-              onMouseDown={(e) => {
-                e.preventDefault();
-                dlgResizeStart.current = {
-                  x: e.clientX,
-                  y: e.clientY,
-                  startW: dialog.width,
-                  startH: dialog.height,
-                };
-                setDlgResizing(true);
-              }}
-              title="拖拽缩放对话框"
-              style={{
-                position: 'absolute',
-                right: 0,
-                bottom: 0,
-                width: 18,
-                height: 18,
-                cursor: 'nwse-resize',
-                background:
-                  'linear-gradient(135deg, transparent 50%, var(--border) 50%, var(--border) 60%, transparent 60%, transparent 70%, var(--border) 70%, var(--border) 80%, transparent 80%, transparent 90%, var(--border) 90%, var(--border) 100%)',
-              }}
-            />
-          </div>,
-          document.body,
-        )}
     </div>
   );
 }
@@ -723,175 +484,6 @@ function buildStudentContext(student: Record<string, unknown> | undefined, secti
   return lines.join('\n');
 }
 
-function SmartAnalysisPanel({
-  student,
-  sections,
-  onClose,
-  onHeaderMouseDown,
-}: {
-  student?: Record<string, unknown>;
-  sections: Section[];
-  onClose: () => void;
-  onHeaderMouseDown?: MouseEventHandler<HTMLDivElement>;
-}) {
-  const [agents, setAgents] = useState<{ id: string; name: string; provider?: string; model?: string }[]>([]);
-  const [agentId, setAgentId] = useState('');
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    api.aiListAgents().then((list) => setAgents((list as { id: string; name: string; provider?: string; model?: string }[]) || [])).catch(() => null);
-  }, []);
-
-  useEffect(() => {
-    const ctx = buildStudentContext(student, sections);
-    setMessages([{ role: 'system', content: ctx }]);
-    setSessionId(null);
-    setInput('');
-  }, [student, sections]);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' });
-  }, [messages]);
-
-  async function send() {
-    const text = input.trim();
-    if (!text || sending || !student) return;
-    setInput('');
-    const next = [...messages, { role: 'user' as const, content: text }];
-    setMessages(next);
-    setSending(true);
-
-    let sid = sessionId;
-    if (!sid) {
-      try {
-        const r = await api.aiCreateConversation({ title: `学生分析 · ${str(student.学生姓名) || '未命名'}` });
-        sid = r.id;
-        setSessionId(sid);
-      } catch {
-        // 会话创建失败时继续用临时 history，不阻塞对话
-      }
-    }
-
-    try {
-      const r = await api.aiChat({ message: text, sessionId: sid ?? undefined, agentId: agentId || undefined, history: messages });
-      setMessages([...next, { role: 'assistant', content: r.content }]);
-      if (r.sessionId && !sessionId) setSessionId(r.sessionId);
-    } catch (e) {
-      setMessages([...next, { role: 'assistant', content: `⚠️ ${e instanceof Error ? e.message : String(e)}` }]);
-    } finally {
-      setSending(false);
-    }
-  }
-
-  const studentName = str(student?.学生姓名) || '未选学生';
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <div
-        onMouseDown={onHeaderMouseDown}
-        style={{
-          flexShrink: 0,
-          padding: '14px 18px',
-          borderBottom: '1px solid var(--border)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          cursor: onHeaderMouseDown ? 'move' : 'default',
-          userSelect: 'none',
-        }}
-      >
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>AI分析</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>当前学生：{studentName}</div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <select
-            value={agentId}
-            onChange={(e) => setAgentId(e.target.value)}
-            style={{
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              padding: '6px 10px',
-              fontSize: 13,
-            }}
-          >
-            <option value="">个人默认配置</option>
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}（{a.provider || '—'}{a.model ? ` · ${a.model}` : ''}）
-              </option>
-            ))}
-          </select>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} title="收起智能分析">收起</button>
-        </div>
-      </div>
-
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {messages.length <= 1 && (
-          <div style={{ color: 'var(--text-muted)', margin: 'auto', textAlign: 'center', maxWidth: 360 }}>
-            已加载「{studentName}」的全景摘要，可询问学习情况、考勤趋势、家校沟通总结、招生意向等任何问题。
-          </div>
-        )}
-        {messages.map((m, i) => {
-          if (m.role === 'system') return null;
-          return (
-            <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-              <div
-                style={{
-                  maxWidth: '86%',
-                  background: m.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)',
-                  color: m.role === 'user' ? '#fff' : 'var(--text)',
-                  padding: '10px 14px',
-                  borderRadius: 12,
-                  fontSize: 14,
-                  lineHeight: 1.6,
-                }}
-              >
-                <Markdown>{m.content}</Markdown>
-              </div>
-            </div>
-          );
-        })}
-        {sending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>思考中…</div>}
-      </div>
-
-      <div style={{ flexShrink: 0, borderTop: '1px solid var(--border)', padding: 12, display: 'flex', gap: 8 }}>
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder="输入与学生相关的问题，Enter 发送…"
-          disabled={!student || sending}
-          style={{
-            flex: 1,
-            resize: 'none',
-            height: 44,
-            background: 'var(--bg-tertiary)',
-            color: 'var(--text)',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-            padding: 10,
-            fontSize: 14,
-          }}
-        />
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={!student || sending || !input.trim()}
-          onClick={send}
-        >
-          {sending ? '发送中' : '发送'}
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function DetailModal({ title, content, onClose }: { title: string; content: string; onClose: () => void }) {
   if (!title && !content) return null;

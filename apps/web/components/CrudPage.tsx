@@ -102,6 +102,10 @@ export interface CrudPageProps {
   studentDetailHref?: (row: Record<string, unknown>) => string;
   /** 行级自定义操作按钮（如「AI 总结」）。run(row, reload) 执行后刷新列表；前端仅在非只读模式渲染 */
   rowExtraActions?: { label: string; run: (row: Record<string, unknown>, reload: () => void) => void | Promise<void> }[];
+  /** 选择模式：列表每行前显示复选框，支持跨页保留已选；变化时通过 onSelectionChange 回传已选行 */
+  selection?: boolean;
+  /** 已选行变化回调（跨页合并后的全部已选记录） */
+  onSelectionChange?: (rows: Record<string, unknown>[]) => void;
 }
 
 function str(v: unknown): string {
@@ -180,7 +184,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate, selection, onSelectionChange }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = pageSize ?? 5;
@@ -200,6 +204,14 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   /** 一键读取本机 WiFi 的加载态 */
   const [wifiBusy, setWifiBusy] = useState(false);
 
+  /** 选择模式：已选行（跨页保留，以 row.id 为键） */
+  const [selectedRows, setSelectedRows] = useState<Map<string, Record<string, unknown>>>(new Map());
+  const onSelRef = useRef(onSelectionChange);
+  onSelRef.current = onSelectionChange;
+  useEffect(() => {
+    onSelRef.current?.(Array.from(selectedRows.values()));
+  }, [selectedRows]);
+
   const router = useRouter();
 
   const filterCols = columns.filter((c) => c.filter);
@@ -209,6 +221,30 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     .sort((a, b) => (a.listOrder ?? Infinity) - (b.listOrder ?? Infinity));
   const showingInlineForm = Boolean(inlineEdit && editing);
   const showingStandaloneForm = Boolean(standaloneForm && editing);
+
+  // 选择模式辅助：以 row.id 为键，跨页保留已选；提供本页全选/反选与单选切换
+  const selKey = (r: Record<string, unknown>) => String(r.id);
+  const pageIds = items.map(selKey);
+  const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedRows.has(id));
+  const someOnPageSelected = pageIds.some((id) => selectedRows.has(id));
+  const colCount = listCols.length + 1 + (selection ? 1 : 0);
+  const toggleRow = (row: Record<string, unknown>) => {
+    const id = selKey(row);
+    setSelectedRows((prev) => {
+      const next = new Map(prev);
+      if (next.has(id)) next.delete(id);
+      else next.set(id, row);
+      return next;
+    });
+  };
+  const togglePage = () => {
+    setSelectedRows((prev) => {
+      const next = new Map(prev);
+      if (allOnPageSelected) pageIds.forEach((id) => next.delete(id));
+      else items.forEach((r) => next.set(selKey(r), r));
+      return next;
+    });
+  };
 
   useEffect(() => {
     onEditingChange?.(!!editing);
@@ -750,6 +786,17 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         <table className="data-table">
           <thead>
             <tr>
+              {selection && (
+                <th style={{ width: '44px', textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={allOnPageSelected}
+                    ref={(el) => { if (el) el.indeterminate = !allOnPageSelected && someOnPageSelected; }}
+                    onChange={togglePage}
+                    aria-label="全选本页"
+                  />
+                </th>
+              )}
               {listCols.map((c) => <th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}
               <th style={{ width: '150px' }}>操作</th>
             </tr>
@@ -760,6 +807,16 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               const allowed = transitions && st ? transitions[st] ?? [] : [];
               return (
                 <tr key={String(row.id)}>
+                  {selection && (
+                    <td style={{ textAlign: 'center', width: '44px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedRows.has(selKey(row))}
+                        onChange={() => toggleRow(row)}
+                        aria-label="选择此行"
+                      />
+                    </td>
+                  )}
                   {listCols.map((c) => (
                     <td
                       key={c.key}
@@ -827,7 +884,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               );
             })}
             {items.length === 0 && !loading && (
-              <tr><td colSpan={listCols.length + 1}>
+              <tr><td colSpan={colCount}>
                 <div className="empty-state"><div className="empty-state-text">暂无数据</div></div>
               </td></tr>
             )}

@@ -37,25 +37,31 @@ export default function BalanceWheel({ dims, onChange }: { dims: WheelDim[]; onC
           return <text key={i} x={x} y={y} fontSize={12} fill="var(--fg)" textAnchor="middle" dominantBaseline="middle">{d.dim}</text>;
         })}
       </svg>
-      {editable && (
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <div style={{ display: 'flex', gap: 16, fontSize: 'var(--font-sm)', marginBottom: 8 }}>
-            <span style={{ color: '#e6783c' }}>● 当前值</span>
-            <span style={{ color: 'var(--accent)' }}>● 期望値（IDP 后）</span>
-          </div>
-          {dims.map((d, i) => (
-            <div key={d.dim} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-              <span style={{ width: 84, fontSize: 'var(--font-sm)' }}>{d.dim}</span>
-              <label style={{ fontSize: 'var(--font-sm)', color: '#e6783c' }}>当前</label>
+      <div style={{ flex: 1, minWidth: 240 }}>
+        <div style={{ display: 'flex', gap: 16, fontSize: 'var(--font-sm)', marginBottom: 8 }}>
+          <span style={{ color: '#e6783c' }}>● 当前值</span>
+          <span style={{ color: 'var(--accent)' }}>● 期望値（IDP 后）</span>
+        </div>
+        {dims.map((d, i) => (
+          <div key={d.dim} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <span style={{ width: 84, fontSize: 'var(--font-sm)' }}>{d.dim}</span>
+            <label style={{ fontSize: 'var(--font-sm)', color: '#e6783c' }}>当前</label>
+            {editable ? (
               <input type="number" min={0} max={10} value={d.current} style={{ width: 64 }}
                 onChange={(e) => { const v = Number(e.target.value); const n = [...dims]; n[i] = { ...n[i], current: v }; onChange!(n); }} />
-              <label style={{ fontSize: 'var(--font-sm)', color: 'var(--accent)' }}>期望</label>
+            ) : (
+              <span style={{ width: 64, fontSize: 'var(--font-sm)', fontWeight: 500 }}>{d.current || 0}</span>
+            )}
+            <label style={{ fontSize: 'var(--font-sm)', color: 'var(--accent)' }}>期望</label>
+            {editable ? (
               <input type="number" min={0} max={10} value={d.expected} style={{ width: 64 }}
                 onChange={(e) => { const v = Number(e.target.value); const n = [...dims]; n[i] = { ...n[i], expected: v }; onChange!(n); }} />
-            </div>
-          ))}
-        </div>
-      )}
+            ) : (
+              <span style={{ width: 64, fontSize: 'var(--font-sm)', fontWeight: 500 }}>{d.expected || 0}</span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

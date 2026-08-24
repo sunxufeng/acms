@@ -1,10 +1,12 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import CrudPage from '../../components/CrudPage';
 import { api } from '../../lib/api';
 import { COLUMNS } from './columns';
 
 export default function IdpPlansPage() {
+  const router = useRouter();
   return (
     <CrudPage
       title="IDP管理"
@@ -15,6 +17,12 @@ export default function IdpPlansPage() {
       createHref="/idp-plans/new"
       editHref={(id) => `/idp-plans/${id}/edit`}
       detailHref={(id) => `/idp-plans/${id}`}
+      rowExtraActions={[
+        {
+          label: '新增沟通',
+          run: (row) => router.push(`/idp-plans/${String(row.id)}/communications/new`),
+        },
+      ]}
       api={{
         list: (p) => api.listIdpPlans(p),
         create: (d) => api.createIdpPlan(d),

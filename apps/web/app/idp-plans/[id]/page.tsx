@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '../../../lib/api';
 import BalanceWheel, { type WheelDim } from '../../../components/idp/BalanceWheel';
@@ -42,7 +42,6 @@ function InfoItem({ label, value }: { label: string; value: string }) {
 
 export default function IdpPlanDetailPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const [plan, setPlan] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,14 +66,18 @@ export default function IdpPlanDetailPage() {
   return (
     <div className="page">
       <div className="page-header page-header-row">
-        <div>
-          <div className="page-eyebrow">IDP / DETAIL</div>
-          <h1 className="page-title">IDP 方案详情</h1>
-          <p className="page-subtitle">{str(plan['关联学生'])} · {str(plan['学期'])} · {str(plan['状态']) || '草稿'}</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-lg)' }}>
+          <Link href="/idp-plans" className="btn btn-icon" title="返回列表">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
+          </Link>
+          <div>
+            <div className="page-eyebrow">IDP / DETAIL</div>
+            <h1 className="page-title">IDP 方案详情</h1>
+            <p className="page-subtitle">{str(plan['关联学生'])} · {str(plan['学期'])} · {str(plan['状态']) || '草稿'}</p>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <Link className="btn btn-outline" href={`/idp-plans/${params.id}/edit`}>编辑</Link>
-          <button className="btn btn-ghost" onClick={() => router.push('/idp-plans')}>返回列表</button>
         </div>
       </div>
 

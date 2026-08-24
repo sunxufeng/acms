@@ -208,6 +208,46 @@ export class AgentRuntime {
   async run(userInput, { chat, history = [], systemPrompt, maxSteps, context = {} } = {}) {
     const sys = systemPrompt || this.systemPrompt;
     const stepLimit = Number.isFinite(maxSteps) && maxSteps > 0 ? Math.floor(maxSteps) : this.maxSteps;
+
+    // 「创建飞书文档」意图拦截：不依赖模型是否会输出 TOOL: 协议。
+    // 用户说「生成/写到/创建/导出飞书文档」时，直接从对话历史（最近一次助手回复=「这份报告」）
+    // 或本轮输入提取正文，服务端直接调用 create_feishu_doc 并返回链接。
+    const docTool = this.tools.get('create_feishu_doc');
+    const wantDoc = /飞书文档|飞书云文档|飞书\s*(云?文档|doc)|写到飞书|导出(到|至)?飞书|保存(到|为)?飞书/.test(toPlainText(userInput));
+    if (docTool && wantDoc) {
+      const plain = toPlainText(userInput);
+      // 正文来源：历史里最后一条 assistant 消息（即「这份报告」），否则本轮输入本身
+      let content = '';
+      if (Array.isArray(history)) {
+        for (let i = history.length - 1; i >= 0; i--) {
+          const h = history[i];
+          if (h?.role === 'assistant' && typeof h.content === 'string' && h.content.trim()) {
+            content = h.content.trim();
+            break;
+          }
+        }
+      }
+      if (!content) content = plain;
+      // 标题：优先报告首行 # 标题，否则从输入里「XX报告/分析」附近取，默认 ACMS 文档
+      let title = 'ACMS 文档';
+      const h1 = content.match(/^#\s+(.+)$/m);
+      if (h1) title = h1[1].trim();
+      else {
+        const m = plain.match(/(.{2,20}?)(报告|分析|总结|纪要)/);
+        if (m) title = m[0].trim();
+      }
+      try {
+        const obs = await docTool.run({ title, content }, context);
+        return { answer: obs, transcript: [{ role: 'tool', name: 'create_feishu_doc', content: obs }], steps: 1 };
+      } catch (e) {
+        return {
+          answer: `创建飞书文档失败：${e instanceof Error ? e.message : String(e)}`,
+          transcript: [{ role: 'tool', name: 'create_feishu_doc', content: String(e) }],
+          steps: 1,
+        };
+      }
+    }
+
     // 实时信息「服务端预取」：先尝试识别天气/联网/网页意图并直接取数，
     // 再注入上下文，确保即使模型不调用工具也能基于真实数据作答。
     const realtimeObs = await preExecRealtimeTools(this.tools, userInput, context, history);

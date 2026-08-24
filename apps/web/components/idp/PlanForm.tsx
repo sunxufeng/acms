@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { api } from '../../lib/api';
 import BalanceWheel, { type WheelDim } from './BalanceWheel';
 
@@ -180,13 +181,19 @@ export default function PlanForm({ planId }: { planId?: string }) {
 
   return (
     <div className="page">
-      <div className="page-header page-header-row">
-        <div>
-          <div className="page-eyebrow">IDP / {isEdit ? 'EDIT' : 'CREATE'}</div>
-          <h1 className="page-title">{isEdit ? '编辑 IDP 方案' : '新建 IDP 方案'}</h1>
-          <p className="page-subtitle">一个学生同一学期仅可创建一个 IDP 方案</p>
+      <div className="page-header">
+        <div className="page-header-row">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-lg)' }}>
+            <Link href="/idp-plans" className="btn btn-icon" title="返回列表">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
+            </Link>
+            <div>
+              <div className="page-eyebrow">IDP / {isEdit ? 'EDIT' : 'CREATE'}</div>
+              <h1 className="page-title">{isEdit ? '编辑 IDP 方案' : '新建 IDP 方案'}</h1>
+              <p className="page-subtitle">一个学生同一学期仅可创建一个 IDP 方案</p>
+            </div>
+          </div>
         </div>
-        <button className="btn btn-ghost" onClick={() => router.push('/idp-plans')}>返回列表</button>
       </div>
 
       {error && <p className="msg-error">{error}</p>}

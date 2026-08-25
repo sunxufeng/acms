@@ -158,7 +158,7 @@ export default function StudentsPage() {
 
   const [q, setQ] = useState('');
   const [filters, setFilters] = useState<Record<string, string | string[]>>({
-    当前状态: ['在校在读'],
+    当前状态: [],
     入学年级: '',
     班主任: [],
     招生负责老师: [],

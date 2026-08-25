@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '../../lib/api';
 import BalanceWheel, { type WheelDim } from './BalanceWheel';
+import Combobox from '../Combobox';
 
 // ── 数据结构 ───────────────────────────────
 interface Goal { title: string; areas: string; importance: number; urgency: number; meaning: number; measures: string[]; note: string }
@@ -78,6 +79,7 @@ export default function PlanForm({ planId }: { planId?: string }) {
   const isEdit = Boolean(planId);
   const [dicts, setDicts] = useState<Record<string, string[]>>({});
   const [students, setStudents] = useState<{ value: string; label: string }[]>([]);
+  const [mentors, setMentors] = useState<{ value: string; label: string }[]>([]);
   const [form, setForm] = useState<Record<string, unknown>>({ ...DEFAULT_FORM });
   const [wheel, setWheel] = useState<WheelDim[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -114,6 +116,22 @@ export default function PlanForm({ planId }: { planId?: string }) {
         .map((s) => ({ value: s.name, label: s.englishName ? `${s.name} / ${s.englishName}` : s.name }));
       setStudents(opts);
     }).catch(() => {});
+  }, []);
+
+  // 导师候选项：来自用户管理（用户「姓名」字段），可输入筛选。
+  useEffect(() => {
+    const collected: string[] = [];
+    const fetchPage = async (token?: string): Promise<void> => {
+      const p = await api.listUsers({ pageSize: '100', pageToken: token });
+      for (const u of p.items) {
+        const name = String(u['姓名'] ?? '');
+        if (name) collected.push(name);
+      }
+      if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
+    };
+    fetchPage()
+      .then(() => setMentors(Array.from(new Set(collected)).sort((a, b) => a.localeCompare(b, 'zh-CN')).map((n) => ({ value: n, label: n }))))
+      .catch(() => {});
   }, []);
 
   // 维度字典就绪后，初始化平衡轮（编辑模式已有数据则不覆盖）
@@ -208,10 +226,7 @@ export default function PlanForm({ planId }: { planId?: string }) {
         <legend className="form-legend">基本信息</legend>
         <div className="form-grid">
           {field('关联学生 *', (
-            <select className="form-input" value={str(form['关联学生'])} onChange={(e) => set('关联学生', e.target.value)}>
-              <option value="">（未选）</option>
-              {students.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
+            <Combobox value={str(form['关联学生'])} onChange={(v) => set('关联学生', v)} options={students} placeholder="输入或选择学生姓名" />
           ))}
           {field('学期 *', (
             <select className="form-input" value={str(form['学期'])} onChange={(e) => set('学期', e.target.value)}>
@@ -219,7 +234,7 @@ export default function PlanForm({ planId }: { planId?: string }) {
               {(dicts['学期'] ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           ))}
-          {field('导师', <input className="form-input" value={str(form['导师'])} onChange={(e) => set('导师', e.target.value)} />)}
+          {field('导师', <Combobox value={str(form['导师'])} onChange={(v) => set('导师', v)} options={mentors} placeholder="输入或选择导师姓名" />)}
           {field('状态', (
             <select className="form-input" value={str(form['状态'])} onChange={(e) => set('状态', e.target.value)}>
               {(dicts['IDP状态'] ?? ['草稿', '待确认', '已确认', '已关闭']).map((o) => <option key={o} value={o}>{o}</option>)}

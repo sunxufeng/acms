@@ -234,7 +234,7 @@ export default function PlanForm({ planId }: { planId?: string }) {
               {(dicts['学期'] ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           ))}
-          {field('导师', <Combobox value={str(form['导师'])} onChange={(v) => set('导师', v)} options={mentors} placeholder="输入或选择导师姓名" />)}
+          {field('导师', <Combobox value={str(form['导师'])} onChange={(v) => set('导师', v)} options={mentors} placeholder="输入或选择导师姓名" allowFreeText />)} 
           {field('状态', (
             <select className="form-input" value={str(form['状态'])} onChange={(e) => set('状态', e.target.value)}>
               {(dicts['IDP状态'] ?? ['草稿', '待确认', '已确认', '已关闭']).map((o) => <option key={o} value={o}>{o}</option>)}

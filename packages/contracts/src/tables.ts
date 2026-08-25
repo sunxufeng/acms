@@ -1,50 +1,50 @@
-/** 飞书 Base 表注册（与 docs/base-schema-snapshot.json 对齐，2026-08-16） */
+/** 飞书 Base 表注册（DEV base RIAgbQsrfa7EJdslDnkcdAuanyd，2026-08-25 重映射） */
 export const TABLES = {
-  studentProfile: { tableId: 'tbl2peVECjHnm8la', name: '学生档案表' },
-  sourceFollowup: { tableId: 'tblDEuaTDoiXkjZu', name: '生源跟进记录表' },
-  attendance: { tableId: 'tblUkd1JKi4T7XQb', name: '考勤记录表' },
-  academicGrade: { tableId: 'tblaYsfXSbqyZiZ5', name: '学业成绩表' },
-  practiceActivity: { tableId: 'tblOitwcvOBSkeuu', name: '实践活动表' },
-  homeSchoolComm: { tableId: 'tbl8Isr46G3BRQ52', name: '家校沟通表' },
-  dailyFollowup: { tableId: 'tbljjbChYx9uhbbb', name: '日常跟进表' },
-  stageEvaluation: { tableId: 'tblHk6r8USy6BXV4', name: '阶段评价表' },
-  alumniFollowup: { tableId: 'tblK02GgjnaLp1Gp', name: '校友长期跟进表' },
+  studentProfile: { tableId: 'tblyFIfe58IjxT4K', name: '学生档案表' },
+  sourceFollowup: { tableId: 'tblagWpUSFB9SPIw', name: '生源跟进记录表' },
+  attendance: { tableId: 'tblYnSI1HE4E4eIS', name: '考勤记录表' },
+  academicGrade: { tableId: 'tblLl9S63reX8gcU', name: '学业成绩表' },
+  practiceActivity: { tableId: 'tblSydXiQcpUdZ6i', name: '实践活动表' },
+  homeSchoolComm: { tableId: 'tbl9eA6kF1DFQkI1', name: '家校沟通表' },
+  dailyFollowup: { tableId: 'tblFVUnzdEWLvPeh', name: '日常跟进表' },
+  stageEvaluation: { tableId: 'tblNa4YeCzQiKXxy', name: '阶段评价表' },
+  alumniFollowup: { tableId: 'tblXiV5eN9Qr07jU', name: '校友长期跟进表' },
   // M2 教学域
-  teacherProfile: { tableId: 'tblOhSv7Yr3WhJb0', name: '教师档案表' },
-  coursePlan: { tableId: 'tblkceYvjTwoZ5n9', name: '课程方案表' },
-  teachingClass: { tableId: 'tbl4V1uLkrddC9Gv', name: '教学班表' },
-  venue: { tableId: 'tblhWAp4TlE0l31A', name: '场地资源表' },
-  session: { tableId: 'tblCu7bjnoNBlxlZ', name: '课次排课表' },
-  enrollment: { tableId: 'tblr3Y1Py9rZ7GjU', name: '学生修读关系表' },
+  teacherProfile: { tableId: 'tbll7G6Ye0UCTaZs', name: '教师档案表' },
+  coursePlan: { tableId: 'tblXovizOeIXE8av', name: '课程方案表' },
+  teachingClass: { tableId: 'tblcdt6QJDZzRRI6', name: '教学班表' },
+  venue: { tableId: 'tblFGKbSQ68tgnTo', name: '场地资源表' },
+  session: { tableId: 'tblEEmx3fy9EvWlY', name: '课次排课表' },
+  enrollment: { tableId: 'tblVyhkzNTBcxWEY', name: '学生修读关系表' },
   // M3 教师履约与计费财务
-  teacherAttendance: { tableId: 'tblSHa7ZSFw6mlKC', name: '教师履约记录表' },
-  partnership: { tableId: 'tblGwfI6m4XfBH1p', name: '聘用合作关系表' },
-  billingDetail: { tableId: 'tblcTFokcL751xCL', name: '计费明细表' },
-  monthlySettlement: { tableId: 'tblnvoolTMAMFrmz', name: '月度结算表' },
-  adjustment: { tableId: 'tblGLnqahkKCsJez', name: '调整冲销表' },
+  teacherAttendance: { tableId: 'tblKB4ZwrxrWmDpT', name: '教师履约记录表' },
+  partnership: { tableId: 'tblmWvk2K0BaMPlI', name: '聘用合作关系表' },
+  billingDetail: { tableId: 'tblRQyFz5whzd8uV', name: '计费明细表' },
+  monthlySettlement: { tableId: 'tblXk3ezWN16NHNq', name: '月度结算表' },
+  adjustment: { tableId: 'tblC0LG1u99eh63J', name: '调整冲销表' },
   // M4 通知闭环
-  notificationTemplate: { tableId: 'tbloLs7JLBSfm2pT', name: '通知模板表' },
-  notificationLog: { tableId: 'tblvCNDUwF0qU547', name: '通知记录表' },
+  notificationTemplate: { tableId: 'tblWkJ9kDY6lb0td', name: '通知模板表' },
+  notificationLog: { tableId: 'tbl82657kmkUnZ4r', name: '通知记录表' },
   // 系统配置
-  systemConfig: { tableId: 'tblqeuKQlsuOIeUy', name: '系统配置表' },
+  systemConfig: { tableId: 'tblvBrRCWO65L6Yg', name: '系统配置表' },
   // 考勤围栏（GPS/ WiFi 打卡区域配置，见 docs/student-portal-plan.md §7）
-  attendanceZone: { tableId: 'tbloFq0XJKpObwxQ', name: '考勤围栏表' },
+  attendanceZone: { tableId: 'tblsNY74wMqmg5Ry', name: '考勤围栏表' },
   // 审计日志
-  auditLog: { tableId: 'tbl0V2dbD9vqVL3N', name: '审计日志表' },
+  auditLog: { tableId: 'tblDqovZWWuA7f0Q', name: '审计日志表' },
   // 微信登录用户（家长/学生通过微信小程序、家长 H5 登录的绑定记录，后台可管理）
-  wechatBinding: { tableId: 'tblbZ43Nkenwfu8D', name: '微信登录用户表' },
+  wechatBinding: { tableId: 'tblP8aLCQ1qgvwnT', name: '微信登录用户表' },
   // IDP 管理（2026-08-24 按 doc 精确字段重建）
-  idpPlan: { tableId: 'tblsjTYUgSKpaaxI', name: 'IDP方案' },
-  idpCommunication: { tableId: 'tblorVFmbSTFgAYT', name: 'IDP沟通记录' },
+  idpPlan: { tableId: 'tblMs4DTUTk0QgT5', name: 'IDP方案' },
+  idpCommunication: { tableId: 'tbluU16XfgJJh3Rf', name: 'IDP沟通记录' },
   // 生命周期域关联目标表（link 字段跨表解析用，2026-08-17 经 listFields 核对）
-  academicYear: { tableId: 'tblg8hWV4A0rVHvR', name: '学年表' },
-  classLink: { tableId: 'tblAy1JpNjVRb2d3', name: '班级表' },
-  courseLink: { tableId: 'tbl01bBuYIePVhau', name: '学科课程表' },
-  authorization: { tableId: 'tbl2gGkg1Arg3tzn', name: '授权事项表' },
-  guardian: { tableId: 'tblNzs3UQu0K7x4j', name: '监护人表' },
+  academicYear: { tableId: 'tblp9jbG7WMw609S', name: '学年表' },
+  classLink: { tableId: 'tblsgoryRptizqBL', name: '班级表' },
+  courseLink: { tableId: 'tblfDfwVKsPEFQcn', name: '学科课程表' },
+  authorization: { tableId: 'tblUiDLO215YeT8C', name: '授权事项表' },
+  guardian: { tableId: 'tbl0snrN3h2XXlZg', name: '监护人表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;
 
 /** 用户表（后续如 Base 增加账号表，在此登记） */
-export const USER_TABLE = { tableId: 'tblTV6VAO5x2967y', name: '系统用户表' } as const;
+export const USER_TABLE = { tableId: 'tblnFCIRBOZr2oVF', name: '系统用户表' } as const;

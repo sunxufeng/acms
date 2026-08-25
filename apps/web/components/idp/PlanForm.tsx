@@ -7,7 +7,7 @@ import { api } from '../../lib/api';
 import BalanceWheel, { type WheelDim } from './BalanceWheel';
 
 // ── 数据结构 ───────────────────────────────
-interface Goal { title: string; areas: string[]; importance: number; urgency: number; meaning: number; measures: string[]; note: string }
+interface Goal { title: string; areas: string; importance: number; urgency: number; meaning: number; measures: string[]; note: string }
 interface Phase { no: string; node: string; result: string }
 interface Att { file_token: string; name: string }
 
@@ -29,6 +29,12 @@ function parseJSON<T>(v: unknown, fallback: T): T {
     try { const p = JSON.parse(v); if (p) return p as T; } catch { /* ignore */ }
   }
   return fallback;
+}
+function normalizeGoals(list: Goal[]): Goal[] {
+  return list.map((g) => ({
+    ...g,
+    areas: Array.isArray(g.areas) ? g.areas.join('、') : (g.areas ?? ''),
+  }));
 }
 
 const DEFAULT_FORM: Record<string, unknown> = {
@@ -134,7 +140,7 @@ export default function PlanForm({ planId }: { planId?: string }) {
         制定日期: str(p['制定日期']),
       });
       setWheel(parseJSON<WheelDim[]>(p['人生平衡轮'], dimensions.map((d) => ({ dim: d, current: 0, expected: 0 }))));
-      setGoals(parseJSON<Goal[]>(p['目标列表'], []));
+      setGoals(normalizeGoals(parseJSON<Goal[]>(p['目标列表'], [])));
       setPhases(parseJSON<Phase[]>(p['阶段成果'], []));
       setAtt(attachmentFiles(p['原始文档']));
     }).catch((e) => setError(e instanceof Error ? e.message : '加载失败')).finally(() => setLoading(false));
@@ -238,7 +244,12 @@ export default function PlanForm({ planId }: { planId?: string }) {
             </div>
             <div className="form-grid">
               {field('目标标题', <input className="form-input" value={g.title} onChange={(e) => { const n = [...goals]; n[gi] = { ...n[gi], title: e.target.value }; setGoals(n); }} />)}
-              {field('提升领域', <Chips options={areas} value={g.areas} onChange={(v) => { const n = [...goals]; n[gi] = { ...n[gi], areas: v }; setGoals(n); }} />)}
+              {field('提升领域', (
+                <select className="form-input" value={g.areas} onChange={(e) => { const n = [...goals]; n[gi] = { ...n[gi], areas: e.target.value }; setGoals(n); }}>
+                  <option value="">（未选）</option>
+                  {areas.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ))}
             </div>
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 10 }}>
               <div><div style={{ fontSize: 'var(--font-sm)', marginBottom: 4 }}>重要性</div><Stars value={g.importance} onChange={(v) => { const n = [...goals]; n[gi] = { ...n[gi], importance: v }; setGoals(n); }} /></div>
@@ -249,7 +260,7 @@ export default function PlanForm({ planId }: { planId?: string }) {
             <div style={{ marginTop: 10 }}>{field('其他说明', <textarea className="form-input" rows={2} value={g.note} onChange={(e) => { const n = [...goals]; n[gi] = { ...n[gi], note: e.target.value }; setGoals(n); }} />)}</div>
           </div>
         ))}
-        <button type="button" className="btn btn-outline" onClick={() => setGoals([...goals, { title: '', areas: [], importance: 0, urgency: 0, meaning: 0, measures: [], note: '' }])}>
+        <button type="button" className="btn btn-outline" onClick={() => setGoals([...goals, { title: '', areas: '', importance: 0, urgency: 0, meaning: 0, measures: [], note: '' }])}>
           + 添加目标
         </button>
       </fieldset>

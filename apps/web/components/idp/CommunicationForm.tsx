@@ -104,13 +104,17 @@ export default function CommunicationForm({ commId }: { commId?: string }) {
           </fieldset>
 
           <fieldset className="form-fieldset">
-            <legend className="form-legend">沟通内容</legend>
-            <MarkdownField value={form.沟通内容} onChange={(v) => setForm((f) => ({ ...f, 沟通内容: v }))} />
-          </fieldset>
-
-          <fieldset className="form-fieldset">
-            <legend className="form-legend">需要的帮助 / 下一步计划</legend>
-            <MarkdownField value={form.help} onChange={(v) => setForm((f) => ({ ...f, help: v }))} />
+            <legend className="form-legend">沟通明细（MD 对话记录）</legend>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="form-label">
+                <span className="form-label-text">沟通内容</span>
+                <MarkdownField value={form.沟通内容} onChange={(v) => setForm((f) => ({ ...f, 沟通内容: v }))} />
+              </div>
+              <div className="form-label">
+                <span className="form-label-text">需要的帮助 / 下一步计划</span>
+                <MarkdownField value={form.help} onChange={(v) => setForm((f) => ({ ...f, help: v }))} />
+              </div>
+            </div>
           </fieldset>
 
           <fieldset className="form-fieldset">

@@ -19,6 +19,10 @@ export default function IdpPlansPage() {
       detailHref={(id) => `/idp-plans/${id}`}
       rowExtraActions={[
         {
+          label: '沟通记录',
+          run: (row) => router.push(`/idp-plans/${String(row.id)}#communications`),
+        },
+        {
           label: '新增沟通',
           run: (row) => router.push(`/idp-plans/${String(row.id)}/communications/new`),
         },

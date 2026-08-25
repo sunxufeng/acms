@@ -106,7 +106,7 @@ export default function IdpPlanDetailPage() {
                   <tr key={i}>
                     <td>{i + 1}</td>
                     <td>{g.title || '—'}</td>
-                    <td>{g.areas?.join('、') || '—'}</td>
+                    <td>{(Array.isArray(g.areas) ? g.areas.join('、') : g.areas) || '—'}</td>
                     <td>{g.importance ? '★'.repeat(g.importance) : '—'}</td>
                     <td>{g.urgency ? '★'.repeat(g.urgency) : '—'}</td>
                     <td>{g.meaning ? '★'.repeat(g.meaning) : '—'}</td>
@@ -159,7 +159,7 @@ export default function IdpPlanDetailPage() {
         )}
       </section>
 
-      <section style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', borderRadius: 12, padding: 18 }}>
+      <section id="communications" style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', borderRadius: 12, padding: 18 }}>
         <CommunicationManager planId={params.id} />
       </section>
     </div>

@@ -201,14 +201,25 @@ export function authorize(
   if (!hasPermission(principal, permission)) {
     return { allowed: false, reason: 'missing-permission' };
   }
-  if (resource?.campus && principal.campuses.length > 0 && !principal.campuses.includes(resource.campus)) {
-    return { allowed: false, reason: 'campus-mismatch' };
+  // 组织级角色（系统/院级管理）视角不受单校区限制，可看全组织数据
+  const isOrgWide = principal.roles.some((r) => r === '系统管理员' || r === '院级管理');
+  if (!isOrgWide && resource?.campus) {
+    // 校区可能是多选字段（数组），统一按集合交集判断
+    const resCampuses = Array.isArray(resource.campus) ? resource.campus : [resource.campus];
+    if (
+      principal.campuses.length > 0 &&
+      !resCampuses.some((c) => principal.campuses.includes(c))
+    ) {
+      return { allowed: false, reason: 'campus-mismatch' };
+    }
   }
   if (resource?.dataLevel) {
     const limit = maxDataLevelOf(principal);
-    const lvl = resource.dataLevel;
-    const need = (lvl in DATA_LEVEL_RANK ? lvl : 'L4') as DataLevel;
-    if (DATA_LEVEL_RANK[need] > DATA_LEVEL_RANK[limit]) {
+    const levels = Array.isArray(resource.dataLevel) ? resource.dataLevel : [resource.dataLevel];
+    const need = Math.max(
+      ...levels.map((l) => DATA_LEVEL_RANK[l in DATA_LEVEL_RANK ? (l as DataLevel) : 'L4']),
+    );
+    if (need > DATA_LEVEL_RANK[limit]) {
       return { allowed: false, reason: 'data-level-exceeded' };
     }
   }

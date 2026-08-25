@@ -20,7 +20,7 @@ export default function IdpPlansPage() {
       rowExtraActions={[
         {
           label: '沟通记录',
-          run: (row) => router.push(`/idp-plans/${String(row.id)}#communications`),
+          run: (row) => router.push(`/idp-plans/${String(row.id)}/communications`),
         },
         {
           label: '新增沟通',

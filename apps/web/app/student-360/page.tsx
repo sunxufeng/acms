@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { api } from '../../lib/api';
 import Markdown from '../../components/Markdown';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
+import Combobox from '../../components/Combobox';
 
 interface StudentHit {
   id: string;
@@ -201,23 +202,16 @@ export default function Student360Page() {
       <div className="filter-bar">
         <label className="form-label" style={{ width: 'min(420px, 100%)' }}>
           <span className="form-label-text">选择学生</span>
-          <select
-            className="form-input"
+          <Combobox
             value={selected?.id ?? ''}
-            onChange={(e) => selectStudent(e.target.value)}
-            disabled={loadingStudents}
-          >
-            <option value="">{loadingStudents ? '学生列表加载中…' : '请选择学生'}</option>
-            {students.map((student) => {
+            onChange={(v) => selectStudent(v)}
+            options={students.map((student) => {
               const name = str(student.学生姓名) || '(无名)';
               const englishName = str(student.英文名);
-              return (
-                <option key={student.id} value={student.id}>
-                  {englishName ? `${name} / ${englishName}` : name}
-                </option>
-              );
+              return { value: student.id, label: englishName ? `${name} / ${englishName}` : name };
             })}
-          </select>
+            placeholder={loadingStudents ? '学生列表加载中…' : '输入学生姓名筛选…'}
+          />
         </label>
         <label className="form-label" style={{ width: '160px' }}>
           <span className="form-label-text">开始日期</span>

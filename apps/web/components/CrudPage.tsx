@@ -7,6 +7,7 @@ import { api as apiClient, type Page } from '../lib/api';
 import MarkdownField from './MarkdownField';
 import TagInput from './TagInput';
 import MapPicker from './MapPicker';
+import Combobox from './Combobox';
 
 export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'attachment' | 'markdown' | 'map' | 'tags';
 
@@ -614,15 +615,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               {userNames.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           ) : c.type === 'student' ? (
-            <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
-              <option value="">（未选）</option>
-              {studentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentOptions} placeholder="输入学生姓名筛选…" />
           ) : c.type === 'studentLink' ? (
-            <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
-              <option value="">（未选）</option>
-              {studentLinkOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" />
           ) : c.type === 'parent' ? (
             (() => {
               const dep = form[c.dependsOn ?? ''] as string;

@@ -130,22 +130,30 @@ export class AuthService {
     if (!record) {
       // 用户表为空 → 首个登录者自动成为系统管理员并建档；否则拒绝
       const isFirstUser = tableTotal === 0;
-      if (!isFirstUser && !bootstrapAdmins.includes(openId)) {
+      // DEV 便捷开关：开启后任何完成 OAuth 的 DEV 用户自动建档为普通内部账号，
+      // 无需预先登记 open_id（prod 不设置 ALLOW_SELF_REGISTER 即维持原 NOT_REGISTERED 行为）。
+      const allowSelfRegister = ['1', 'true', 'dev'].includes(
+        (process.env.ALLOW_SELF_REGISTER ?? '').toLowerCase(),
+      );
+      if (!isFirstUser && !bootstrapAdmins.includes(openId) && !allowSelfRegister) {
         throw new UnauthorizedException('NOT_REGISTERED');
       }
-      // 自动建档：系统管理员 / L4 / 启用
+      const role = isFirstUser ? '系统管理员' : process.env.SELF_REGISTER_ROLE || '教师本人';
+      const level = isFirstUser ? 'L4' : process.env.SELF_REGISTER_LEVEL || '内部';
+      // 自动建档：系统管理员 / L4（首登）或 SELF_REGISTER_*（自注册普通账号）/ 启用
       try {
         await this.base.create(USER_TABLE.tableId, {
           '飞书 Open ID': openId,
           姓名: name,
-          系统角色: ['系统管理员'],
-          数据密级上限: 'L4',
+          系统角色: [role],
+          数据密级上限: level,
           账号状态: '启用',
         });
       } catch {
         // 建档失败不阻断登录（Base 只读时仍可进系统）
       }
-      return { openId, name, roles: ['系统管理员'], campuses: [], maxDataLevel: 'L4' };
+      const maxDataLevel = (USER_LEVEL_TO_ENGINE as Record<string, string>)[level] ?? 'L1';
+      return { openId, name, roles: [role], campuses: [], maxDataLevel };
     }
 
     const status = toText(record.fields['账号状态']);

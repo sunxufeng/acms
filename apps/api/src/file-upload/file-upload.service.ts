@@ -1,5 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
+import type { Redis } from 'ioredis';
+import { REDIS } from '../redis.provider.js';
 
 /**
  * 还原被 multer/busboy 误判为 latin1 的中文文件名。
@@ -33,6 +35,13 @@ export class FileUploadService {
   private envCache: Record<string, string> | null = null;
   private tenantToken?: string;
   private tokenExp = 0;
+
+  /** Redis 缓存 key 前缀：file_token → tmp_download_url */
+  private static readonly URL_CACHE_PREFIX = 'file_dl_url:';
+  /** 缓存有效期 20 小时（飞书临时 URL 约 24h 有效，提前刷新） */
+  private static readonly URL_CACHE_TTL = 20 * 3600;
+
+  constructor(@Inject(REDIS) private readonly redis: Redis) {}
 
   /** 读取环境变量 */
   private env(key: string): string | undefined {
@@ -118,7 +127,14 @@ export class FileUploadService {
       throw new Error(`UPLOAD_FAILED:${j.code ?? 'UNKNOWN'}:${j.msg ?? text.slice(0, 100)}`);
     }
 
-    return { file_token: j.data.file_token };
+    const fileToken = j.data.file_token;
+
+    // 上传后立即获取临时下载 URL 并缓存（此时文件与 app 的关联最新，bitablePerm 可能还未生效）
+    this.cacheDownloadUrl(fileToken).catch((err) => {
+      this.logger.warn(`上传后缓存下载 URL 失败 ${fileToken}: ${(err as Error).message}`);
+    });
+
+    return { file_token: fileToken };
   }
 
   /**
@@ -267,5 +283,101 @@ export class FileUploadService {
     const map: Record<string, string> = {};
     for (const it of j.data?.tmp_download_urls ?? []) map[it.file_token] = it.tmp_download_url;
     return map;
+  }
+
+  /** 上传后立即缓存下载 URL（文件与 app 关联最新时调用） */
+  private async cacheDownloadUrl(fileToken: string): Promise<void> {
+    try {
+      const url = await this.getDownloadUrl(fileToken);
+      if (url) {
+        await this.redis.set(
+          FileUploadService.URL_CACHE_PREFIX + fileToken,
+          url,
+          'EX',
+          FileUploadService.URL_CACHE_TTL,
+        );
+        this.logger.debug(`已缓存下载 URL: ${fileToken.slice(0, 12)}...`);
+      }
+    } catch {
+      // 缓存失败不影响上传成功
+    }
+  }
+
+  /**
+   * 获取素材下载 URL（供图片代理使用）。
+   * 优先级：Redis 缓存 > bitablePerm 预签名 > getDownloadUrl 直连
+   *
+   * @param fileToken 飞书 file_token
+   * @param bitablePermCtx 可选的 bitablePerm 上下文（用于已关联到记录的老文件）
+   */
+  async resolveDownloadUrl(
+    fileToken: string,
+    bitablePermCtx?: { tableId: string; recordId: string; fieldId: string },
+  ): Promise<string> {
+    // 1. 查 Redis 缓存（上传时写入，覆盖绝大多数场景）
+    const cached = await this.redis.get(FileUploadService.URL_CACHE_PREFIX + fileToken);
+    if (cached) return cached;
+
+    let url: string | undefined;
+
+    // 2. 尝试 bitablePerm（适用于已关联到记录的老文件）
+    if (bitablePermCtx?.recordId && bitablePermCtx?.fieldId) {
+      try {
+        url = await this.getTmpDownloadUrl(
+          fileToken,
+          bitablePermCtx.tableId,
+          bitablePermCtx.recordId,
+          bitablePermCtx.fieldId,
+        );
+      } catch {
+        // bitablePerm 失败，继续尝试直连
+      }
+    }
+
+    // 3. 兜底：getDownloadUrl（部分场景可用）
+    if (!url) {
+      try {
+        url = await this.getDownloadUrl(fileToken);
+      } catch {
+        /* 最后兜底也失败，抛出 */
+      }
+    }
+
+    if (!url) throw new Error('DOWNLOAD_URL_UNAVAILABLE');
+
+    // 成功获取到 URL → 写入缓存供后续请求直接使用
+    await this.redis
+      .set(FileUploadService.URL_CACHE_PREFIX + fileToken, url, 'EX', FileUploadService.URL_CACHE_TTL)
+      .catch(() => {});
+
+    return url;
+  }
+
+  /**
+   * 从 JSON 配置中提取所有 file_token 并预缓存下载 URL。
+   * 用于启动时修复已存在但未缓存的历史文件。
+   */
+  async precacheConfigImages(configJson: string): Promise<{ cached: number; failed: number }> {
+    // 匹配飞书 file_token 格式（22位字母数字字符串）
+    const tokens = configJson.match(/[a-zA-Z0-9]{22}/g) ?? [];
+    const unique = [...new Set(tokens)];
+    let cached = 0;
+    let failed = 0;
+    for (const token of unique) {
+      try {
+        const existing = await this.redis.get(FileUploadService.URL_CACHE_PREFIX + token);
+        if (existing) { cached++; continue; }
+        const url = await this.getDownloadUrl(token);
+        if (url) {
+          await this.redis.set(FileUploadService.URL_CACHE_PREFIX + token, url, 'EX', FileUploadService.URL_CACHE_TTL);
+          cached++;
+        } else {
+          failed++;
+        }
+      } catch {
+        failed++;
+      }
+    }
+    return { cached, failed };
   }
 }

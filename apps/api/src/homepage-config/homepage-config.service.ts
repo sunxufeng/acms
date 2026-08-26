@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { BaseClient, toText } from '@acms/base-adapter';
 import {
   TABLES,
@@ -11,6 +11,7 @@ import {
 } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { buildFilter } from '../shared/record.util.js';
+import { FileUploadService } from '../file-upload/file-upload.service.js';
 
 const TABLE_ID = TABLES.systemConfig.tableId;
 const CONFIG_KEY = 'homepage_config';
@@ -18,8 +19,33 @@ const MENU_CONFIG_KEY = 'nav_menu_config';
 const MENU_GROUPS_KEY = 'nav_menu_groups';
 
 @Injectable()
-export class HomepageConfigService {
-  constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
+export class HomepageConfigService implements OnModuleInit {
+  private readonly logger = new Logger('HomepageConfigService');
+
+  constructor(
+    @Inject(BASE_CLIENT) private readonly base: BaseClient,
+    private readonly fileUpload: FileUploadService,
+  ) {}
+
+  /** 启动时预缓存 homepage_config 中的所有图片 file_token */
+  async onModuleInit(): Promise<void> {
+    try {
+      const config = await this.getRawConfig();
+      if (config) {
+        const result = await this.fileUpload.precacheConfigImages(config);
+        if (result.cached > 0) {
+          this.logger.log(`启动预缓存: ${result.cached} 个图片 URL 已缓存${result.failed > 0 ? `, ${result.failed} 个失败` : ''}`);
+        }
+      }
+    } catch (e) {
+      this.logger.warn(`启动预缓存跳过（非致命）: ${(e as Error).message}`);
+    }
+  }
+
+  private async getRawConfig(): Promise<string | null> {
+    const rec = await this.findRecord(CONFIG_KEY);
+    return rec ? (toText(rec.fields['配置值']) ?? null) : null;
+  }
 
   /** 读取主页配置；未配置时返回默认配置 */
   async get(): Promise<HomepageConfig> {

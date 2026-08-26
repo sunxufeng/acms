@@ -119,12 +119,11 @@ export class HomepageConfigController {
     try {
       // 用系统配置表作为 bitablePerm 权限上下文（素材上传时 parent_node 即为此 Bitable）
       const ctx = await this.getBitableContext();
-      const tmpUrl = await this.fileUpload.getTmpDownloadUrl(
-        token,
-        ctx.realTableId,
-        ctx.recordId,
-        ctx.fieldId,
-      );
+      const tmpUrl = await this.fileUpload.resolveDownloadUrl(token, {
+        tableId: ctx.realTableId,
+        recordId: ctx.recordId,
+        fieldId: ctx.fieldId,
+      });
       const upstream = await fetch(tmpUrl);
       if (!upstream.ok) throw new Error(`UPSTREAM_${upstream.status}`);
       const contentType = upstream.headers.get('content-type');

@@ -142,7 +142,9 @@ export default function RoleManagementPage() {
       setNewLabel('');
       const saved = payload.roles.find((r) => r.key === draft.key);
       if (saved) selectRole(saved);
-      setMsg({ type: 'ok', text: draft.isNew ? '角色已创建' : '已保存' });
+      const synced = payload.syncedToFeishu;
+      const syncText = synced && synced.length ? `，并已自动同步到飞书「系统角色」选项（${synced.join('、')}）` : '';
+      setMsg({ type: 'ok', text: (draft.isNew ? '角色已创建' : '已保存') + syncText });
     } catch (e) {
       setMsg({ type: 'err', text: e instanceof Error ? e.message : '保存失败' });
     } finally {
@@ -263,7 +265,7 @@ export default function RoleManagementPage() {
             <button className="btn btn-outline" onClick={() => setShowCreate(false)}>取消</button>
           </div>
           <p style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 8 }}>
-            提示：新建角色默认无任何权限，请在右侧勾选后保存；角色标识需与飞书「系统用户表-系统角色」字段选项一致才能分配给用户。
+            提示：新建角色默认无任何权限，请在右侧勾选后保存；保存后会自动同步到飞书「系统用户表-系统角色」字段选项，可直接在飞书中分配给用户。
           </p>
         </section>
       )}

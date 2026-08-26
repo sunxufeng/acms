@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import {
   PERMISSIONS,
   ROLE_PERMISSION_CONFIG_KEY,
   TABLES,
+  USER_TABLE,
   type DataLevel,
   type Permission,
   type Role,
@@ -32,6 +34,10 @@ const TABLE_ID = TABLES.systemConfig.tableId;
 const PROTECTED_ROLES = new Set(['系统管理员', 'student', 'parent']);
 /** 权限集锁定的角色：仅可改名，权限/密级不可改（避免把自己锁死） */
 const LOCKED_PERMISSION_ROLES = new Set(['系统管理员']);
+/** 外部用户角色：不出现在飞书「系统用户表-系统角色」字段，无需同步为字段选项 */
+const EXTERNAL_ROLES = new Set(['student', 'parent']);
+/** 系统用户表承载角色的字段名 */
+const ROLE_FIELD_NAME = '系统角色';
 
 interface StoredRole {
   key: string;
@@ -56,6 +62,8 @@ export interface UpdateRoleInput {
 
 @Injectable()
 export class RoleManagementService implements OnModuleInit {
+  private readonly logger = new Logger(RoleManagementService.name);
+
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
   /** 应用启动即把已持久化的角色权限矩阵载入引擎，确保鉴权与配置一致 */
@@ -98,6 +106,36 @@ export class RoleManagementService implements OnModuleInit {
     const stored = await this.readStored();
     const roles = stored ?? this.defaultConfig();
     this.applyToEngine(roles);
+    // 启动即把已配置角色回填为飞书字段选项（含历史新增角色），失败不影响启动
+    await this.syncRoleOptionsToFeishu(roles);
+  }
+
+  /**
+   * 自动把角色同步为飞书「系统用户表-系统角色」字段选项，
+   * 使新建角色可在飞书中直接分配给系统用户（选项名 = 角色标识 key，与鉴权引擎一致）。
+   * 仅追加缺失项，不改动/删除已有选项（避免孤立已分配记录）。
+   * 外部角色（student/parent）不进入飞书系统用户表，跳过。
+   * @returns 本次实际新增同步到飞书的选项名
+   */
+  private async syncRoleOptionsToFeishu(roles: StoredRole[]): Promise<string[]> {
+    try {
+      const desired = roles.map((r) => r.key).filter((k) => !EXTERNAL_ROLES.has(k));
+      const fields = await this.base.listFields(USER_TABLE.tableId);
+      const roleField = fields.find((f) => f.name === ROLE_FIELD_NAME);
+      if (!roleField) {
+        this.logger.warn(`系统用户表未找到「${ROLE_FIELD_NAME}」字段，跳过角色选项同步`);
+        return [];
+      }
+      const existing = new Set((roleField.property.options ?? []).map((o) => o.name));
+      const missing = desired.filter((k) => !existing.has(k));
+      if (!missing.length) return [];
+      await this.base.addFieldOptions(USER_TABLE.tableId, roleField.id, missing);
+      this.logger.log(`已自动同步角色选项到飞书「${ROLE_FIELD_NAME}」字段：${missing.join('、')}`);
+      return missing;
+    } catch (e) {
+      this.logger.error(`同步角色选项到飞书失败：${(e as Error).message}`);
+      return [];
+    }
   }
 
   private applyToEngine(roles: StoredRole[]): void {
@@ -163,7 +201,9 @@ export class RoleManagementService implements OnModuleInit {
     return arr.filter((p): p is Permission => (PERMISSIONS as readonly string[]).includes(String(p)));
   }
 
-  async createRole(dto: CreateRoleInput): Promise<{ roles: RoleDef[]; allPermissions: Permission[]; dataLevels: DataLevel[] }> {
+  async createRole(
+    dto: CreateRoleInput,
+  ): Promise<{ roles: RoleDef[]; allPermissions: Permission[]; dataLevels: DataLevel[]; syncedToFeishu: string[] }> {
     const key = (dto.key ?? '').trim();
     if (!key) throw new BadRequestException('角色标识（key）不能为空');
     if (!/^[一-龥A-Za-z0-9_]+$/.test(key)) {
@@ -177,8 +217,11 @@ export class RoleManagementService implements OnModuleInit {
       permissions: this.sanitizePerms(dto.permissions),
       maxDataLevel: this.normalizeLevel(dto.maxDataLevel),
     };
-    await this.persist([...current, next]);
-    return this.getConfig();
+    const merged = [...current, next];
+    await this.persist(merged);
+    // 新建角色即时同步为飞书「系统角色」字段选项，便于在飞书中分配给用户
+    const syncedToFeishu = EXTERNAL_ROLES.has(key) ? [] : await this.syncRoleOptionsToFeishu(merged);
+    return { ...(await this.getConfig()), syncedToFeishu };
   }
 
   async updateRole(

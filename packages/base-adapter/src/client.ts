@@ -312,6 +312,29 @@ export class BaseClient {
     await this.req('DELETE', `${this.url(tableId)}/fields/${fieldId}`);
   }
 
+  /** 向单选/多选字段追加选项（不会改动已有选项）。
+   *  用于把新增角色同步为飞书字段选项，使该角色可被分配给系统用户。
+   *  注意：飞书「POST .../fields/{field_id}/options」子接口在当前版本返回 404，
+   *  故改用 updateField（PUT）合并 property.options（已验证可用）：
+   *  保留已有选项（含 id）并追加新选项（仅 name，由飞书分配 id）。 */
+  async addFieldOptions(tableId: string, fieldId: string, names: string[]): Promise<void> {
+    if (!names.length) return;
+    const fields = await this.listFields(tableId);
+    const f = fields.find((x) => x.id === fieldId);
+    if (!f) throw new Error(`addFieldOptions: field ${fieldId} not found in ${tableId}`);
+    const existing = (f.property.options ?? []).map((o) => ({ name: o.name, id: o.id }));
+    const existingNames = new Set(existing.map((o) => o.name));
+    const merged: { name: string; id?: string }[] = [...existing];
+    for (const n of names) {
+      if (!existingNames.has(n)) merged.push({ name: n });
+    }
+    await this.req('PUT', `${this.url(tableId)}/fields/${fieldId}`, {
+      field_name: f.name,
+      type: f.type,
+      property: { options: merged },
+    });
+  }
+
   async listTables(): Promise<{ tableId: string; name: string }[]> {
     const d = await this.req<{ items?: { table_id: string; name: string }[] }>(
       'GET',

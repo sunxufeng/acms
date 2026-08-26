@@ -75,14 +75,15 @@ interface LoginShellProps {
 export default function LoginShell({ config, preview }: LoginShellProps) {
   const [logoError, setLogoError] = useState(false);
 
-  // 已登录用户自动跳转到首页
+  // 已登录用户自动跳转到首页（仅真实登录页；预览模式不触发，避免编辑器内嵌预览把整页重定向走）
   useEffect(() => {
+    if (preview) return;
     fetch('/api/v1/auth/me', { credentials: 'include' })
       .then((r) => {
         if (r.ok) window.location.href = '/';
       })
       .catch(() => {});
-  }, []);
+  }, [preview]);
 
   const shellStyle: React.CSSProperties = {
     fontFamily: config.fontFamily,

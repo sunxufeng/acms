@@ -1253,6 +1253,24 @@ select.form-input:disabled { color: var(--fg); }
   color: var(--accent);
   border-color: transparent;
 }
+.tag-muted {
+  background: var(--surface);
+  color: var(--fg-tertiary);
+  border-color: var(--border);
+}
+.msg-ok {
+  color: var(--success);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  margin-bottom: var(--space-md);
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-lg);
+}
+
 .matrix-group {
   background: var(--bg-hover) !important;
   font-weight: 700;

@@ -30,6 +30,7 @@ import { AiSummarizeModule } from './ai-summarize/ai-summarize.module.js';
 import { WechatBindingModule } from './wechat-binding/wechat-binding.module.js';
 import { HomepageConfigModule } from './homepage-config/homepage-config.module.js';
 import { StudentAuthModule } from './student-auth/student-auth.module.js';
+import { RoleManagementModule } from './role-management/role-management.module.js';
 import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.meta.js';
 
 @Module({
@@ -67,6 +68,7 @@ import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.m
     WechatBindingModule,
     HomepageConfigModule,
     StudentAuthModule,
+    RoleManagementModule,
   ],
 })
 export class AppModule {}

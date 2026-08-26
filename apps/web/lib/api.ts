@@ -1,4 +1,4 @@
-import type { HomepageConfig, NavMenuConfig, NavMenuGroupConfig } from '@acms/contracts';
+import type { HomepageConfig, NavMenuConfig, NavMenuGroupConfig, RoleDef } from '@acms/contracts';
 
 /** 前端 API 客户端：统一 fetch 封装，自动带 cookie、统一错误处理、401 跳登录 */
 const API_BASE = '/api/v1';
@@ -685,6 +685,18 @@ export const api = {
   /** 权限模型 + 当前用户有效权限（菜单「权限与授权」使用） */
   getPermissions: () => request<PermissionsPayload>('/auth/permissions'),
 
+  // ── 角色管理 ───────────────────────────────
+  getRoleManagement: () => request<RoleManagementPayload>('/role-management'),
+  createRole: (data: { key: string; label?: string; permissions: string[]; maxDataLevel: string }) =>
+    request<RoleManagementPayload>('/role-management', { method: 'POST', body: JSON.stringify(data) }),
+  updateRole: (key: string, data: { label?: string; permissions?: string[]; maxDataLevel?: string }) =>
+    request<RoleManagementPayload>(`/role-management/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteRole: (key: string) =>
+    request<{ ok: boolean }>(`/role-management/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+
   // ── IDP 管理 ───────────────────────────────
   listIdpPlans: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
@@ -723,6 +735,12 @@ export interface PermissionsPayload {
   myRoles: string[];
   myMaxDataLevel: string;
   myPermissions: string[];
+}
+
+export interface RoleManagementPayload {
+  roles: RoleDef[];
+  allPermissions: string[];
+  dataLevels: string[];
 }
 
 /** 通用导出：任一已注册飞书表 → CSV 下载（需 export:run 权限） */

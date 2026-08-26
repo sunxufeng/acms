@@ -104,3 +104,88 @@ export const PERMISSIONS = [
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
+
+/** 系统配置表「配置键」：角色权限矩阵 */
+export const ROLE_PERMISSION_CONFIG_KEY = 'role_permission_config';
+
+/** 权限域中文标签（用于权限矩阵分组展示） */
+export const DOMAIN_LABELS: Record<string, string> = {
+  student: '学生',
+  followup: '招生跟进',
+  attendance: '考勤',
+  billing: '计费',
+  partnership: '聘用合作',
+  finance: '财务',
+  notification: '通知',
+  grade: '成绩',
+  activity: '实践活动',
+  communication: '家校沟通',
+  evaluation: '阶段评价',
+  alumni: '校友跟进',
+  teacher: '教师',
+  course: '课程',
+  venue: '场地',
+  schedule: '排课',
+  export: '数据导出',
+  admin: '系统管理',
+  config: '系统配置',
+  ai: 'AI 助手',
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  read: '查看',
+  write: '编辑',
+  archive: '归档',
+  approve: '审批',
+  confirm: '确认',
+  settle: '结算',
+  send: '发送',
+  run: '执行',
+};
+
+const PERMISSION_LABEL_OVERRIDES: Record<string, string> = {
+  'admin:user': '用户管理',
+  'admin:studentUser': '学生账号',
+  'admin:audit': '审计查看',
+  'config:read': '配置查看',
+  'config:write': '配置编辑',
+  'ai:chat': 'AI 对话',
+  'ai:config': 'AI 配置',
+  'ai:automation': 'AI 自动化',
+  'ai:admin': 'AI 管理',
+};
+
+/** 权限点 → 中文展示名 */
+export const PERMISSION_LABELS: Record<Permission, string> = PERMISSIONS.reduce(
+  (acc, p) => {
+    if (PERMISSION_LABEL_OVERRIDES[p]) {
+      acc[p] = PERMISSION_LABEL_OVERRIDES[p];
+    } else {
+      const [dom = '', act = ''] = p.split(':');
+      acc[p] = `${DOMAIN_LABELS[dom] ?? dom}·${ACTION_LABELS[act] ?? act}`;
+    }
+    return acc;
+  },
+  {} as Record<Permission, string>,
+);
+
+/** 单个角色的定义（角色管理功能的可编辑单元） */
+export interface RoleDef {
+  /** 角色键（与 Base 系统用户表「系统角色」多选字段选项一致；自定义角色为任意唯一字符串） */
+  key: string;
+  /** 展示名（缺省等于 key） */
+  label: string;
+  /** 授予的权限点 */
+  permissions: Permission[];
+  /** 数据密级上限 */
+  maxDataLevel: DataLevel;
+  /** 内置角色：不可删除 */
+  protected?: boolean;
+  /** 权限集锁定（如系统管理员）：仅可改名，权限/密级不可改 */
+  lockedPermissions?: boolean;
+}
+
+/** 角色权限矩阵配置（持久化于系统配置表） */
+export interface RolePermissionConfig {
+  roles: RoleDef[];
+}

@@ -210,6 +210,7 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'audit-logs', label: '审计日志', href: '/audit-logs', icon: 'audit', section: '后台管理', order: 30 },
     { key: 'users', label: '用户管理', href: '/users', icon: 'userGroup', section: '后台管理', order: 40, adminOnly: true },
     { key: 'permissions', label: '权限授权', href: '/permissions', icon: 'shield', section: '后台管理', order: 50, adminOnly: true },
+    { key: 'role-management', label: '角色管理', href: '/role-management', icon: 'key', section: '后台管理', order: 52, adminOnly: true, perm: 'admin:user' },
     { key: 'notifications', label: '通知任务', href: '/notifications', icon: 'notifications', section: '后台管理', order: 60 },
     { key: 'notification-templates', label: '通知模板', href: '/notification-templates', icon: 'notifications', section: '后台管理', order: 70 },
     { key: 'settings', label: '系统设置', href: '/settings', icon: 'settings', section: '后台管理', order: 80 },

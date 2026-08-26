@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { DATA_LEVELS, PERMISSIONS, ROLES, type SessionUser } from '@acms/contracts';
-import { maxDataLevelOf, permissionsOf, ROLE_PERMISSIONS } from '@acms/domain';
+import { maxDataLevelOf, permissionsOf, getRolePermissionMatrix, getRoleList } from '@acms/domain';
 import { AuthService } from './auth.service.js';
 import { SessionGuard } from './session.guard.js';
 import { LoginRateLimitGuard } from './rate-limit.guard.js';
@@ -86,10 +86,10 @@ export class AuthController {
   permissions(@Req() req: Request & { user: SessionUser }) {
     const p = toPrincipal(req.user);
     return {
-      roles: ROLES,
+      roles: getRoleList(),
       permissions: PERMISSIONS,
-      /** 角色 → 权限点 矩阵（系统权限基线，单一事实来源） */
-      matrix: ROLE_PERMISSIONS,
+      /** 角色 → 权限点 矩阵（有效矩阵，已加载角色管理配置则按配置） */
+      matrix: getRolePermissionMatrix(),
       dataLevels: DATA_LEVELS,
       myRoles: req.user.roles,
       myMaxDataLevel: maxDataLevelOf(p),

@@ -130,7 +130,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
 };
 
 /** 角色 → 默认数据密级上限（引擎等级 L1–L4） */
-const ROLE_MAX_LEVEL: Record<Role, DataLevel> = {
+export const ROLE_MAX_LEVEL: Record<Role, DataLevel> = {
   系统管理员: 'L4',
   院级管理: 'L4',
   教务: 'L3',
@@ -160,11 +160,65 @@ function isRole(v: string): v is Role {
   return Object.prototype.hasOwnProperty.call(ROLE_PERMISSIONS, v);
 }
 
+/**
+ * 运行时可覆盖的角色权限矩阵。默认回退到硬编码 ROLE_PERMISSIONS / ROLE_MAX_LEVEL；
+ * 一旦通过 loadRolePermissionConfig 加载了系统配置（角色管理功能持久化的值），
+ * 引擎即以配置为唯一事实来源（config 中不存在的角色不再授予任何权限）。
+ */
+let effectiveRolePermissions: Record<string, Permission[]> | null = null;
+let effectiveMaxLevel: Record<string, DataLevel> | null = null;
+
+export interface RolePermissionSeed {
+  key: string;
+  permissions: Permission[];
+  maxDataLevel: DataLevel;
+}
+
+/** 用系统配置覆盖角色权限矩阵（角色管理保存 / 应用启动时调用） */
+export function loadRolePermissionConfig(roles: RolePermissionSeed[]): void {
+  const pm: Record<string, Permission[]> = {};
+  const ml: Record<string, DataLevel> = {};
+  for (const r of roles) {
+    pm[r.key] = [...r.permissions];
+    ml[r.key] = r.maxDataLevel;
+  }
+  effectiveRolePermissions = pm;
+  effectiveMaxLevel = ml;
+}
+
+function permsForRole(role: string): Permission[] {
+  if (effectiveRolePermissions) return effectiveRolePermissions[role] ?? [];
+  if (role in ROLE_PERMISSIONS) return [...ROLE_PERMISSIONS[role as Role]];
+  return [];
+}
+
+function levelForRole(role: string): DataLevel {
+  if (effectiveMaxLevel) return effectiveMaxLevel[role] ?? 'L1';
+  if (role in ROLE_MAX_LEVEL) return ROLE_MAX_LEVEL[role as Role];
+  return 'L1';
+}
+
+/** 有效角色 → 权限矩阵（已加载配置则按配置，否则按硬编码默认） */
+export function getRolePermissionMatrix(): Record<string, Permission[]> {
+  const out: Record<string, Permission[]> = {};
+  const keys = new Set<string>([
+    ...Object.keys(ROLE_PERMISSIONS),
+    ...(effectiveRolePermissions ? Object.keys(effectiveRolePermissions) : []),
+  ]);
+  for (const k of keys) out[k] = permsForRole(k);
+  return out;
+}
+
+/** 有效角色清单（含配置中新增的自定义角色） */
+export function getRoleList(): string[] {
+  return Object.keys(getRolePermissionMatrix());
+}
+
 /** 多角色取并集 */
 export function permissionsOf(principal: Principal): Set<Permission> {
   const set = new Set<Permission>();
   for (const r of principal.roles) {
-    if (isRole(r)) for (const p of ROLE_PERMISSIONS[r]) set.add(p);
+    for (const p of permsForRole(r)) set.add(p);
   }
   return set;
 }
@@ -180,9 +234,8 @@ export function maxDataLevelOf(principal: Principal): DataLevel {
   }
   let best: DataLevel = 'L1';
   for (const r of principal.roles) {
-    if (isRole(r) && DATA_LEVEL_RANK[ROLE_MAX_LEVEL[r]] > DATA_LEVEL_RANK[best]) {
-      best = ROLE_MAX_LEVEL[r];
-    }
+    const l = levelForRole(r);
+    if (DATA_LEVEL_RANK[l] > DATA_LEVEL_RANK[best]) best = l;
   }
   return best;
 }

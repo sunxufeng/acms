@@ -164,4 +164,15 @@ export class HomepageConfigService {
     }
     return { ok: true };
   }
+
+  /** 列出记录（供 Controller 取 bitablePerm 上下文用） */
+  async listRecords(tableId: string, pageSize: number) {
+    const res = await this.base.search(tableId, { pageSize });
+    return res.items;
+  }
+
+  /** 列出字段（供 Controller 取 bitablePerm 上下文用） */
+  async listFields(tableId: string) {
+    return this.base.listFields(tableId);
+  }
 }

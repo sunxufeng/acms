@@ -201,6 +201,44 @@ export class FileUploadService {
   }
 
   /**
+   * 获取 Bitable 素材的临时下载链接（用于高级权限场景）。
+   * 通过 bitablePerm 声明素材归属，换取预签名 CDN URL（约 24h 有效，可直接访问）。
+   *
+   * @param fileToken 飞书 file_token
+   * @param tableId 多维表格 ID
+   * @param recordId 表中任意记录 ID（用于权限上下文）
+   * @param fieldId 表中任意字段 ID（用于权限上下文）
+   */
+  async getTmpDownloadUrl(
+    fileToken: string,
+    tableId: string,
+    recordId: string,
+    fieldId: string,
+  ): Promise<string> {
+    const token = await this.getToken();
+    if (!token) throw new Error('FEISHU_TOKEN_FAILED');
+    const extra = JSON.stringify({
+      bitablePerm: { tableId, attachments: { [fieldId]: { [recordId]: [fileToken] } } },
+    });
+    const qs = new URLSearchParams();
+    qs.append('file_tokens', fileToken);
+    qs.set('extra', extra);
+    const r = await fetch(
+      `https://open.feishu.cn/open-apis/drive/v1/medias/batch_get_tmp_download_url?${qs.toString()}`,
+      { headers: { Authorization: 'Bearer ' + token } },
+    );
+    const j = (await r.json()) as {
+      code?: number;
+      msg?: string;
+      data?: { tmp_download_urls?: Array<{ file_token: string; tmp_download_url: string }> };
+    };
+    if (j.code !== 0) throw new Error(`TMP_DOWNLOAD_URL_FAILED:${j.code}:${j.msg}`);
+    const url = j.data?.tmp_download_urls?.[0]?.tmp_download_url;
+    if (!url) throw new Error('TMP_DOWNLOAD_URL_EMPTY');
+    return url;
+  }
+
+  /**
    * 批量获取临时下载链接（浏览器可直接访问，无需 token，约 4 小时有效）。
    * @param fileTokens 文件 token 列表
    * @param extra 飞书要求的 bitablePerm 参数（从附件对象 url 字段的 query 中提取）

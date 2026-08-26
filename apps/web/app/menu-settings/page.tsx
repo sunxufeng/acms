@@ -254,7 +254,7 @@ export default function MenuSettingsPage() {
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <Link href="/homepage-settings" className="btn btn-outline">
-            返回首页管理
+            返回登录页配置
           </Link>
           <button type="button" className="btn btn-outline" onClick={handleReset}>
             恢复默认

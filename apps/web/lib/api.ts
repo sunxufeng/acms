@@ -557,7 +557,7 @@ export const api = {
     );
   },
 
-  // ── 首页配置（登录页 / 首页管理编辑器） ─────
+  // ── 首页配置（登录页 / 登录页配置编辑器） ─────
   getHomepageConfig: () => request<HomepageConfig>('/homepage-config'),
   updateHomepageConfig: (data: HomepageConfig) =>
     request<{ ok: boolean }>('/homepage-config', { method: 'PUT', body: JSON.stringify(data) }),

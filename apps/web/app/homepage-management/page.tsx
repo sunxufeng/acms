@@ -218,7 +218,7 @@ function DashboardPreview({ theme }: { theme: DashboardTheme }) {
           </div>
           <div style={{ ...navItemStyle, color: theme.sidebarTextColor }}>
             <span>⚙</span>
-            <span>主页管理</span>
+            <span>工作台主题</span>
           </div>
           <div style={{ ...navItemStyle, color: theme.sidebarTextColor }}>
             <span>☰</span>
@@ -331,12 +331,12 @@ export default function HomepageManagementPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div className="page-title">主页管理</div>
+          <div className="page-title">工作台主题</div>
           <div className="page-subtitle">配置登录后工作台的侧边栏、顶部导航栏、主内容区配色、Logo 与品牌文字，右侧实时预览并保存。</div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <Link href="/homepage-settings" className="btn btn-outline">
-            返回首页管理
+            返回登录页配置
           </Link>
           <button type="button" className="btn btn-outline" onClick={handleReset}>
             恢复默认

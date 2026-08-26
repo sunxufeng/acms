@@ -290,7 +290,7 @@ export default function HomepageSettingsPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div className="page-title">首页管理</div>
+          <div className="page-title">登录页配置</div>
           <div className="page-subtitle">配置登录页的布局、配色、Logo、文案与字体，右侧实时预览并保存。</div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>

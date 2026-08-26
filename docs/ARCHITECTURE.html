@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ACMS 技术架构文档</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f6f8fa;
+    --bg-code: #1e1e2e;
+    --fg: #1f2328;
+    --fg-soft: #57606a;
+    --border: #d0d7de;
+    --accent: #2f6feb;
+    --accent-soft: #ddf0ff;
+    --warn-bg: #fff8e6;
+    --warn-border: #f0c000;
+    --sidebar-w: 280px;
+    --maxw: 920px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.7;
+    font-size: 15px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* 顶部标题 */
+  header.topbar {
+    position: sticky; top: 0; z-index: 20;
+    background: linear-gradient(120deg, #2f6feb, #1f3a8a);
+    color: #fff; padding: 18px 28px;
+    box-shadow: 0 1px 6px rgba(0,0,0,.15);
+  }
+  header.topbar h1 { margin: 0; font-size: 20px; font-weight: 650; }
+  header.topbar .sub { font-size: 12.5px; opacity: .85; margin-top: 4px; }
+
+  /* 布局 */
+  .layout { display: flex; align-items: flex-start; }
+  nav.toc {
+    position: sticky; top: 64px;
+    width: var(--sidebar-w); min-width: var(--sidebar-w);
+    height: calc(100vh - 64px); overflow-y: auto;
+    padding: 18px 14px; border-right: 1px solid var(--border);
+    background: var(--bg-soft); font-size: 13.5px;
+  }
+  nav.toc .toc-title { font-weight: 650; color: var(--fg-soft); margin: 0 0 8px 6px; letter-spacing: .04em; }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 1px 0; }
+  nav.toc a {
+    display: block; padding: 5px 10px; border-radius: 6px;
+    color: var(--fg); border-left: 3px solid transparent;
+  }
+  nav.toc a:hover { background: #e9eef5; text-decoration: none; }
+  nav.toc a.active { background: var(--accent-soft); border-left-color: var(--accent); color: var(--accent); font-weight: 600; }
+  nav.toc .sub a { padding-left: 26px; font-size: 12.5px; color: var(--fg-soft); }
+
+  main {
+    flex: 1; min-width: 0;
+    padding: 30px 40px 80px;
+    max-width: calc(var(--maxw) + 80px);
+  }
+  main h2 {
+    margin-top: 42px; padding-top: 10px; border-top: 1px solid var(--border);
+    font-size: 22px; scroll-margin-top: 72px;
+  }
+  main h2:first-child { border-top: none; margin-top: 0; }
+  main h3 { font-size: 17px; margin-top: 28px; scroll-margin-top: 72px; }
+  main h4 { font-size: 14.5px; margin-top: 20px; color: var(--fg-soft); }
+  main p { margin: 10px 0; }
+  main ul, main ol { padding-left: 22px; }
+  main li { margin: 5px 0; }
+
+  code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    background: var(--bg-soft); padding: 1.5px 6px; border-radius: 5px;
+    font-size: 13px; color: #b3279e;
+  }
+  pre {
+    background: var(--bg-code); color: #e6e6e6; padding: 14px 16px;
+    border-radius: 10px; overflow-x: auto; font-size: 13px; line-height: 1.55;
+    margin: 14px 0;
+  }
+  pre code { background: none; color: inherit; padding: 0; font-size: 13px; }
+
+  table {
+    border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px;
+  }
+  th, td { border: 1px solid var(--border); padding: 8px 11px; text-align: left; vertical-align: top; }
+  th { background: var(--bg-soft); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #fafbfc; }
+
+  .callout {
+    border-left: 4px solid var(--warn-border); background: var(--warn-bg);
+    padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0;
+  }
+  .callout .tag { font-weight: 700; color: #9a6b00; }
+
+  .pill {
+    display: inline-block; background: var(--accent-soft); color: var(--accent);
+    border-radius: 20px; padding: 1px 10px; font-size: 12px; font-weight: 600;
+  }
+  .meta { color: var(--fg-soft); font-size: 13px; }
+
+  footer { color: var(--fg-soft); font-size: 12.5px; text-align: center; padding: 30px; border-top: 1px solid var(--border); }
+
+  @media (max-width: 880px) {
+    nav.toc { display: none; }
+    main { padding: 22px 18px 60px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>ACMS · 技术架构文档</h1>
+  <div class="sub">Arete College Management System — 飞书 Base 作事实源 / NestJS 11 / Next.js 15 / pnpm monorepo · 整理于 2026-08-26（代码 e183edf）</div>
+</header>
+
+<div class="layout">
+  <nav class="toc">
+    <div class="toc-title">目录</div>
+    <ol>
+      <li><a href="#overview">1. 技术栈</a></li>
+      <li><a href="#monorepo">2. Monorepo 结构</a></li>
+      <li><a href="#data">3. 数据层（飞书 Base）</a>
+        <ol>
+          <li class="sub"><a href="#data-client">3.1 客户端三件套</a></li>
+          <li class="sub"><a href="#data-tables">3.2 表注册</a></li>
+          <li class="sub"><a href="#data-map">3.3 DEV/PROD 表映射</a></li>
+          <li class="sub"><a href="#data-contracts">3.4 跨层契约</a></li>
+        </ol>
+      </li>
+      <li><a href="#domain">4. 领域层</a>
+        <ol>
+          <li class="sub"><a href="#domain-perm">4.1 权限模型</a></li>
+          <li class="sub"><a href="#domain-conflict">4.2 排课冲突预检</a></li>
+        </ol>
+      </li>
+      <li><a href="#api">5. API 层（NestJS）</a>
+        <ol>
+          <li class="sub"><a href="#api-boot">5.1 启动</a></li>
+          <li class="sub"><a href="#api-auth">5.2 鉴权流程</a></li>
+          <li class="sub"><a href="#api-modules">5.3 业务模块</a></li>
+          <li class="sub"><a href="#api-cron">5.4 定时任务</a></li>
+        </ol>
+      </li>
+      <li><a href="#web">6. Web 层（Next.js 15）</a></li>
+      <li><a href="#perms">7. 权限点清单（44 个）</a></li>
+      <li><a href="#deploy">8. 部署</a></li>
+      <li><a href="#pitfalls">9. 已知坑位</a></li>
+      <li><a href="#test">10. 测试与门禁</a></li>
+      <li><a href="#tradeoff">11. 技术选型权衡</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <p class="meta">本文为 ACMS 总纲，串联各层设计与既有专题文档。配套文档：<a href="deploy.md">deploy.md</a>（部署拓扑）、<a href="attendance-sign-api.md">attendance-sign-api.md</a>（学生打卡接口）、<a href="student-portal-plan.md">student-portal-plan.md</a>（学生门户方案）、<code>base-schema-snapshot.json</code> / <code>m2_schema.json</code>（表结构快照）。</p>
+
+    <h2 id="overview">1. 技术栈</h2>
+    <table>
+      <thead><tr><th>层</th><th>技术</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>数据层</td><td>飞书 Base（bitable v1）</td><td>唯一事实源（system of record），经 <code>tenant_access_token</code> 访问</td></tr>
+        <tr><td>后端</td><td>NestJS 11 + TS 5.7</td><td>全局前缀 <code>api/v1</code>，运行于 Node 22</td></tr>
+        <tr><td>前端</td><td>Next.js 15（App Router）</td><td>SSR + 边缘反代后端，端口 3100</td></tr>
+        <tr><td>缓存/会话</td><td>Redis 7</td><td>会话、OAuth state、限流、微信绑定</td></tr>
+        <tr><td>包管理</td><td>pnpm 11.21 workspace</td><td><code>node &gt;= 22</code></td></tr>
+        <tr><td>接入</td><td>独立 nginx（TLS 终止）</td><td><code>/api/</code> 反代 3000，其余反代 3100</td></tr>
+      </tbody>
+    </table>
+    <p>设计基调：<b>契约先行</b>（<code>packages/contracts</code> 登记表/角色/权限点/错误码）→ <b>领域纯函数</b>（<code>packages/domain</code> 权限引擎/冲突预检）→ <b>数据适配</b>（<code>packages/base-adapter</code> 屏蔽飞书 API 细节）→ <b>应用</b>（<code>apps/api</code>、<code>apps/web</code>）。</p>
+
+    <h2 id="monorepo">2. Monorepo 结构</h2>
+    <pre><code>acms/
+├─ apps/
+│  ├─ api/        NestJS 后端（pnpm --filter @acms/api）
+│  └─ web/        Next.js 前端（pnpm --filter @acms/web）
+├─ packages/
+│  ├─ contracts/  共享契约：tables.ts / role.ts / api.ts / homepage.ts
+│  ├─ domain/     领域逻辑：permission.ts / conflict.ts
+│  └─ base-adapter/ 飞书 Base 客户端：client.ts / convert.ts / token.ts
+├─ docs/          技术文档与表结构快照
+├─ scripts/       build_tars.sh / deploy_118.sh(DEV) / deploy_prod.sh(PROD)
+└─ docker-compose.yml 仅声明 redis:7-alpine</code></pre>
+    <p>构建顺序（依赖方向）：<code>contracts → domain → base-adapter → api</code>；<code>web</code> 独立构建。</p>
+
+    <h2 id="data">3. 数据层（飞书 Base）</h2>
+
+    <h3 id="data-client">3.1 客户端三件套（<code>packages/base-adapter/src</code>）</h3>
+    <ul>
+      <li><b>token.ts — TokenManager</b>：<code>POST /open-apis/auth/v3/tenant_access_token/internal</code> 换取应用令牌，带缓存与约 60s 提前刷新窗口。</li>
+      <li><b>client.ts — BaseClient</b>：封装 <code>bitable/v1</code> 的 search/get/create/update/delete 与字段/表结构迁移接口。
+        <ul>
+          <li><code>search(tableId, opts)</code>：主读取路径，支持 <code>FilterGroup</code> 嵌套（经 <code>flattenFilter()</code> 递归展平）。</li>
+          <li><code>update()</code> <b>必须用 <code>PUT</code></b>（POST/PATCH 均为 404）。</li>
+          <li>日期字段：<code>toWriteFields()</code> 把 <code>"YYYY-MM-DD"</code> 转毫秒时间戳；<code>fromReadFields()</code> 读回转本地日期串。</li>
+          <li><code>reqRaw()</code>：对 <code>429</code> / <code>99991400</code> 做 3 次指数退避重试。</li>
+        </ul>
+      </li>
+      <li><b>convert.ts</b>：飞书存储形态 ↔ 业务形态互转（<code>toText</code> / <code>toStringArray</code> / <code>toUserIds</code> / <code>toUserWrite</code> 等），是解析用户记录的基础。</li>
+    </ul>
+    <div class="callout"><span class="tag">⚠ 固化坑位</span> ① <code>search()</code> 按系统字段排序会触发 <code>InvalidSort(1254016)</code> → 降级为不排序重试；② <code>listFields()</code> <b>必须分页</b>（每页 100），否则 &gt;100 字段表会漏字段导致 Schema Drift 误判。</div>
+
+    <h3 id="data-tables">3.2 表注册（<code>packages/contracts/src/tables.ts</code>）</h3>
+    <ul>
+      <li>导出 <code>TABLES</code>（<code>as const</code>，<code>TableKey = keyof typeof TABLES</code>），共 <b>35 张表</b>，覆盖：学生生命周期（学生档案/生源跟进/考勤/学业成绩/实践/家校/日常跟进/阶段评价/校友跟进）、教学域（教师/课程计划/教学班/场地/课次/招生）、计财（教师考勤/合作方/计费明细/月结/调整）、通知（模板/日志）、系统表（系统配置/考勤围栏/审计日志/微信绑定）、IDP（计划/沟通）、关联 Link 表（学年/班级/课程/授权/监护人）。</li>
+      <li><code>USER_TABLE = { tableId: 'tblnFCIRBOZr2oVF', name: '系统用户表' }</code> — 飞书系统用户表登记处。</li>
+      <li><code>tables.ts</code> 硬编码的是 <b>DEV</b> 表 ID；PROD 通过运行时映射切换（见 3.3）。</li>
+    </ul>
+
+    <h3 id="data-map">3.3 DEV / PROD 表 ID 映射</h3>
+    <p><code>apps/api/src/base.provider.ts</code>：</p>
+    <ul>
+      <li><code>withTableMap(client)</code>：读环境变量 <code>TABLE_ID_MAP</code>（JSON：<code>{ 代码表ID: 实际表ID }</code>），用 <code>Proxy</code> 包裹 <code>BaseClient</code>，拦截所有表级方法的第一个参数 <code>tableId</code> 做替换；未配置/空对象则原样透传。</li>
+      <li>结论：<b>一套代码，DEV 不传 <code>TABLE_ID_MAP</code> 直连 DEV Base；PROD 传入 <code>TABLE_ID_MAP</code> 指向生产 Base</b>（或同 Base 不同表）。DEV 零影响。</li>
+    </ul>
+
+    <h3 id="data-contracts">3.4 跨层契约（<code>packages/contracts/src</code>）</h3>
+    <ul>
+      <li><b>api.ts</b>：<code>ApiErrorBody</code> / <code>ERROR_CODES</code>（<code>UNAUTHENTICATED</code> <code>FORBIDDEN</code> <code>NOT_FOUND</code> <code>VALIDATION</code> <code>CONFLICT</code> <code>RATE_LIMITED</code> <code>UPSTREAM</code> <code>INTERNAL</code>）/ <code>Page&lt;T&gt;</code> / <code>SessionUser</code>（<code>{ openId, name, roles, campuses, maxDataLevel, studentId?, sessionId, expiresAt }</code>）。</li>
+      <li><b>role.ts</b>：<code>ROLES</code>（11 个）、<code>DATA_LEVELS</code>（L1–L4）、<code>PERMISSIONS</code>（44 个功能权限点）、<code>ROLE_PERMISSIONS</code> 矩阵、<code>DATA_LEVEL_RANK</code>（兼容 <code>一般/内部/敏感/高度敏感</code> 中英词汇）、<code>USER_LEVEL_TO_ENGINE</code>（用户表中文密级 → 引擎等级）。<code>student</code> / <code>parent</code> 为外部用户角色（小程序/家长 H5），不出现在飞书系统用户表。</li>
+      <li><b>homepage.ts</b>：<code>LoginFeature</code> / <code>DashboardTheme</code> / <code>NavMenuItem</code> / <code>DEFAULT_NAV_MENU_CONFIG</code>（带 <code>adminOnly</code> / <code>perm</code> 标志，前端按会话裁剪菜单）/ <code>DEFAULT_HOMEPAGE_CONFIG</code> / <code>imageUrl()</code>（后端转发飞书图片，避免直链鉴权）。</li>
+    </ul>
+
+    <h2 id="domain">4. 领域层（<code>packages/domain</code>）</h2>
+
+    <h3 id="domain-perm">4.1 权限模型（<code>permission.ts</code>）— ABAC + RBAC</h3>
+    <p><code>authorize(principal, permission, resource?): AuthzDecision</code>，判定顺序：</p>
+    <ol>
+      <li><b>missing-permission</b>：主体无该权限点 → <code>allowed:false, reason:'missing-permission'</code>。</li>
+      <li><b>campus-mismatch</b>：<code>系统管理员</code>/<code>院级管理</code> 为组织级视角（<code>isOrgWide</code>）跳过校区限制；否则要求 <code>principal.campuses</code> 与 <code>resource.campus</code>（<b>支持数组多选，按集合交集</b>）有交集，否则 <code>reason:'campus-mismatch'</code>。</li>
+      <li><b>data-level-exceeded</b>：资源所需密级（数组取最高）超过 <code>maxDataLevelOf(principal)</code> → <code>reason:'data-level-exceeded'</code>。</li>
+    </ol>
+    <p>设计特征：<b>fail-closed 偏保守</b>——缺配置 / 未知密级一律按最高（L4）处理。<code>ROLE_MAX_LEVEL</code>：系统管理员/院级管理/审计 = L4；教务/财务/学生事务/HR行政 = L3；教师本人/招生 = L2；student/parent = L1。<code>admin:user</code> 仅授予系统管理员，避免普通管理员互删。</p>
+    <div class="callout"><span class="tag">🛠 2026-08-26 修复（e183edf）</span> 原 <code>principal.campuses.includes(resource.campus)</code> 在学生「校区」为多选字段（数组）时恒为 false，导致带校区的列表被全部过滤成空白；改为集合交集，并让组织级角色绕过单校区限制。</div>
+
+    <h3 id="domain-conflict">4.2 排课冲突预检（<code>conflict.ts</code>）</h3>
+    <p>纯函数 <code>preflightSessionConflicts(draft, existing): ConflictResult</code>：比较同一日期下 授课教师 / 场地 / 教学班 的时间重叠，<code>ConflictType</code> 含 <code>教师冲突</code>/<code>场地冲突</code>/<code>班级冲突</code>，返回 <code>{ hard, soft }</code>。fail-closed：既有课次时间不可解析时保守判为硬冲突。<code>soft</code> 预留软冲突扩展位（当前恒空）。</p>
+
+    <h2 id="api">5. API 层（NestJS，<code>apps/api</code>）</h2>
+
+    <h3 id="api-boot">5.1 启动（<code>main.ts</code>）</h3>
+    <p><code>NestFactory.create</code> → <code>setGlobalPrefix('api/v1')</code> → <code>enableCors({ origin: WEB_ORIGIN.split(','), credentials: true })</code> → <code>app.use(securityMiddleware)</code>（注入 CSP / X-Frame-Options / 写接口跨域来源校验）→ 监听 <code>API_PORT ?? 3000</code>。</p>
+
+    <h3 id="api-auth">5.2 鉴权流程（<code>auth</code> 模块）</h3>
+    <p>飞书 OAuth 2.0 + <b>PKCE(S256)</b>：</p>
+    <ul>
+      <li><code>GET /auth/login</code>：生成 <code>state</code> + <code>code_verifier</code>，<code>code_challenge=S256(verifier)</code>，<code>verifier</code> 存 Redis（<code>oauth:state:${state}</code>，EX 600/NX）。</li>
+      <li><code>GET /auth/callback</code>：校验 state → 换 <code>access_token</code> → 取 <code>open_id</code> → <code>resolvePrincipal</code> → 建会话、写 cookie。</li>
+      <li><code>GET /auth/me</code>（<code>SessionGuard</code>）、<code>POST /auth/logout</code>、<code>GET /auth/permissions</code>（返回权限矩阵 + 我的角色/权限）。</li>
+    </ul>
+    <p><b>resolvePrincipal（用户解析 + 注册判定）</b>：</p>
+    <ol>
+      <li>按飞书 <code>open_id</code> 查 <code>USER_TABLE</code>；用户表为空 → 首登者自动成为 <code>系统管理员</code> 并建档（bootstrap）。</li>
+      <li>否则按优先级：<code>BOOTSTRAP_ADMIN_OPEN_IDS</code> 引导管理员 → <code>ALLOW_SELF_REGISTER</code>（<code>'1'|'true'|'dev'</code>）→ 否则抛 <code>NOT_REGISTERED</code>(401)，前端引导联系管理员开通。</li>
+      <li>自注册角色 <code>SELF_REGISTER_ROLE</code>（默认 <code>教师本人</code>），密级 <code>SELF_REGISTER_LEVEL</code>（默认 <code>内部</code>）。</li>
+      <li>命中用户表：<code>账号状态==='停用'</code> → <code>USER_DISABLED</code>；解析 <code>系统角色</code>/<code>默认校区</code>/<code>数据密级上限</code> → 映射为 <code>SessionUser</code>。</li>
+      <li>fail-closed：用户表不可读时仅放行引导管理员，其余 <code>USER_TABLE_UNAVAILABLE</code>。</li>
+    </ol>
+    <p><b>会话</b>：<code>SessionGuard</code> 从 <code>acms_sid</code> Cookie 或 <code>x-acms-sid</code> 头（小程序回退）读会话 → Redis 校验 → 写 <code>req.user</code>；<code>SessionService</code> 管理 TTL（<code>SESSION_TTL_SECONDS ?? 3600</code>）。<code>LoginRateLimitGuard</code> 对 login/callback 做双固定窗口限流（IP 10/60s、全局 120/60s），超限 429。</p>
+
+    <h3 id="api-modules">5.3 业务模块（<code>app.module.ts</code> 导入）</h3>
+    <p>全局模块：Health / Auth(Global) / Student / Dict / Teacher / Teaching / Venue / Schedule / Enrollment / Portal / Attendance / MiniProgram / Parent / Partnership / Billing / Settlement / Adjustment / Notification / Dashboard / Export / Audit / Monitor / 通用 CRUD / Student360 / Idp / Users / Ai / AiSummarize / WechatBinding / HomepageConfig / StudentAuth。</p>
+    <ul>
+      <li><b>通用 CRUD 模式</b>（<code>shared/generic-crud.module.ts</code>）：<code>registerAll(metas)</code> 按元数据动态生成 <code>BaseRecordService</code> + <code>Controller</code>（<code>list/detail/create/update(PUT)/archive(DELETE)/transition</code>）。元数据：<code>LIFECYCLE_METAS</code>（7 条学生生命周期路径，含 <code>studentMatch</code> 本人隔离）、<code>CONFIG_METAS</code>（settings/attendance-zones/wechat-bindings）、<code>AUDIT_METAS</code>（audit-logs，<code>admin:audit</code>）。<code>transition</code> 对目标状态做 <code>authorize</code> 守卫。</li>
+      <li><b>学生档案</b>（<code>students</code>）：CSV 导出、<code>FileInterceptor</code> 照片/附件上传、增改查、归档/恢复。</li>
+      <li><b>IDP</b>（<code>idp</code>）：计划继承 <code>BaseRecordService</code>，加「同一学生同一学期唯一」约束；沟通走通用 CRUD。</li>
+      <li><b>学生自助 / 小程序登录</b>（与飞书解耦的独立身份）：
+        <ul>
+          <li><code>student-auth</code>：本地 JSON 账号库（<code>ACMS_DATA_DIR/student-accounts.json</code>），<code>scrypt</code> 密码哈希，角色 <code>['student']</code> 带 <code>studentId</code>。</li>
+          <li><code>mini-program</code>：微信 <code>code2Session</code>；<code>wxbind:${openid}</code> Redis（180d）为权威绑定；<code>bindByCredentials</code>（学号+姓名网页登录）；<code>listZones</code>（按校区考勤围栏）。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3 id="api-cron">5.4 定时任务</h3>
+    <ul>
+      <li><b>AI 自动化调度</b>（<code>ai/lib/automation/scheduler.ts</code>，依赖 <code>croner</code>）：<code>scheduleAll()</code> 启动时全量 reschedule 所有 <code>enabled</code> 自动化；<code>idleOnly</code> 任务不在 <code>00:00–06:00</code> 空闲窗口时落盘 <code>pendingIdle.json</code> 由 <code>sweepPendingIdle</code>（60s）补跑，保证重启不丢。store：<code>ACAILY_AUTOMATION_STORE ?? /opt/acaily/data/automations.json</code>。启动入口 <code>ai.service.ts onModuleInit() → scheduleAll()</code>。</li>
+      <li><b>监控</b>（<code>monitor</code>）：<code>OnModuleInit</code> 起 5min 轮询，检查堆内存（<code>MONITOR_MEM_P1_MB=1500</code>）与飞书可达性，超限经飞书 <code>im/v1/messages</code> 告警（30min 冷却）；<code>/monitor/status</code> 暴露状态。</li>
+    </ul>
+
+    <h2 id="web">6. Web 层（Next.js 15，<code>apps/web</code>）</h2>
+    <ul>
+      <li><b>路由</b>：App Router，约 63 个页面分组（students / teachers / courses / teaching-classes / venues / schedule / enrollments / idp-plans / home-school-comms / daily-followups / source-followups / alumni-followups / student-360 / student-attendances / grades / practice-activities / stage-evaluations / settlements / adjustments / partnerships / billing / notifications / audit-logs / permissions / settings / wechat-bindings / portal / student-login / homepage-* / ai / menu-groups-settings 等）。</li>
+      <li><b>外壳</b>：<code>layout.tsx</code> 用 <code>AppShellGate</code> 包裹；<code>STANDALONE = ['/login','/parent','/portal','/student-login']</code> 不套 AppShell（独立外壳）。其余受保护页面套统一 <code>AppShell</code>，菜单由 <code>DEFAULT_NAV_MENU_CONFIG</code> 按会话权限裁剪。</li>
+      <li><b>API 调用</b>（<code>lib/api.ts</code> + <code>next.config.mjs</code>）：
+        <ul>
+          <li>统一 <code>request&lt;T&gt;(path, options)</code> 封装 <code>fetch</code>：<code>credentials:'include'</code>、<code>FormData</code> 不手动设 <code>Content-Type</code>、401 按路径分流（portal/student-login → 跳 student-login；其余 → 跳 login）、错误体优先 <code>body.error.message</code>。</li>
+          <li>SSR 反代：<code>next.config.mjs</code> 的 <code>rewrites()</code> 将 <code>/api/:path*</code> → <code>API_ORIGIN ?? http://localhost:3000</code>，前端以同源 <code>/api/v1/...</code> 调用，规避跨域与 cookie 限制；全站 <code>Cache-Control: no-store</code>。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h2 id="perms">7. 权限点清单（<code>role.ts</code> PERMISSIONS，44 个）</h2>
+    <p>学生域 <code>student:read/write/archive</code>；生源 <code>followup:read/write</code>；考勤 <code>attendance:read/write/approve</code>；计财 <code>billing:read/write/confirm/settle</code> <code>partnership:read/write</code> <code>finance:read/approve</code>；通知 <code>notification:read/write/send</code>；学业 <code>grade:read/write</code>；实践 <code>activity:read/write</code>；家校 <code>communication:read/write</code>；评价 <code>evaluation:read/write</code>；校友 <code>alumni:read/write</code>；师资 <code>teacher:read/write/archive</code>；课程 <code>course:read/write</code>；场地 <code>venue:read/write</code>；排课 <code>schedule:read/write</code>；导出 <code>export:run</code>；管理 <code>admin:user/studentUser/audit</code>；配置 <code>config:read/write</code>；AI <code>ai:chat/config/automation/admin</code>。</p>
+
+    <h2 id="deploy">8. 部署（见 <a href="deploy.md">deploy.md</a> 详版）</h2>
+    <ul>
+      <li><b>构建</b>：<code>pnpm build</code>（各包 tsc + web next build）。</li>
+      <li><b>打包</b>：<code>scripts/build_tars.sh</code> 产 <code>/tmp/{api_dist,pkgs_dist,web_next}.tar.gz</code>。</li>
+      <li><b>DEV（118，<code>acms-dev.areteailab.com</code>）</b>：<code>scripts/deploy_118.sh</code> — 把 <code>packages/*</code> 扁平拷贝进 <code>api/node_modules/@acms/*</code>，nginx TLS 在 <code>/etc/nginx/ssl-acms-dev/</code>，服务 <code>acms-api</code>/<code>acms-web</code>，环境 <code>/opt/acms/.env</code>。</li>
+      <li><b>PROD（<code>acms.areteailab.com</code>）</b>：<code>scripts/deploy_prod.sh</code> — 保留完整 monorepo（<code>/opt/acms/repo</code>），表映射靠 <code>TABLE_ID_MAP</code>，部署需显式传 <code>SSHPASS</code>。</li>
+      <li><b>关键差异</b>：118 把包扁平化进 <code>node_modules/@acms/*</code>，PROD 保留完整 monorepo 靠 pnpm symlink —— <b>两者产物不可混用</b>。</li>
+    </ul>
+
+    <h2 id="pitfalls">9. 已知坑位（WARNING）</h2>
+    <ol>
+      <li><code>BaseClient.update()</code> 必须 <code>PUT</code>（POST/PATCH → 404）— <code>client.ts</code>。</li>
+      <li><code>search()</code> 按系统字段排序触发 <code>InvalidSort 1254016</code> → 已降级无排序重试。</li>
+      <li><code>listFields()</code> 必须分页（每页 100），否则 &gt;100 字段表漏字段导致 Schema Drift 误判。</li>
+      <li>权限比较兼容中英密级词汇，缺失/未知一律按最高 L4（fail-closed）— <code>role.ts</code>。</li>
+      <li>排课冲突预检：既有课次时间不可解析 → 保守判硬冲突 — <code>conflict.ts</code>。</li>
+      <li>用户表不可读时仅放行引导管理员，其余 <code>USER_TABLE_UNAVAILABLE</code> — <code>auth.service.ts</code>。</li>
+      <li>118 扁平拷贝 vs PROD 完整 monorepo，<b>产物不可混用</b> — <code>deploy_118.sh</code> vs <code>deploy_prod.sh</code>。</li>
+      <li><code>build_tars.sh</code> 产物 pkgs <b>无</b> <code>packages/</code> 前缀（供 <code>deploy_prod.sh</code>）；<code>deploy_118.sh</code> 要求 <b>有</b> <code>packages/</code> 前缀 —— 给 118 部署须按前缀重打。</li>
+    </ol>
+
+    <h2 id="test">10. 测试与门禁</h2>
+    <ul>
+      <li><code>pnpm typecheck</code> / <code>pnpm test</code> 必须全绿才可合主干。</li>
+      <li>回归红线：登录流程、授权解析、权限矩阵、Base 契约（<code>pnpm --filter @acms/base-adapter test</code>）。</li>
+    </ul>
+
+    <h2 id="tradeoff">11. 技术选型权衡（Why this stack）</h2>
+
+    <h3>11.1 为什么采用</h3>
+    <ol>
+      <li><b>团队 / 客户本就在飞书生态内</b> —— 用飞书 Base 作事实源可零运维，非技术同事能直接在表格里查看、修改数据（如「系统角色」多选、「校区」字段），所见即所得，交付门槛低。</li>
+      <li><b>鉴权复用飞书 OAuth</b> —— <code>auth.service.ts</code> 的 <code>resolvePrincipal</code> 直接走飞书登录拿 <code>open_id</code>，无需自建账号体系、找回密码、短信验证。</li>
+      <li><b>全栈单一语言（TS）</b> —— 表 schema（<code>contracts</code>）、业务规则 / 权限（<code>domain</code>）、API、Web 均为 TypeScript，类型可跨前后端与领域层共享，改表结构有编译期保护。</li>
+      <li><b>Next.js 适合内部管理后台</b> —— App Router 既能 SSR 出页面也能做客户端交互，路由分组天然对应业务模块。</li>
+      <li><b>部署极简</b> —— 118 单台机器，无 MySQL / Redis 强依赖，只有 nginx + 两个 systemd 服务。</li>
+    </ol>
+
+    <h3>11.2 优点</h3>
+    <ul>
+      <li><b>零数据库运维</b>：飞书托管存储、备份、扩容，不用管慢查询、主从、迁移脚本。</li>
+      <li><b>业务透明度高</b>：运营 / 教务可直接打开飞书表格核对数据，减少数据对不上的扯皮。</li>
+      <li><b>类型共享带来安全性</b>：<code>contracts</code> 定义表与 DTO、<code>domain</code> 定义权限与冲突检测，跨越前后端的字段改名能在 <code>pnpm build</code> 阶段报错。</li>
+      <li><b>迭代快、人员成本低</b>：一套 TS 技能覆盖全栈，小团队可维护。</li>
+      <li><b>部署轻</b>：<code>pnpm build</code> → 打 tar → <code>deploy_118.sh</code> 原子替换，无 DB 迁移步骤。</li>
+    </ul>
+
+    <h3>11.3 缺点 / 代价</h3>
+    <ul>
+      <li><b>性能与规模天花板</b>：飞书 Base 有单表行数上限、API 速率配额（<code>tenant_access_token</code> 调用频限）、无索引 / 无联表。复杂查询只能拉全量到内存再过滤——<code>permission.ts</code> 的 ABAC 校区比较 bug（<code>isOrgWide</code>，提交 <code>e183edf</code>）正是「遍历全量再比数组」的典型代价，数据量大时明显变慢。</li>
+      <li><b>强依赖飞书可用性</b>：飞书抖动 = 系统抖动；飞书 Base API 改字段类型 / 限流会直接打挂业务。</li>
+      <li><b>弱一致性</b>：Base 是表格不是事务型 DB，无事务、无外键、并发写易覆盖；约束全靠代码约定（如 <code>user.service.ts</code> 用 <code>ROLES.includes(r)</code> 过滤非法角色，飞书字段选项没同步会被静默丢弃）。</li>
+      <li><b>跨应用身份隔离坑</b>：飞书 <code>open_id</code> 与应用绑定，换 App / 多环境会触发 <code>NOT_REGISTERED</code>、<code>99992361</code> 等错误（118 切 DEV 时踩过），迁移与多环境麻烦。</li>
+      <li><b>权限 / IAM 要自己造</b>：ABAC + RBAC 全手写（<code>permission.ts</code>），不如直接用成熟 IdP / IAM，边界 case 多。</li>
+      <li><b>报表 / 聚合难做</b>：没有真正 SQL，统计类需求得拉全量再算，扩展性差，大数据量下不成立。</li>
+      <li><b>本地开发与测试依赖飞书</b>：要么连真实 Base，要么大量 mock，自动化测试门槛高。</li>
+    </ul>
+
+    <h3>11.4 适用边界</h3>
+    <blockquote>这是一套为「小团队 + 飞书生态 + 内部工具 + 快速迭代」高度优化的选型，用「放弃强一致 / 高性能 / 可移植性」换来了「零运维 + 业务可见 + 交付快」。当系统规模、并发或分析需求涨上去时，飞书 Base 这一层会最先成为瓶颈——届时要么在 Base 前加缓存 / 物化层，要么将高频表迁到真正的数据库。</blockquote>
+
+    <footer>ACMS 技术架构文档 · 由代码 fact 整理 · 2026-08-26</footer>
+  </main>
+</div>
+
+<script>
+  // 目录高亮当前章节
+  const links = Array.from(document.querySelectorAll('nav.toc a'));
+  const map = new Map();
+  links.forEach(a => {
+    const id = a.getAttribute('href').slice(1);
+    const el = document.getElementById(id);
+    if (el) map.set(el, a);
+  });
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const a = map.get(e.target);
+        if (a) a.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-10% 0px -80% 0px', threshold: 0 });
+  map.forEach((_, el) => obs.observe(el));
+</script>
+</body>
+</html>

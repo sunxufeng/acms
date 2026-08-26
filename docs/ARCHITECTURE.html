@@ -243,6 +243,15 @@
     <p>设计特征：<b>fail-closed 偏保守</b>——缺配置 / 未知密级一律按最高（L4）处理。<code>ROLE_MAX_LEVEL</code>：系统管理员/院级管理/审计 = L4；教务/财务/学生事务/HR行政 = L3；教师本人/招生 = L2；student/parent = L1。<code>admin:user</code> 仅授予系统管理员，避免普通管理员互删。</p>
     <div class="callout"><span class="tag">🛠 2026-08-26 修复（e183edf）</span> 原 <code>principal.campuses.includes(resource.campus)</code> 在学生「校区」为多选字段（数组）时恒为 false，导致带校区的列表被全部过滤成空白；改为集合交集，并让组织级角色绕过单校区限制。</div>
 
+    <h4 id="domain-perm-rt">4.1.1 角色权限矩阵运行时可配置（角色管理功能，<code>6dc47ce</code>）</h4>
+    <p><code>ROLE_PERMISSIONS</code> / <code>ROLE_MAX_LEVEL</code> 仅是<b>编译期默认回退</b>；生产以「系统配置」表（配置键 <code>role_permission_config</code>，<code>ROLE_PERMISSION_CONFIG_KEY</code>，存于 <code>TABLES.systemConfig</code>）持久化的矩阵为事实来源——即「角色管理」功能（<code>apps/api/src/role-management</code>）的存储。</p>
+    <ul>
+      <li><b>热更新</b>：<code>RoleManagementService.onModuleInit()</code> 应用启动时调用 <code>loadRolePermissionConfig()</code> 把已保存矩阵载入引擎；每次 <code>createRole</code> / <code>updateRole</code> / <code>deleteRole</code> 持久化后立即 <code>applyToEngine()</code>，鉴权<b>实时生效，无需重启</b>。</li>
+      <li>一旦加载配置，引擎以配置为唯一来源：<code>config</code> 中不存在的角色不再授予任何权限；配置为空/损坏则回退到硬编码 <code>ROLE_PERMISSIONS</code> 默认（<code>stored ?? defaultConfig()</code>）。</li>
+      <li><b>保护角色</b>：<code>系统管理员</code> / <code>student</code> / <code>parent</code> 内置且<b>不可删除</b>；<code>系统管理员</code> 的<b>权限集与密级锁定</b>（仅可改名），避免管理员把自己锁死。</li>
+      <li>接口（<code>role-management.controller.ts</code>，受 <code>admin:user</code> 即系统管理员保护）：<code>GET/POST /role-management</code>、<code>PUT/DELETE /role-management/:key</code>。前端页面 <code>/role-management</code>。</li>
+    </ul>
+
     <h3 id="domain-conflict">4.2 排课冲突预检（<code>conflict.ts</code>）</h3>
     <p>纯函数 <code>preflightSessionConflicts(draft, existing): ConflictResult</code>：比较同一日期下 授课教师 / 场地 / 教学班 的时间重叠，<code>ConflictType</code> 含 <code>教师冲突</code>/<code>场地冲突</code>/<code>班级冲突</code>，返回 <code>{ hard, soft }</code>。fail-closed：既有课次时间不可解析时保守判为硬冲突。<code>soft</code> 预留软冲突扩展位（当前恒空）。</p>
 
@@ -269,7 +278,7 @@
     <p><b>会话</b>：<code>SessionGuard</code> 从 <code>acms_sid</code> Cookie 或 <code>x-acms-sid</code> 头（小程序回退）读会话 → Redis 校验 → 写 <code>req.user</code>；<code>SessionService</code> 管理 TTL（<code>SESSION_TTL_SECONDS ?? 3600</code>）。<code>LoginRateLimitGuard</code> 对 login/callback 做双固定窗口限流（IP 10/60s、全局 120/60s），超限 429。</p>
 
     <h3 id="api-modules">5.3 业务模块（<code>app.module.ts</code> 导入）</h3>
-    <p>全局模块：Health / Auth(Global) / Student / Dict / Teacher / Teaching / Venue / Schedule / Enrollment / Portal / Attendance / MiniProgram / Parent / Partnership / Billing / Settlement / Adjustment / Notification / Dashboard / Export / Audit / Monitor / 通用 CRUD / Student360 / Idp / Users / Ai / AiSummarize / WechatBinding / HomepageConfig / StudentAuth。</p>
+    <p>全局模块：Health / Auth(Global) / Student / Dict / Teacher / Teaching / Venue / Schedule / Enrollment / Portal / Attendance / MiniProgram / Parent / Partnership / Billing / Settlement / Adjustment / Notification / Dashboard / Export / Audit / Monitor / 通用 CRUD / Student360 / Idp / Users / Ai / AiSummarize / WechatBinding / HomepageConfig / StudentAuth / RoleManagement。</p>
     <ul>
       <li><b>通用 CRUD 模式</b>（<code>shared/generic-crud.module.ts</code>）：<code>registerAll(metas)</code> 按元数据动态生成 <code>BaseRecordService</code> + <code>Controller</code>（<code>list/detail/create/update(PUT)/archive(DELETE)/transition</code>）。元数据：<code>LIFECYCLE_METAS</code>（7 条学生生命周期路径，含 <code>studentMatch</code> 本人隔离）、<code>CONFIG_METAS</code>（settings/attendance-zones/wechat-bindings）、<code>AUDIT_METAS</code>（audit-logs，<code>admin:audit</code>）。<code>transition</code> 对目标状态做 <code>authorize</code> 守卫。</li>
       <li><b>学生档案</b>（<code>students</code>）：CSV 导出、<code>FileInterceptor</code> 照片/附件上传、增改查、归档/恢复。</li>
@@ -280,6 +289,7 @@
           <li><code>mini-program</code>：微信 <code>code2Session</code>；<code>wxbind:${openid}</code> Redis（180d）为权威绑定；<code>bindByCredentials</code>（学号+姓名网页登录）；<code>listZones</code>（按校区考勤围栏）。</li>
         </ul>
       </li>
+      <li><b>角色管理</b>（<code>role-management</code>）：读取 / 增删改「角色权限矩阵」（<code>GET/POST /role-management</code>、<code>PUT/DELETE /role-management/:key</code>），受 <code>admin:user</code>（系统管理员）保护；保存即热更新鉴权引擎（<code>loadRolePermissionConfig</code>），矩阵持久化于「系统配置」表（<code>role_permission_config</code>）。前端 <code>/role-management</code> 页面渲染全部权限点（<code>PERMISSIONS</code>）+ 密级（<code>DATA_LEVELS</code>）供勾选。</li>
     </ul>
 
     <h3 id="api-cron">5.4 定时任务</h3>
@@ -302,6 +312,7 @@
 
     <h2 id="perms">7. 权限点清单（<code>role.ts</code> PERMISSIONS，44 个）</h2>
     <p>学生域 <code>student:read/write/archive</code>；生源 <code>followup:read/write</code>；考勤 <code>attendance:read/write/approve</code>；计财 <code>billing:read/write/confirm/settle</code> <code>partnership:read/write</code> <code>finance:read/approve</code>；通知 <code>notification:read/write/send</code>；学业 <code>grade:read/write</code>；实践 <code>activity:read/write</code>；家校 <code>communication:read/write</code>；评价 <code>evaluation:read/write</code>；校友 <code>alumni:read/write</code>；师资 <code>teacher:read/write/archive</code>；课程 <code>course:read/write</code>；场地 <code>venue:read/write</code>；排课 <code>schedule:read/write</code>；导出 <code>export:run</code>；管理 <code>admin:user/studentUser/audit</code>；配置 <code>config:read/write</code>；AI <code>ai:chat/config/automation/admin</code>。</p>
+    <blockquote><b>权限点（PERMISSIONS）是稳定的 44 个常量</b>（见 <code>role.ts</code>），不可经 UI 增删；而<b>角色 → 权限的映射（角色权限矩阵）现已可运行时管理</b>（角色管理功能，§4.1.1 / §5.3）。即：权限点集合固定，但「哪个角色有哪些权限 / 密级上限」可在「系统配置」表配置并热更新。新增自定义角色（如「班主任」）无需改代码，直接在 <code>/role-management</code> 页面创建即可。</blockquote>
 
     <h2 id="deploy">8. 部署（见 <a href="deploy.md">deploy.md</a> 详版）</h2>
     <ul>
@@ -322,6 +333,7 @@
       <li>用户表不可读时仅放行引导管理员，其余 <code>USER_TABLE_UNAVAILABLE</code> — <code>auth.service.ts</code>。</li>
       <li>118 扁平拷贝 vs PROD 完整 monorepo，<b>产物不可混用</b> — <code>deploy_118.sh</code> vs <code>deploy_prod.sh</code>。</li>
       <li><code>build_tars.sh</code> 产物 pkgs <b>无</b> <code>packages/</code> 前缀（供 <code>deploy_prod.sh</code>）；<code>deploy_118.sh</code> 要求 <b>有</b> <code>packages/</code> 前缀 —— 给 118 部署须按前缀重打。</li>
+      <li>角色权限矩阵持久化于「系统配置」表（<code>role_permission_config</code>）。一旦存在配置，引擎以配置为<b>唯一事实来源</b>；若误删/损坏全部角色则鉴权按空矩阵（所有角色零权限），可在 <code>/role-management</code> 重置或重新保存回退到 <code>ROLE_PERMISSIONS</code> 硬编码默认（<code>stored ?? defaultConfig()</code>）。<code>系统管理员</code>/<code>student</code>/<code>parent</code> 受保护不可删，<code>系统管理员</code> 权限集与密级锁定（§4.1.1）。</li>
     </ol>
 
     <h2 id="test">10. 测试与门禁</h2>

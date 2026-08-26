@@ -95,6 +95,15 @@ acms/
 
 > 2026-08-26 修复（`e183edf`）：原 `principal.campuses.includes(resource.campus)` 在学生「校区」为多选字段（数组）时恒为 false，导致带校区的列表被全部过滤成空白；改为集合交集，并让组织级角色绕过单校区限制。
 
+#### 4.1.1 角色权限矩阵运行时可配置（角色管理功能，`6dc47ce`）
+
+`ROLE_PERMISSIONS` / `ROLE_MAX_LEVEL` 仅是**编译期默认回退**；生产以「系统配置」表（配置键 `role_permission_config`，`ROLE_PERMISSION_CONFIG_KEY`，存于 `TABLES.systemConfig`）持久化的矩阵为事实来源——即「角色管理」功能（`apps/api/src/role-management`）的存储。
+
+- **热更新**：`RoleManagementService.onModuleInit()` 应用启动时调用 `loadRolePermissionConfig()` 把已保存矩阵载入引擎；每次 `createRole` / `updateRole` / `deleteRole` 持久化后立即 `applyToEngine()`，鉴权**实时生效，无需重启**。
+- 一旦加载配置，引擎以配置为唯一来源：`config` 中不存在的角色不再授予任何权限；配置为空/损坏则回退到硬编码 `ROLE_PERMISSIONS` 默认（`stored ?? defaultConfig()`）。
+- **保护角色**：`系统管理员` / `student` / `parent` 内置且**不可删除**；`系统管理员` 的**权限集与密级锁定**（仅可改名），避免管理员把自己锁死。
+- 接口（`role-management.controller.ts`，受 `admin:user` 即系统管理员保护）：`GET/POST /role-management`、`PUT/DELETE /role-management/:key`。前端页面 `/role-management`。
+
 ### 4.2 排课冲突预检（`conflict.ts`）
 
 纯函数 `preflightSessionConflicts(draft, existing): ConflictResult`：比较同一日期下 授课教师 / 场地 / 教学班 的时间重叠，`ConflictType` 含 `教师冲突`/`场地冲突`/`班级冲突`，返回 `{ hard, soft }`。fail-closed：既有课次时间不可解析时保守判为硬冲突。`soft` 预留软冲突扩展位（当前恒空）。
@@ -125,7 +134,7 @@ acms/
 
 ### 5.3 业务模块（`app.module.ts` 导入）
 
-全局模块：Health / Auth(Global) / Student / Dict / Teacher / Teaching / Venue / Schedule / Enrollment / Portal / Attendance / MiniProgram / Parent / Partnership / Billing / Settlement / Adjustment / Notification / Dashboard / Export / Audit / Monitor / 通用 CRUD / Student360 / Idp / Users / Ai / AiSummarize / WechatBinding / HomepageConfig / StudentAuth。
+全局模块：Health / Auth(Global) / Student / Dict / Teacher / Teaching / Venue / Schedule / Enrollment / Portal / Attendance / MiniProgram / Parent / Partnership / Billing / Settlement / Adjustment / Notification / Dashboard / Export / Audit / Monitor / 通用 CRUD / Student360 / Idp / Users / Ai / AiSummarize / WechatBinding / HomepageConfig / StudentAuth / RoleManagement。
 
 - **通用 CRUD 模式**（`shared/generic-crud.module.ts`）：`registerAll(metas)` 按元数据动态生成 `BaseRecordService` + `Controller`（`list/detail/create/update(PUT)/archive(DELETE)/transition`）。元数据：`LIFECYCLE_METAS`（7 条学生生命周期路径，含 `studentMatch` 本人隔离）、`CONFIG_METAS`（settings/attendance-zones/wechat-bindings）、`AUDIT_METAS`（audit-logs，`admin:audit`）。`transition` 对目标状态做 `authorize` 守卫。
 - **学生档案**（`students`）：CSV 导出、`FileInterceptor` 照片/附件上传、增改查、归档/恢复。
@@ -133,6 +142,7 @@ acms/
 - **学生自助 / 小程序登录**（与飞书解耦的独立身份）：
   - `student-auth`：本地 JSON 账号库（`ACMS_DATA_DIR/student-accounts.json`），`scrypt` 密码哈希，角色 `['student']` 带 `studentId`。
   - `mini-program`：微信 `code2Session`；`wxbind:${openid}` Redis（180d）为权威绑定；`bindByCredentials`（学号+姓名网页登录）；`listZones`（按校区考勤围栏）。
+- **角色管理**（`role-management`）：读取 / 增删改「角色权限矩阵」（`GET/POST /role-management`、`PUT/DELETE /role-management/:key`），受 `admin:user`（系统管理员）保护；保存即热更新鉴权引擎（`loadRolePermissionConfig`），矩阵持久化于「系统配置」表（`role_permission_config`）。前端 `/role-management` 页面渲染全部权限点（`PERMISSIONS`）+ 密级（`DATA_LEVELS`）供勾选。
 
 ### 5.4 定时任务
 
@@ -154,6 +164,8 @@ acms/
 ## 7. 权限点清单（`role.ts` PERMISSIONS，44 个）
 
 学生域 `student:read/write/archive`；生源 `followup:read/write`；考勤 `attendance:read/write/approve`；计财 `billing:read/write/confirm/settle` `partnership:read/write` `finance:read/approve`；通知 `notification:read/write/send`；学业 `grade:read/write`；实践 `activity:read/write`；家校 `communication:read/write`；评价 `evaluation:read/write`；校友 `alumni:read/write`；师资 `teacher:read/write/archive`；课程 `course:read/write`；场地 `venue:read/write`；排课 `schedule:read/write`；导出 `export:run`；管理 `admin:user/studentUser/audit`；配置 `config:read/write`；AI `ai:chat/config/automation/admin`。
+
+> **权限点（PERMISSIONS）是稳定的 44 个常量**（见 `role.ts`），不可经 UI 增删；而**角色 → 权限的映射（角色权限矩阵）现已可运行时管理**（角色管理功能，§4.1.1 / §5.3）。即：权限点集合固定，但「哪个角色有哪些权限 / 密级上限」可在「系统配置」表配置并热更新。新增自定义角色（如「班主任」）无需改代码，直接在 `/role-management` 页面创建即可。
 
 ---
 
@@ -177,6 +189,7 @@ acms/
 6. 用户表不可读时仅放行引导管理员，其余 `USER_TABLE_UNAVAILABLE` — `auth.service.ts`。
 7. 118 扁平拷贝 vs PROD 完整 monorepo，**产物不可混用** — `deploy_118.sh` vs `deploy_prod.sh`。
 8. `build_tars.sh` 产物 pkgs **无** `packages/` 前缀（供 `deploy_prod.sh`）；`deploy_118.sh` 要求 **有** `packages/` 前缀 —— 给 118 部署须按前缀重打。
+9. 角色权限矩阵持久化于「系统配置」表（`role_permission_config`）。一旦存在配置，引擎以配置为**唯一事实来源**；若误删/损坏全部角色则鉴权按空矩阵（所有角色零权限），可在 `/role-management` 重置或重新保存回退到 `ROLE_PERMISSIONS` 硬编码默认（`stored ?? defaultConfig()`）。`系统管理员`/`student`/`parent` 受保护不可删，`系统管理员` 权限集与密级锁定（§4.1.1）。
 
 ---
 

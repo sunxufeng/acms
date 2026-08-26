@@ -163,7 +163,13 @@ function initial(name: string): string {
   return /[\u4e00-\u9fa5]/.test(ch) ? ch : name.split(/\s+/).map(s => s[0]).join('').slice(0, 2).toUpperCase();
 }
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({
+  children,
+  initialDashboardTheme = null,
+}: {
+  children: React.ReactNode;
+  initialDashboardTheme?: DashboardTheme | null;
+}) {
   const pathname = usePathname();
   const [me, setMe] = useState<Me | null>(null);
   const [myPerms, setMyPerms] = useState<string[]>([]);
@@ -171,7 +177,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>('dark');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
-  const [dashboardTheme, setDashboardTheme] = useState<DashboardTheme | null>(null);
+  // 初值来自 SSR（layout 传入），保证首屏即使用已配置主题，避免闪屏（FOUC）。
+  const [dashboardTheme, setDashboardTheme] = useState<DashboardTheme | null>(initialDashboardTheme);
   const [menuConfig, setMenuConfig] = useState<NavMenuConfig>(DEFAULT_NAV_MENU_CONFIG);
   const [menuGroups, setMenuGroups] = useState<NavMenuGroupConfig | null>(null);
   const [logoError, setLogoError] = useState(false);

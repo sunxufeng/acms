@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import AppShell from './AppShell';
+import { type DashboardTheme } from '@acms/contracts';
 
 /**
  * 登录页是独立全屏页面，不应套用侧边栏 AppShell（否则 AppShell 会在未登录态
@@ -11,8 +12,14 @@ import AppShell from './AppShell';
  */
 const STANDALONE = ['/login', '/parent', '/portal', '/student-login'];
 
-export default function AppShellGate({ children }: { children: React.ReactNode }) {
+export default function AppShellGate({
+  children,
+  initialDashboardTheme,
+}: {
+  children: React.ReactNode;
+  initialDashboardTheme?: DashboardTheme | null;
+}) {
   const pathname = usePathname();
   if (STANDALONE.includes(pathname)) return <>{children}</>;
-  return <AppShell>{children}</AppShell>;
+  return <AppShell initialDashboardTheme={initialDashboardTheme}>{children}</AppShell>;
 }

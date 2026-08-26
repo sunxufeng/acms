@@ -1,17 +1,33 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import AppShellGate from '../components/AppShellGate';
+import { type DashboardTheme } from '@acms/contracts';
 
 export const metadata: Metadata = {
   title: 'ACMS — Arete College Management System',
   description: '学院运营管理系统',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+// SSR 阶段读取工作台主题，作为 AppShell 的初值下传，避免进入工作台时先闪一下
+// 默认深色调、再切到已配置主题（FOUC）。服务端 fetch 必须用绝对地址。
+const API_ORIGIN = process.env.API_ORIGIN || 'http://localhost:3000';
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  let initialDashboardTheme: DashboardTheme | null = null;
+  try {
+    const res = await fetch(`${API_ORIGIN}/api/v1/homepage-config`, { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.dashboardTheme) initialDashboardTheme = data.dashboardTheme;
+    }
+  } catch {
+    // 接口不可用时回退到默认主题
+  }
+
   return (
     <html lang="zh-CN">
       <body>
-        <AppShellGate>{children}</AppShellGate>
+        <AppShellGate initialDashboardTheme={initialDashboardTheme}>{children}</AppShellGate>
       </body>
     </html>
   );

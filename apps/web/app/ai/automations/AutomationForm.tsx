@@ -47,6 +47,7 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
   // 结果动作：push（默认，推送给收件人）/ memory（仅写回智能体记忆，无需收件人）
   const [actionType, setActionType] = useState(initial?.actionType === 'memory' ? 'memory' : 'push');
   const [recipients, setRecipients] = useState<string[]>((initial?.pushTo || []).filter(Boolean));
+  const [agentOpenId, setAgentOpenId] = useState('');
   const [users, setUsers] = useState<UserOption[]>([]);
 
   const [agents, setAgents] = useState<AgentOption[]>([]);
@@ -100,8 +101,11 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
         maxSteps: Number(maxSteps) || 10,
         agentId: agentId || undefined,
       };
-      // 仅记忆型不需要收件人；推送型才带 pushTo
-      if (actionType === 'push') payload.pushTo = recipients;
+      // 仅记忆型不需要收件人；推送型才带 pushTo（系统用户勾选 + 手工填写的飞书智能体 open_id）
+      if (actionType === 'push') {
+        const extra = agentOpenId.split(/[\s,，;；]+/).map((s) => s.trim()).filter(Boolean);
+        payload.pushTo = Array.from(new Set([...recipients, ...extra]));
+      }
       if (isEdit) await api.aiUpdateAutomation(initial!.id!, payload);
       else await api.aiCreateAutomation(payload);
       onDone();
@@ -179,6 +183,9 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
             )}
           </div>
           {recipients.length === 0 && <p style={{ fontSize: 12, color: 'var(--text-warn)', marginBottom: 10 }}>请至少选择 1 个收件人，或在上方改为「仅记忆」。</p>}
+
+          <label style={label}>飞书智能体 / 机器人 Open ID（可选，手工填写，逗号或空格分隔）</label>
+          <input style={field} value={agentOpenId} onChange={(e) => setAgentOpenId(e.target.value)} placeholder="如 ou_xxxxx（不在系统用户表里的飞书机器人/智能体，也会收到报告）" />
         </>
       )}
 

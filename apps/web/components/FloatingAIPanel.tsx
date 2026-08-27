@@ -433,18 +433,18 @@ export default function FloatingAIPanel({
                 >
                   <div style={{ maxWidth: '86%', display: 'flex', flexDirection: 'column', gap: 4, alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                     {editingIdx === i ? (
-                      <div style={{ display: 'flex', gap: 6, width: '100%', alignItems: 'flex-start' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
                         <textarea
                           value={editText}
                           onChange={(e) => setEditText(e.target.value)}
                           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmEdit(); } }}
-                          rows={3}
+                          rows={5}
                           autoFocus
-                          style={{ flex: 1, resize: 'vertical', minHeight: 60, background: '#fff', color: '#1a1a1a', border: '1.5px solid var(--accent)', borderRadius: 10, padding: '10px 12px', fontSize: 14, lineHeight: 1.6, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', outline: 'none' }}
+                          style={{ width: '100%', resize: 'vertical', minHeight: 80, background: '#fff', color: '#1a1a1a', border: '1.5px solid var(--accent)', borderRadius: 10, padding: '12px 14px', fontSize: 14, lineHeight: 1.6, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', outline: 'none', boxSizing: 'border-box' }}
                         />
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <button className="btn btn-primary btn-sm" style={{ padding: '5px 12px', borderRadius: 6 }} onClick={confirmEdit}>确认</button>
-                          <button className="btn btn-ghost btn-sm" style={{ padding: '5px 12px', borderRadius: 6 }} onClick={cancelEdit}>取消</button>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          <button className="btn btn-primary btn-sm" style={{ padding: '6px 16px', borderRadius: 6 }} onClick={confirmEdit}>确认</button>
+                          <button className="btn btn-ghost btn-sm" style={{ padding: '6px 16px', borderRadius: 6 }} onClick={cancelEdit}>取消</button>
                         </div>
                       </div>
                     ) : (

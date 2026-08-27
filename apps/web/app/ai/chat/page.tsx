@@ -281,14 +281,14 @@ export default function AiChatPage() {
               >
                 <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 4, alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                   {editingIdx === i ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', background: 'var(--bg-secondary)', borderRadius: 14, padding: 14, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', background: 'var(--bg-secondary)', borderRadius: 14, padding: 16, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
                       <textarea
                         value={editText}
                         onChange={(e) => setEditText(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmEdit(); } }}
-                        rows={4}
+                        rows={7}
                         autoFocus
-                        style={{ width: '100%', resize: 'vertical', minHeight: 72, background: '#fff', color: '#1a1a1a', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', fontSize: 14, lineHeight: 1.6, outline: 'none', boxSizing: 'border-box' }}
+                        style={{ width: '100%', resize: 'vertical', minHeight: 120, background: '#fff', color: '#1a1a1a', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', fontSize: 14, lineHeight: 1.65, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
                       />
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>

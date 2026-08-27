@@ -106,7 +106,7 @@ async function batchToStudentFolders(op, args, context) {
     }
     const r =
       op === 'copy'
-        ? await copyDriveFile({ fileToken: file.file_token, destFolderToken: best.file_token, name: fname, userAccessToken: userToken })
+        ? await copyDriveFile({ fileToken: file.file_token, destFolderToken: best.file_token, name: fname, type: file.type, userAccessToken: userToken })
         : await moveDriveFile({ fileToken: file.file_token, destFolderToken: best.file_token, type: 'file', userAccessToken: userToken });
     if (r && r.error) failed.push({ name: fname, to: best.name, error: r.error });
     else done.push({ name: fname, to: best.name });

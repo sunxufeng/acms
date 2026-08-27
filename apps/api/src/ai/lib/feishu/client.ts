@@ -370,7 +370,7 @@ export async function listDriveFiles({ folderToken, pageSize = 50, userAccessTok
   const data = await res.json();
   if (data.code !== 0) return { error: `列出云盘文件失败: ${data.msg}` };
   const files = ((data.data && data.data.files) || []).map((f: Record<string, any>) => ({
-    file_token: f.file_token,
+    file_token: f.file_token || f.token,
     name: f.name,
     type: f.type, // 'file' | 'folder'
     parent_token: f.parent_token,
@@ -391,19 +391,23 @@ export async function moveDriveFile({ fileToken, destFolderToken, type = 'file',
   return { ok: true, file_token: (data.data && data.data.file_token) || fileToken };
 }
 
-// 复制文件到目标文件夹（保留源文件）。type 固定 'file'。
-export async function copyDriveFile({ fileToken, destFolderToken, name, userAccessToken }: { fileToken: string; destFolderToken: string; name?: string; userAccessToken: string }) {
+// 复制文件到目标文件夹（保留源文件）。
+// 飞书复制文档接口：POST /open-apis/drive/explorer/v2/file/copy/files/:fileToken
+//   - fileToken 放在 URL 路径里（不是 body）
+//   - body 用 dstFolderToken（目标文件夹）+ dstName（副本名称），不是 folder_token/name
+//   - 响应新文件 token 在 data.data.token
+export async function copyDriveFile({ fileToken, destFolderToken, name, type = 'file', userAccessToken }: { fileToken: string; destFolderToken: string; name?: string; type?: string; userAccessToken: string }) {
   if (!userAccessToken) return { error: '缺少用户飞书令牌（未授权云盘）' };
-  const body: Record<string, any> = { type: 'file', file_token: fileToken, folder_token: destFolderToken };
-  if (name) body.name = name;
-  const res = await fetch(`${FEISHU_HOST}/open-apis/drive/explorer/v2/file/copy`, {
+  const body: Record<string, any> = { type, dstFolderToken: destFolderToken };
+  if (name) body.dstName = name;
+  const res = await fetch(`${FEISHU_HOST}/open-apis/drive/explorer/v2/file/copy/files/${fileToken}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${userAccessToken}` },
+    headers: { 'content-type': 'application/json; charset=utf-8', authorization: `Bearer ${userAccessToken}` },
     body: JSON.stringify(body),
   });
   const data = await res.json();
   if (data.code !== 0) return { error: `复制文件失败: ${data.msg}` };
-  return { ok: true, file_token: (data.data && data.data.file_token) || '' };
+  return { ok: true, file_token: (data.data && data.data.token) || '' };
 }
 
 // 分页列出某文件夹下所有文件与子文件夹（自动翻页，避免一次性超过 page_size 上限）

@@ -281,18 +281,24 @@ export default function AiChatPage() {
               >
                 <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 4, alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                   {editingIdx === i ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', background: 'var(--bg-secondary)', borderRadius: 14, padding: 14, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
                       <textarea
                         value={editText}
                         onChange={(e) => setEditText(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmEdit(); } }}
-                        rows={5}
+                        rows={4}
                         autoFocus
-                        style={{ width: '100%', resize: 'vertical', minHeight: 80, background: '#fff', color: '#1a1a1a', border: '1.5px solid var(--accent)', borderRadius: 10, padding: '12px 14px', fontSize: 14, lineHeight: 1.6, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', outline: 'none', boxSizing: 'border-box' }}
+                        style={{ width: '100%', resize: 'vertical', minHeight: 72, background: '#fff', color: '#1a1a1a', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', fontSize: 14, lineHeight: 1.6, outline: 'none', boxSizing: 'border-box' }}
                       />
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        <button style={{ ...btn(true), padding: '6px 16px', fontSize: 13, borderRadius: 6 }} onClick={confirmEdit}>确认</button>
-                        <button style={{ ...btn(), padding: '6px 16px', fontSize: 13, borderRadius: 6 }} onClick={cancelEdit}>取消</button>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                          编辑后将从此处重新开始对话，已有产物不会被删除
+                        </span>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button onClick={cancelEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)' }}>取消</button>
+                          <button onClick={confirmEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: '#1a1a1a', color: '#fff', border: 'none' }}>发送</button>
+                        </div>
                       </div>
                     </div>
                   ) : (

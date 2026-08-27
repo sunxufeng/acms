@@ -61,10 +61,10 @@ function nameKeys(name) {
   const base = stripExt(name);
   const keys = new Set();
   if (base) keys.add(base);
-  const cn = base.match(/^[\u4e00-\u9fa5]+/);
-  if (cn && cn[0]) keys.add(cn[0]);
-  const mixed = base.match(/^[A-Za-z\u4e00-\u9fa5]+(?=\s|[-_【(]|$)/);
-  if (mixed && mixed[0]) keys.add(mixed[0]);
+  // 取开头一段：以常见分隔符（的 / - _ 【 ( （ 空格）截断，如「白一凡的学习情况评价...」→「白一凡」
+  // 这样「白一凡的学习情况评价」能匹配文件夹「白一凡Leon」（含「白一凡」）
+  const front = base.split(/[-_ 【(（\s的]/)[0];
+  if (front) keys.add(front);
   return Array.from(keys);
 }
 

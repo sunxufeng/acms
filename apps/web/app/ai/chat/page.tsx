@@ -300,7 +300,7 @@ export default function AiChatPage() {
         >
           <div
             style={{
-              background: 'var(--bg-primary)',
+              background: '#ffffff',
               borderRadius: 16,
               boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
               width: 520,

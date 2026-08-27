@@ -33,12 +33,12 @@ export default function AiConfigPage() {
         <div className="page-header-row">
           <div>
             <div className="page-eyebrow">AI / PERSONAL API</div>
-            <h1 className="page-title">API 设置</h1>
+            <h1 className="page-title">Provider 设置</h1>
             <p className="page-subtitle">每个人独立维护自己的 Provider、API Key 和模型，不共享密钥。</p>
           </div>
           <div className="page-actions">
             <Link href={config ? '/ai/config/edit' : '/ai/config/new'} className="btn btn-primary">
-              {config ? '编辑 API 配置' : '＋ 新增 API 配置'}
+              新建
             </Link>
           </div>
         </div>

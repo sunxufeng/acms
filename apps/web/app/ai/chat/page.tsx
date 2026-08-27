@@ -6,6 +6,7 @@ import { api } from '../../../lib/api';
 import Markdown from '../../../components/Markdown';
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
+type FileRef = { file_token: string; name: string };
 
 const wrap: React.CSSProperties = {
   display: 'flex',
@@ -37,6 +38,10 @@ export default function AiChatPage() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editText, setEditText] = useState('');
+  const [fileRefs, setFileRefs] = useState<FileRef[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,23 +54,33 @@ export default function AiChatPage() {
     scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' });
   }, [messages]);
 
-  async function send() {
-    const text = input.trim();
+  async function send(overrideText?: string) {
+    const text = (overrideText ?? input).trim();
     if (!text || sending) return;
-    setInput('');
+    if (!overrideText) setInput('');
+    setFileRefs([]);
     const next = [...messages, { role: 'user' as const, content: text }];
     setMessages(next);
     setSending(true);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
-      const r = await api.aiChat({ message: text, sessionId: sessionId ?? undefined, agentId: agentId || undefined, history: next });
+      const r = await api.aiChat({ message: text, sessionId: sessionId ?? undefined, agentId: agentId || undefined, history: next }, ac.signal);
       setMessages([...next, { role: 'assistant' as const, content: r.content }]);
       if (r.sessionId && !sessionId) setSessionId(r.sessionId);
       api.aiListConversations().then(setConvs).catch(() => null);
-    } catch (e) {
+    } catch (e: any) {
+      if (e.name === 'AbortError') return;
       setMessages([...next, { role: 'assistant' as const, content: `⚠️ ${e instanceof Error ? e.message : String(e)}` }]);
     } finally {
+      if (abortRef.current === ac) abortRef.current = null;
       setSending(false);
     }
+  }
+
+  function stopGenerating() {
+    abortRef.current?.abort();
+    setSending(false);
   }
 
   async function newChat() {
@@ -110,6 +125,57 @@ export default function AiChatPage() {
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  function startEdit(idx: number) {
+    const m = messages[idx];
+    if (m.role !== 'user') return;
+    setEditingIdx(idx);
+    setEditText(m.content);
+  }
+
+  function confirmEdit() {
+    if (editingIdx === null) return;
+    const text = editText.trim();
+    if (!text) return;
+    const next = [...messages];
+    next[editingIdx] = { role: 'user' as const, content: text };
+    setMessages(next);
+    // 删除该条之后的所有消息（assistant 回复），然后重新发送
+    const trimmed = next.slice(0, editingIdx + 1);
+    setMessages(trimmed);
+    setEditingIdx(null);
+    send(text);
+  }
+
+  function cancelEdit() {
+    setEditingIdx(null);
+    setEditText('');
+  }
+
+  async function copyMessage(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // fallback
+      const ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    }
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files?.length) return;
+    const uploaded: FileRef[] = [];
+    for (const f of Array.from(files)) {
+      try {
+        const r = await api.uploadFile(f);
+        if (r.ok && r.file_token) uploaded.push({ file_token: r.file_token, name: r.name || f.name });
+      } catch { /* skip failed */ }
+    }
+    if (uploaded.length) setFileRefs((prev) => [...prev, ...uploaded]);
+    e.target.value = '';
   }
 
   return (
@@ -210,32 +276,77 @@ export default function AiChatPage() {
             )}
             {messages.map((m, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                <div
-                  style={{
-                    maxWidth: '78%',
-                    background: m.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)',
-                    color: m.role === 'user' ? '#fff' : 'var(--text)',
-                    padding: '10px 14px',
-                    borderRadius: 12,
-                    fontSize: 14,
-                    lineHeight: 1.6,
-                  }}
-                >
-                  <Markdown>{m.content}</Markdown>
+                <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 4, alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                  {editingIdx === i ? (
+                    <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+                      <textarea
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmEdit(); } }}
+                        rows={2}
+                        style={{ flex: 1, resize: 'none', background: 'var(--bg-tertiary)', color: 'var(--text)', border: '1px solid var(--accent)', borderRadius: 8, padding: 8, fontSize: 14 }}
+                      />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <button style={{ ...btn(true), padding: '4px 10px', fontSize: 12 }} onClick={confirmEdit}>确认</button>
+                        <button style={{ ...btn(), padding: '4px 10px', fontSize: 12 }} onClick={cancelEdit}>取消</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div
+                        style={{
+                          background: m.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)',
+                          color: m.role === 'user' ? '#fff' : 'var(--text)',
+                          padding: '10px 14px',
+                          borderRadius: 12,
+                          fontSize: 14,
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        <Markdown>{m.content}</Markdown>
+                      </div>
+                      {m.role === 'user' && (
+                        <div style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+                          <button title="复制" onClick={() => copyMessage(m.content)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '2px 4px' }}>📋 复制</button>
+                          <button title="编辑并重新发送" onClick={() => startEdit(i)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '2px 4px' }}>✏️ 编辑</button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             ))}
             {sending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>思考中…</div>}
           </div>
-          <div style={{ borderTop: '1px solid var(--border)', padding: 12, display: 'flex', gap: 8 }}>
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-              style={{ flex: 1, resize: 'none', height: 44, background: 'var(--bg-tertiary)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, fontSize: 14 }}
-            />
-            <button style={btn(true)} disabled={sending} onClick={send}>{sending ? '发送中' : '发送'}</button>
+          <div style={{ borderTop: '1px solid var(--border)', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {fileRefs.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {fileRefs.map((f, i) => (
+                  <span key={i} style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    📎 {f.name}
+                    <button onClick={() => setFileRefs((prev) => prev.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, fontSize: 14 }}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <label title="添加本地文件" style={{ ...btn(), padding: '7px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                📎
+                <input type="file" multiple onChange={handleFileUpload} style={{ display: 'none' }} />
+              </label>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+                style={{ flex: 1, resize: 'none', height: 44, background: 'var(--bg-tertiary)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, fontSize: 14 }}
+              />
+              {sending ? (
+                <button style={{ ...btn(), borderColor: 'var(--danger, #ff5c5c)', color: 'var(--danger, #ff5c5c)' }} onClick={stopGenerating}>停止</button>
+              ) : (
+                <button style={btn(true)} disabled={!input.trim()} onClick={() => send()}>发送</button>
+              )}
+            </div>
           </div>
         </div>
       </div>

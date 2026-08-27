@@ -643,8 +643,8 @@ export const api = {
   aiDeleteConfig: () => request<{ ok: boolean }>('/ai/config/me', { method: 'DELETE' }),
   aiTestConfig: (data: Record<string, unknown>) =>
     request<{ ok: boolean; error?: string }>('/ai/config/test', { method: 'POST', body: JSON.stringify(data) }),
-  aiChat: (data: { message: string; sessionId?: string; model?: string; agentId?: string; history?: { role: string; content: string }[] }) =>
-    request<{ content: string; sessionId: string; steps: number }>('/ai/chat', { method: 'POST', body: JSON.stringify(data) }),
+  aiChat: (data: { message: string; sessionId?: string; model?: string; agentId?: string; history?: { role: string; content: string }[] }, signal?: AbortSignal) =>
+    request<{ content: string; sessionId: string; steps: number }>('/ai/chat', { method: 'POST', body: JSON.stringify(data), signal }),
   aiListConversations: () => request<{ id: string; title: string; updatedAt: string }[]>('/ai/conversations'),
   aiCreateConversation: (data: { title?: string }) =>
     request<{ id: string }>('/ai/conversations', { method: 'POST', body: JSON.stringify(data) }),

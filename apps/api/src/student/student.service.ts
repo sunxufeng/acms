@@ -363,6 +363,28 @@ export class StudentService {
     return { ok: true };
   }
 
+  /**
+   * 移除学生「学生照片」中的某张：从记录的「学生照片」数组里摘除匹配 file_token 的项。
+   * 底层飞书文件保留（与附件移除一致，仅解绑关联），避免误删共享文件。
+   */
+  async removePhoto(user: SessionUser, studentId: string, fileToken: string): Promise<{ ok: boolean }> {
+    const principal = toPrincipal(user);
+    const existing = await this.detail(user, studentId); // 存在性 + read ABAC
+    const decision = authorize(principal, 'student:write', {
+      campus: existing.校区 as string | undefined,
+      dataLevel: existing.数据密级 as string | undefined,
+    });
+    if (!decision.allowed) {
+      throw new ForbiddenException(`FORBIDDEN:student:write:${decision.reason}`);
+    }
+    const currentPhotos = Array.isArray(existing['学生照片']) ? existing['学生照片'] : [];
+    const filtered = (currentPhotos as unknown[])
+      .map((p: any) => ({ file_token: p?.file_token ?? p }))
+      .filter((p: { file_token?: string }) => p.file_token !== fileToken);
+    await this.update(user, studentId, { 学生照片: filtered } as any);
+    return { ok: true };
+  }
+
   /** 新建（ABAC write 校验） */
   async create(user: SessionUser, dto: CreateStudentDto) {
     const principal = toPrincipal(user);

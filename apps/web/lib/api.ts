@@ -144,6 +144,12 @@ export const api = {
       method: 'DELETE',
     }),
 
+  /** 移除学生照片（从「学生照片」字段摘除指定 file_token） */
+  deleteStudentPhoto: (id: string, fileToken: string) =>
+    request<{ ok: boolean }>(`/students/${id}/photo/${encodeURIComponent(fileToken)}`, {
+      method: 'DELETE',
+    }),
+
   /** 通用文件上传（家校沟通附件等）：音频 / 文本 / MD 等，返回 { ok, file_token, name } */
   uploadFile: (file: File) => {
     const form = new FormData();

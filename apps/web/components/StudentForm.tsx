@@ -717,7 +717,7 @@ function formatUploadTime(iso?: string): string {
 /** 照片与附件展示组件（独立子组件，避免类型推断污染主表单） */
 function PhotoAttachmentSection({
   photos, attachments, readOnly, studentId,
-  uploadingPhoto, uploadingAtt, onPhotoUpload, onAttUpload, onAttRemove,
+  uploadingPhoto, uploadingAtt, onPhotoUpload, onAttUpload, onAttRemove, onPhotoRemove,
 }: {
   photos: FileAttachment[];
   attachments: FileAttachment[];
@@ -728,6 +728,7 @@ function PhotoAttachmentSection({
   onPhotoUpload: () => void;
   onAttUpload: () => void;
   onAttRemove: (fileToken: string) => void;
+  onPhotoRemove: (fileToken: string) => void;
 }) {
   return (
     <div className="photo-att-row">
@@ -755,8 +756,18 @@ function PhotoAttachmentSection({
                 {uploadingPhoto ? '上传中...' : '上传照片'}
               </button>
               {photos.length > 0 && (
-                <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
-                  已有 {photos.length} 张
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
+                    已有 {photos.length} 张
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ marginLeft: 0, flexShrink: 0 }}
+                    onClick={() => onPhotoRemove(photos[0].file_token)}
+                  >
+                    移除
+                  </button>
                 </span>
               )}
             </div>
@@ -992,6 +1003,21 @@ function PhotoAttachmentSection({
     } catch (err) { alert('移除失败：' + (err as Error).message); }
   };
 
+  /** 移除照片 */
+  const handlePhotoRemove = async (fileToken: string) => {
+    if (!fileToken) return;
+    if (!studentId) {
+      // 尚未落库的新建态：仅本地移除
+      setPhotos((prev) => prev.filter((p) => p.file_token !== fileToken));
+      return;
+    }
+    if (!confirm('确定移除该照片？')) return;
+    try {
+      await api.deleteStudentPhoto(studentId, fileToken);
+      setPhotos((prev) => prev.filter((p) => p.file_token !== fileToken));
+    } catch (err) { alert('移除失败：' + (err as Error).message); }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const data = buildData();
@@ -1021,6 +1047,7 @@ function PhotoAttachmentSection({
         onPhotoUpload={() => photoInputRef.current?.click()}
         onAttUpload={() => attInputRef.current?.click()}
         onAttRemove={handleAttRemove}
+        onPhotoRemove={handlePhotoRemove}
       />
       <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
       <input ref={attInputRef} type="file" onChange={handleAttUpload} style={{ display: 'none' }} />

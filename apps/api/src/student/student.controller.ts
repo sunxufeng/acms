@@ -99,6 +99,17 @@ export class StudentController {
     return { ok: true, file_token, viewUrl: newPhoto?.viewUrl, name: newPhoto?.name };
   }
 
+  /** 移除学生照片（从「学生照片」字段摘除指定 file_token，底层飞书文件保留） */
+  @Delete(':id/photo/:file_token')
+  @HttpCode(200)
+  async removePhoto(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('file_token') fileToken: string,
+  ) {
+    return this.svc.removePhoto(this.user(req), id, fileToken);
+  }
+
   /** 上传学生附件（证件与文件）：在关联表建记录并双向链接到学生 */
   @Post(':id/attachments')
   @UseInterceptors(FileInterceptor('file'))

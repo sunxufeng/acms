@@ -275,40 +275,54 @@ export default function AiChatPage() {
               </div>
             )}
             {messages.map((m, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+              <div key={i} className="msg-row" style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}
+                onMouseEnter={(e) => { const el = e.currentTarget.querySelector('.msg-actions'); if (el) (el as HTMLElement).style.opacity = '1'; }}
+                onMouseLeave={(e) => { const el = e.currentTarget.querySelector('.msg-actions'); if (el) (el as HTMLElement).style.opacity = '0'; }}
+              >
                 <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 4, alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                   {editingIdx === i ? (
-                    <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+                    <div style={{ display: 'flex', gap: 6, width: '100%', alignItems: 'flex-start' }}>
                       <textarea
                         value={editText}
                         onChange={(e) => setEditText(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmEdit(); } }}
-                        rows={2}
-                        style={{ flex: 1, resize: 'none', background: 'var(--bg-tertiary)', color: 'var(--text)', border: '1px solid var(--accent)', borderRadius: 8, padding: 8, fontSize: 14 }}
+                        rows={3}
+                        autoFocus
+                        style={{ flex: 1, resize: 'vertical', minHeight: 60, background: '#fff', color: '#1a1a1a', border: '1.5px solid var(--accent)', borderRadius: 10, padding: '10px 12px', fontSize: 14, lineHeight: 1.6, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', outline: 'none' }}
                       />
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <button style={{ ...btn(true), padding: '4px 10px', fontSize: 12 }} onClick={confirmEdit}>确认</button>
-                        <button style={{ ...btn(), padding: '4px 10px', fontSize: 12 }} onClick={cancelEdit}>取消</button>
+                        <button style={{ ...btn(true), padding: '5px 12px', fontSize: 12, borderRadius: 6 }} onClick={confirmEdit}>确认</button>
+                        <button style={{ ...btn(), padding: '5px 12px', fontSize: 12, borderRadius: 6 }} onClick={cancelEdit}>取消</button>
                       </div>
                     </div>
                   ) : (
                     <>
                       <div
+                        className="msg-bubble"
                         style={{
+                          position: 'relative',
                           background: m.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)',
                           color: m.role === 'user' ? '#fff' : 'var(--text)',
                           padding: '10px 14px',
                           borderRadius: 12,
                           fontSize: 14,
                           lineHeight: 1.6,
+                          transition: 'filter 0.15s',
                         }}
                       >
                         <Markdown>{m.content}</Markdown>
                       </div>
                       {m.role === 'user' && (
-                        <div style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-                          <button title="复制" onClick={() => copyMessage(m.content)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '2px 4px' }}>📋 复制</button>
-                          <button title="编辑并重新发送" onClick={() => startEdit(i)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '2px 4px' }}>✏️ 编辑</button>
+                        <div className="msg-actions" style={{ display: 'flex', gap: 6, alignItems: 'center', opacity: 0, transition: 'opacity 0.15s', height: 20 }}>
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+                          <button title="复制" onClick={() => copyMessage(m.content)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, borderRadius: 4, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                          ><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                          <button title="编辑并重新发送" onClick={() => startEdit(i)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, borderRadius: 4, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                          ><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
                         </div>
                       )}
                     </>

@@ -59,6 +59,7 @@ import {
   getSkill as getSkillStore,
   saveSkill as saveSkillStore,
 } from './lib/config/skillStore.js';
+import { feishuDriveTools } from './lib/tools/feishuDrive.js';
 
 type Principal = { roles: readonly string[]; campuses: readonly string[]; maxDataLevel?: string };
 
@@ -68,14 +69,14 @@ export class AiService implements OnModuleInit {
   private runtime: AgentRuntime;
 
   constructor() {
-    this.runtime = new AgentRuntime({ tools: [...webTools, createFeishuDocTool] });
+    this.runtime = new AgentRuntime({ tools: [...webTools, createFeishuDocTool, ...feishuDriveTools] });
   }
 
   async onModuleInit() {
     // 把共享 AgentRuntime 注入给自动化执行器（供 cron 触发时复用工具）
     initRunner({
       agent: this.runtime,
-      makeRuntime: () => new AgentRuntime({ tools: [...webTools, createFeishuDocTool] }),
+      makeRuntime: () => new AgentRuntime({ tools: [...webTools, createFeishuDocTool, ...feishuDriveTools] }),
     });
     try {
       await ensureLoaded();
@@ -184,7 +185,7 @@ export class AiService implements OnModuleInit {
 
   // 可用工具清单（供智能体「工具开关」使用）
   listTools(_user: SessionUser) {
-    return [...webTools, createFeishuDocTool].map((t) => ({ name: t.name, description: t.description || '' }));
+    return [...webTools, createFeishuDocTool, ...feishuDriveTools].map((t) => ({ name: t.name, description: t.description || '' }));
   }
 
   // ---------------- 技能（工具文档） ----------------

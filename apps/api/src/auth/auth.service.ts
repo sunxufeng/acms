@@ -42,7 +42,7 @@ export class AuthService {
       client_id: this.appId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: 'auth:user.id:read',
+      scope: ['auth:user.id:read', ...(process.env.FEISHU_DRIVE_SCOPE === '1' ? ['drive:drive'] : [])].join(' '),
       state,
       code_challenge: challenge,
       code_challenge_method: 'S256',
@@ -94,6 +94,25 @@ export class AuthService {
       throw new UnauthorizedException('USER_INFO_FAILED');
     }
     const principal = await this.resolvePrincipal(openId, name);
+
+    // 若开启了云盘授权 scope，则把用户的飞书令牌（access/refresh/expires）持久化，
+    // 供 AI 以「用户身份」操作其飞书云盘（列目录、移动文件）。未开通权限时不做。
+    if (process.env.FEISHU_DRIVE_SCOPE === '1') {
+      try {
+        const { setUserToken } = await import('../ai/lib/config/userConfigStore.js');
+        const td = tokenData as Record<string, any>;
+        const refreshToken = td.refresh_token || (td.data && td.data.refresh_token);
+        const expiresIn = Number(td.expires_in || (td.data && td.data.expires_in) || 7200);
+        setUserToken(openId, {
+          accessToken,
+          refreshToken: refreshToken || undefined,
+          expiresAt: Date.now() + expiresIn * 1000,
+        });
+      } catch (e) {
+        console.warn('[auth] 持久化用户云盘令牌失败:', (e as Error).message);
+      }
+    }
+
     return this.sessions.create(principal);
   }
 

@@ -357,6 +357,40 @@ export function cardMarkdown(md = '') {
   return out.join('\n');
 }
 
+// ---------- 飞书云盘（Drive）操作：以用户身份（user_access_token）读写个人/已授权云盘 ----------
+// 注意：这些接口必须在「用户已授权 drive 权限」的前提下，用用户的 user_access_token 调用；
+// tenant_access_token 只能访问应用被显式授权/挂载的空间，访问不了用户的个人云盘。
+// folderToken 来自云盘链接 .../folder/<token>。
+
+// 列出某个文件夹下的文件与子文件夹
+export async function listDriveFiles({ folderToken, pageSize = 50, userAccessToken }: { folderToken: string; pageSize?: number; userAccessToken: string }) {
+  if (!userAccessToken) return { error: '缺少用户飞书令牌（未授权云盘）' };
+  const url = `${FEISHU_HOST}/open-apis/drive/v1/files?folder_token=${encodeURIComponent(folderToken)}&page_size=${Math.min(100, pageSize)}`;
+  const res = await fetch(url, { headers: { authorization: `Bearer ${userAccessToken}` } });
+  const data = await res.json();
+  if (data.code !== 0) return { error: `列出云盘文件失败: ${data.msg}` };
+  const files = ((data.data && data.data.files) || []).map((f: Record<string, any>) => ({
+    file_token: f.file_token,
+    name: f.name,
+    type: f.type, // 'file' | 'folder'
+    parent_token: f.parent_token,
+  }));
+  return { files, next_page_token: (data.data && data.data.next_page_token) || '' };
+}
+
+// 移动文件/文件夹到目标文件夹。type: 'file' | 'folder'
+export async function moveDriveFile({ fileToken, destFolderToken, type = 'file', userAccessToken }: { fileToken: string; destFolderToken: string; type?: 'file' | 'folder'; userAccessToken: string }) {
+  if (!userAccessToken) return { error: '缺少用户飞书令牌（未授权云盘）' };
+  const res = await fetch(`${FEISHU_HOST}/open-apis/drive/v1/files/move`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${userAccessToken}` },
+    body: JSON.stringify({ file_token: fileToken, folder_token: destFolderToken, type }),
+  });
+  const data = await res.json();
+  if (data.code !== 0) return { error: `移动文件失败: ${data.msg}` };
+  return { ok: true, file_token: (data.data && data.data.file_token) || fileToken };
+}
+
 export async function sendMarkdown(receiveId, md, creds, opts = {}) {
   const receiveIdType = opts.receiveIdType || 'open_id';
   const cardTitle = opts.title || 'Acaily';

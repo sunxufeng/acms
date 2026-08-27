@@ -30,6 +30,7 @@ const btn = (primary = false): React.CSSProperties => ({
 });
 
 type AgentOption = { id: string; name: string; emoji?: string; provider?: string; model?: string };
+type UserOption = { openId: string; name: string; role?: string };
 
 export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; onDone: () => void }) {
   const isEdit = !!initial?.id;
@@ -41,9 +42,12 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
   const [cron, setCron] = useState(initial?.cron || '35 9 * * *');
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
   const [idleOnly, setIdleOnly] = useState(!!initial?.idleOnly);
-  const [pushTo, setPushTo] = useState((initial?.pushTo || []).join(', '));
   const [maxSteps, setMaxSteps] = useState(initial?.maxSteps || 10);
   const [agentId, setAgentId] = useState(initial?.agentId || '');
+  // 结果动作：push（默认，推送给收件人）/ memory（仅写回智能体记忆，无需收件人）
+  const [actionType, setActionType] = useState(initial?.actionType === 'memory' ? 'memory' : 'push');
+  const [recipients, setRecipients] = useState<string[]>((initial?.pushTo || []).filter(Boolean));
+  const [users, setUsers] = useState<UserOption[]>([]);
 
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [busy, setBusy] = useState(false);
@@ -51,6 +55,30 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
 
   useEffect(() => {
     api.aiListAgents().then((list) => setAgents(list as AgentOption[])).catch(() => null);
+  }, []);
+
+  // 从系统用户表拉取「飞书 Open ID」，作为收件人选择器数据源（无需手动查 open_id）
+  useEffect(() => {
+    let alive = true;
+    const collected: UserOption[] = [];
+    const fetchPage = async (token?: string): Promise<void> => {
+      const params: Record<string, string | undefined> = { pageSize: '100' };
+      if (token) params.pageToken = token;
+      const p = await api.listUsers(params);
+      for (const u of p.items) {
+        const openId = String(u['飞书 Open ID'] ?? '');
+        if (openId) collected.push({ openId, name: String(u['姓名'] ?? ''), role: Array.isArray(u['系统角色']) ? u['系统角色'].join('、') : String(u['系统角色'] ?? '') });
+      }
+      if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
+    };
+    fetchPage()
+      .then(() => {
+        if (alive) setUsers(collected);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const selAgent = agents.find((a) => a.id === agentId) || null;
@@ -68,10 +96,12 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
     try {
       const payload: Record<string, unknown> = {
         title, description, cron, enabled, idleOnly,
-        pushTo: pushTo.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
+        actionType,
         maxSteps: Number(maxSteps) || 10,
         agentId: agentId || undefined,
       };
+      // 仅记忆型不需要收件人；推送型才带 pushTo
+      if (actionType === 'push') payload.pushTo = recipients;
       if (isEdit) await api.aiUpdateAutomation(initial!.id!, payload);
       else await api.aiCreateAutomation(payload);
       onDone();
@@ -121,8 +151,36 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
       <label style={label}>Cron 表达式（5 字段，可手动改）</label>
       <input style={field} value={cron} onChange={(e) => setCron(e.target.value)} />
 
-      <label style={label}>收件人 open_id（逗号或空格分隔，至少 1 个）</label>
-      <input style={field} value={pushTo} onChange={(e) => setPushTo(e.target.value)} placeholder="ou_xxx, ou_yyy" />
+      <label style={label}>结果动作</label>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 10 }}>
+        <label style={{ fontSize: 13 }}><input type="radio" name="actionType" checked={actionType === 'push'} onChange={() => setActionType('push')} /> 推送（发给收件人）</label>
+        <label style={{ fontSize: 13 }}><input type="radio" name="actionType" checked={actionType === 'memory'} onChange={() => setActionType('memory')} /> 仅记忆（不推送，写回智能体记忆）</label>
+      </div>
+
+      {actionType === 'push' && (
+        <>
+          <label style={label}>收件人（从系统用户中选择，自动取其飞书 open_id）</label>
+          <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: 8, marginBottom: 10 }}>
+            {users.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>加载中…（若列表为空，说明系统用户表暂无飞书 Open ID）</div>
+            ) : (
+              users.map((u) => (
+                <label key={u.openId} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '4px 0', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={recipients.includes(u.openId)}
+                    onChange={(e) => setRecipients((prev) => (e.target.checked ? Array.from(new Set([...prev, u.openId])) : prev.filter((x) => x !== u.openId)))}
+                  />
+                  <span>{u.name || u.openId}</span>
+                  {u.role ? <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{u.role}</span> : null}
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>{u.openId}</span>
+                </label>
+              ))
+            )}
+          </div>
+          {recipients.length === 0 && <p style={{ fontSize: 12, color: 'var(--text-warn)', marginBottom: 10 }}>请至少选择 1 个收件人，或在上方改为「仅记忆」。</p>}
+        </>
+      )}
 
       <div style={{ display: 'flex', gap: 16, marginBottom: 10 }}>
         <label style={{ fontSize: 13 }}><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> 启用</label>

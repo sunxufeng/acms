@@ -7,6 +7,7 @@ import Markdown from '../../../components/Markdown';
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
 type FileRef = { file_token: string; name: string };
+type Conv = { id: string; title: string; updatedAt: string };
 
 const wrap: React.CSSProperties = {
   display: 'flex',
@@ -29,8 +30,27 @@ const btn = (primary = false): React.CSSProperties => ({
   fontSize: 13,
 });
 
+// Panel icon SVG for sidebar toggle
+function PanelIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      {collapsed ? (
+        <>
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="9" y1="3" x2="9" y2="21"/>
+        </>
+      ) : (
+        <>
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="15" y1="3" x2="15" y2="21"/>
+        </>
+      )}
+    </svg>
+  );
+}
+
 export default function AiChatPage() {
-  const [convs, setConvs] = useState<{ id: string; title: string; updatedAt: string }[]>([]);
+  const [convs, setConvs] = useState<Conv[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string; provider?: string; model?: string; emoji?: string }[]>([]);
   const [agentId, setAgentId] = useState('');
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -44,11 +64,21 @@ export default function AiChatPage() {
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Search & sidebar state
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     api.aiListConversations().then(setConvs).catch(() => null);
-    // 加载智能体列表，供「选择 Provider/智能体」下拉；无权限（普通用户）时静默降级为仅默认项
-    api.aiListAgents().then((list) => setAgents((list as { id: string; name: string; provider?: string; model?: string; emoji?: string }[]) || [])).catch(() => null);
+    api.aiListAgents().then((list) => setAgents((list as typeof agents) || [])).catch(() => null);
   }, []);
+
+  // Focus search input when opened
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' });
@@ -104,7 +134,7 @@ export default function AiChatPage() {
     }
   }
 
-  async function renameConv(c: { id: string; title: string }) {
+  async function renameConv(c: Conv) {
     const next = window.prompt('修改对话名称', c.title || '');
     if (next === null) return;
     if (!next.trim()) { alert('名称不能为空'); return; }
@@ -116,7 +146,7 @@ export default function AiChatPage() {
     }
   }
 
-  async function deleteConv(c: { id: string; title?: string }) {
+  async function deleteConv(c: Conv) {
     if (!window.confirm(`确认删除对话「${c.title || '未命名'}」？此操作不可恢复。`)) return;
     try {
       await api.aiDeleteConversation(c.id);
@@ -141,7 +171,6 @@ export default function AiChatPage() {
     const next = [...messages];
     next[editingIdx] = { role: 'user' as const, content: text };
     setMessages(next);
-    // 删除该条之后的所有消息（assistant 回复），然后重新发送
     const trimmed = next.slice(0, editingIdx + 1);
     setMessages(trimmed);
     setEditingIdx(null);
@@ -154,10 +183,7 @@ export default function AiChatPage() {
   }
 
   async function copyMessage(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // fallback
+    try { await navigator.clipboard.writeText(text); } catch {
       const ta = document.createElement('textarea');
       ta.value = text; document.body.appendChild(ta); ta.select();
       document.execCommand('copy'); document.body.removeChild(ta);
@@ -172,101 +198,245 @@ export default function AiChatPage() {
       try {
         const r = await api.uploadFile(f);
         if (r.ok && r.file_token) uploaded.push({ file_token: r.file_token, name: r.name || f.name });
-      } catch { /* skip failed */ }
+      } catch { /* skip */ }
     }
     if (uploaded.length) setFileRefs((prev) => [...prev, ...uploaded]);
     e.target.value = '';
   }
 
+  // Search conversations
+  async function handleSearch(q: string) {
+    setSearchQuery(q);
+    if (!q.trim()) {
+      api.aiListConversations().then(setConvs).catch(() => null);
+      return;
+    }
+    try {
+      const results = await api.aiListConversations(q.trim());
+      setConvs(results as Conv[]);
+    } catch { /* keep current */ }
+  }
+
   return (
-    <div style={{ padding: 16 }} onClick={() => menuId && setMenuId(null)}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
-          <div>
-            <h2 style={{ margin: 0 }}>AI 对话</h2>
-            <small style={{ color: 'var(--text-muted)' }}>基于你个人配置的模型网关；未配置则请先在「模型设置」中填写 Provider / API Key / Model。</small>
-          </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <label style={{ fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              智能体 / Provider
-              <select
-                value={agentId}
-                onChange={(e) => setAgentId(e.target.value)}
-                style={{ background: 'var(--bg-tertiary)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontSize: 13 }}
+    <div style={{ padding: 16 }} onClick={() => { menuId && setMenuId(null); searchOpen && undefined; }}>
+      {/* Top bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h2 style={{ margin: 0 }}>AI 对话</h2>
+          {/* Search button */}
+          <button
+            onClick={() => setSearchOpen(!searchOpen)}
+            title="搜索历史记录"
+            style={{
+              background: searchOpen ? 'var(--bg-tertiary)' : 'transparent',
+              border: `1px solid ${searchOpen ? 'var(--border)' : 'transparent'}`,
+              borderRadius: 8,
+              padding: '6px 8px',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+          </button>
+          {/* Sidebar collapse toggle */}
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: '5px 7px',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <PanelIcon collapsed={sidebarCollapsed} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            智能体 / Provider
+            <select
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              style={{ background: 'var(--bg-tertiary)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontSize: 13 }}
+            >
+              <option value="">个人默认配置</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}（{(a.provider || '—')}{a.model ? ` · ${a.model}` : ''}）
+                </option>
+              ))}
+            </select>
+          </label>
+          <button style={btn()} onClick={newChat}>＋ 新对话</button>
+        </div>
+      </div>
+
+      {/* Search Panel (Doubao-style overlay) */}
+      {searchOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.25)',
+            zIndex: 100,
+            display: 'flex',
+            justifyContent: 'center',
+            paddingTop: 80,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setSearchOpen(false); }}
+        >
+          <div
+            style={{
+              background: 'var(--bg-primary)',
+              borderRadius: 16,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+              width: 520,
+              maxWidth: '90vw',
+              maxHeight: '70vh',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Search header */}
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+              <input
+                ref={searchInputRef}
+                style={{
+                  flex: 1,
+                  border: 'none',
+                  outline: 'none',
+                  fontSize: 15,
+                  background: 'transparent',
+                  color: 'var(--text)',
+                }}
+                placeholder="搜索"
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+              />
+              <button
+                onClick={() => { setSearchOpen(false); setSearchQuery(''); api.aiListConversations().then(setConvs).catch(() => null); }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}
+              >×</button>
+            </div>
+
+            {/* Search results */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+              {/* Quick create */}
+              <div
+                style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', color: 'var(--text-muted)' }}
+                onClick={() => { setSearchOpen(false); newChat(); }}
               >
-                <option value="">个人默认配置</option>
-                {agents.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}（{(a.provider || '—')}{a.model ? ` · ${a.model}` : ''}）
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button style={btn()} onClick={newChat}>＋ 新对话</button>
+                <span style={{ fontSize: 18 }}>⊕</span>
+                <span>新工作</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginLeft: 'auto' }}><path d="M23 4v6h-6M1 20v-6h6"/></svg>
+              </div>
+
+              {/* Recent conversations section */}
+              <div style={{ padding: '8px 20px 4px', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>最近对话</div>
+              {convs.map((c) => (
+                <div
+                  key={c.id}
+                  onClick={() => { setSearchOpen(false); openConv(c.id); }}
+                  style={{
+                    padding: '10px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    cursor: 'pointer',
+                    transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <span style={{ fontSize: 16, color: 'var(--text-muted)' }}>💬</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title || '未命名'}</div>
+                    {searchQuery.trim() && (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>匹配关键词「{searchQuery.trim()}」</div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                    {c.updatedAt?.slice(5, 16)?.replace('T', ' ') || ''}
+                  </div>
+                </div>
+              ))}
+              {convs.length === 0 && (
+                <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                  {searchQuery.trim() ? `没有找到包含「${searchQuery.trim()}」的对话` : '暂无对话记录'}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+      )}
 
       <div style={wrap}>
-        {/* 会话列表 */}
-        <div style={{ ...panel, width: 240, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: 13 }}>对话历史</div>
-          <div style={{ overflowY: 'auto', flex: 1 }}>
-            {convs.length === 0 && <div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 13 }}>暂无对话</div>}
-            {convs.map((c) => (
-              <div
-                key={c.id}
-                onClick={() => openConv(c.id)}
-                style={{
-                  padding: '10px 12px',
-                  cursor: 'pointer',
-                  borderBottom: '1px solid var(--border)',
-                  background: c.id === sessionId ? 'var(--bg-hover)' : 'transparent',
-                  fontSize: 13,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title || '未命名'}</div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>{c.updatedAt?.slice(0, 16) || ''}</div>
+        {/* Sidebar - collapsible */}
+        {!sidebarCollapsed && (
+          <div style={{ ...panel, width: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', transition: 'width 0.2s, opacity 0.2s' }}>
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>对话历史</span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{convs.length}</span>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {convs.length === 0 && <div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 13 }}>暂无对话</div>}
+              {convs.map((c) => (
+                <div
+                  key={c.id}
+                  onClick={() => openConv(c.id)}
+                  style={{
+                    padding: '10px 12px',
+                    cursor: 'pointer',
+                    borderBottom: '1px solid var(--border)',
+                    background: c.id === sessionId ? 'var(--bg-hover)' : 'transparent',
+                    fontSize: 13,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title || '未命名'}</div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>{c.updatedAt?.slice(0, 16) || ''}</div>
+                  </div>
+                  <div style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
+                    <button
+                      title="更多操作"
+                      onClick={() => setMenuId(menuId === c.id ? null : c.id)}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 4px', borderRadius: 6 }}
+                    >⋯</button>
+                    {menuId === c.id && (
+                      <div style={{ position: 'absolute', right: 0, top: '100%', zIndex: 10, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.25)', minWidth: 120 }}>
+                        <button onClick={() => { setMenuId(null); renameConv(c); }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>✏️ 重命名</button>
+                        <button onClick={() => { setMenuId(null); deleteConv(c); }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--danger, #ff5c5c)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>🗑️ 删除</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
-                  <button
-                    title="更多操作"
-                    onClick={() => setMenuId(menuId === c.id ? null : c.id)}
-                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 4px', borderRadius: 6 }}
-                  >⋯</button>
-                  {menuId === c.id && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        right: 0,
-                        top: '100%',
-                        zIndex: 10,
-                        background: 'var(--bg-primary)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 8,
-                        boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
-                        minWidth: 120,
-                      }}
-                    >
-                      <button
-                        onClick={() => { setMenuId(null); renameConv(c); }}
-                        style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}
-                      >✏️ 重命名</button>
-                      <button
-                        onClick={() => { setMenuId(null); deleteConv(c); }}
-                        style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--danger, #ff5c5c)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}
-                      >🗑️ 删除</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* 对话区 */}
+        {/* Chat area */}
         <div style={{ ...panel, flex: 1, display: 'flex', flexDirection: 'column' }}>
           <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
             {messages.length === 0 && (
@@ -303,31 +473,17 @@ export default function AiChatPage() {
                     </div>
                   ) : (
                     <>
-                      <div
-                        className="msg-bubble"
-                        style={{
-                          position: 'relative',
-                          background: m.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)',
-                          color: m.role === 'user' ? '#fff' : 'var(--text)',
-                          padding: '10px 14px',
-                          borderRadius: 12,
-                          fontSize: 14,
-                          lineHeight: 1.6,
-                          transition: 'filter 0.15s',
-                        }}
-                      >
+                      <div className="msg-bubble" style={{ position: 'relative', background: m.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)', color: m.role === 'user' ? '#fff' : 'var(--text)', padding: '10px 14px', borderRadius: 12, fontSize: 14, lineHeight: 1.6, transition: 'filter 0.15s' }}>
                         <Markdown>{m.content}</Markdown>
                       </div>
                       {m.role === 'user' && (
                         <div className="msg-actions" style={{ display: 'flex', gap: 6, alignItems: 'center', opacity: 0, transition: 'opacity 0.15s', height: 20 }}>
                           <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
                           <button title="复制" onClick={() => copyMessage(m.content)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, borderRadius: 4, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}
-                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
-                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
                           ><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
                           <button title="编辑并重新发送" onClick={() => startEdit(i)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, borderRadius: 4, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}
-                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
-                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
                           ><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
                         </div>
                       )}

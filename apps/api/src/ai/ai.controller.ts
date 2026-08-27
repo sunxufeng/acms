@@ -113,8 +113,8 @@ export class AiController {
   }
 
   @Get('conversations')
-  conversations(@Req() req: ReqWithUser) {
-    return this.svc.listConversations(req.user);
+  conversations(@Req() req: ReqWithUser, @Query('q') q?: string) {
+    return this.svc.listConversations(req.user, q);
   }
 
   @Post('conversations')

@@ -59,11 +59,23 @@ export async function getHistory(openId, sessionId, limit = 50) {
   return all.slice(-limit).map(({ role, content }) => ({ role, content }));
 }
 
-/** 列出某用户的所有会话；可选按 tag 过滤（如智能体 id） */
-export async function listSessions(openId, tag = null) {
+/** 列出某用户的所有会话；可选按 tag 过滤（如智能体 id）；可选 q 搜索标题和消息内容 */
+export async function listSessions(openId, tag = null, q = null) {
   const db = await load();
-  return Object.entries(db.sessions)
-    .filter(([, s]) => s.openId === openId && (tag == null || s.tag === tag))
+  let entries = Object.entries(db.sessions)
+    .filter(([, s]) => s.openId === openId && (tag == null || s.tag === tag));
+
+  // 搜索：匹配会话标题或消息内容
+  if (q && q.trim()) {
+    const kw = q.trim().toLowerCase();
+    entries = entries.filter(([id, s]) => {
+      if ((s.title || '').toLowerCase().includes(kw)) return true;
+      const msgs = db.messages[id] || [];
+      return msgs.some((m: { content?: string }) => (m.content || '').toLowerCase().includes(kw));
+    });
+  }
+
+  return entries
     .map(([id, s]) => ({ id, ...s }))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }

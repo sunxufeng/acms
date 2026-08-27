@@ -645,7 +645,7 @@ export const api = {
     request<{ ok: boolean; error?: string }>('/ai/config/test', { method: 'POST', body: JSON.stringify(data) }),
   aiChat: (data: { message: string; sessionId?: string; model?: string; agentId?: string; history?: { role: string; content: string }[] }, signal?: AbortSignal) =>
     request<{ content: string; sessionId: string; steps: number }>('/ai/chat', { method: 'POST', body: JSON.stringify(data), signal }),
-  aiListConversations: () => request<{ id: string; title: string; updatedAt: string }[]>('/ai/conversations'),
+  aiListConversations: (q?: string) => request<{ id: string; title: string; updatedAt: string }[]>(`/ai/conversations${q ? `?q=${encodeURIComponent(q)}` : ''}`),
   aiCreateConversation: (data: { title?: string }) =>
     request<{ id: string }>('/ai/conversations', { method: 'POST', body: JSON.stringify(data) }),
   aiGetConversation: (id: string) =>

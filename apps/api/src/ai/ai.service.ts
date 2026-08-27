@@ -300,9 +300,9 @@ export class AiService implements OnModuleInit {
     }
   }
 
-  async listConversations(user: SessionUser) {
+  async listConversations(user: SessionUser, q?: string) {
     this.assert(user, 'ai:chat');
-    return listSessions(user.openId);
+    return listSessions(user.openId, null, q);
   }
 
   async getConversation(user: SessionUser, sessionId: string) {

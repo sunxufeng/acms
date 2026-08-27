@@ -12,7 +12,9 @@ for d in apps/api/dist apps/web/.next packages/base-adapter/dist packages/contra
   fi
 done
 
-tar czf /tmp/api_dist.tar.gz -C apps/api/dist .
+# 排除 AI 运行时数据目录（ai/data：configs.json / agents.json 等），
+# 这些是部署后运行时落盘的持久状态，绝不能打进 tar 覆盖生产（部署脚本 rm -rf dist 会清掉 dist 内文件）。
+tar czf /tmp/api_dist.tar.gz --exclude='ai/data' -C apps/api/dist .
 
 STAGE=/tmp/pkgs_stage
 rm -rf "$STAGE" && mkdir -p "$STAGE"

@@ -20,16 +20,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 按 open_id 路由到用户自配模型：解析配置 → 信封解密 Key → 选适配器 → 限流 → 重试 → 降级
 export async function routeChat(openId, messages, opts = {}) {
   let cfg = getConfig(openId);
-  if (!cfg) {
-    // 无个人配置 → 回退到组织默认模板（不含 API Key，仍需个人补全；仅当确有模板时才放行）
+  const hasModel = (c) => !!(c && c.provider && c.baseUrl);
+  if (!hasModel(cfg)) {
+    // 个人配置缺失 provider/baseUrl（例如只存了飞书令牌、或配置被清空）→ 回退到组织默认模板；
+    // 组织模板不含 API Key，个人密钥仍由 decryptApiKey 兜底。这样即便个人条目里只有飞书令牌，
+    // 也能用组织下发的模型配置 + 个人密钥正常对话，而不是把 undefined 直接丢给 Provider 报怪异的 URL 错误。
     const org = getOrgDefault();
-    if (!org) {
-      throw new ProviderError(
-        '该飞书用户尚未配置模型（请在个人设置页配置 Provider / API Key / Model）',
-        { provider: 'gateway', status: 404 }
-      );
+    if (org) {
+      cfg = { ...org, ...(cfg || {}), displayName: (cfg && cfg.displayName) || org.displayName || '' };
     }
-    cfg = org;
+  }
+  if (!hasModel(cfg)) {
+    throw new ProviderError(
+      '该飞书用户尚未配置模型（请在「AI 设置」页配置 Provider / API Key / Model）',
+      { provider: 'gateway', status: 404 }
+    );
   }
   const apiKey = decryptApiKey(openId); // 个人无配置（继承组织默认）时为 null
   return doRoute({ cfg, apiKey, openId, displayName: cfg.displayName || '', messages, opts });

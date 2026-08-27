@@ -91,6 +91,8 @@ function matchStudentFolder(fileName, studentFolders, mode) {
     else if (mode === 'folder_contains') hit = !!base && sname.includes(base);
     else if (mode === 'cn_flex') hit = !!sname && cnFlexMatch(fileName, sname);
     else hit = !!sname && (fileName.includes(sname) || cnFlexMatch(fileName, sname)); // contains（默认），含中文灵活匹配
+    // 兜底：无论哪种模式，中文姓名片段被文件夹名包含即命中（如「白一凡的学习情况评价」匹配「白一凡Leon」）
+    if (!hit && mode !== 'exact' && !!sname && !!base) hit = cnFlexMatch(fileName, sname);
     if (hit && (!best || sname.length > best.name.length)) best = fld;
   }
   return best;

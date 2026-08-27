@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Injectable, Logger, OnModuleInit, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, Logger, OnModuleInit, ForbiddenException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
 import { hasPermission } from '@acms/domain';
 
@@ -61,7 +61,10 @@ import {
 } from './lib/config/skillStore.js';
 import { feishuDriveTools } from './lib/tools/feishuDrive.js';
 import { createStudentQueryTool } from './lib/tools/studentQuery.js';
+import { createFeishuExtraTools } from './lib/tools/feishuExtra.js';
 import { StudentService } from '../student/student.service.js';
+import { BASE_CLIENT } from '../base.provider.js';
+import type { BaseClient } from '@acms/base-adapter';
 
 type Principal = { roles: readonly string[]; campuses: readonly string[]; maxDataLevel?: string };
 
@@ -70,9 +73,18 @@ export class AiService implements OnModuleInit {
   private readonly logger = new Logger(AiService.name);
   private runtime: AgentRuntime;
 
-  constructor(private readonly studentService: StudentService) {
+  constructor(
+    private readonly studentService: StudentService,
+    @Inject(BASE_CLIENT) private readonly base: BaseClient,
+  ) {
     this.runtime = new AgentRuntime({
-      tools: [...webTools, createFeishuDocTool, ...feishuDriveTools, createStudentQueryTool(this.studentService)],
+      tools: [
+        ...webTools,
+        createFeishuDocTool,
+        ...feishuDriveTools,
+        createStudentQueryTool(this.studentService),
+        ...createFeishuExtraTools(this.base),
+      ],
     });
   }
 
@@ -82,7 +94,13 @@ export class AiService implements OnModuleInit {
       agent: this.runtime,
       makeRuntime: () =>
         new AgentRuntime({
-          tools: [...webTools, createFeishuDocTool, ...feishuDriveTools, createStudentQueryTool(this.studentService)],
+          tools: [
+            ...webTools,
+            createFeishuDocTool,
+            ...feishuDriveTools,
+            createStudentQueryTool(this.studentService),
+            ...createFeishuExtraTools(this.base),
+          ],
         }),
     });
     try {

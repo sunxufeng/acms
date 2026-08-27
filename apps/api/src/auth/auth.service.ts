@@ -42,7 +42,11 @@ export class AuthService {
       client_id: this.appId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: ['auth:user.id:read', ...(process.env.FEISHU_DRIVE_SCOPE === '1' ? ['drive:drive'] : [])].join(' '),
+      scope: (() => {
+        const s = ['auth:user.id:read'];
+        if (process.env.FEISHU_DRIVE_SCOPE === '1') s.push('drive:drive', 'calendar:calendar', 'task:task');
+        return s.join(' ');
+      })(),
       state,
       code_challenge: challenge,
       code_challenge_method: 'S256',

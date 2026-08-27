@@ -60,6 +60,8 @@ import {
   saveSkill as saveSkillStore,
 } from './lib/config/skillStore.js';
 import { feishuDriveTools } from './lib/tools/feishuDrive.js';
+import { createStudentQueryTool } from './lib/tools/studentQuery.js';
+import { StudentService } from '../student/student.service.js';
 
 type Principal = { roles: readonly string[]; campuses: readonly string[]; maxDataLevel?: string };
 
@@ -68,15 +70,20 @@ export class AiService implements OnModuleInit {
   private readonly logger = new Logger(AiService.name);
   private runtime: AgentRuntime;
 
-  constructor() {
-    this.runtime = new AgentRuntime({ tools: [...webTools, createFeishuDocTool, ...feishuDriveTools] });
+  constructor(private readonly studentService: StudentService) {
+    this.runtime = new AgentRuntime({
+      tools: [...webTools, createFeishuDocTool, ...feishuDriveTools, createStudentQueryTool(this.studentService)],
+    });
   }
 
   async onModuleInit() {
     // 把共享 AgentRuntime 注入给自动化执行器（供 cron 触发时复用工具）
     initRunner({
       agent: this.runtime,
-      makeRuntime: () => new AgentRuntime({ tools: [...webTools, createFeishuDocTool, ...feishuDriveTools] }),
+      makeRuntime: () =>
+        new AgentRuntime({
+          tools: [...webTools, createFeishuDocTool, ...feishuDriveTools, createStudentQueryTool(this.studentService)],
+        }),
     });
     try {
       await ensureLoaded();
@@ -258,7 +265,7 @@ export class AiService implements OnModuleInit {
         history: prior,
         systemPrompt,
         maxSteps: 6,
-        context: { openId: user.openId },
+        context: { openId: user.openId, user },
       });
       const answer = result.answer || '';
       await appendMessage(sessionId, 'assistant', answer);

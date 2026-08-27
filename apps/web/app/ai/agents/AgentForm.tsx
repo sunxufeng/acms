@@ -27,6 +27,7 @@ export type Agent = {
 
 type Tool = { name: string; description: string };
 type BoundConfig = { provider?: string; model?: string; baseUrl?: string; hasApiKey?: boolean } | null;
+type ProviderPreset = { type: string; label: string; defaultBaseUrl: string; sampleModels: string; hint: string };
 
 const TABS = [
   { key: 'agent', label: 'Agent' },
@@ -131,12 +132,21 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
   const [activeTab, setActiveTab] = useState<TabKey>('agent');
   const [tools, setTools] = useState<Tool[]>([]);
   const [cfg, setCfg] = useState<BoundConfig>(null);
+  const [presets, setPresets] = useState<ProviderPreset[]>([]);
+  const [selectedProviderLabel, setSelectedProviderLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.aiTools().then((data) => setTools(data as Tool[])).catch((e) => setError((e as Error).message));
-    api.aiGetConfig().then((data) => setCfg((data as BoundConfig) || null)).catch(() => null);
+    api.aiGetConfig().then((data) => {
+      setCfg((data as BoundConfig) || null);
+      // If agent already has provider info, try to match to a preset label
+      if (data && (data as Record<string, unknown>).provider) {
+        setSelectedProviderLabel((data as Record<string, unknown>).provider as string || '');
+      }
+    }).catch(() => null);
+    api.aiPresets().then((data) => setPresets((data as ProviderPreset[]) || [])).catch(() => []);
   }, []);
 
   function toggleTool(name: string) {
@@ -154,8 +164,11 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       setError('请填写智能体名称');
       return;
     }
-    if (!cfg?.provider) {
-      setError('请先在「AI 设置」中配置可用的模型，再绑定到智能体。');
+    // Find the selected preset to get provider type + baseUrl
+    const chosenPreset = presets.find((p) => p.label === selectedProviderLabel);
+    const provider = chosenPreset?.type || cfg?.provider || '';
+    if (!provider) {
+      setError('请选择一个 Provider，或先在「AI 设置」中配置可用模型。');
       return;
     }
     setBusy(true);
@@ -171,9 +184,9 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
         heartbeatCron: form.heartbeatCron?.trim() || '',
         userScope: form.userScope?.trim() || '',
         toolList: form.toolList || [],
-        provider: cfg.provider,
-        model: cfg.model || '',
-        baseUrl: cfg.baseUrl || '',
+        provider,
+        model: cfg?.model || '',
+        baseUrl: chosenPreset?.defaultBaseUrl || cfg?.baseUrl || '',
       };
       if (initial?.id) await api.aiUpdateAgent(initial.id, payload);
       else await api.aiCreateAgent(payload);
@@ -193,17 +206,22 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'start' }}>
               <div>
                 <label style={labelStyle}>名称 *</label>
-                <input className="form-input" style={fieldStyle} value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="如：凌云、观澜" />
+                <input className="form-input" style={fieldStyle} value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="如：ACMSBot-01、测试智能体" />
               </div>
               <div>
                 <label style={labelStyle}>Provider 池</label>
-                <select className="form-input" style={fieldStyle} value={cfg?.provider || ''} disabled>
-                  {!cfg?.provider && <option value="">（不选池，使用默认）</option>}
-                  {cfg?.provider && (
-                    <option value={cfg.provider}>
-                      {cfg.provider}{cfg.model ? ` · ${cfg.model}` : ''}
+                <select
+                  className="form-input"
+                  style={fieldStyle}
+                  value={selectedProviderLabel}
+                  onChange={(e) => setSelectedProviderLabel(e.target.value)}
+                >
+                  <option value="">（不选池，使用默认）</option>
+                  {presets.map((p) => (
+                    <option key={p.label} value={p.label}>
+                      {p.label}{cfg?.model && p.label === selectedProviderLabel ? ` · ${cfg.model}` : ''}
                     </option>
-                  )}
+                  ))}
                 </select>
               </div>
             </div>
@@ -304,12 +322,9 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
 
   return (
     <div>
-      {/* Header bar */}
+      {/* Header bar — no back button (breadcrumb already has one) */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <button type="button" onClick={onDone} style={{ background: 'none', border: 'none', color: 'var(--text)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
-          ← 返回
-        </button>
-        <h2 style={{ margin: 0, fontSize: 17 }}>编辑智能体</h2>
+        <h2 style={{ margin: 0, fontSize: 17 }}>{initial?.id ? '编辑智能体' : '新建智能体'}</h2>
         <button type="button" onClick={save} disabled={busy} style={{ ...tabBtnStyle(true), padding: '7px 20px' }}>
           {busy ? '保存中…' : '保存'}
         </button>

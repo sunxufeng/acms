@@ -167,13 +167,18 @@ async function pushOneWithFallback(uid, pushText, agentFeishuCreds, unionId, age
 export async function runAutomation(auto, { manual = false } = {}) {
   if (!deps || !deps.agent) throw new Error('runner 未初始化（initRunner 未调用）');
   const { agent } = deps;
-  if (!Array.isArray(auto.pushTo) || auto.pushTo.length === 0) {
-    throw new Error('自动化未配置推送目标 pushTo');
-  }
-  const caller = auto.pushTo[0]; // 推送收件人（首个也用于飞书会话类工具的身份上下文）
-
-  // 关联智能体：优先用其自有模型 + 人设；智能体没配模型时回退到 caller 的个人配置
+  const isMemory = auto.actionType === 'memory';
   const linkedAgent = auto.agentId ? getAgent(auto.agentId) : null;
+  // 记忆型：结果写回关联智能体的记忆，不需要收件人，但必须关联一个智能体
+  if (isMemory) {
+    if (!linkedAgent) throw new Error('记忆型自动化必须关联一个智能体（结果将写回该智能体的记忆）');
+  } else {
+    if (!Array.isArray(auto.pushTo) || auto.pushTo.length === 0) {
+      throw new Error('自动化未配置推送目标 pushTo');
+    }
+  }
+  // 记忆型以关联智能体的创建者身份运行；推送型以首个收件人身份运行（同时用于飞书会话类工具的身份上下文）
+  const caller = isMemory ? (linkedAgent.createdBy || linkedAgent.owner) : auto.pushTo[0];
 
   // 以「创建者视角」读取会话：凌云等自动化应总结「创建该智能体的用户」的私聊与所在群，
   // 而不是机器人所在的会话。解析创建者的 user_access_token；无令牌则回退到机器人视角。

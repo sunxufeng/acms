@@ -391,6 +391,36 @@ export async function moveDriveFile({ fileToken, destFolderToken, type = 'file',
   return { ok: true, file_token: (data.data && data.data.file_token) || fileToken };
 }
 
+// 复制文件到目标文件夹（保留源文件）。type 固定 'file'。
+export async function copyDriveFile({ fileToken, destFolderToken, name, userAccessToken }: { fileToken: string; destFolderToken: string; name?: string; userAccessToken: string }) {
+  if (!userAccessToken) return { error: '缺少用户飞书令牌（未授权云盘）' };
+  const body: Record<string, any> = { type: 'file', file_token: fileToken, folder_token: destFolderToken };
+  if (name) body.name = name;
+  const res = await fetch(`${FEISHU_HOST}/open-apis/drive/explorer/v2/file/copy`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${userAccessToken}` },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (data.code !== 0) return { error: `复制文件失败: ${data.msg}` };
+  return { ok: true, file_token: (data.data && data.data.file_token) || '' };
+}
+
+// 分页列出某文件夹下所有文件与子文件夹（自动翻页，避免一次性超过 page_size 上限）
+export async function listDriveFilesAll({ folderToken, userAccessToken }: { folderToken: string; userAccessToken: string }) {
+  const all: Array<{ file_token: string; name: string; type: string; parent_token?: string }> = [];
+  let pageToken = '';
+  for (let i = 0; i < 20; i++) {
+    const r = await listDriveFiles({ folderToken, pageSize: 100, userAccessToken });
+    if (r && r.error) return { error: r.error };
+    const files = (r && r.files) || [];
+    all.push(...files);
+    pageToken = (r && r.next_page_token) || '';
+    if (!pageToken || !files.length) break;
+  }
+  return { files: all };
+}
+
 export async function sendMarkdown(receiveId, md, creds, opts = {}) {
   const receiveIdType = opts.receiveIdType || 'open_id';
   const cardTitle = opts.title || 'Acaily';

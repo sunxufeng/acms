@@ -282,7 +282,7 @@ export class AiService implements OnModuleInit {
         chat: chatFn,
         history: prior,
         systemPrompt,
-        maxSteps: 6,
+        maxSteps: 12,
         context: { openId: user.openId, user },
       });
       const answer = result.answer || '';

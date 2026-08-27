@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { getUserAccessToken } from '../config/userConfigStore.js';
-import { listDriveFiles, moveDriveFile } from '../feishu/client.js';
+import { listDriveFiles, moveDriveFile, copyDriveFile, listDriveFilesAll } from '../feishu/client.js';
 
 // 列出飞书云盘某文件夹下的文件
 export const listDriveFilesTool = {
@@ -48,4 +48,67 @@ export const moveDriveFileTool = {
   },
 };
 
-export const feishuDriveTools = [listDriveFilesTool, moveDriveFileTool];
+// 批量把「源文件夹」里的文件，按「文件名包含同学姓名」规则，复制到「目标父文件夹」下对应的同学子文件夹。
+// 一次工具调用完成「列源 → 列目标子文件夹 → 按姓名匹配 → 逐个复制」，避免多步耗尽对话步数上限。
+export const copyDriveFilesToStudentFoldersTool = {
+  name: 'copy_drive_files_to_student_folders',
+  description:
+    '批量归档：把某个「源文件夹」里的文件，按照「文件名包含同学姓名」的规则，自动复制到「目标父文件夹」下以同学姓名命名的子文件夹中（保留源文件，是复制不是移动）。适用于把学生作业/资料按姓名分发给对应同学的文件夹。参数：{"source_folder_token":"源文件夹 token（待复制的文件来源，取自链接 /folder/ 后那段）","target_parent_folder_token":"目标父文件夹 token（其下每个子文件夹是一个同学）"}。返回复制结果（成功/未匹配/失败清单）。需要用户已授权云盘。',
+  async run(args, context) {
+    const sourceFolderToken = args && args.source_folder_token;
+    const targetParentFolderToken = args && args.target_parent_folder_token;
+    if (!sourceFolderToken || !targetParentFolderToken)
+      return '错误：缺少 source_folder_token 或 target_parent_folder_token（均取自云盘链接 /folder/ 之后的那段）';
+    const userToken = await getUserAccessToken(context && context.openId);
+    if (!userToken)
+      return '错误：你尚未授权飞书云盘，无法操作。请退出登录后重新登录，并在授权页同意「云盘」权限，再试。';
+
+    // 1) 源文件夹里的文件（自动翻页）
+    const src = await listDriveFilesAll({ folderToken: sourceFolderToken, userAccessToken: userToken });
+    if (src && src.error) return `列出源文件夹失败：${src.error}`;
+    const sourceFiles = ((src && src.files) || []).filter((f) => f.type === 'file');
+    if (!sourceFiles.length) return `源文件夹 ${sourceFolderToken} 下没有文件可复制。`;
+
+    // 2) 目标父文件夹下的同学子文件夹
+    const tgt = await listDriveFilesAll({ folderToken: targetParentFolderToken, userAccessToken: userToken });
+    if (tgt && tgt.error) return `列出目标文件夹失败：${tgt.error}`;
+    const studentFolders = ((tgt && tgt.files) || []).filter((f) => f.type === 'folder');
+    if (!studentFolders.length) return `目标文件夹 ${targetParentFolderToken} 下没有子文件夹（同学目录），无法匹配。`;
+
+    // 3) 匹配 + 复制：文件名包含同学名，取最长匹配（避免「张三」误匹配「张三丰」）
+    const copied = [];
+    const failed = [];
+    const unmatched = [];
+    for (const file of sourceFiles) {
+      const fname = file.name || '';
+      let best = null;
+      for (const fld of studentFolders) {
+        const sname = fld.name || '';
+        if (sname && fname.includes(sname) && (!best || sname.length > best.name.length)) best = fld;
+      }
+      if (!best) {
+        unmatched.push({ name: fname, file_token: file.file_token });
+        continue;
+      }
+      const r = await copyDriveFile({
+        fileToken: file.file_token,
+        destFolderToken: best.file_token,
+        userAccessToken: userToken,
+      });
+      if (r && r.error) failed.push({ name: fname, to: best.name, error: r.error });
+      else copied.push({ name: fname, to: best.name });
+    }
+    return JSON.stringify(
+      {
+        summary: { copied: copied.length, failed: failed.length, unmatched: unmatched.length, total: sourceFiles.length },
+        copied,
+        failed,
+        unmatched,
+      },
+      null,
+      2,
+    );
+  },
+};
+
+export const feishuDriveTools = [listDriveFilesTool, moveDriveFileTool, copyDriveFilesToStudentFoldersTool];

@@ -410,9 +410,36 @@ export async function copyDriveFile({ fileToken, destFolderToken, name, type = '
   return { ok: true, file_token: (data.data && data.data.token) || '' };
 }
 
+// 下载云盘文件内容（用于「内容一致则不复制」的查重）。
+// 飞书下载接口 GET /open-apis/drive/v1/files/:file_token/download：
+//   - 多数情况直接返回文件二进制（fetch 跟随 302）；
+//   - 个别情况返回 JSON（data.url / data.download_url 为临时直链），再二次拉取。
+export async function downloadDriveFile({ fileToken, userAccessToken }: { fileToken: string; userAccessToken: string }) {
+  if (!userAccessToken) return { error: '缺少用户飞书令牌（未授权云盘）' };
+  const url = `${FEISHU_HOST}/open-apis/drive/v1/files/${fileToken}/download`;
+  const res = await fetch(url, { headers: { authorization: `Bearer ${userAccessToken}` }, redirect: 'follow' });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    return { error: `下载文件失败 HTTP ${res.status}: ${t.slice(0, 200)}` };
+  }
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('application/json')) {
+    const data = await res.json().catch(() => null);
+    if (data && data.code !== 0) return { error: `下载文件失败: ${data.msg}` };
+    const realUrl = data && data.data && (data.data.url || data.data.download_url);
+    if (realUrl) {
+      const r2 = await fetch(realUrl);
+      if (!r2.ok) return { error: `下载文件失败 HTTP ${r2.status}` };
+      const buf = Buffer.from(await r2.arrayBuffer());
+      return { ok: true, content: buf, size: buf.length };
+    }
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { ok: true, content: buf, size: buf.length };
+}
+
 // 分页列出某文件夹下所有文件与子文件夹（自动翻页，避免一次性超过 page_size 上限）
-export async function listDriveFilesAll({ folderToken, userAccessToken }: { folderToken: string; userAccessToken: string }) {
-  const all: Array<{ file_token: string; name: string; type: string; parent_token?: string }> = [];
+export async function listDriveFilesAll({ folderToken, userAccessToken }: { folderToken: string; userAccessToken: string }) {  const all: Array<{ file_token: string; name: string; type: string; parent_token?: string }> = [];
   let pageToken = '';
   for (let i = 0; i < 20; i++) {
     const r = await listDriveFiles({ folderToken, pageSize: 100, userAccessToken });

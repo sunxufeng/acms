@@ -11,6 +11,7 @@ import {
 } from '@acms/contracts';
 import { api } from '../../lib/api';
 import { ICONS } from '../../components/AppShell';
+import { useTranslations } from 'next-intl';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -48,6 +49,7 @@ function emptyItem(): NavMenuItem {
 
 /** 图标选择器：按钮展示当前图标预览，展开为图标网格，支持搜索 */
 function IconPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const tl = useTranslations('labels');
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const Current = ICONS[value] ?? ICONS['settings'];
@@ -80,7 +82,7 @@ function IconPicker({ value, onChange }: { value: string; onChange: (v: string) 
         >
           <input
             className="input"
-            placeholder="搜索图标…"
+            placeholder={tl('搜索图标…')}
             value={q}
             autoFocus
             onChange={(e) => setQ(e.target.value)}
@@ -120,7 +122,8 @@ function IconPicker({ value, onChange }: { value: string; onChange: (v: string) 
 }
 
 export default function MenuSettingsPage() {
-  const [items, setItems] = useState<NavMenuItem[]>(DEFAULT_NAV_MENU_CONFIG.items);
+
+  const tl = useTranslations('labels');  const [items, setItems] = useState<NavMenuItem[]>(DEFAULT_NAV_MENU_CONFIG.items);
   const [groups, setGroups] = useState<NavMenuGroupConfig['items']>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -243,15 +246,15 @@ export default function MenuSettingsPage() {
   }
 
   if (loading) {
-    return <div style={{ padding: 40, color: 'var(--fg-secondary)' }}>加载中…</div>;
+    return <div style={{ padding: 40, color: 'var(--fg-secondary)' }}>{tl('加载中…')}</div>;
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div className="page-title">菜单管理</div>
-          <div className="page-subtitle">编辑导航菜单的分组、上下级关系、名称、图标与权限，保存后刷新页面生效。</div>
+          <div className="page-title">{tl('菜单管理')}</div>
+          <div className="page-subtitle">{tl('编辑导航菜单的分组、上下级关系、名称、图标与权限，保存后刷新页面生效。')}</div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <Link href="/homepage-settings" className="btn btn-outline">
@@ -266,22 +269,22 @@ export default function MenuSettingsPage() {
         </div>
       </div>
 
-      <Section title="菜单项列表">
+      <Section title={tl('菜单项列表')}>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ color: 'var(--fg-secondary)', borderBottom: '1px solid var(--border)' }}>
-                <th style={{ textAlign: 'center', padding: '8px 6px', width: 36 }} title="拖动排序">⠿</th>
+                <th style={{ textAlign: 'center', padding: '8px 6px', width: 36 }} title={tl('拖动排序')}>⠿</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', width: 40 }}>#</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>名称</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>英文名称</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>路径 (href)</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>图标</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>分组</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>父级菜单</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 80 }}>权限</th>
-                <th style={{ textAlign: 'center', padding: '8px 10px', width: 120 }}>选项</th>
-                <th style={{ textAlign: 'center', padding: '8px 10px', width: 100 }}>操作</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>{tl('名称')}</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>{tl('英文名称')}</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>{tl('路径 (href)')}</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>{tl('图标')}</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>{tl('分组')}</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>{tl('父级菜单')}</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 80 }}>{tl('权限')}</th>
+                <th style={{ textAlign: 'center', padding: '8px 10px', width: 120 }}>{tl('选项')}</th>
+                <th style={{ textAlign: 'center', padding: '8px 10px', width: 100 }}>{tl('操作')}</th>
               </tr>
             </thead>
             <tbody>
@@ -306,7 +309,7 @@ export default function MenuSettingsPage() {
                 >
                   <td style={{ padding: '6px 6px', textAlign: 'center' }}>
                     <span
-                      title="按住拖动排序"
+                      title={tl('按住拖动排序')}
                       onMouseDown={() => setDragRow(idx)}
                       style={{
                         cursor: 'grab',
@@ -333,7 +336,7 @@ export default function MenuSettingsPage() {
                     <input
                       className="input"
                       value={it.enLabel || ''}
-                      placeholder="英文显示名"
+                      placeholder={tl('英文显示名')}
                       onChange={(e) => updateItem(idx, { enLabel: e.target.value || undefined })}
                       style={{ minWidth: 100 }}
                     />
@@ -356,7 +359,7 @@ export default function MenuSettingsPage() {
                       onChange={(e) => updateItem(idx, { section: e.target.value || null })}
                       style={{ minWidth: 90 }}
                     >
-                      {groups.length === 0 && <option value="">（无分组）</option>}
+                      {groups.length === 0 && <option value="">{tl('（无分组）')}</option>}
                       {groups.map((g) => (
                         <option key={g.key} value={g.label}>
                           {g.label}
@@ -373,7 +376,7 @@ export default function MenuSettingsPage() {
                       value={it.parentKey || ''}
                       onChange={(e) => updateItem(idx, { parentKey: e.target.value || null })}
                     >
-                      <option value="">顶层菜单</option>
+                      <option value="">{tl('顶层菜单')}</option>
                       {topKeys
                         .filter((p) => p.key !== it.key)
                         .map((p) => (
@@ -388,7 +391,7 @@ export default function MenuSettingsPage() {
                       className="input"
                       value={it.perm || ''}
                       onChange={(e) => updateItem(idx, { perm: e.target.value || undefined })}
-                      placeholder="权限标识"
+                      placeholder={tl('权限标识')}
                       style={{ minWidth: 80 }}
                     />
                   </td>
@@ -414,13 +417,13 @@ export default function MenuSettingsPage() {
                   </td>
                   <td style={{ padding: '6px 10px', textAlign: 'center' }}>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                      <button type="button" className="btn btn-sm btn-icon" title="上移" onClick={() => moveItem(idx, -1)}>
+                      <button type="button" className="btn btn-sm btn-icon" title={tl('上移')} onClick={() => moveItem(idx, -1)}>
                         ↑
                       </button>
-                      <button type="button" className="btn btn-sm btn-icon" title="下移" onClick={() => moveItem(idx, 1)}>
+                      <button type="button" className="btn btn-sm btn-icon" title={tl('下移')} onClick={() => moveItem(idx, 1)}>
                         ↓
                       </button>
-                      <button type="button" className="btn btn-sm btn-danger" title="删除" onClick={() => removeItem(idx)}>
+                      <button type="button" className="btn btn-sm btn-danger" title={tl('删除')} onClick={() => removeItem(idx)}>
                         ×
                       </button>
                     </div>

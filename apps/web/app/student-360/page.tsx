@@ -6,6 +6,7 @@ import { api } from '../../lib/api';
 import Markdown from '../../components/Markdown';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import Combobox from '../../components/Combobox';
+import { useTranslations } from 'next-intl';
 
 interface StudentHit {
   id: string;
@@ -88,7 +89,8 @@ function str(v: unknown): string {
 }
 
 export default function Student360Page() {
-  const [students, setStudents] = useState<StudentHit[]>([]);
+
+  const tl = useTranslations('labels');  const [students, setStudents] = useState<StudentHit[]>([]);
   const [selected, setSelected] = useState<StudentHit | null>(null);
   const [data, setData] = useState<{ student: Record<string, unknown>; sections: Section[] } | null>(null);
   const [loadingStudents, setLoadingStudents] = useState(true);
@@ -193,15 +195,15 @@ export default function Student360Page() {
     <>
       <div className="page-header page-header-row">
         <div>
-          <h1 className="page-title">学生全景</h1>
-          <p className="page-subtitle">以单个学生为中心，汇总其全生命周期记录（M1 学生域）</p>
+          <h1 className="page-title">{tl('学生全景')}</h1>
+          <p className="page-subtitle">{tl('以单个学生为中心，汇总其全生命周期记录（M1 学生域）')}</p>
         </div>
       </div>
 
       {/* 学生选择器 + 时间段筛选 + 维度筛选 + 查询 */}
       <div className="filter-bar">
         <label className="form-label" style={{ width: 'min(420px, 100%)' }}>
-          <span className="form-label-text">选择学生</span>
+          <span className="form-label-text">{tl('选择学生')}</span>
           <Combobox
             value={selected?.id ?? ''}
             onChange={(v) => selectStudent(v)}
@@ -214,7 +216,7 @@ export default function Student360Page() {
           />
         </label>
         <label className="form-label" style={{ width: '160px' }}>
-          <span className="form-label-text">开始日期</span>
+          <span className="form-label-text">{tl('开始日期')}</span>
           <input
             type="date"
             className="form-input"
@@ -223,7 +225,7 @@ export default function Student360Page() {
           />
         </label>
         <label className="form-label" style={{ width: '160px' }}>
-          <span className="form-label-text">结束日期</span>
+          <span className="form-label-text">{tl('结束日期')}</span>
           <input
             type="date"
             className="form-input"
@@ -243,7 +245,7 @@ export default function Student360Page() {
 
       {/* 学生维度筛选（多选 chips，来源字典「学生维度」；未选表示展示全部维度） */}
       <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 8, marginTop: -6 }}>
-        <span className="form-label-text" style={{ alignSelf: 'center' }}>学生维度</span>
+        <span className="form-label-text" style={{ alignSelf: 'center' }}>{tl('学生维度')}</span>
         {dimensionOptions.map((dim) => {
           const active = selectedDimensions.includes(dim);
           return (
@@ -261,21 +263,21 @@ export default function Student360Page() {
             </button>
           );
         })}
-        {dimensionOptions.length === 0 && <span className="muted">（字典「学生维度」加载中或为空）</span>}
+        {dimensionOptions.length === 0 && <span className="muted">{tl('（字典「学生维度」加载中或为空）')}</span>}
         {selectedDimensions.length > 0 && (
           <button
             type="button"
             className="link-btn"
             onClick={() => setSelectedDimensions([])}
-            title="清空已选维度，恢复全部维度"
+            title={tl('清空已选维度，恢复全部维度')}
           >
             清空
           </button>
         )}
-        {selectedDimensions.length === 0 && <span className="muted" style={{ alignSelf: 'center' }}>未选维度将展示全部</span>}
+        {selectedDimensions.length === 0 && <span className="muted" style={{ alignSelf: 'center' }}>{tl('未选维度将展示全部')}</span>}
       </div>
 
-      {loading && <div className="empty-state">加载中…</div>}
+      {loading && <div className="empty-state">{tl('加载中…')}</div>}
       {error && <div className="empty-state" style={{ color: 'var(--danger)' }}>错误：{error}</div>}
 
       {selected && data && !loading && (
@@ -297,12 +299,13 @@ export default function Student360Page() {
             </div>
             <div className="sh-stat">
               <strong>{totalRecords}</strong>
-              <span>条关联记录</span>
+              <span>{tl('条关联记录')}</span>
             </div>
           </div>
 
           {/* 各生命周期分段 */}
           {data.sections.map((sec) => {
+  const tl = useTranslations('labels');
             const comm = COMM_MODULES[sec.key];
             if (comm) {
               return (
@@ -312,17 +315,17 @@ export default function Student360Page() {
                     <span className="badge">{sec.items.length}</span>
                   </div>
                   {sec.items.length === 0 ? (
-                    <div className="empty-state">暂无记录</div>
+                    <div className="empty-state">{tl('暂无记录')}</div>
                   ) : (
                     <div className="table-wrap">
                       <table className="data-table">
                         <thead>
                           <tr>
-                            <th style={{ width: '130px' }}>时间</th>
-                            <th style={{ width: '120px' }}>负责人</th>
-                            <th style={{ width: '180px' }}>活动主题</th>
-                            <th>沟通明细</th>
-                            <th>沟通总结</th>
+                            <th style={{ width: '130px' }}>{tl('时间')}</th>
+                            <th style={{ width: '120px' }}>{tl('负责人')}</th>
+                            <th style={{ width: '180px' }}>{tl('活动主题')}</th>
+                            <th>{tl('沟通明细')}</th>
+                            <th>{tl('沟通总结')}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -333,7 +336,7 @@ export default function Student360Page() {
                               <td>{str(it[comm.theme]) || <span className="muted">—</span>}</td>
                               <td>
                                 {str(it['沟通明细']) ? (
-                                  <button type="button" className="link-btn" onClick={() => setPopup({ title: `${sec.label} · 沟通明细`, content: str(it['沟通明细']) })}>
+                                  <button type="button" className="link-btn" onClick={() => setPopup({ title: `${sec.label} · ${tl('沟通明细')}`, content: str(it['沟通明细']) })}>
                                     查看
                                   </button>
                                 ) : (
@@ -342,7 +345,7 @@ export default function Student360Page() {
                               </td>
                               <td>
                                 {str(it['沟通总结']) ? (
-                                  <button type="button" className="link-btn" onClick={() => setPopup({ title: `${sec.label} · 沟通总结`, content: str(it['沟通总结']) })}>
+                                  <button type="button" className="link-btn" onClick={() => setPopup({ title: `${sec.label} · ${tl('沟通总结')}`, content: str(it['沟通总结']) })}>
                                     查看
                                   </button>
                                 ) : (
@@ -366,7 +369,7 @@ export default function Student360Page() {
                   <span className="badge">{sec.items.length}</span>
                 </div>
                 {sec.items.length === 0 ? (
-                  <div className="empty-state">暂无记录</div>
+                  <div className="empty-state">{tl('暂无记录')}</div>
                 ) : (
                   <div className="table-wrap">
                     <table className="data-table">
@@ -398,7 +401,7 @@ export default function Student360Page() {
       )}
 
       {!selected && !loading && (
-        <div className="empty-state">请选择一名学生，查看其招生、考勤、成绩、实践、家校、评价与校友的全景记录。</div>
+        <div className="empty-state">{tl('请选择一名学生，查看其招生、考勤、成绩、实践、家校、评价与校友的全景记录。')}</div>
       )}
     </>
   );
@@ -423,7 +426,7 @@ export default function Student360Page() {
         title="AI"
         subject={str(data?.student?.学生姓名) || str(selected?.学生姓名) || '未选学生'}
         storageKey="student360-analysis-dialog"
-        placeholder="输入与学生相关的问题，Enter 发送…"
+        placeholder={tl('输入与学生相关的问题，Enter 发送…')}
       />
 
     </div>
@@ -480,6 +483,7 @@ function buildStudentContext(student: Record<string, unknown> | undefined, secti
 
 
 function DetailModal({ title, content, onClose }: { title: string; content: string; onClose: () => void }) {
+  const tl = useTranslations('labels');
   if (!title && !content) return null;
   const isMarkdown = /(^|\n)(#{1,4}\s|[-*]\s+\S|\d+\.\s+\S|>|\*\*\*|---|```|\[[^\]]+\]\(https?:\/\/)/.test(content);
   return (
@@ -497,7 +501,7 @@ function DetailModal({ title, content, onClose }: { title: string; content: stri
           )}
         </div>
         <div className="detail-modal-foot">
-          <button type="button" className="btn btn-primary btn-sm" onClick={onClose}>关闭</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={onClose}>{tl('关闭')}</button>
         </div>
       </div>
     </div>

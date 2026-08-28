@@ -10,6 +10,7 @@ import {
 } from '@acms/contracts';
 import { api } from '../../lib/api';
 import ImageField from '../homepage-settings/ImageField';
+import { useTranslations } from 'next-intl';
 
 const PREVIEW_BASE_W = 1440;
 const PREVIEW_BASE_H = 900;
@@ -103,6 +104,7 @@ function ColorInput({ value, onChange }: { value: string; onChange: (v: string) 
 }
 
 function DashboardPreview({ theme }: { theme: DashboardTheme }) {
+  const tl = useTranslations('labels');
   const logoSrc = theme.logoUrl ? imageUrl(theme.logoUrl) : '/logo.png';
   const brandName = theme.brandName || 'ARETE';
   const brandSubtitle = theme.brandSubtitle || 'COLLEGE OPS';
@@ -201,7 +203,7 @@ function DashboardPreview({ theme }: { theme: DashboardTheme }) {
             }}
           >
             <span>▣</span>
-            <span>概览</span>
+            <span>{tl('概览')}</span>
           </div>
           <div
             style={{
@@ -210,7 +212,7 @@ function DashboardPreview({ theme }: { theme: DashboardTheme }) {
             }}
           >
             <span>👤</span>
-            <span>学生档案</span>
+            <span>{tl('学生档案')}</span>
           </div>
 
           <div style={{ fontSize: 10, fontWeight: 700, padding: '14px 20px 6px', color: theme.sidebarSectionColor }}>
@@ -218,11 +220,11 @@ function DashboardPreview({ theme }: { theme: DashboardTheme }) {
           </div>
           <div style={{ ...navItemStyle, color: theme.sidebarTextColor }}>
             <span>⚙</span>
-            <span>工作台主题</span>
+            <span>{tl('工作台主题')}</span>
           </div>
           <div style={{ ...navItemStyle, color: theme.sidebarTextColor }}>
             <span>☰</span>
-            <span>菜单管理</span>
+            <span>{tl('菜单管理')}</span>
           </div>
         </div>
       </aside>
@@ -232,11 +234,11 @@ function DashboardPreview({ theme }: { theme: DashboardTheme }) {
         <header style={topbarStyle}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span>☰</span>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>工作台 / 概览</span>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>{tl('工作台 / 概览')}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span>🔍 搜索</span>
-            <span>👤 管理员</span>
+            <span>{tl('🔍 搜索')}</span>
+            <span>{tl('👤 管理员')}</span>
           </div>
         </header>
         <main style={{ flex: 1, padding: 24 }}>
@@ -250,8 +252,8 @@ function DashboardPreview({ theme }: { theme: DashboardTheme }) {
               color: theme.mainTextColor,
             }}
           >
-            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>工作台预览</div>
-            <div style={{ fontSize: 13, opacity: 0.7 }}>右侧主内容区域背景色预览</div>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{tl('工作台预览')}</div>
+            <div style={{ fontSize: 13, opacity: 0.7 }}>{tl('右侧主内容区域背景色预览')}</div>
           </div>
         </main>
       </div>
@@ -260,7 +262,8 @@ function DashboardPreview({ theme }: { theme: DashboardTheme }) {
 }
 
 export default function HomepageManagementPage() {
-  const [config, setConfig] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
+
+  const tl = useTranslations('labels');  const [config, setConfig] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -324,15 +327,15 @@ export default function HomepageManagementPage() {
   }
 
   if (loading) {
-    return <div style={{ padding: 40, color: 'var(--fg-secondary)' }}>加载中…</div>;
+    return <div style={{ padding: 40, color: 'var(--fg-secondary)' }}>{tl('加载中…')}</div>;
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div className="page-title">工作台主题</div>
-          <div className="page-subtitle">配置登录后工作台的侧边栏、顶部导航栏、主内容区配色、Logo 与品牌文字，右侧实时预览并保存。</div>
+          <div className="page-title">{tl('工作台主题')}</div>
+          <div className="page-subtitle">{tl('配置登录后工作台的侧边栏、顶部导航栏、主内容区配色、Logo 与品牌文字，右侧实时预览并保存。')}</div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <Link href="/homepage-settings" className="btn btn-outline">
@@ -360,7 +363,7 @@ export default function HomepageManagementPage() {
             paddingBottom: 80,
           }}
         >
-          <Section title="品牌 Logo">
+          <Section title={tl('品牌 Logo')}>
             <ImageField label="左上角 Logo" value={theme.logoUrl ?? ''} onChange={(v) => updateTheme('logoUrl', v)} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <Field label="品牌名称">
@@ -372,7 +375,7 @@ export default function HomepageManagementPage() {
             </div>
           </Section>
 
-          <Section title="侧边栏">
+          <Section title={tl('侧边栏')}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <Field label="背景色">
                 <ColorInput value={theme.sidebarBgColor} onChange={(v) => updateTheme('sidebarBgColor', v)} />
@@ -401,7 +404,7 @@ export default function HomepageManagementPage() {
             </div>
           </Section>
 
-          <Section title="顶部导航栏">
+          <Section title={tl('顶部导航栏')}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
               <Field label="背景色">
                 <ColorInput value={theme.headerBgColor} onChange={(v) => updateTheme('headerBgColor', v)} />
@@ -415,7 +418,7 @@ export default function HomepageManagementPage() {
             </div>
           </Section>
 
-          <Section title="主内容区">
+          <Section title={tl('主内容区')}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <Field label="背景色">
                 <ColorInput value={theme.mainBgColor ?? '#F4F7F6'} onChange={(v) => updateTheme('mainBgColor', v)} />
@@ -437,7 +440,7 @@ export default function HomepageManagementPage() {
             gap: 8,
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg)' }}>实时预览</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg)' }}>{tl('实时预览')}</div>
           <div
             ref={previewRef}
             style={{

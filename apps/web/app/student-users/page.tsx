@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '../../lib/api';
+import { useTranslations } from 'next-intl';
 
 interface StudentHit {
   studentNo: string;
@@ -31,7 +32,8 @@ function fmt(dt?: string): string {
 }
 
 export default function StudentUsersPage() {
-  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+
+  const tl = useTranslations('labels');  const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [keyword, setKeyword] = useState('');
@@ -105,7 +107,7 @@ export default function StudentUsersPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div className="page-title">学生账号</div>
+          <div className="page-title">{tl('学生账号')}</div>
           <div className="page-subtitle">
             为学生设置 / 重置网页登录密码（学号登录）。密码以 scrypt 加盐哈希本地存储，与学生档案解耦。
           </div>
@@ -126,11 +128,11 @@ export default function StudentUsersPage() {
           gap: 12,
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg)' }}>检索学生并设置密码</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg)' }}>{tl('检索学生并设置密码')}</div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             className="input"
-            placeholder="输入学号或姓名检索…"
+            placeholder={tl('输入学号或姓名检索…')}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             onKeyDown={(e) => {
@@ -147,11 +149,11 @@ export default function StudentUsersPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ color: 'var(--fg-secondary)', borderBottom: '1px solid var(--border)' }}>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>学号</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>姓名</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>校区</th>
-                  <th style={{ textAlign: 'center', padding: '8px 10px', width: 100 }}>开户状态</th>
-                  <th style={{ textAlign: 'center', padding: '8px 10px', width: 120 }}>操作</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>{tl('学号')}</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>{tl('姓名')}</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>{tl('校区')}</th>
+                  <th style={{ textAlign: 'center', padding: '8px 10px', width: 100 }}>{tl('开户状态')}</th>
+                  <th style={{ textAlign: 'center', padding: '8px 10px', width: 120 }}>{tl('操作')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -207,20 +209,20 @@ export default function StudentUsersPage() {
           已开户账号清单（{accounts.length}）
         </div>
         {loading ? (
-          <div style={{ color: 'var(--fg-secondary)' }}>加载中…</div>
+          <div style={{ color: 'var(--fg-secondary)' }}>{tl('加载中…')}</div>
         ) : accounts.length === 0 ? (
-          <div style={{ color: 'var(--fg-secondary)' }}>暂无已开户的学生账号。</div>
+          <div style={{ color: 'var(--fg-secondary)' }}>{tl('暂无已开户的学生账号。')}</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ color: 'var(--fg-secondary)', borderBottom: '1px solid var(--border)' }}>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>学号</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>姓名</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>校区</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 150 }}>创建时间</th>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 150 }}>更新时间</th>
-                  <th style={{ textAlign: 'center', padding: '8px 10px', width: 120 }}>操作</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>{tl('学号')}</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>{tl('姓名')}</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>{tl('校区')}</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 150 }}>{tl('创建时间')}</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 150 }}>{tl('更新时间')}</th>
+                  <th style={{ textAlign: 'center', padding: '8px 10px', width: 120 }}>{tl('操作')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -281,7 +283,7 @@ export default function StudentUsersPage() {
             <input
               className="input"
               type="text"
-              placeholder="请输入新密码（至少 6 位）"
+              placeholder={tl('请输入新密码（至少 6 位）')}
               value={pw}
               onChange={(e) => setPw(e.target.value)}
               autoFocus

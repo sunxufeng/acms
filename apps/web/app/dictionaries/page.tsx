@@ -2,11 +2,13 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../../lib/api';
+import { useTranslations } from 'next-intl';
 
 type DictMap = Record<string, string[]>;
 
 export default function DictionariesPage() {
-  const [dicts, setDicts] = useState<DictMap>({});
+
+  const tl = useTranslations('labels');  const [dicts, setDicts] = useState<DictMap>({});
   const [drafts, setDrafts] = useState<DictMap>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -152,8 +154,8 @@ export default function DictionariesPage() {
     <div className="page-content">
       <div className="page-header">
         <div>
-          <div className="eyebrow">系统 / 字典数据</div>
-          <h1 className="page-title">字典数据</h1>
+          <div className="eyebrow">{tl('系统 / 字典数据')}</div>
+          <h1 className="page-title">{tl('字典数据')}</h1>
           <p className="page-subtitle">
             维护各表单下拉项的候选项。修改后点击「保存」持久化；再点「同步到飞书 Base」将新选项写入对应字段。
           </p>
@@ -167,7 +169,7 @@ export default function DictionariesPage() {
 
       {toast && <div className="toast">{toast}</div>}
 
-      {loading && <div className="empty-state">加载中…</div>}
+      {loading && <div className="empty-state">{tl('加载中…')}</div>}
       {error && <div className="empty-state empty-state--error">{error}</div>}
 
       {!loading && !error && (
@@ -182,8 +184,9 @@ export default function DictionariesPage() {
                   <span className="dict-count">{options.length}</span>
                 </div>
                 <div className="dict-options">
-                  {options.length === 0 && <div className="dict-empty">暂无选项</div>}
+                  {options.length === 0 && <div className="dict-empty">{tl('暂无选项')}</div>}
                   {options.map((opt, idx) => {
+  const tl = useTranslations('labels');
                     const isEditing =
                       editingOpt?.key === key && editingOpt?.value === opt;
                     if (isEditing) {
@@ -221,9 +224,9 @@ export default function DictionariesPage() {
                         }}
                         onDragEnd={() => setDragIdx(null)}
                         onDoubleClick={() => setEditingOpt({ key, value: opt })}
-                        title="双击编辑；拖拽或点击上下箭头排序"
+                        title={tl('双击编辑；拖拽或点击上下箭头排序')}
                       >
-                        <span className="dict-drag-handle" title="拖拽排序">⠿</span>
+                        <span className="dict-drag-handle" title={tl('拖拽排序')}>⠿</span>
                         <span className="dict-opt-label">{opt}</span>
                         <span className="dict-opt-actions">
                           <button
@@ -231,7 +234,7 @@ export default function DictionariesPage() {
                             className="dict-option-move"
                             onClick={() => moveOption(key, idx, idx - 1)}
                             disabled={idx === 0}
-                            title="上移"
+                            title={tl('上移')}
                             aria-label={`上移 ${opt}`}
                           >
                             ↑
@@ -241,7 +244,7 @@ export default function DictionariesPage() {
                             className="dict-option-move"
                             onClick={() => moveOption(key, idx, idx + 1)}
                             disabled={idx === options.length - 1}
-                            title="下移"
+                            title={tl('下移')}
                             aria-label={`下移 ${opt}`}
                           >
                             ↓
@@ -249,7 +252,7 @@ export default function DictionariesPage() {
                           <button
                             className="dict-option-remove"
                             onClick={() => removeOption(key, opt)}
-                            title="移除"
+                            title={tl('移除')}
                             aria-label={`移除 ${opt}`}
                           >
                             ×
@@ -268,7 +271,7 @@ export default function DictionariesPage() {
                   >
                     {savingKey === key ? '保存中…' : '保存'}
                   </button>
-                  {dirty && <span className="dict-dirty">有未保存的修改</span>}
+                  {dirty && <span className="dict-dirty">{tl('有未保存的修改')}</span>}
                 </div>
               </div>
             );
@@ -278,12 +281,12 @@ export default function DictionariesPage() {
           {!showNewDict ? (
             <div className="dict-card dict-new-card" onClick={() => setShowNewDict(true)}>
               <span style={{ fontSize: '2rem', color: 'var(--fg-tertiary)' }}>+</span>
-              <span style={{ color: 'var(--fg-secondary)' }}>新增字典类型</span>
+              <span style={{ color: 'var(--fg-secondary)' }}>{tl('新增字典类型')}</span>
             </div>
           ) : (
             <div className="dict-card dict-new-form">
               <div className="dict-card-head">
-                <span className="dict-card-title">新增字典类型</span>
+                <span className="dict-card-title">{tl('新增字典类型')}</span>
                 <button
                   className="btn btn-ghost btn-sm"
                   onClick={() => { setShowNewDict(false); setNewDictName(''); setNewDictInitOption(''); }}
@@ -293,14 +296,14 @@ export default function DictionariesPage() {
               </div>
               <input
                 className="input"
-                placeholder="字典名称（如：自定义分类）"
+                placeholder={tl('字典名称（如：自定义分类）')}
                 value={newDictName}
                 onChange={(e) => setNewDictName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && createDict()}
               />
               <input
                 className="input"
-                placeholder="第一个选项（可选，留空则创建空字典）"
+                placeholder={tl('第一个选项（可选，留空则创建空字典）')}
                 value={newDictInitOption}
                 onChange={(e) => setNewDictInitOption(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && createDict()}
@@ -362,12 +365,13 @@ function EditableOption({
 }
 
 function AddRow({ onAdd }: { onAdd: (v: string) => void }) {
+  const tl = useTranslations('labels');
   const [val, setVal] = useState('');
   return (
     <div className="dict-add-row">
       <input
         className="input"
-        placeholder="新增选项，回车确认"
+        placeholder={tl('新增选项，回车确认')}
         value={val}
         onChange={(e) => setVal(e.target.value)}
         onKeyDown={(e) => {

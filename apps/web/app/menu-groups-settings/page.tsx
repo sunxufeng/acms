@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { type NavMenuGroup, type NavMenuGroupConfig } from '@acms/contracts';
 import { api } from '../../lib/api';
+import { useTranslations } from 'next-intl';
 
 export default function MenuGroupsSettingsPage() {
-  const [groups, setGroups] = useState<NavMenuGroup[]>([]);
+
+  const tl = useTranslations('labels');  const [groups, setGroups] = useState<NavMenuGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -76,14 +78,14 @@ export default function MenuGroupsSettingsPage() {
   }
 
   if (loading) {
-    return <div style={{ padding: 40, color: 'var(--fg-secondary)' }}>加载中…</div>;
+    return <div style={{ padding: 40, color: 'var(--fg-secondary)' }}>{tl('加载中…')}</div>;
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div className="page-title">菜单分组</div>
+          <div className="page-title">{tl('菜单分组')}</div>
           <div className="page-subtitle">
             维护侧边栏菜单的分组（section）展示顺序与名称。分组 key 对应菜单项中的「分组」字段，保存后刷新页面生效。
           </div>
@@ -113,11 +115,11 @@ export default function MenuGroupsSettingsPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ color: 'var(--fg-secondary)', borderBottom: '1px solid var(--border)' }}>
-                <th style={{ textAlign: 'left', padding: '8px 10px', width: 60 }}>顺序</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 160 }}>分组名称</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 160 }}>英文名称</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 200 }}>分组标识 (key)</th>
-                <th style={{ textAlign: 'center', padding: '8px 10px', width: 140 }}>操作</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', width: 60 }}>{tl('顺序')}</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 160 }}>{tl('分组名称')}</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 160 }}>{tl('英文名称')}</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 200 }}>{tl('分组标识 (key)')}</th>
+                <th style={{ textAlign: 'center', padding: '8px 10px', width: 140 }}>{tl('操作')}</th>
               </tr>
             </thead>
             <tbody>
@@ -143,7 +145,7 @@ export default function MenuGroupsSettingsPage() {
                     <input
                       className="input"
                       value={g.enLabel || ''}
-                      placeholder="英文显示名"
+                      placeholder={tl('英文显示名')}
                       onChange={(e) => update(idx, { enLabel: e.target.value || undefined })}
                       style={{ minWidth: 140 }}
                     />
@@ -151,13 +153,13 @@ export default function MenuGroupsSettingsPage() {
                   <td style={{ padding: '6px 10px', color: 'var(--fg-secondary)' }}>{g.key}</td>
                   <td style={{ padding: '6px 10px', textAlign: 'center' }}>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                      <button type="button" className="btn btn-sm btn-icon" title="上移" onClick={() => move(idx, -1)}>
+                      <button type="button" className="btn btn-sm btn-icon" title={tl('上移')} onClick={() => move(idx, -1)}>
                         ↑
                       </button>
-                      <button type="button" className="btn btn-sm btn-icon" title="下移" onClick={() => move(idx, 1)}>
+                      <button type="button" className="btn btn-sm btn-icon" title={tl('下移')} onClick={() => move(idx, 1)}>
                         ↓
                       </button>
-                      <button type="button" className="btn btn-sm btn-danger" title="删除" onClick={() => remove(idx)}>
+                      <button type="button" className="btn btn-sm btn-danger" title={tl('删除')} onClick={() => remove(idx)}>
                         ×
                       </button>
                     </div>

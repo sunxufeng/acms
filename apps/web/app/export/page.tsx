@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { exportTable } from '../../lib/api';
+import { useTranslations } from 'next-intl';
 
 const TABLES: { key: string; label: string }[] = [
   { key: 'studentProfile', label: '学生档案' },
@@ -29,7 +30,8 @@ const TABLES: { key: string; label: string }[] = [
 ];
 
 export default function ExportPage() {
-  const [selected, setSelected] = useState('studentProfile');
+
+  const tl = useTranslations('labels');  const [selected, setSelected] = useState('studentProfile');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -49,15 +51,15 @@ export default function ExportPage() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1 className="page-title">数据导出</h1>
-        <p className="muted">将任一业务表全量导出为 CSV（含 BOM，Excel 可直接打开）。需「导出」权限（export:run）。</p>
+        <h1 className="page-title">{tl('数据导出')}</h1>
+        <p className="muted">{tl('将任一业务表全量导出为 CSV（含 BOM，Excel 可直接打开）。需「导出」权限（export:run）。')}</p>
       </div>
 
       <div className="form-fieldset" style={{ maxWidth: 520 }}>
-        <legend className="form-legend">选择导出对象</legend>
+        <legend className="form-legend">{tl('选择导出对象')}</legend>
         <div className="form-grid">
           <div className="form-label">
-            <span className="form-label-text">业务表</span>
+            <span className="form-label-text">{tl('业务表')}</span>
             <select className="form-input" value={selected} onChange={(e) => setSelected(e.target.value)}>
               {TABLES.map((t) => (
                 <option key={t.key} value={t.key}>

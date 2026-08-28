@@ -5,6 +5,7 @@ import { DEFAULT_HOMEPAGE_CONFIG, type HomepageConfig, type LoginFeature } from 
 import { api } from '../../lib/api';
 import LoginShell from '../login/LoginShell';
 import ImageField from './ImageField';
+import { useTranslations } from 'next-intl';
 
 const PREVIEW_BASE_W = 1440;
 const PREVIEW_BASE_H = 900;
@@ -186,6 +187,7 @@ function FeatureRow({
   item: LoginFeature;
   onChange: (next: LoginFeature) => void;
 }) {
+  const tl = useTranslations('labels');
   const icons = ['shield', 'users', 'layers', 'lock', 'check', 'zap'];
   return (
     <div
@@ -211,20 +213,21 @@ function FeatureRow({
         className="input"
         value={item.title}
         onChange={(e) => onChange({ ...item, title: e.target.value })}
-        placeholder="标题"
+        placeholder={tl('标题')}
       />
       <input
         className="input"
         value={item.desc}
         onChange={(e) => onChange({ ...item, desc: e.target.value })}
-        placeholder="描述"
+        placeholder={tl('描述')}
       />
     </div>
   );
 }
 
 export default function HomepageSettingsPage() {
-  const [config, setConfig] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
+
+  const tl = useTranslations('labels');  const [config, setConfig] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -283,15 +286,15 @@ export default function HomepageSettingsPage() {
   }
 
   if (loading) {
-    return <div style={{ padding: 40, color: 'var(--fg-secondary)' }}>加载中…</div>;
+    return <div style={{ padding: 40, color: 'var(--fg-secondary)' }}>{tl('加载中…')}</div>;
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div className="page-title">登录页配置</div>
-          <div className="page-subtitle">配置登录页的布局、配色、Logo、文案与字体，右侧实时预览并保存。</div>
+          <div className="page-title">{tl('登录页配置')}</div>
+          <div className="page-subtitle">{tl('配置登录页的布局、配色、Logo、文案与字体，右侧实时预览并保存。')}</div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button type="button" className="btn btn-outline" onClick={handleReset}>
@@ -316,7 +319,7 @@ export default function HomepageSettingsPage() {
             paddingBottom: 80,
           }}
         >
-          <Section title="布局比例">
+          <Section title={tl('布局比例')}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <Field label="左侧面板宽度 (%)">
                 <RangeNumberInput
@@ -343,7 +346,7 @@ export default function HomepageSettingsPage() {
             </div>
           </Section>
 
-          <Section title="左侧面板">
+          <Section title={tl('左侧面板')}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <Field label="背景色">
                 <ColorInput value={config.leftBgColor} onChange={(v) => update('leftBgColor', v)} />
@@ -359,7 +362,7 @@ export default function HomepageSettingsPage() {
             />
           </Section>
 
-          <Section title="右侧面板">
+          <Section title={tl('右侧面板')}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <Field label="背景色">
                 <ColorInput value={config.rightBgColor} onChange={(v) => update('rightBgColor', v)} />
@@ -375,7 +378,7 @@ export default function HomepageSettingsPage() {
             />
           </Section>
 
-          <Section title="品牌 Logo">
+          <Section title={tl('品牌 Logo')}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <Field label="品牌名">
                 <TextInput value={config.brandName} onChange={(v) => update('brandName', v)} />
@@ -391,7 +394,7 @@ export default function HomepageSettingsPage() {
             />
           </Section>
 
-          <Section title="字体排版">
+          <Section title={tl('字体排版')}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 16 }}>
               <Field label="主标题字体大小">
                 <TextInput value={config.headingFontSize} onChange={(v) => update('headingFontSize', v)} />
@@ -405,7 +408,7 @@ export default function HomepageSettingsPage() {
             </div>
           </Section>
 
-          <Section title="左侧文案">
+          <Section title={tl('左侧文案')}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <Field label="eyebrow 小字">
                 <TextInput value={config.eyebrow} onChange={(v) => update('eyebrow', v)} />
@@ -429,7 +432,7 @@ export default function HomepageSettingsPage() {
             </Field>
           </Section>
 
-          <Section title="右侧文案">
+          <Section title={tl('右侧文案')}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <Field label="小标签">
                 <TextInput value={config.rightLabel} onChange={(v) => update('rightLabel', v)} />
@@ -474,7 +477,7 @@ export default function HomepageSettingsPage() {
             height: 'calc(100vh - 140px)',
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg)' }}>实时预览</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg)' }}>{tl('实时预览')}</div>
           <div
             style={{
               flex: 1,

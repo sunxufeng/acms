@@ -217,6 +217,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
 
   const router = useRouter();
   const t = useTranslations();
+  // 业务文案（页面传入的 title/列名/字段名/按钮/占位符）以中文原文为 key，
+  // 中文环境 fallback 回原文，英文环境返回 labels 命名空间映射的英文。
+  const tl = useTranslations('labels');
 
   const filterCols = columns.filter((c) => c.filter);
   const formCols = columns.filter((c) => c.form);
@@ -558,7 +561,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     <div className="form-grid">
       {formCols.map((c) => (
         <div key={c.key} className="form-label" style={c.type === 'textarea' || c.type === 'markdown' ? { gridColumn: '1 / -1' } : undefined}>
-          <span className="form-label-text">{c.label}{c.required && <span style={{ color: 'var(--danger)' }}> *</span>}</span>
+          <span className="form-label-text">{tl(c.label)}{c.required && <span style={{ color: 'var(--danger)' }}> *</span>}</span>
           {c.type === 'map' ? (
             <MapPicker
               lat={form[c.latKey ?? ''] as string | number}
@@ -571,7 +574,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 value={Array.isArray(form[c.key]) ? (form[c.key] as string[]) : []}
                 onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))}
                 options={c.tagOptions}
-                placeholder="输入或选择，回车添加"
+                placeholder={t('crud.tagPlaceholder')}
                 quickAdd={c.tagQuickAdd}
               />
               {c.quickFill === 'wifi' && (
@@ -650,7 +653,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 {(Array.isArray(form[c.key]) ? (form[c.key] as { file_token: string; name: string }[]) : []).map((a, i) => (
                   <div key={a.file_token ?? i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--font-sm)' }}>
                     <a href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{a.name}</a>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setForm((f) => ({ ...f, [c.key]: (Array.isArray(f[c.key]) ? (f[c.key] as { file_token: string; name: string }[]) : []).filter((_, j) => j !== i) }))}>移除</button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setForm((f) => ({ ...f, [c.key]: (Array.isArray(f[c.key]) ? (f[c.key] as { file_token: string; name: string }[]) : []).filter((_, j) => j !== i) }))}>{t('crud.remove')}</button>
                   </div>
                 ))}
               </div>
@@ -673,16 +676,16 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       {!showingStandaloneForm && (
         <div className="page-header page-header-row">
           <div>
-            <h1 className="page-title">{title}</h1>
-            {subtitle && <p className="page-subtitle">{subtitle}</p>}
+            <h1 className="page-title">{tl(title)}</h1>
+            {subtitle && <p className="page-subtitle">{tl(subtitle)}</p>}
           </div>
           <div className="page-actions">
             {extraActions?.map((a) => (
               <button key={a.label} className="btn btn-outline" disabled={loading}
-                onClick={() => a.run(() => reload())}>{a.label}</button>
+                onClick={() => a.run(() => reload())}>{tl(a.label)}</button>
             ))}
             {extraLinks?.map((l) => (
-              <Link key={l.href} href={l.href} className="btn btn-outline">{l.label}</Link>
+              <Link key={l.href} href={l.href} className="btn btn-outline">{tl(l.label)}</Link>
             ))}
             {!hideCreate && (createHref ? (
               <Link href={createHref} className="btn btn-primary">+ {t('crud.create')}</Link>
@@ -703,7 +706,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             >
               <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
               <input
-                placeholder={search.placeholder}
+                placeholder={tl(search.placeholder)}
                 value={filters.q ?? ''}
                 onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
               />
@@ -716,19 +719,19 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 key={c.key}
                 className="form-input"
                 style={{ width: 160 }}
-                placeholder={t('crud.filterBy', { label: c.label })}
+                placeholder={t('crud.filterBy', { label: tl(c.label) })}
                 value={filters[c.filterParam ?? c.key] ?? ''}
                 onChange={(e) => setFilters((f) => ({ ...f, [c.filterParam ?? c.key]: e.target.value }))}
               />
             ) : (
-              <FilterSelect key={c.key} label={c.label} value={filters[c.key] ?? ''}
+              <FilterSelect key={c.key} label={tl(c.label)} value={filters[c.key] ?? ''}
                 onChange={(v) => setFilters((f) => ({ ...f, [c.key]: v }))}
                 options={c.filterOptions ?? (c.dictKey ? (dicts[c.dictKey] ?? c.options ?? []) : (c.options ?? []))} />
             ),
           )}
           {(rangeFilters ?? []).map((rf) => (
             <span key={rf.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{rf.label}</span>
+              <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{tl(rf.label)}</span>
               <input className="form-input" type="date" style={{ width: 150 }}
                 value={filters[rf.fromParam] ?? ''}
                 onChange={(e) => setFilters((f) => ({ ...f, [rf.fromParam]: e.target.value }))} />
@@ -751,13 +754,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
                 </button>
                 <div>
-                  <div className="page-eyebrow">{editing.mode === 'create' ? 'CREATE' : 'EDIT'} / {title}</div>
-                  <h1 className="page-title">{editing.mode === 'create' ? `${t('crud.create')}${title}` : `${t('crud.edit')}${title}`}</h1>
+                  <div className="page-eyebrow">{editing.mode === 'create' ? 'CREATE' : 'EDIT'} / {tl(title)}</div>
+                  <h1 className="page-title">{editing.mode === 'create' ? `${t('crud.create')}${tl(title)}` : `${t('crud.edit')}${tl(title)}`}</h1>
                 </div>
               </div>
             ) : (
               <>
-                <h3 className="crud-inline-form-title">{editing.mode === 'create' ? `${t('crud.create')}${title}` : `${t('crud.edit')}${title}`}</h3>
+                <h3 className="crud-inline-form-title">{editing.mode === 'create' ? `${t('crud.create')}${tl(title)}` : `${t('crud.edit')}${tl(title)}`}</h3>
                 <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>×</button>
               </>
             )}
@@ -793,7 +796,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   />
                 </th>
               )}
-              {listCols.map((c) => <th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}
+              {listCols.map((c) => <th key={c.key} style={c.width ? { width: c.width } : undefined}>{tl(c.label)}</th>)}
               <th style={{ width: '150px' }}>{t('common.actions')}</th>
             </tr>
           </thead>
@@ -913,13 +916,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         <div style={overlayStyle} onClick={() => setEditing(null)}>
           <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ margin: 0, fontSize: 'var(--font-lg)', fontWeight: 700 }}>{editing.mode === 'create' ? `${t('crud.create')}${title}` : `${t('crud.edit')}${title}`}</h3>
+              <h3 style={{ margin: 0, fontSize: 'var(--font-lg)', fontWeight: 700 }}>{editing.mode === 'create' ? `${t('crud.create')}${tl(title)}` : `${t('crud.edit')}${tl(title)}`}</h3>
               <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>×</button>
             </div>
             <div style={{ padding: '20px 22px', maxHeight: '64vh', overflowY: 'auto' }}>
               {error && <p className="msg-error">{error}</p>}
               <fieldset className="form-fieldset">
-                <legend className="form-legend">{title} {t('crud.info')}</legend>
+                <legend className="form-legend">{tl(title)} {t('crud.info')}</legend>
                 {formFields}
               </fieldset>
             </div>

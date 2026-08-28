@@ -305,7 +305,6 @@ export default function Student360Page() {
 
           {/* 各生命周期分段 */}
           {data.sections.map((sec) => {
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
             const comm = COMM_MODULES[sec.key];
             if (comm) {
               return (

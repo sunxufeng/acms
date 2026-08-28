@@ -186,7 +186,6 @@ export default function DictionariesPage() {
                 <div className="dict-options">
                   {options.length === 0 && <div className="dict-empty">{tl('暂无选项')}</div>}
                   {options.map((opt, idx) => {
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
                     const isEditing =
                       editingOpt?.key === key && editingOpt?.value === opt;
                     if (isEditing) {

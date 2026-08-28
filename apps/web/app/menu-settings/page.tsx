@@ -35,6 +35,7 @@ function emptyItem(): NavMenuItem {
   return {
     key: `menu_${Date.now()}`,
     label: '新菜单',
+    enLabel: '',
     href: '/',
     icon: 'settings',
     section: '后台管理',
@@ -273,6 +274,7 @@ export default function MenuSettingsPage() {
                 <th style={{ textAlign: 'center', padding: '8px 6px', width: 36 }} title="拖动排序">⠿</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', width: 40 }}>#</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>名称</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>英文名称</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 120 }}>路径 (href)</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>图标</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 100 }}>分组</th>
@@ -324,6 +326,15 @@ export default function MenuSettingsPage() {
                       className="input"
                       value={it.label}
                       onChange={(e) => updateItem(idx, { label: e.target.value })}
+                      style={{ minWidth: 100 }}
+                    />
+                  </td>
+                  <td style={{ padding: '6px 10px' }}>
+                    <input
+                      className="input"
+                      value={it.enLabel || ''}
+                      placeholder="英文显示名"
+                      onChange={(e) => updateItem(idx, { enLabel: e.target.value || undefined })}
                       style={{ minWidth: 100 }}
                     />
                   </td>

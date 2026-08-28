@@ -328,10 +328,16 @@ export default function AppShell({
 
   // 侧边栏「分组（大类）」顺序以菜单分组配置为准；未配置分组则维持原顺序。
   const groupOrder = new Map<string, number>();
+  // 分组英文显示名：以菜单分组配置为准（key / label 均可命中），缺失时回退到静态 en.json。
+  const sectionEnLabelMap = new Map<string, string>();
   for (const g of menuGroups?.items ?? []) {
     if (g.order != null) {
       groupOrder.set(g.key, g.order);
       groupOrder.set(g.label, g.order);
+    }
+    if (g.enLabel) {
+      sectionEnLabelMap.set(g.key, g.enLabel);
+      sectionEnLabelMap.set(g.label, g.enLabel);
     }
   }
   const navGroupsSorted = navGroups.slice().sort((a, b) => {
@@ -394,7 +400,7 @@ export default function AppShell({
                 <div key={item.key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Link href={item.href} className={`nav-item${active ? ' active' : ''}`}>
                     <span className="nav-icon"><Icon /></span>
-                    <span>{locale === 'en' ? (tn(item.key) || item.label) : item.label}</span>
+                    <span>{locale === 'en' ? (item.enLabel || tn(item.key) || item.label) : item.label}</span>
                   </Link>
                   {children && children.length > 0 && (
                     <div style={{ paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -412,7 +418,7 @@ export default function AppShell({
                   onClick={() => toggleSection(group.section)}
                   aria-expanded={expanded}
                 >
-                  <span className="sidebar-section-label">{locale === 'en' ? (tns(group.section) || group.section) : group.section}</span>
+                  <span className="sidebar-section-label">{locale === 'en' ? (sectionEnLabelMap.get(group.section) || tns(group.section) || group.section) : group.section}</span>
                   <span className="sidebar-section-chevron">{expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}</span>
                 </button>
                 <div className="sidebar-section-items">

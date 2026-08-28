@@ -42,7 +42,7 @@ export default function MenuGroupsSettingsPage() {
   function add() {
     setGroups((prev) => [
       ...prev,
-      { key: `group_${Date.now()}`, label: '新分组', order: (prev.length + 1) * 10 },
+      { key: `group_${Date.now()}`, label: '新分组', enLabel: '', order: (prev.length + 1) * 10 },
     ]);
   }
 
@@ -115,6 +115,7 @@ export default function MenuGroupsSettingsPage() {
               <tr style={{ color: 'var(--fg-secondary)', borderBottom: '1px solid var(--border)' }}>
                 <th style={{ textAlign: 'left', padding: '8px 10px', width: 60 }}>顺序</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 160 }}>分组名称</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 160 }}>英文名称</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 200 }}>分组标识 (key)</th>
                 <th style={{ textAlign: 'center', padding: '8px 10px', width: 140 }}>操作</th>
               </tr>
@@ -135,6 +136,15 @@ export default function MenuGroupsSettingsPage() {
                       className="input"
                       value={g.label}
                       onChange={(e) => update(idx, { label: e.target.value })}
+                      style={{ minWidth: 140 }}
+                    />
+                  </td>
+                  <td style={{ padding: '6px 10px' }}>
+                    <input
+                      className="input"
+                      value={g.enLabel || ''}
+                      placeholder="英文显示名"
+                      onChange={(e) => update(idx, { enLabel: e.target.value || undefined })}
                       style={{ minWidth: 140 }}
                     />
                   </td>

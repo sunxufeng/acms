@@ -49,7 +49,10 @@ export interface DashboardTheme {
 /** 导航菜单项 */
 export interface NavMenuItem {
   key: string;
+  /** 中文显示名（默认语言） */
   label: string;
+  /** 英文显示名；为空时英文环境回退到静态 en.json（nav 命名空间，按 key 查）或中文 label */
+  enLabel?: string;
   href: string;
   /** 图标名称（对应 AppShell 中的图标映射） */
   icon: string;
@@ -97,8 +100,10 @@ export const ICON_NAMES: readonly IconName[] = [
 export interface NavMenuGroup {
   /** 分组标识（与 NavMenuItem.section 对应，唯一） */
   key: string;
-  /** 分组显示名 */
+  /** 分组显示名（中文，默认语言） */
   label: string;
+  /** 分组英文显示名；为空时英文环境回退到静态 en.json（navSection 命名空间，按中文名查）或中文 label */
+  enLabel?: string;
   /** 同级排序，越小越靠前 */
   order: number;
 }
@@ -169,61 +174,72 @@ export interface HomepageConfig {
   dashboardTheme?: DashboardTheme;
 }
 
+/** 分组中文名 → 英文（与 en.json 的 navSection 保持一致，用于默认分组的 enLabel 回填） */
+export const SECTION_EN_LABELS: Record<string, string> = {
+  工作台: 'Workspace',
+  业务管理: 'Operations',
+  学生闭环: 'Student Lifecycle',
+  教师管理: 'Faculty',
+  智能助手: 'AI Assistant',
+  后台管理: 'Administration',
+  邮件归档: 'Mail Archive',
+};
+
 /** 默认导航菜单（与当前 AppShell 硬编码菜单保持一致，用于回退） */
 export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
   items: [
-    { key: 'dashboard', label: '概览', href: '/', icon: 'dashboard', section: '工作台', order: 10 },
+    { key: 'dashboard', label: '概览', enLabel: 'Overview', href: '/', icon: 'dashboard', section: '工作台', order: 10 },
 
-    { key: 'students', label: '学生档案', href: '/students', icon: 'students', section: '业务管理', order: 10 },
-    { key: 'courses', label: '课程方案', href: '/courses', icon: 'courses', section: '业务管理', order: 20 },
-    { key: 'teaching', label: '教学班级', href: '/teaching-classes', icon: 'courses', section: '业务管理', order: 30 },
-    { key: 'schedule', label: '排课课次', href: '/schedule', icon: 'schedule', section: '业务管理', order: 40 },
-    { key: 'portal', label: '学生门户', href: '/portal', icon: 'students', section: '业务管理', order: 50 },
+    { key: 'students', label: '学生档案', enLabel: 'Students', href: '/students', icon: 'students', section: '业务管理', order: 10 },
+    { key: 'courses', label: '课程方案', enLabel: 'Courses', href: '/courses', icon: 'courses', section: '业务管理', order: 20 },
+    { key: 'teaching', label: '教学班级', enLabel: 'Teaching Classes', href: '/teaching-classes', icon: 'courses', section: '业务管理', order: 30 },
+    { key: 'schedule', label: '排课课次', enLabel: 'Schedules', href: '/schedule', icon: 'schedule', section: '业务管理', order: 40 },
+    { key: 'portal', label: '学生门户', enLabel: 'Student Portal', href: '/portal', icon: 'students', section: '业务管理', order: 50 },
 
-    { key: 'student360', label: '学生全景', href: '/student-360', icon: 'students', section: '学生闭环', order: 10 },
-    { key: 'sourceFollowups', label: '招生跟进', href: '/source-followups', icon: 'admissions', section: '学生闭环', order: 20 },
-    { key: 'studentAttendances', label: '学生考勤', href: '/student-attendances', icon: 'students', section: '学生闭环', order: 30 },
-    { key: 'grades', label: '学业成绩', href: '/grades', icon: 'courses', section: '学生闭环', order: 40 },
-    { key: 'practiceActivities', label: '实践活动', href: '/practice-activities', icon: 'students', section: '学生闭环', order: 50 },
-    { key: 'homeSchoolComms', label: '家校沟通', href: '/home-school-comms', icon: 'notifications', section: '学生闭环', order: 60 },
-    { key: 'dailyFollowups', label: '日常跟进', href: '/daily-followups', icon: 'notifications', section: '学生闭环', order: 70 },
-    { key: 'idpPlans', label: 'IDP管理', href: '/idp-plans', icon: 'target', section: '学生闭环', order: 75 },
-    { key: 'stageEvaluations', label: '阶段评价', href: '/stage-evaluations', icon: 'students', section: '学生闭环', order: 80 },
-    { key: 'alumniFollowups', label: '校友跟进', href: '/alumni-followups', icon: 'students', section: '学生闭环', order: 90 },
+    { key: 'student360', label: '学生全景', enLabel: 'Student 360', href: '/student-360', icon: 'students', section: '学生闭环', order: 10 },
+    { key: 'sourceFollowups', label: '招生跟进', enLabel: 'Admissions Follow-ups', href: '/source-followups', icon: 'admissions', section: '学生闭环', order: 20 },
+    { key: 'studentAttendances', label: '学生考勤', enLabel: 'Attendance', href: '/student-attendances', icon: 'students', section: '学生闭环', order: 30 },
+    { key: 'grades', label: '学业成绩', enLabel: 'Grades', href: '/grades', icon: 'courses', section: '学生闭环', order: 40 },
+    { key: 'practiceActivities', label: '实践活动', enLabel: 'Activities', href: '/practice-activities', icon: 'students', section: '学生闭环', order: 50 },
+    { key: 'homeSchoolComms', label: '家校沟通', enLabel: 'Home-School Comms', href: '/home-school-comms', icon: 'notifications', section: '学生闭环', order: 60 },
+    { key: 'dailyFollowups', label: '日常跟进', enLabel: 'Daily Follow-ups', href: '/daily-followups', icon: 'notifications', section: '学生闭环', order: 70 },
+    { key: 'idpPlans', label: 'IDP管理', enLabel: 'IDP Plans', href: '/idp-plans', icon: 'target', section: '学生闭环', order: 75 },
+    { key: 'stageEvaluations', label: '阶段评价', enLabel: 'Stage Evaluations', href: '/stage-evaluations', icon: 'students', section: '学生闭环', order: 80 },
+    { key: 'alumniFollowups', label: '校友跟进', enLabel: 'Alumni Follow-ups', href: '/alumni-followups', icon: 'students', section: '学生闭环', order: 90 },
 
-    { key: 'mailAccounts', label: '邮件账户', href: '/mail-accounts', icon: 'mail', section: '邮件归档', order: 10, perm: 'mail:write' },
-    { key: 'mailArchive', label: '邮件归档', href: '/mail-archive', icon: 'folder', section: '邮件归档', order: 20, perm: 'mail:read' },
+    { key: 'mailAccounts', label: '邮件账户', enLabel: 'Mail Accounts', href: '/mail-accounts', icon: 'mail', section: '邮件归档', order: 10, perm: 'mail:write' },
+    { key: 'mailArchive', label: '邮件归档', enLabel: 'Mail Archive', href: '/mail-archive', icon: 'folder', section: '邮件归档', order: 20, perm: 'mail:read' },
 
-    { key: 'teachers', label: '教师档案', href: '/teachers', icon: 'teachers', section: '教师管理', order: 10 },
-    { key: 'attendance', label: '教师履约', href: '/attendance', icon: 'teachers', section: '教师管理', order: 20 },
-    { key: 'billing', label: '计费结算', href: '/billing', icon: 'billing', section: '教师管理', order: 30 },
-    { key: 'settlements', label: '月度结算', href: '/settlements', icon: 'billing', section: '教师管理', order: 40 },
-    { key: 'adjustments', label: '调整冲销', href: '/adjustments', icon: 'billing', section: '教师管理', order: 50 },
-    { key: 'partnerships', label: '聘用合作', href: '/partnerships', icon: 'teachers', section: '教师管理', order: 60 },
+    { key: 'teachers', label: '教师档案', enLabel: 'Teachers', href: '/teachers', icon: 'teachers', section: '教师管理', order: 10 },
+    { key: 'attendance', label: '教师履约', enLabel: 'Faculty Attendance', href: '/attendance', icon: 'teachers', section: '教师管理', order: 20 },
+    { key: 'billing', label: '计费结算', enLabel: 'Billing', href: '/billing', icon: 'billing', section: '教师管理', order: 30 },
+    { key: 'settlements', label: '月度结算', enLabel: 'Monthly Settlements', href: '/settlements', icon: 'billing', section: '教师管理', order: 40 },
+    { key: 'adjustments', label: '调整冲销', enLabel: 'Adjustments', href: '/adjustments', icon: 'billing', section: '教师管理', order: 50 },
+    { key: 'partnerships', label: '聘用合作', enLabel: 'Partnerships', href: '/partnerships', icon: 'teachers', section: '教师管理', order: 60 },
 
-    { key: 'aiChat', label: 'AI 对话', href: '/ai/chat', icon: 'chat', section: '智能助手', order: 10 },
-    { key: 'aiConfig', label: 'AI 设置', href: '/ai/config', icon: 'config', section: '智能助手', order: 20 },
-    { key: 'aiAgents', label: 'Bot管理', href: '/ai/agents', icon: 'bot', section: '智能助手', order: 30, perm: 'ai:config' },
-    { key: 'aiSkills', label: '技能管理', href: '/ai/skills', icon: 'skill', section: '智能助手', order: 40, perm: 'ai:admin' },
-    { key: 'aiAutomations', label: '定时任务', href: '/ai/automations', icon: 'clock', section: '智能助手', order: 50, perm: 'ai:automation' },
-    { key: 'aiAdmin', label: 'AI 用量', href: '/ai/admin', icon: 'chart', section: '智能助手', order: 60, perm: 'ai:admin' },
+    { key: 'aiChat', label: 'AI 对话', enLabel: 'AI Chat', href: '/ai/chat', icon: 'chat', section: '智能助手', order: 10 },
+    { key: 'aiConfig', label: 'AI 设置', enLabel: 'AI Settings', href: '/ai/config', icon: 'config', section: '智能助手', order: 20 },
+    { key: 'aiAgents', label: 'Bot管理', enLabel: 'Bots', href: '/ai/agents', icon: 'bot', section: '智能助手', order: 30, perm: 'ai:config' },
+    { key: 'aiSkills', label: '技能管理', enLabel: 'Skills', href: '/ai/skills', icon: 'skill', section: '智能助手', order: 40, perm: 'ai:admin' },
+    { key: 'aiAutomations', label: '定时任务', enLabel: 'Scheduled Tasks', href: '/ai/automations', icon: 'clock', section: '智能助手', order: 50, perm: 'ai:automation' },
+    { key: 'aiAdmin', label: 'AI 用量', enLabel: 'AI Usage', href: '/ai/admin', icon: 'chart', section: '智能助手', order: 60, perm: 'ai:admin' },
 
-    { key: 'dictionary', label: '字典数据', href: '/dictionaries', icon: 'dictionary', section: '后台管理', order: 10 },
-    { key: 'export', label: '数据导出', href: '/export', icon: 'reports', section: '后台管理', order: 20 },
-    { key: 'audit-logs', label: '审计日志', href: '/audit-logs', icon: 'audit', section: '后台管理', order: 30 },
-    { key: 'users', label: '用户管理', href: '/users', icon: 'userGroup', section: '后台管理', order: 40, adminOnly: true },
-    { key: 'permissions', label: '权限授权', href: '/permissions', icon: 'shield', section: '后台管理', order: 50, adminOnly: true },
-    { key: 'role-management', label: '角色管理', href: '/role-management', icon: 'key', section: '后台管理', order: 52, adminOnly: true, perm: 'admin:user' },
-    { key: 'notifications', label: '通知任务', href: '/notifications', icon: 'notifications', section: '后台管理', order: 60 },
-    { key: 'notification-templates', label: '通知模板', href: '/notification-templates', icon: 'notifications', section: '后台管理', order: 70 },
-    { key: 'settings', label: '系统设置', href: '/settings', icon: 'settings', section: '后台管理', order: 80 },
-    { key: 'attendance-zones', label: '考勤围栏', href: '/attendance-zones', icon: 'settings', section: '后台管理', order: 90 },
-    { key: 'wechat-bindings', label: '微信用户', href: '/wechat-bindings', icon: 'userGroup', section: '后台管理', order: 100, adminOnly: true },
-    { key: 'homepage-management', label: '工作台主题', href: '/homepage-management', icon: 'settings', section: '后台管理', order: 105, adminOnly: true },
-    { key: 'homepage-settings', label: '登录页配置', href: '/homepage-settings', icon: 'settings', section: '后台管理', order: 110, adminOnly: true },
-    { key: 'menu-settings', label: '菜单管理', href: '/menu-settings', icon: 'dictionary', section: '后台管理', order: 120, adminOnly: true },
-    { key: 'menu-groups-settings', label: '菜单分组', href: '/menu-groups-settings', icon: 'list', section: '后台管理', order: 122, adminOnly: true },
-    { key: 'student-users', label: '学生账号', href: '/student-users', icon: 'user', section: '后台管理', order: 130, adminOnly: true, perm: 'admin:studentUser' },
+    { key: 'dictionary', label: '字典数据', enLabel: 'Dictionaries', href: '/dictionaries', icon: 'dictionary', section: '后台管理', order: 10 },
+    { key: 'export', label: '数据导出', enLabel: 'Export', href: '/export', icon: 'reports', section: '后台管理', order: 20 },
+    { key: 'audit-logs', label: '审计日志', enLabel: 'Audit Logs', href: '/audit-logs', icon: 'audit', section: '后台管理', order: 30 },
+    { key: 'users', label: '用户管理', enLabel: 'Users', href: '/users', icon: 'userGroup', section: '后台管理', order: 40, adminOnly: true },
+    { key: 'permissions', label: '权限授权', enLabel: 'Permissions', href: '/permissions', icon: 'shield', section: '后台管理', order: 50, adminOnly: true },
+    { key: 'role-management', label: '角色管理', enLabel: 'Role Management', href: '/role-management', icon: 'key', section: '后台管理', order: 52, adminOnly: true, perm: 'admin:user' },
+    { key: 'notifications', label: '通知任务', enLabel: 'Notifications', href: '/notifications', icon: 'notifications', section: '后台管理', order: 60 },
+    { key: 'notification-templates', label: '通知模板', enLabel: 'Notification Templates', href: '/notification-templates', icon: 'notifications', section: '后台管理', order: 70 },
+    { key: 'settings', label: '系统设置', enLabel: 'Settings', href: '/settings', icon: 'settings', section: '后台管理', order: 80 },
+    { key: 'attendance-zones', label: '考勤围栏', enLabel: 'Attendance Zones', href: '/attendance-zones', icon: 'settings', section: '后台管理', order: 90 },
+    { key: 'wechat-bindings', label: '微信用户', enLabel: 'WeChat Users', href: '/wechat-bindings', icon: 'userGroup', section: '后台管理', order: 100, adminOnly: true },
+    { key: 'homepage-management', label: '工作台主题', enLabel: 'Dashboard Theme', href: '/homepage-management', icon: 'settings', section: '后台管理', order: 105, adminOnly: true },
+    { key: 'homepage-settings', label: '登录页配置', enLabel: 'Login Page Config', href: '/homepage-settings', icon: 'settings', section: '后台管理', order: 110, adminOnly: true },
+    { key: 'menu-settings', label: '菜单管理', enLabel: 'Menu Management', href: '/menu-settings', icon: 'dictionary', section: '后台管理', order: 120, adminOnly: true },
+    { key: 'menu-groups-settings', label: '菜单分组', enLabel: 'Menu Groups', href: '/menu-groups-settings', icon: 'list', section: '后台管理', order: 122, adminOnly: true },
+    { key: 'student-users', label: '学生账号', enLabel: 'Student Accounts', href: '/student-users', icon: 'user', section: '后台管理', order: 130, adminOnly: true, perm: 'admin:studentUser' },
   ],
 };
 

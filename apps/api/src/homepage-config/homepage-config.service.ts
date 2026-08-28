@@ -4,6 +4,7 @@ import {
   TABLES,
   DEFAULT_HOMEPAGE_CONFIG,
   DEFAULT_NAV_MENU_CONFIG,
+  SECTION_EN_LABELS,
   type HomepageConfig,
   type NavMenuConfig,
   type NavMenuGroupConfig,
@@ -142,7 +143,7 @@ export class HomepageConfigService implements OnModuleInit {
       if (!section) continue;
       if (!seen.has(section)) {
         seen.add(section);
-        items.push({ key: section, label: section, order });
+        items.push({ key: section, label: section, enLabel: SECTION_EN_LABELS[section], order });
         order += 10;
       }
     }

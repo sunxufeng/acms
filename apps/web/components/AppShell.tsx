@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { api } from '../lib/api';
 import LocaleSwitcher from './LocaleSwitcher';
-import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
+import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuGroup, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
 
 interface Me {
   name: string;
@@ -244,30 +244,30 @@ export default function AppShell({
       initial = saved ? JSON.parse(saved) : {};
     } catch { /* ignore */ }
 
-    navGroups.forEach((g) => {
-      if (initial[g.section] === undefined) {
-        initial[g.section] = false;
+    groups.forEach(({ group }) => {
+      if (initial[group.key] === undefined) {
+        initial[group.key] = false;
       }
     });
 
-    const activeSection = navGroups.find((g) =>
-      g.items.some((it) => isActive(it.href)) ||
-      g.items.some((it) => childrenMap[it.key]?.some((c) => isActive(c.href))),
+    const activeSection = groups.find(({ items }) =>
+      items.some((it) => isActive(it.href)) ||
+      items.some((it) => childrenMap[it.key]?.some((c) => isActive(c.href))),
     );
-    if (activeSection && initial[activeSection.section] === false) {
-      initial[activeSection.section] = true;
+    if (activeSection && initial[activeSection.group.key] === false) {
+      initial[activeSection.group.key] = true;
     }
 
     setExpandedSections(initial);
   }, []);
 
   useEffect(() => {
-    const activeSection = navGroups.find((g) =>
-      g.items.some((it) => isActive(it.href)) ||
-      g.items.some((it) => childrenMap[it.key]?.some((c) => isActive(c.href))),
+    const activeSection = groups.find(({ items }) =>
+      items.some((it) => isActive(it.href)) ||
+      items.some((it) => childrenMap[it.key]?.some((c) => isActive(c.href))),
     );
-    if (activeSection && !expandedSections[activeSection.section]) {
-      toggleSection(activeSection.section, true);
+    if (activeSection && !expandedSections[activeSection.group.key]) {
+      toggleSection(activeSection.group.key, true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
@@ -317,34 +317,34 @@ export default function AppShell({
       childrenMap[it.parentKey].push(it);
     }
   });
-  const sectionsMap: Record<string, NavMenuItem[]> = {};
-  sortedItems.forEach((it) => {
-    if (it.parentKey) return;
-    const section = it.section || '其他';
-    if (!sectionsMap[section]) sectionsMap[section] = [];
-    sectionsMap[section].push(it);
-  });
-  const navGroups = Object.entries(sectionsMap).map(([section, items]) => ({ section, items }));
-
-  // 侧边栏「分组（大类）」顺序以菜单分组配置为准；未配置分组则维持原顺序。
-  const groupOrder = new Map<string, number>();
-  // 分组英文显示名：以菜单分组配置为准（key / label 均可命中），缺失时回退到静态 en.json。
-  const sectionEnLabelMap = new Map<string, string>();
-  for (const g of menuGroups?.items ?? []) {
-    if (g.order != null) {
-      groupOrder.set(g.key, g.order);
-      groupOrder.set(g.label, g.order);
-    }
-    if (g.enLabel) {
-      sectionEnLabelMap.set(g.key, g.enLabel);
-      sectionEnLabelMap.set(g.label, g.enLabel);
-    }
+  // 侧边栏分组以「菜单分组配置」为准：分组集合、顺序、中英文均来自 menuGroups；
+  // 每个分组下的菜单项按 item.section 与分组的 key / label 匹配。
+  const groupDefs = (menuGroups?.items ?? []).slice().sort(
+    (a, b) => (a.order ?? 0) - (b.order ?? 0),
+  );
+  const coveredSections = new Set<string>();
+  for (const g of groupDefs) {
+    if (g.key) coveredSections.add(g.key);
+    if (g.label) coveredSections.add(g.label);
   }
-  const navGroupsSorted = navGroups.slice().sort((a, b) => {
-    const oa = groupOrder.has(a.section) ? (groupOrder.get(a.section) as number) : Number.MAX_SAFE_INTEGER;
-    const ob = groupOrder.has(b.section) ? (groupOrder.get(b.section) as number) : Number.MAX_SAFE_INTEGER;
-    return oa - ob;
-  });
+  const groups: { group: NavMenuGroup; items: NavMenuItem[] }[] = groupDefs.map((g) => ({
+    group: g,
+    items: sortedItems.filter(
+      (it) => !it.parentKey && (it.section === g.key || it.section === g.label),
+    ),
+  }));
+  // 兜底：item.section 不在任何已配置分组中时，单独成组，避免菜单丢失。
+  const orphanSections = new Set<string>();
+  for (const it of sortedItems) {
+    if (it.parentKey) continue;
+    if (it.section && !coveredSections.has(it.section)) orphanSections.add(it.section);
+  }
+  for (const section of orphanSections) {
+    groups.push({
+      group: { key: section, label: section, enLabel: undefined, order: 99999 },
+      items: sortedItems.filter((it) => !it.parentKey && it.section === section),
+    });
+  }
 
   // Theme-derived values
   const sidebarStyle = themeCssVars(dashboardTheme);
@@ -378,18 +378,19 @@ export default function AppShell({
         </div>
 
         <nav className="sidebar-nav">
-          {navGroupsSorted.map((group) => {
-            if (group.items.length === 0) return null;
-            const expanded = expandedSections[group.section] ?? false;
+          {groups.map(({ group, items }) => {
+            if (items.length === 0) return null;
+            const expanded = expandedSections[group.key] ?? false;
             const renderItem = (item: NavMenuItem) => {
               const Icon = ICONS[item.icon] ?? (() => null);
               if (item.adminOnly && !isAdmin) return null;
               if (item.perm && !(myPerms || []).includes(item.perm)) return null;
+              const label = locale === 'en' ? (item.enLabel || tn(item.key) || item.label) : item.label;
               if (item.disabled) {
                 return (
                   <div key={item.key} className="nav-item nav-item--disabled" title="敬请期待">
                     <span className="nav-icon"><Icon /></span>
-                    <span>{item.label}</span>
+                    <span>{label}</span>
                     <span className="nav-soon">{t('nav.soon')}</span>
                   </div>
                 );
@@ -400,7 +401,7 @@ export default function AppShell({
                 <div key={item.key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Link href={item.href} className={`nav-item${active ? ' active' : ''}`}>
                     <span className="nav-icon"><Icon /></span>
-                    <span>{locale === 'en' ? (item.enLabel || tn(item.key) || item.label) : item.label}</span>
+                    <span>{label}</span>
                   </Link>
                   {children && children.length > 0 && (
                     <div style={{ paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -411,20 +412,20 @@ export default function AppShell({
               );
             };
             return (
-              <div key={group.section} className={`sidebar-section${expanded ? ' expanded' : ''}`}>
+              <div key={group.key} className={`sidebar-section${expanded ? ' expanded' : ''}`}>
                 <button
                   type="button"
                   className="sidebar-section-header"
-                  onClick={() => toggleSection(group.section)}
+                  onClick={() => toggleSection(group.key)}
                   aria-expanded={expanded}
                 >
-                  <span className="sidebar-section-label">{locale === 'en' ? (sectionEnLabelMap.get(group.section) || tns(group.section) || group.section) : group.section}</span>
+                  <span className="sidebar-section-label">{locale === 'en' ? (group.enLabel || tns(group.label) || group.label) : group.label}</span>
                   <span className="sidebar-section-chevron">{expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}</span>
                 </button>
                 <div className="sidebar-section-items">
                 {(!sidebarOpen || expanded) && (
                   <>
-                    {group.items.map(renderItem)}
+                    {items.map(renderItem)}
                   </>
                 )}
                 </div>

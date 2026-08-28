@@ -101,6 +101,12 @@ export class HomepageConfigService implements OnModuleInit {
       ...stored.items,
       ...DEFAULT_NAV_MENU_CONFIG.items.filter((it) => !storedKeys.has(it.key)),
     ];
+    // 自愈：存储中缺失 enLabel 的菜单项，从默认配置兜底补齐（存储有则优先），
+    // 保证英文立即可见，且菜单管理表单回填英文。
+    const defaultEnByKey = new Map(DEFAULT_NAV_MENU_CONFIG.items.map((it) => [it.key, it.enLabel]));
+    for (const it of mergedItems) {
+      if (!it.enLabel && defaultEnByKey.get(it.key)) it.enLabel = defaultEnByKey.get(it.key);
+    }
     return { items: mergedItems };
   }
 
@@ -168,6 +174,13 @@ export class HomepageConfigService implements OnModuleInit {
       ...stored.items,
       ...this.defaultMenuGroups().filter((g) => !storedKeys.has(g.key)),
     ];
+    // 自愈：存储中缺失 enLabel 的分组，从 SECTION_EN_LABELS 兜底补齐（存储有则优先）。
+    for (const g of merged) {
+      if (!g.enLabel) {
+        const fallback = SECTION_EN_LABELS[g.key] ?? SECTION_EN_LABELS[g.label];
+        if (fallback) g.enLabel = fallback;
+      }
+    }
     return { items: merged };
   }
 

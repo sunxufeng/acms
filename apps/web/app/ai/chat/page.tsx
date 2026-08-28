@@ -508,8 +508,14 @@ export default function AiChatPage() {
               </div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
-              <label title="添加本地文件" style={{ ...btn(), padding: '7px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                📎
+              <label title="添加本地文件" style={{ width: 36, height: 36, border: '0.5px solid var(--border)', borderRadius: 8, background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'border-color 0.15s, background 0.15s' }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#999'; e.currentTarget.style.background = '#fafafa'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = '#fff'; }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
                 <input type="file" multiple onChange={handleFileUpload} style={{ display: 'none' }} />
               </label>
               <textarea

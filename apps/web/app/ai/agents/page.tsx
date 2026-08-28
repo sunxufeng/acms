@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
 import CrudPage, { type CrudColumn } from '../../../components/CrudPage';
 import { api } from '../../../lib/api';
 
@@ -11,67 +12,69 @@ function str(v: unknown): string {
   return String(v);
 }
 
-const COLUMNS: CrudColumn[] = [
-  {
-    key: 'name',
-    label: '名称',
-    render: (v, row) => (
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <strong>{str(v)}</strong>
-          {row.emoji ? <span>{str(row.emoji)}</span> : null}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--fg-tertiary)' }}>{str(row.owner) || '组织'}</div>
-      </div>
-    ),
-  },
-  {
-    key: 'owner',
-    label: '组织',
-    render: (v) => <span style={{ fontSize: 12, color: 'var(--fg-tertiary)' }}>{str(v) || '—'}</span>,
-  },
-  {
-    key: 'provider',
-    label: '绑定飞书',
-    filter: true,
-    filterOptions: ['已绑定', '未绑定'],
-    render: (v) => {
-      const bound = !!v;
-      return (
-        <span className={`status-dot ${bound ? 'status-on' : 'status-off'}`}>{bound ? '已绑定' : '未绑定'}</span>
-      );
-    },
-  },
-  {
-    key: 'updatedAt',
-    label: '更新时间',
-    render: (v) =>
-      v ? new Date(Number(v)).toLocaleString('zh-CN', { hour12: false }) : '—',
-  },
-];
-
 export default function AiAgentsPage() {
   const router = useRouter();
+  const t = useTranslations('ai.agents');
+  const locale = useLocale();
+
+  const COLUMNS: CrudColumn[] = [
+    {
+      key: 'name',
+      label: t('colName'),
+      render: (v, row) => (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <strong>{str(v)}</strong>
+            {row.emoji ? <span>{str(row.emoji)}</span> : null}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--fg-tertiary)' }}>{str(row.owner) || t('ownerDefault')}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'owner',
+      label: t('colOrg'),
+      render: (v) => <span style={{ fontSize: 12, color: 'var(--fg-tertiary)' }}>{str(v) || '—'}</span>,
+    },
+    {
+      key: 'provider',
+      label: t('colFeishu'),
+      filter: true,
+      filterOptions: [t('filterBound'), t('filterUnbound')],
+      render: (v) => {
+        const bound = !!v;
+        return (
+          <span className={`status-dot ${bound ? 'status-on' : 'status-off'}`}>{bound ? t('feishuBound') : t('feishuUnbound')}</span>
+        );
+      },
+    },
+    {
+      key: 'updatedAt',
+      label: t('colUpdated'),
+      render: (v) =>
+        v ? new Date(Number(v)).toLocaleString(locale === 'en' ? 'en-US' : 'zh-CN', { hour12: false }) : '—',
+    },
+  ];
 
   return (
     <CrudPage
-      title="智能体配置"
-      subtitle="创建 / 编辑智能体并绑定飞书应用，实现「每个智能体对应一个飞书机器人」。"
-      search={{ placeholder: '搜索智能体名称…' }}
+      title={t('pageTitle')}
+      subtitle={t('pageSubtitle')}
+      search={{ placeholder: t('searchPlaceholder') }}
       columns={COLUMNS}
       createHref="/ai/agents/new"
       editHref={(id) => `/ai/agents/${id}/edit`}
       rowExtraActions={[
         {
-          label: '开启对话',
+          label: t('openChat'),
           run: (row) => {
             router.push(`/ai/chat?agentId=${String(row.id)}`);
           },
         },
         {
-          label: '绑定飞书',
+          label: t('bindFeishu'),
           run: () => {
-            alert('绑定飞书功能：在编辑页填写飞书应用 App ID / Secret，即可让该智能体以独立机器人身份推送消息');
+            alert(t('bindFeishuAlert'));
           },
         },
       ]}
@@ -84,7 +87,7 @@ export default function AiAgentsPage() {
             items = items.filter((it) => str(it.name).toLowerCase().includes(q));
           }
           if (p.provider) {
-            items = items.filter((it) => (p.provider === '已绑定') === !!it.provider);
+            items = items.filter((it) => (p.provider === t('filterBound')) === !!it.provider);
           }
           return { items, total: items.length, pageToken: undefined, hasMore: false };
         },

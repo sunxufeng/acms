@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import CrudPage, { type CrudColumn } from '../../../components/CrudPage';
 import { api } from '../../../lib/api';
 
@@ -11,58 +12,59 @@ function str(v: unknown): string {
   return String(v);
 }
 
-const COLUMNS: CrudColumn[] = [
-  {
-    key: 'title',
-    label: '任务名',
-    render: (v) => <strong>{str(v)}</strong>,
-  },
-  {
-    key: 'cronText',
-    label: '调度',
-    render: (v, row) => {
-      const sched = str(row.cronText) || str(row.cron);
-      return <span>{sched}{row.idleOnly ? '（闲时）' : ''}</span>;
-    },
-  },
-  {
-    key: 'pushTo',
-    label: '收件人',
-    render: (v) => `${(Array.isArray(v) ? v : []).length} 人`,
-  },
-  {
-    key: 'actionType',
-    label: '结果动作',
-    render: (v) => (str(v) === 'memory' ? '仅记忆' : '推送'),
-  },
-  {
-    key: 'enabled',
-    label: '状态',
-    filter: true,
-    filterOptions: ['启用', '停用'],
-    render: (v) => (
-      <span className={`status-dot ${v ? 'status-on' : 'status-off'}`}>{v ? '启用' : '停用'}</span>
-    ),
-  },
-];
-
 export default function AiAutomationsPage() {
   const router = useRouter();
+  const t = useTranslations('ai.automations');
+
+  const COLUMNS: CrudColumn[] = [
+    {
+      key: 'title',
+      label: t('colTitle'),
+      render: (v) => <strong>{str(v)}</strong>,
+    },
+    {
+      key: 'cronText',
+      label: t('colSchedule'),
+      render: (v, row) => {
+        const sched = str(row.cronText) || str(row.cron);
+        return <span>{sched}{row.idleOnly ? t('colIdle') : ''}</span>;
+      },
+    },
+    {
+      key: 'pushTo',
+      label: t('colRecipients'),
+      render: (v) => `${(Array.isArray(v) ? v : []).length} 人`,
+    },
+    {
+      key: 'actionType',
+      label: t('colResultAction'),
+      render: (v) => (str(v) === 'memory' ? t('resultMemory') : t('resultPush')),
+    },
+    {
+      key: 'enabled',
+      label: t('colStatus'),
+      filter: true,
+      filterOptions: [t('filterEnabled'), t('filterDisabled')],
+      render: (v) => (
+        <span className={`status-dot ${v ? 'status-on' : 'status-off'}`}>{v ? t('statusEnabled') : t('statusDisabled')}</span>
+      ),
+    },
+  ];
 
   return (
     <CrudPage
-      title="自动化任务"
-      subtitle="按 cron 定时调用模型并将结果推送至飞书。可关联智能体（自动沿用其 Provider / Model），否则使用收件人个人配置。"
-      search={{ placeholder: '搜索任务名…' }}
+      title={t('pageTitle')}
+      subtitle={t('pageSubtitle')}
+      search={{ placeholder: t('searchPlaceholder') }}
       columns={COLUMNS}
       createHref="/ai/automations/new"
       editHref={(id) => `/ai/automations/${id}/edit`}
       rowExtraActions={[
         {
-          label: '运行',
+          label: t('run'),
           run: async (row) => {
             await api.aiRunAutomation(String(row.id));
-            alert('已触发（后台异步执行，可在运行记录查看）');
+            alert(t('runTriggered'));
           },
         },
       ]}
@@ -77,7 +79,7 @@ export default function AiAutomationsPage() {
             );
           }
           if (p.enabled) {
-            items = items.filter((it) => (p.enabled === '启用') === !!it.enabled);
+            items = items.filter((it) => (p.enabled === t('filterEnabled')) === !!it.enabled);
           }
           return { items, total: items.length, pageToken: undefined, hasMore: false };
         },

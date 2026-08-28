@@ -1456,3 +1456,19 @@ select.form-input:disabled { color: var(--fg); }
 .recipient-role { font-size: 11px; color: var(--fg-tertiary); }
 .recipient-openid { font-size: 11px; color: var(--fg-tertiary); margin-left: auto; font-family: var(--font-mono); }
 
+/* Language switcher (topbar) */
+.locale-switcher {
+  display: inline-flex; align-items: center; gap: 2px;
+  border: 0.5px solid var(--topbar-chip-border, var(--border)); border-radius: 8px;
+  padding: 2px; background: transparent;
+}
+.locale-switcher .locale-opt {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 12px; line-height: 1; color: var(--topbar-fg-secondary);
+  padding: 5px 9px; border-radius: 6px; transition: all 0.15s;
+}
+.locale-switcher .locale-opt:hover { background: rgba(127,127,127,0.16); }
+.locale-switcher .locale-opt.active {
+  background: var(--accent, #10b981); color: #fff; font-weight: 500;
+}
+

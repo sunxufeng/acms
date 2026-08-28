@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
 
 export type Auto = {
@@ -21,6 +22,7 @@ type AgentOption = { id: string; name: string; emoji?: string; provider?: string
 type UserOption = { openId: string; name: string; role?: string };
 
 export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; onDone: () => void }) {
+  const t = useTranslations('ai.automations');
   const isEdit = !!initial?.id;
   const [title, setTitle] = useState(initial?.title || '');
   const [description, setDescription] = useState(initial?.description || '');
@@ -110,22 +112,22 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
 
       {/* 基本信息 */}
       <fieldset className="form-fieldset">
-        <legend className="form-legend">基本信息</legend>
+        <legend className="form-legend">{t('legendBasic')}</legend>
         <div className="form-grid">
           <div className="form-label" style={{ gridColumn: '1 / -1' }}>
-            <span className="form-label-text">任务名 <span style={{ color: 'var(--danger)' }}>*</span></span>
-            <input className="form-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：每日晨报" />
+            <span className="form-label-text">{t('title')}</span>
+            <input className="form-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('titlePlaceholder')} />
           </div>
 
           <div className="form-label" style={{ gridColumn: '1 / -1' }}>
-            <span className="form-label-text">提示词（直接作为每轮执行的 userInput）</span>
-            <textarea className="form-input" rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="例如：总结我今天的待办与日程，给出优先级建议" />
+            <span className="form-label-text">{t('prompt')}</span>
+            <textarea className="form-input" rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('promptPlaceholder')} />
           </div>
 
           <div className="form-label">
-            <span className="form-label-text">关联智能体</span>
+            <span className="form-label-text">{t('bindAgent')}</span>
             <select className="form-input" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-              <option value="">（不使用智能体，使用收件人个人配置）</option>
+              <option value="">{t('bindAgentDefault')}</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>{a.emoji || '🤖'} {a.name}</option>
               ))}
@@ -134,9 +136,9 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
 
           {selAgent && (
             <div className="form-label">
-              <span className="form-label-text">沿用配置</span>
+              <span className="form-label-text">{t('inheritConfig')}</span>
               <p className="form-hint" style={{ margin: 0 }}>
-                Provider：{selAgent.provider || '（未设置）'} ／ Model：{selAgent.model || '（未设置）'}
+                {t('inheritProvider')}：{selAgent.provider || '（未设置）'} ／ {t('inheritModel')}：{selAgent.model || '（未设置）'}
               </p>
             </div>
           )}
@@ -145,42 +147,42 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
 
       {/* 调度与执行 */}
       <fieldset className="form-fieldset" style={{ marginTop: 'var(--space-md)' }}>
-        <legend className="form-legend">调度与执行</legend>
+        <legend className="form-legend">{t('legendSchedule')}</legend>
         <div className="form-grid">
           <div className="form-label" style={{ gridColumn: '1 / -1' }}>
-            <span className="form-label-text">调度（频率 / 时间）</span>
+            <span className="form-label-text">{t('schedule')}</span>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <select className="form-input" style={{ width: 'auto' }} value={freq} onChange={(e) => setFreq(e.target.value)}>
-                <option value="daily">每天</option>
-                <option value="weekly">每周</option>
-                <option value="monthly">每月</option>
-                <option value="hourly">每小时</option>
+                <option value="daily">{t('freqDaily')}</option>
+                <option value="weekly">{t('freqWeekly')}</option>
+                <option value="monthly">{t('freqMonthly')}</option>
+                <option value="hourly">{t('freqHourly')}</option>
               </select>
               <input className="form-input" style={{ width: 80 }} type="number" min={0} max={23} value={hour} onChange={(e) => setHour(Number(e.target.value))} />
               <input className="form-input" style={{ width: 80 }} type="number" min={0} max={59} value={minute} onChange={(e) => setMinute(Number(e.target.value))} />
-              <button type="button" className="btn btn-outline" onClick={buildCron}>生成 cron</button>
+              <button type="button" className="btn btn-outline" onClick={buildCron}>{t('genCron')}</button>
             </div>
           </div>
 
           <div className="form-label" style={{ gridColumn: '1 / -1' }}>
-            <span className="form-label-text">Cron 表达式（5 字段，可手动改）</span>
+            <span className="form-label-text">{t('cronExpr')}</span>
             <input className="form-input" value={cron} onChange={(e) => setCron(e.target.value)} />
           </div>
 
           <div className="form-label" style={{ gridColumn: '1 / -1' }}>
-            <span className="form-label-text">结果动作</span>
+            <span className="form-label-text">{t('resultAction')}</span>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <label className="checkbox-label"><input type="radio" name="actionType" checked={actionType === 'push'} onChange={() => setActionType('push')} /> 推送（发给收件人）</label>
-              <label className="checkbox-label"><input type="radio" name="actionType" checked={actionType === 'memory'} onChange={() => setActionType('memory')} /> 仅记忆（不推送，写回智能体记忆）</label>
+              <label className="checkbox-label"><input type="radio" name="actionType" checked={actionType === 'push'} onChange={() => setActionType('push')} /> {t('actionPush')}</label>
+              <label className="checkbox-label"><input type="radio" name="actionType" checked={actionType === 'memory'} onChange={() => setActionType('memory')} /> {t('actionMemory')}</label>
             </div>
           </div>
 
           {actionType === 'push' && (
             <div className="form-label" style={{ gridColumn: '1 / -1' }}>
-              <span className="form-label-text">收件人（从系统用户中选择，自动取其飞书 open_id）</span>
+              <span className="form-label-text">{t('recipients')}</span>
               <div className="recipient-list">
                 {users.length === 0 ? (
-                  <div className="form-hint">加载中…（若列表为空，说明系统用户表暂无飞书 Open ID）</div>
+                  <div className="form-hint">{t('recipientsLoading')}</div>
                 ) : (
                   users.map((u) => (
                     <label key={u.openId} className="recipient-item">
@@ -196,31 +198,31 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
                   ))
                 )}
               </div>
-              {recipients.length === 0 && <p className="form-hint" style={{ color: 'var(--danger)' }}>请至少选择 1 个收件人，或在上方改为「仅记忆」。</p>}
+              {recipients.length === 0 && <p className="form-hint" style={{ color: 'var(--danger)' }}>{t('recipientsRequired')}</p>}
 
-              <span className="form-label-text" style={{ marginTop: 4 }}>飞书智能体 / 机器人 Open ID（可选，手工填写，逗号或空格分隔）</span>
-              <input className="form-input" value={agentOpenId} onChange={(e) => setAgentOpenId(e.target.value)} placeholder="如 ou_xxxxx（不在系统用户表里的飞书机器人/智能体，也会收到报告）" />
+              <span className="form-label-text" style={{ marginTop: 4 }}>{t('agentOpenId')}</span>
+              <input className="form-input" value={agentOpenId} onChange={(e) => setAgentOpenId(e.target.value)} placeholder={t('agentOpenIdPlaceholder')} />
             </div>
           )}
 
           <div className="form-label" style={{ gridColumn: '1 / -1' }}>
-            <span className="form-label-text">开关</span>
+            <span className="form-label-text">{t('switches')}</span>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <label className="checkbox-label"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> 启用</label>
-              <label className="checkbox-label"><input type="checkbox" checked={idleOnly} onChange={(e) => setIdleOnly(e.target.checked)} /> 闲时执行（00:00–06:00）</label>
+              <label className="checkbox-label"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> {t('enabled')}</label>
+              <label className="checkbox-label"><input type="checkbox" checked={idleOnly} onChange={(e) => setIdleOnly(e.target.checked)} /> {t('idleOnly')}</label>
             </div>
           </div>
 
           <div className="form-label">
-            <span className="form-label-text">最大工具步数（默认 10）</span>
+            <span className="form-label-text">{t('maxSteps')}</span>
             <input className="form-input" type="number" min={1} max={50} value={maxSteps} onChange={(e) => setMaxSteps(Number(e.target.value))} />
           </div>
         </div>
       </fieldset>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
-        <button type="button" className="btn btn-ghost" onClick={onDone}>取消</button>
-        <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button>
+        <button type="button" className="btn btn-ghost" onClick={onDone}>{t('cancel')}</button>
+        <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? t('saving') : t('save')}</button>
       </div>
     </form>
   );

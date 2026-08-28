@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
 
 type Tool = { name: string; description: string };
 export type Skill = { name: string; note?: string; tags?: string[]; description?: string; markdown?: string; hasMarkdown?: boolean };
 
 export function SkillForm({ initial, onDone }: { initial?: Skill; onDone: () => void }) {
+  const t = useTranslations('ai.skills');
   const [tools, setTools] = useState<Tool[]>([]);
   const [name, setName] = useState(initial?.name || '');
   const [note, setNote] = useState(initial?.note || '');
@@ -33,7 +35,7 @@ export function SkillForm({ initial, onDone }: { initial?: Skill; onDone: () => 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!name) {
-      setError('请选择要配置的内置工具');
+      setError(t('errSelectTool'));
       return;
     }
     setBusy(true);
@@ -72,25 +74,25 @@ export function SkillForm({ initial, onDone }: { initial?: Skill; onDone: () => 
   return (
     <form onSubmit={save} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <fieldset className="form-fieldset">
-        <legend className="form-legend">技能信息</legend>
+        <legend className="form-legend">{t('legend')}</legend>
         <div className="form-grid">
           <label className="form-label">
-            <span className="form-label-text">内置工具 *</span>
+            <span className="form-label-text">{t('builtinTool')}</span>
             <select className="form-input" value={name} disabled={!!initial} onChange={(e) => selectTool(e.target.value)}>
-              <option value="">请选择</option>
+              <option value="">{t('toolPlaceholder')}</option>
               {tools.map((tool) => <option key={tool.name} value={tool.name}>{tool.name}</option>)}
             </select>
           </label>
           <label className="form-label">
-            <span className="form-label-text">一句话说明</span>
+            <span className="form-label-text">{t('note')}</span>
             <input className="form-input" value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
           <label className="form-label" style={{ gridColumn: '1 / -1' }}>
-            <span className="form-label-text">标签（逗号分隔）</span>
+            <span className="form-label-text">{t('tags')}</span>
             <input className="form-input" value={tags} onChange={(e) => setTags(e.target.value)} />
           </label>
           <label className="form-label" style={{ gridColumn: '1 / -1' }}>
-            <span className="form-label-text">描述</span>
+            <span className="form-label-text">{t('description')}</span>
             <textarea className="form-input" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
           <label className="form-label" style={{ gridColumn: '1 / -1' }}>
@@ -110,7 +112,7 @@ export function SkillForm({ initial, onDone }: { initial?: Skill; onDone: () => 
                     background: mdTab === 'edit' ? '#10b981' : '#f0f0f0',
                     transition: 'all 0.15s',
                   }}
-                >MD</button>
+                >{t('mdEdit')}</button>
                 <button
                   type="button"
                   onClick={() => setMdTab('preview')}
@@ -125,7 +127,7 @@ export function SkillForm({ initial, onDone }: { initial?: Skill; onDone: () => 
                     background: mdTab === 'preview' ? '#10b981' : '#f0f0f0',
                     transition: 'all 0.15s',
                   }}
-                >预览</button>
+                >{t('mdPreview')}</button>
               </div>
               <button
                 type="button"
@@ -139,7 +141,7 @@ export function SkillForm({ initial, onDone }: { initial?: Skill; onDone: () => 
                   color: '#374151',
                   background: '#fff',
                 }}
-              >MD 导入</button>
+              >{t('mdImport')}</button>
             </div>
             <input ref={fileInputRef} type="file" accept=".md,.txt,.markdown" style={{ display: 'none' }} onChange={onMdFileChange} />
             {mdTab === 'edit' ? (
@@ -162,7 +164,7 @@ export function SkillForm({ initial, onDone }: { initial?: Skill; onDone: () => 
                     {markdown}
                   </ReactMarkdown>
                 ) : (
-                  <span style={{ color: '#9ca3af' }}>（暂无内容，请先在 MD 模式下编写或导入文档）</span>
+                  <span style={{ color: '#9ca3af' }}>{t('mdEmpty')}</span>
                 )}
               </div>
             )}
@@ -170,7 +172,7 @@ export function SkillForm({ initial, onDone }: { initial?: Skill; onDone: () => 
         </div>
       </fieldset>
       {error && <p className="msg-error">{error}</p>}
-      <div style={{ display: 'flex', gap: 10 }}><button type="submit" className="btn btn-primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button><button type="button" className="btn btn-ghost" onClick={onDone}>取消</button></div>
+      <div style={{ display: 'flex', gap: 10 }}><button type="submit" className="btn btn-primary" disabled={busy}>{busy ? t('saving') : t('save')}</button><button type="button" className="btn btn-ghost" onClick={onDone}>{t('cancel')}</button></div>
     </form>
   );
 }

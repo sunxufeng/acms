@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { NextIntlClientProvider } from 'next-intl';
+import { getLocale, getMessages } from 'next-intl/server';
 import './globals.css';
 import AppShellGate from '../components/AppShellGate';
 import { type DashboardTheme } from '@acms/contracts';
@@ -13,6 +15,8 @@ export const metadata: Metadata = {
 const API_ORIGIN = process.env.API_ORIGIN || 'http://localhost:3000';
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const locale = await getLocale();
+  const messages = await getMessages();
   let initialDashboardTheme: DashboardTheme | null = null;
   try {
     const res = await fetch(`${API_ORIGIN}/api/v1/homepage-config`, { cache: 'no-store' });
@@ -25,9 +29,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
 
   return (
-    <html lang="zh-CN">
+    <html lang={locale}>
       <body>
-        <AppShellGate initialDashboardTheme={initialDashboardTheme}>{children}</AppShellGate>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <AppShellGate initialDashboardTheme={initialDashboardTheme}>{children}</AppShellGate>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
 
 const btn = (primary = false): React.CSSProperties => ({
@@ -23,6 +24,7 @@ type Usage = {
 };
 
 export default function AiAdminPage() {
+  const t = useTranslations('ai.admin');
   const [usage, setUsage] = useState<Usage | null>(null);
   const [audit, setAudit] = useState<Record<string, unknown>[]>([]);
   const [range, setRange] = useState(30);
@@ -40,20 +42,20 @@ export default function AiAdminPage() {
 
   return (
     <div style={{ padding: 16 }}>
-      <h2 style={{ margin: '0 0 4px' }}>AI 用量与审计</h2>
-      <small style={{ color: 'var(--text-muted)' }}>模型调用统计与 AI 域操作审计（仅管理员可见）。</small>
+      <h2 style={{ margin: '0 0 4px' }}>{t('title')}</h2>
+      <small style={{ color: 'var(--text-muted)' }}>{t('subtitle')}</small>
 
       <div style={{ display: 'flex', gap: 8, margin: '16px 0' }}>
-        <button style={tab === 'usage' ? btn(true) : btn()} onClick={() => setTab('usage')}>用量统计</button>
-        <button style={tab === 'audit' ? btn(true) : btn()} onClick={() => setTab('audit')}>审计日志</button>
+        <button style={tab === 'usage' ? btn(true) : btn()} onClick={() => setTab('usage')}>{t('tabUsage')}</button>
+        <button style={tab === 'audit' ? btn(true) : btn()} onClick={() => setTab('audit')}>{t('tabAudit')}</button>
         {tab === 'usage' && (
           <>
             <select style={{ ...btn(), marginLeft: 'auto' }} value={range} onChange={(e) => { setRange(Number(e.target.value)); }}>
-              <option value={7}>近 7 天</option>
-              <option value={30}>近 30 天</option>
-              <option value={90}>近 90 天</option>
+              <option value={7}>{t('range7')}</option>
+              <option value={30}>{t('range30')}</option>
+              <option value={90}>{t('range90')}</option>
             </select>
-            <button style={btn()} onClick={loadUsage}>刷新</button>
+            <button style={btn()} onClick={loadUsage}>{t('refresh')}</button>
           </>
         )}
       </div>
@@ -63,17 +65,17 @@ export default function AiAdminPage() {
           {usage && (
             <>
               <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-                <div style={card}><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>请求数</div><div style={{ fontSize: 24, fontWeight: 700 }}>{usage.summary.totalRequests}</div></div>
-                <div style={card}><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>总 Token</div><div style={{ fontSize: 24, fontWeight: 700 }}>{usage.summary.totalTokens.toLocaleString()}</div></div>
-                <div style={card}><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>输入 / 输出</div><div style={{ fontSize: 24, fontWeight: 700 }}>{usage.summary.inputTokens.toLocaleString()} / {usage.summary.outputTokens.toLocaleString()}</div></div>
-                <div style={card}><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>模型数 / 活跃用户</div><div style={{ fontSize: 24, fontWeight: 700 }}>{usage.summary.modelsUsed} / {usage.summary.activeUsers}</div></div>
+                <div style={card}><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('reqCount')}</div><div style={{ fontSize: 24, fontWeight: 700 }}>{usage.summary.totalRequests}</div></div>
+                <div style={card}><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('totalTokens')}</div><div style={{ fontSize: 24, fontWeight: 700 }}>{usage.summary.totalTokens.toLocaleString()}</div></div>
+                <div style={card}><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('inOut')}</div><div style={{ fontSize: 24, fontWeight: 700 }}>{usage.summary.inputTokens.toLocaleString()} / {usage.summary.outputTokens.toLocaleString()}</div></div>
+                <div style={card}><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('modelsUsers')}</div><div style={{ fontSize: 24, fontWeight: 700 }}>{usage.summary.modelsUsed} / {usage.summary.activeUsers}</div></div>
               </div>
 
-              <h4>按模型</h4>
+              <h4>{t('byModel')}</h4>
               <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead><tr style={{ background: 'var(--bg-tertiary)', textAlign: 'left' }}>
-                    <th style={{ padding: 10 }}>模型</th><th style={{ padding: 10 }}>请求</th><th style={{ padding: 10 }}>Token</th><th style={{ padding: 10 }}>占比</th>
+                    <th style={{ padding: 10 }}>{t('colModel')}</th><th style={{ padding: 10 }}>{t('colRequests')}</th><th style={{ padding: 10 }}>{t('colTokens')}</th><th style={{ padding: 10 }}>{t('colShare')}</th>
                   </tr></thead>
                   <tbody>
                     {usage.byModel.map((m, i) => (
@@ -84,16 +86,16 @@ export default function AiAdminPage() {
                         <td style={{ padding: 10 }}>{m.share}%</td>
                       </tr>
                     ))}
-                    {usage.byModel.length === 0 && <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>暂无数据</td></tr>}
+                    {usage.byModel.length === 0 && <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>{t('noData')}</td></tr>}
                   </tbody>
                 </table>
               </div>
 
-              <h4>按用户</h4>
+              <h4>{t('byUser')}</h4>
               <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead><tr style={{ background: 'var(--bg-tertiary)', textAlign: 'left' }}>
-                    <th style={{ padding: 10 }}>用户</th><th style={{ padding: 10 }}>请求</th><th style={{ padding: 10 }}>Token</th>
+                    <th style={{ padding: 10 }}>{t('colUser')}</th><th style={{ padding: 10 }}>{t('colRequests')}</th><th style={{ padding: 10 }}>{t('colTokens')}</th>
                   </tr></thead>
                   <tbody>
                     {usage.byUser.map((u, i) => (
@@ -103,7 +105,7 @@ export default function AiAdminPage() {
                         <td style={{ padding: 10 }}>{u.totalTokens.toLocaleString()}</td>
                       </tr>
                     ))}
-                    {usage.byUser.length === 0 && <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>暂无数据</td></tr>}
+                    {usage.byUser.length === 0 && <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>{t('noData')}</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -116,7 +118,7 @@ export default function AiAdminPage() {
         <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr style={{ background: 'var(--bg-tertiary)', textAlign: 'left' }}>
-              <th style={{ padding: 10 }}>时间</th><th style={{ padding: 10 }}>操作人</th><th style={{ padding: 10 }}>动作</th><th style={{ padding: 10 }}>目标</th>
+              <th style={{ padding: 10 }}>{t('colTime')}</th><th style={{ padding: 10 }}>{t('colActor')}</th><th style={{ padding: 10 }}>{t('colAction')}</th><th style={{ padding: 10 }}>{t('colTarget')}</th>
             </tr></thead>
             <tbody>
               {audit.map((a, i) => (
@@ -127,7 +129,7 @@ export default function AiAdminPage() {
                   <td style={{ padding: 10 }}>{String(a.target || '')}</td>
                 </tr>
               ))}
-              {audit.length === 0 && <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>暂无审计记录</td></tr>}
+              {audit.length === 0 && <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>{t('noAudit')}</td></tr>}
             </tbody>
           </table>
         </div>

@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { imageUrl, type HomepageConfig } from '@acms/contracts';
+import LocaleSwitcher from '../../components/LocaleSwitcher';
 
 function featureIcon(name: string) {
   const common = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5 } as const;
@@ -74,6 +76,7 @@ interface LoginShellProps {
 
 export default function LoginShell({ config, preview }: LoginShellProps) {
   const [logoError, setLogoError] = useState(false);
+  const t = useTranslations('login');
 
   // 已登录用户自动跳转到首页（仅真实登录页；预览模式不触发，避免编辑器内嵌预览把整页重定向走）
   useEffect(() => {
@@ -101,6 +104,9 @@ export default function LoginShell({ config, preview }: LoginShellProps) {
 
   return (
     <div className="login-shell" style={shellStyle}>
+      <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 100 }}>
+        <LocaleSwitcher />
+      </div>
       <section
         className="login-left"
         style={{
@@ -192,7 +198,7 @@ export default function LoginShell({ config, preview }: LoginShellProps) {
               opacity: 0.9,
             }}
           >
-            我是学生？用学号 + 姓名登录
+            {t('studentLoginLink')}
           </a>
 
           <div className="status-block">

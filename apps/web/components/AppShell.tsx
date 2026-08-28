@@ -3,7 +3,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
 import { api } from '../lib/api';
+import LocaleSwitcher from './LocaleSwitcher';
 import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
 
 interface Me {
@@ -171,6 +173,12 @@ export default function AppShell({
   initialDashboardTheme?: DashboardTheme | null;
 }) {
   const pathname = usePathname();
+  const locale = useLocale();
+  const t = useTranslations();
+  const tn = useTranslations('nav');
+  const tns = useTranslations('navSection');
+  const tb = useTranslations('breadcrumb');
+  const tTop = useTranslations('topbar');
   const [me, setMe] = useState<Me | null>(null);
   const [myPerms, setMyPerms] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -376,7 +384,7 @@ export default function AppShell({
                   <div key={item.key} className="nav-item nav-item--disabled" title="敬请期待">
                     <span className="nav-icon"><Icon /></span>
                     <span>{item.label}</span>
-                    <span className="nav-soon">敬请期待</span>
+                    <span className="nav-soon">{t('nav.soon')}</span>
                   </div>
                 );
               }
@@ -386,7 +394,7 @@ export default function AppShell({
                 <div key={item.key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Link href={item.href} className={`nav-item${active ? ' active' : ''}`}>
                     <span className="nav-icon"><Icon /></span>
-                    <span>{item.label}</span>
+                    <span>{locale === 'en' ? (tn(item.key) || item.label) : item.label}</span>
                   </Link>
                   {children && children.length > 0 && (
                     <div style={{ paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -404,7 +412,7 @@ export default function AppShell({
                   onClick={() => toggleSection(group.section)}
                   aria-expanded={expanded}
                 >
-                  <span className="sidebar-section-label">{group.section}</span>
+                  <span className="sidebar-section-label">{locale === 'en' ? (tns(group.section) || group.section) : group.section}</span>
                   <span className="sidebar-section-chevron">{expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}</span>
                 </button>
                 <div className="sidebar-section-items">
@@ -428,14 +436,15 @@ export default function AppShell({
             <button className="btn-icon" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="切换侧边栏">
               <MenuIcon />
             </button>
-            <span className="topbar-breadcrumb">主校区 <span>/</span> {breadcrumbLabel(pathname)}</span>
+            <span className="topbar-breadcrumb">{tTop('campus')} <span>/</span> {breadcrumbLabel(pathname, tb)}</span>
             <div className="topbar-divider" />
             <div className="topbar-search">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <span>全局搜索尚未接入</span>
+              <span>{tTop('searchPlaceholder')}</span>
             </div>
           </div>
           <div className="topbar-right">
+            <LocaleSwitcher />
             {me && (
               <>
                 <span style={{ fontSize: 'var(--font-sm)', color: 'var(--topbar-fg-secondary)' }}>{me.name}</span>
@@ -445,10 +454,10 @@ export default function AppShell({
                 </div>
               </>
             )}
-            <button className="theme-toggle" onClick={toggleTheme} title={themeMode === 'light' ? '切换深色模式' : '切换浅色模式'}>
+            <button className="theme-toggle" onClick={toggleTheme} title={themeMode === 'light' ? tTop('toggleTheme') : tTop('toggleTheme')}>
               {themeMode === 'light' ? <SunIcon /> : <MoonIcon />}
             </button>
-            <button className="btn-icon" onClick={handleLogout} title="退出登录" disabled={loggingOut}>
+            <button className="btn-icon" onClick={handleLogout} title={t('auth.logout')} disabled={loggingOut}>
               <LogoutIcon />
             </button>
           </div>
@@ -465,19 +474,20 @@ export default function AppShell({
 
 /* ── Breadcrumb helper ─────────────────────────── */
 
-function breadcrumbLabel(path: string): string {
-  if (path === '/') return '工作台';
-  if (path.startsWith('/users')) return '用户管理';
-  if (path.startsWith('/permissions')) return '权限授权';
-  if (path.startsWith('/wechat-bindings')) return '微信用户';
-  if (path.startsWith('/homepage-management')) return '工作台主题';
-  if (path.startsWith('/homepage-settings')) return '登录页配置';
-  if (path.startsWith('/menu-settings')) return '菜单管理';
-  if (path.startsWith('/notification-templates')) return '通知模板';
-  if (path.startsWith('/students')) {
-    if (path === '/students/new') return '新建学生';
-    if (/\/students\/[^/]+$/.test(path)) return '学生详情';
-    return '学生档案';
+function breadcrumbLabel(path: string, t: (k: string) => string): string {
+  if (path === '/') return t('dashboard');
+  const map: Record<string, string> = {
+    '/users': 'users',
+    '/permissions': 'permissions',
+    '/wechat-bindings': 'wechat-bindings',
+    '/homepage-management': 'homepage-management',
+    '/homepage-settings': 'homepage-settings',
+    '/menu-settings': 'menu-settings',
+    '/notification-templates': 'notification-templates',
+    '/students': 'students',
+  };
+  for (const prefix of Object.keys(map)) {
+    if (path === prefix || path.startsWith(prefix + '/')) return t(map[prefix]);
   }
   return path.slice(1);
 }

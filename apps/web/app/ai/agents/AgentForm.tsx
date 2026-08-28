@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -54,6 +55,7 @@ type TabKey = typeof TABS[number]['key'];
 // ── MD editor component (uses app CSS classes) ───────────────────
 
 function MdEditor({ value, onChange, placeholder, label }: { value: string; onChange: (v: string) => void; placeholder?: string; label?: string }) {
+  const t = useTranslations('ai.agents');
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
 
   async function importMd(e: React.ChangeEvent<HTMLInputElement>) {
@@ -70,10 +72,10 @@ function MdEditor({ value, onChange, placeholder, label }: { value: string; onCh
       <div className="md-editor-toolbar">
         <div className="md-pills">
           <button type="button" className={`md-pill${mode === 'edit' ? ' active' : ''}`} onClick={() => setMode('edit')}>MD</button>
-          <button type="button" className={`md-pill${mode === 'preview' ? ' active' : ''}`} onClick={() => setMode('preview')}>预览</button>
+          <button type="button" className={`md-pill${mode === 'preview' ? ' active' : ''}`} onClick={() => setMode('preview')}>{t('mdEditorPreview')}</button>
         </div>
         <label className="md-import-label">
-          MD 导入
+          {t('mdImport')}
           <input type="file" accept=".md,.txt,.markdown" onChange={importMd} style={{ display: 'none' }} />
         </label>
       </div>
@@ -93,7 +95,7 @@ function MdEditor({ value, onChange, placeholder, label }: { value: string; onCh
           {value ? (
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown>
           ) : (
-            <span className="md-empty">（无内容）</span>
+            <span className="md-empty">{t('mdEmpty')}</span>
           )}
         </div>
       )}
@@ -126,6 +128,7 @@ function ToolCheckItem({ tool, checked, onToggle }: { tool: Tool; checked: boole
 // ── Main Form Component ─────────────────────────────────────────
 
 export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => void }) {
+  const t = useTranslations('ai.agents');
   const [form, setForm] = useState<Agent>({
     ...initial,
     toolList: initial?.toolList || [],
@@ -184,7 +187,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name?.trim()) {
-      setError('请填写智能体名称');
+      setError(t('errName'));
       return;
     }
     setBusy(true);
@@ -234,7 +237,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       case 'agent':
         return (
           <MdEditor
-            label="简介 Agent（Markdown）"
+            label={`${t('tabAgent')} (Markdown)`}
             value={form.systemPrompt || ''}
             onChange={(v) => setForm({ ...form, systemPrompt: v })}
             placeholder="在此输入 / 粘贴 Markdown 内容..."
@@ -245,7 +248,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <MdEditor
-              label="简介 Skill（Markdown）"
+              label={`${t('tabSkill')} (Markdown)`}
               value={form.description || ''}
               onChange={(v) => setForm({ ...form, description: v })}
               placeholder="# SKILL.md - 你能做什么..."
@@ -253,7 +256,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
 
             <div>
               <span className="form-label-text" style={{ display: 'block', marginBottom: 12 }}>
-                可用工具开关（仅勾选的工具该智能体才能调用；全不选 = 放开全部内置工具）
+                {t('skillToolsHint')}
               </span>
               <div className="tool-grid">
                 {tools.map((tool) => (
@@ -265,7 +268,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
                   />
                 ))}
               </div>
-              {tools.length === 0 && <span style={{ color: 'var(--fg-tertiary)', fontSize: 13 }}>加载中…</span>}
+              {tools.length === 0 && <span style={{ color: 'var(--fg-tertiary)', fontSize: 13 }}>{t('loadingTools')}</span>}
             </div>
           </div>
         );
@@ -280,47 +283,47 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
                 checked={form.heartbeatEnabled ?? false}
                 onChange={(e) => setForm({ ...form, heartbeatEnabled: e.target.checked })}
               />
-              <span>启用心跳（定时自检 / 主动推送）</span>
-              <small>按设定频率自动触发智能体执行任务</small>
+              <span>{t('heartbeatEnable')}</span>
+              <small>{t('heartbeatEnableHint')}</small>
             </label>
 
             {form.heartbeatEnabled && (
               <>
                 <div className="form-grid">
                   <div className="form-label">
-                    <span className="form-label-text">动作</span>
+                    <span className="form-label-text">{t('hbAction')}</span>
                     <select
                       className="form-input"
                       value={form.heartbeatAction || '推送结果给用户'}
                       onChange={(e) => setForm({ ...form, heartbeatAction: e.target.value })}
                     >
-                      <option value="推送结果给用户">推送结果给用户</option>
-                      <option value="仅记忆">仅记忆</option>
-                      <option value="执行自定义任务">执行自定义任务</option>
+                      <option value="推送结果给用户">{t('hbActionPush')}</option>
+                      <option value="仅记忆">{t('hbActionMemory')}</option>
+                      <option value="执行自定义任务">{t('hbActionCustom')}</option>
                     </select>
                   </div>
 
                   <div className="form-label">
-                    <span className="form-label-text">频率</span>
+                    <span className="form-label-text">{t('hbFrequency')}</span>
                     <select
                       className="form-input"
                       value={form.heartbeatFrequency || '每天'}
                       onChange={(e) => setForm({ ...form, heartbeatFrequency: e.target.value })}
                     >
-                      <option value="每分钟">每分钟</option>
-                      <option value="每5分钟">每5分钟</option>
-                      <option value="每15分钟">每15分钟</option>
-                      <option value="每30分钟">每30分钟</option>
-                      <option value="每小时">每小时</option>
-                      <option value="每天">每天</option>
-                      <option value="每周">每周</option>
-                      <option value="每月">每月</option>
-                      <option value="自定义 Cron">自定义 Cron</option>
+                      <option value="每分钟">{t('hbFreqEveryMinute')}</option>
+                      <option value="每5分钟">{t('hbFreqEvery5Min')}</option>
+                      <option value="每15分钟">{t('hbFreqEvery15Min')}</option>
+                      <option value="每30分钟">{t('hbFreqEvery30Min')}</option>
+                      <option value="每小时">{t('hbFreqHourly')}</option>
+                      <option value="每天">{t('hbFreqDaily')}</option>
+                      <option value="每周">{t('hbFreqWeekly')}</option>
+                      <option value="每月">{t('hbFreqMonthly')}</option>
+                      <option value="自定义 Cron">{t('hbFreqCustom')}</option>
                     </select>
                   </div>
 
                   <div className="form-label">
-                    <span className="form-label-text">Cron 表达式</span>
+                    <span className="form-label-text">{t('hbCron')}</span>
                     <input
                       className="form-input"
                       style={{ fontFamily: 'monospace', background: 'var(--bg-subtle)' }}
@@ -332,7 +335,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
                             ? `${form.heartbeatMinute || '0'} ${form.heartbeatHour || '*'} * * *`
                             : ''
                       }
-                      placeholder="自动生成"
+                      placeholder={t('hbCronAuto')}
                     />
                   </div>
                 </div>
@@ -341,7 +344,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
                 {!['每分钟', '每5分钟', '每15分钟', '每30分钟', '每小时'].includes(form.heartbeatFrequency || '') && (
                   <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
                     <div className="form-label">
-                      <span className="form-label-text">小时</span>
+                      <span className="form-label-text">{t('hbHour')}</span>
                       <select
                         className="form-input"
                         value={form.heartbeatHour || '09'}
@@ -353,7 +356,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
                       </select>
                     </div>
                     <div className="form-label">
-                      <span className="form-label-text">分钟</span>
+                      <span className="form-label-text">{t('hbMinute')}</span>
                       <select
                         className="form-input"
                         value={form.heartbeatMinute || '00'}
@@ -368,57 +371,57 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
                 )}
 
                 <div className="form-label">
-                  <span className="form-label-text">推送收件人（仅「推送结果」动作需要）</span>
+                  <span className="form-label-text">{t('hbRecipients')}</span>
                   <input
                     className="form-input"
                     value={form.heartbeatRecipients || ''}
                     onChange={(e) => setForm({ ...form, heartbeatRecipients: e.target.value })}
-                    placeholder="默认推送给自己，可输入多个 open_id 用逗号分隔"
+                    placeholder={t('hbRecipientsPlaceholder')}
                   />
                 </div>
 
                 <div className="form-grid">
                   <div className="form-label">
-                    <span className="form-label-text">最大重试次数</span>
+                    <span className="form-label-text">{t('hbMaxRetries')}</span>
                     <select
                       className="form-input"
                       value={String(form.heartbeatRetries ?? 3)}
                       onChange={(e) => setForm({ ...form, heartbeatRetries: Number(e.target.value) })}
                     >
                       {[0, 1, 2, 3, 5].map((n) => (
-                        <option key={n} value={n}>{n === 0 ? '不重试' : `${n} 次`}</option>
+                        <option key={n} value={n}>{n === 0 ? t('hbNoRetry') : t('hbRetryTimes', { n })}</option>
                       ))}
                     </select>
                   </div>
 
                   <div className="form-label">
-                    <span className="form-label-text">超时时间</span>
+                    <span className="form-label-text">{t('hbTimeout')}</span>
                     <select
                       className="form-input"
                       value={String(form.heartbeatTimeout ?? 60)}
                       onChange={(e) => setForm({ ...form, heartbeatTimeout: Number(e.target.value) })}
                     >
                       {[30, 60, 120, 300, 600].map((n) => (
-                        <option key={n} value={n}>{n >= 60 ? `${n / 60} 分钟` : `${n} 秒`}</option>
+                        <option key={n} value={n}>{n >= 60 ? t('hbTimeoutMin', { n: n / 60 }) : t('hbTimeoutSec', { n })}</option>
                       ))}
                     </select>
                   </div>
 
                   <div className="form-label">
-                    <span className="form-label-text">失败通知</span>
+                    <span className="form-label-text">{t('hbFailNotifyLabel')}</span>
                     <label className="checkbox-label">
                       <input
                         type="checkbox"
                         checked={form.heartbeatErrorNotify ?? true}
                         onChange={(e) => setForm({ ...form, heartbeatErrorNotify: e.target.checked })}
                       />
-                      执行失败时通知管理员
+                      {t('hbFailNotify')}
                     </label>
                   </div>
                 </div>
 
                 <MdEditor
-                  label="心跳提示词（Markdown，留空用默认自检提示词）"
+                  label={t('hbPrompt')}
                   value={form.heartbeatPrompt || ''}
                   onChange={(v) => setForm({ ...form, heartbeatPrompt: v })}
                   placeholder="# 心跳任务提示词\n\n当心跳触发时，将以下内容喂给智能体：\n\n- 当前时间：{{timestamp}}\n- 上次执行时间：{{lastRun}}\n\n请执行以下检查..."
@@ -431,7 +434,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       case 'identity':
         return (
           <MdEditor
-            label="简介 Identity（Markdown）"
+            label={`${t('tabIdentity')} (Markdown)`}
             value={form.identityPrompt || ''}
             onChange={(v) => setForm({ ...form, identityPrompt: v })}
             placeholder={IDENTITY_DEFAULT.slice(0, 60) + '...'}
@@ -441,7 +444,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       case 'memory':
         return (
           <MdEditor
-            label="简介 Memory（Markdown）"
+            label={`${t('tabMemory')} (Markdown)`}
             value={form.memoryPrompt || ''}
             onChange={(v) => setForm({ ...form, memoryPrompt: v })}
             placeholder={MEMORY_DEFAULT.slice(0, 60) + '...'}
@@ -451,7 +454,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       case 'soul':
         return (
           <MdEditor
-            label="简介 Soul（Markdown）"
+            label={`${t('tabSoul')} (Markdown)`}
             value={form.soulPrompt || ''}
             onChange={(v) => setForm({ ...form, soulPrompt: v })}
             placeholder={SOUL_DEFAULT.slice(0, 60) + '...'}
@@ -461,7 +464,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       case 'user':
         return (
           <MdEditor
-            label="简介 User（Markdown）"
+            label={`${t('tabUser')} (Markdown)`}
             value={form.userScope || ''}
             onChange={(v) => setForm({ ...form, userScope: v })}
             placeholder={USER_DEFAULT.slice(0, 60) + '...'}
@@ -480,42 +483,42 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       {/* Header — matches CrudPage standaloneForm pattern */}
       <div className="page-header page-header-row">
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
-          <Link href="/ai/agents" className="btn btn-icon" title="返回列表">
+          <Link href="/ai/agents" className="btn btn-icon" title={t('backToList')}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
           </Link>
           <div>
-            <div className="page-eyebrow">{initial?.id ? 'EDIT' : 'CREATE'} / 智能体配置</div>
-            <h1 className="page-title">{initial?.id ? '编辑智能体' : '新建智能体'}</h1>
+            <div className="page-eyebrow">{initial?.id ? t('eyebrowEdit') : t('eyebrowCreate')}</div>
+            <h1 className="page-title">{initial?.id ? t('edit') : t('create')}</h1>
           </div>
         </div>
       </div>
 
       {/* Form card — matches crud-inline-form */}
       <fieldset className="form-fieldset">
-        <legend className="form-legend">基本信息</legend>
+        <legend className="form-legend">{t('legendBasic')}</legend>
 
         {/* Name + Provider row using form-grid */}
         <div className="form-grid" style={{ gridTemplateColumns: '1.2fr 1fr 1fr' }}>
           <div className="form-label">
-            <span className="form-label-text">名称 <span style={{ color: 'var(--danger)' }}>*</span></span>
+            <span className="form-label-text">{t('name')}</span>
             <input
               className="form-input"
               value={form.name || ''}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="如：ACMSBot-01、测试智能体"
+              placeholder={t('namePlaceholder')}
             />
           </div>
           <div className="form-label">
-            <span className="form-label-text">Provider 池</span>
+            <span className="form-label-text">{t('providerPool')}</span>
             <select
               className="form-input"
               value={selectedProvider}
               onChange={(e) => setSelectedProvider(e.target.value)}
             >
-              <option value="">（不选池，使用默认）</option>
+              <option value="">{t('providerPoolDefault')}</option>
               {cfg?.provider && (
                 <option value="__personal__">
-                  我的配置（{cfg.provider}{cfg.model ? ` · ${cfg.model}` : ''}）
+                  {t('providerPoolMine', { provider: cfg.provider, model: cfg.model ? ` · ${cfg.model}` : '' })}
                 </option>
               )}
               {presets.map((p) => (
@@ -524,12 +527,12 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
             </select>
           </div>
           <div className="form-label">
-            <span className="form-label-text">模型</span>
+            <span className="form-label-text">{t('model')}</span>
             <input
               className="form-input"
               value={cfg?.model || ''}
               readOnly
-              placeholder="跟随 Provider"
+              placeholder={t('modelFollow')}
             />
           </div>
         </div>
@@ -558,8 +561,8 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
           </div>
           {error && <p className="msg-error" style={{ marginTop: 'var(--space-md)' }}>{error}</p>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 'var(--space-md)' }}>
-            <Link href="/ai/agents" className="btn btn-ghost">取消</Link>
-            <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button>
+            <Link href="/ai/agents" className="btn btn-ghost">{t('cancel')}</Link>
+            <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? t('saving') : t('save')}</button>
           </div>
         </form>
       </fieldset>

@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { api } from '../../../../../lib/api';
 import { SkillForm, type Skill } from '../../SkillForm';
 
 export default function EditSkillPage() {
   const name = decodeURIComponent(String(useParams().name));
   const router = useRouter();
+  const t = useTranslations('ai.skills');
   const [skill, setSkill] = useState<Skill | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -20,8 +22,8 @@ export default function EditSkillPage() {
     }).catch((e) => setError((e as Error).message)).finally(() => setLoading(false));
   }, [name]);
 
-  if (loading) return <div className="empty-state" style={{ minHeight: '50vh' }}>加载中…</div>;
-  if (error || !skill) return <div className="page-header"><p className="msg-error">加载失败：{error || '未找到'}</p><Link href="/ai/skills" className="btn btn-outline btn-sm" style={{ marginTop: 12 }}>返回列表</Link></div>;
+  if (loading) return <div className="empty-state" style={{ minHeight: '50vh' }}>{t('errLoad')}</div>;
+  if (error || !skill) return <div className="page-header"><p className="msg-error">{t('errLoad')}：{error || t('errNotFound')}</p><Link href="/ai/skills" className="btn btn-outline btn-sm" style={{ marginTop: 12 }}>{t('backToList')}</Link></div>;
 
-  return <div><div className="page-header"><div className="page-header-row"><div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}><Link href="/ai/skills" className="btn btn-icon" title="返回列表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg></Link><div><div className="page-eyebrow">EDIT / 技能</div><h1 className="page-title">编辑技能：{name}</h1></div></div></div></div><SkillForm initial={skill} onDone={() => router.push('/ai/skills')} /></div>;
+  return <div><div className="page-header"><div className="page-header-row"><div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}><Link href="/ai/skills" className="btn btn-icon" title={t('backToList')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg></Link><div><div className="page-eyebrow">{t('eyebrowEdit')}</div><h1 className="page-title">{t('editTitle', { name })}</h1></div></div></div></div><SkillForm initial={skill} onDone={() => router.push('/ai/skills')} /></div>;
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { api as apiClient, type Page } from '../lib/api';
 import MarkdownField from './MarkdownField';
 import TagInput from './TagInput';
@@ -152,6 +153,7 @@ function FilterSelect({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const t = useTranslations();
   useEffect(() => {
     const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
     document.addEventListener('mousedown', h);
@@ -165,7 +167,7 @@ function FilterSelect({
       </button>
       {open && (
         <div className="filter-select-dropdown">
-          <div className={`filter-select-opt${!value ? ' active' : ''}`} onClick={() => { onChange(''); setOpen(false); }}>全部</div>
+          <div className={`filter-select-opt${!value ? ' active' : ''}`} onClick={() => { onChange(''); setOpen(false); }}>{t('crud.all')}</div>
           {options.map((o) => (
             <div key={o} className={`filter-select-opt${o === value ? ' active' : ''}`} onClick={() => { onChange(o); setOpen(false); }}>{o}</div>
           ))}
@@ -214,6 +216,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   }, [selectedRows]);
 
   const router = useRouter();
+  const t = useTranslations();
 
   const filterCols = columns.filter((c) => c.filter);
   const formCols = columns.filter((c) => c.form);
@@ -488,12 +491,12 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   }
 
   async function remove(row: Record<string, unknown>) {
-    if (!confirm(`确认删除「${str(row[columns[0]?.key ?? 'id'])}」？此操作不可撤销。`)) return;
+    if (!confirm(t('crud.confirmDelete', { name: String(str(row[columns[0]?.key ?? 'id'])) }))) return;
     try {
       await api.archive(String(row.id));
       await reload();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : '删除失败');
+      setError(e instanceof Error ? e.message : t('crud.deleteFailed'));
     }
   }
 
@@ -684,9 +687,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               <Link key={l.href} href={l.href} className="btn btn-outline">{l.label}</Link>
             ))}
             {!hideCreate && (createHref ? (
-              <Link href={createHref} className="btn btn-primary">+ 新建</Link>
+              <Link href={createHref} className="btn btn-primary">+ {t('crud.create')}</Link>
             ) : (
-              <button className="btn btn-primary" onClick={openCreate} disabled={loading || readonly}>+ 新建</button>
+              <button className="btn btn-primary" onClick={openCreate} disabled={loading || readonly}>+ {t('crud.create')}</button>
             ))}
           </div>
         </div>
@@ -706,7 +709,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 value={filters.q ?? ''}
                 onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
               />
-              <button type="submit">查询</button>
+              <button type="submit">{t('common.search')}</button>
             </form>
           )}
           {filterCols.map((c) =>
@@ -737,7 +740,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 onChange={(e) => setFilters((f) => ({ ...f, [rf.toParam]: e.target.value }))} />
             </span>
           ))}
-          <button className="btn btn-ghost btn-sm" onClick={() => setFilters({})}>重置</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setFilters({})}>{t('crud.reset')}</button>
         </div>
       )}
 
@@ -746,29 +749,29 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           <div className="crud-inline-form-head">
             {showingStandaloneForm ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
-                <button className="btn btn-icon" title="返回列表" aria-label="返回列表" onClick={() => setEditing(null)}>
+                <button className="btn btn-icon" title={t('crud.back')} aria-label={t('crud.back')} onClick={() => setEditing(null)}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
                 </button>
                 <div>
                   <div className="page-eyebrow">{editing.mode === 'create' ? 'CREATE' : 'EDIT'} / {title}</div>
-                  <h1 className="page-title">{editing.mode === 'create' ? `新建${title}` : `编辑${title}`}</h1>
+                  <h1 className="page-title">{editing.mode === 'create' ? `${t('crud.create')}${title}` : `${t('crud.edit')}${title}`}</h1>
                 </div>
               </div>
             ) : (
               <>
-                <h3 className="crud-inline-form-title">{editing.mode === 'create' ? `新建${title}` : `编辑${title}`}</h3>
+                <h3 className="crud-inline-form-title">{editing.mode === 'create' ? `${t('crud.create')}${title}` : `${t('crud.edit')}${title}`}</h3>
                 <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>×</button>
               </>
             )}
           </div>
           {error && <p className="msg-error">{error}</p>}
           <fieldset className="form-fieldset">
-            <legend className="form-legend">{title}信息</legend>
+            <legend className="form-legend">{title} {t('crud.info')}</legend>
             {formFields}
           </fieldset>
           <div className="crud-inline-form-actions">
-            <button className="btn btn-ghost" onClick={() => setEditing(null)}>取消</button>
-            <button className="btn btn-primary" onClick={submit} disabled={submitting}>{submitting ? '保存中…' : '保存'}</button>
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>{t('common.cancel')}</button>
+            <button className="btn btn-primary" onClick={submit} disabled={submitting}>{submitting ? t('common.saving') : t('common.save')}</button>
           </div>
         </div>
       )}
@@ -788,12 +791,12 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                     checked={allOnPageSelected}
                     ref={(el) => { if (el) el.indeterminate = !allOnPageSelected && someOnPageSelected; }}
                     onChange={togglePage}
-                    aria-label="全选本页"
+                    aria-label={t('crud.selectAllPage')}
                   />
                 </th>
               )}
               {listCols.map((c) => <th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}
-              <th style={{ width: '150px' }}>操作</th>
+              <th style={{ width: '150px' }}>{t('common.actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -808,7 +811,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                         type="checkbox"
                         checked={selectedRows.has(selKey(row))}
                         onChange={() => toggleRow(row)}
-                        aria-label="选择此行"
+                        aria-label={t('crud.selectRow')}
                       />
                     </td>
                   )}
@@ -840,13 +843,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   <td>
                     <div style={rowActions}>
                       {!readonly && editHref ? (
-                        <Link href={editHref(String(row.id))} className="btn btn-ghost btn-sm">编辑</Link>
+                        <Link href={editHref(String(row.id))} className="btn btn-ghost btn-sm">{t('crud.edit')}</Link>
                       ) : !readonly && (
-                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(row)}>编辑</button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(row)}>{t('crud.edit')}</button>
                       )}
                       {!readonly && api.transition && allowed.length > 0 && (
                         <div style={{ position: 'relative' }}>
-                          <button className="btn btn-ghost btn-sm" onClick={() => setTxMenu(txMenu === String(row.id) ? null : String(row.id))}>状态▾</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => setTxMenu(txMenu === String(row.id) ? null : String(row.id))}>{t('common.status')}▾</button>
                           {txMenu === String(row.id) && (
                             <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 20, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 10, padding: 6, minWidth: 120, boxShadow: '0 10px 30px rgba(0,0,0,0.35)' }}>
                               {allowed.map((to) => (
@@ -872,7 +875,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                           </button>
                         );
                       })}
-                      {!readonly && <button className="btn btn-danger btn-sm" onClick={() => remove(row)}>删除</button>}
+                      {!readonly && <button className="btn btn-danger btn-sm" onClick={() => remove(row)}>{t('crud.delete')}</button>}
                     </div>
                   </td>
                 </tr>
@@ -880,18 +883,18 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             })}
             {items.length === 0 && !loading && (
               <tr><td colSpan={colCount}>
-                <div className="empty-state"><div className="empty-state-text">暂无数据</div></div>
+                <div className="empty-state"><div className="empty-state-text">{t('crud.noData')}</div></div>
               </td></tr>
             )}
           </tbody>
         </table>
-        {loading && <div className="empty-state"><div className="empty-state-text">加载中…</div></div>}
+        {loading && <div className="empty-state"><div className="empty-state-text">{t('crud.loading')}</div></div>}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
-        <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>共 {total} 条</span>
+        <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{t('crud.total', { total })}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <button className="btn btn-outline btn-sm" disabled={page <= 1 || loading} onClick={() => goToPage(page - 1)}>上一页</button>
+          <button className="btn btn-outline btn-sm" disabled={page <= 1 || loading} onClick={() => goToPage(page - 1)}>{t('crud.prevPage')}</button>
           {(() => {
             const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
             const startP = Math.max(1, page - 2);
@@ -902,8 +905,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               <button key={p} className={`btn btn-sm ${p === page ? 'btn-primary' : 'btn-outline'}`} disabled={loading} onClick={() => goToPage(p)}>{p}</button>
             ));
           })()}
-          <button className="btn btn-outline btn-sm" disabled={page >= Math.ceil(total / PAGE_SIZE) || loading} onClick={() => goToPage(page + 1)}>下一页</button>
-          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginLeft: 8 }}>第 {page} / {Math.max(1, Math.ceil(total / PAGE_SIZE))} 页</span>
+          <button className="btn btn-outline btn-sm" disabled={page >= Math.ceil(total / PAGE_SIZE) || loading} onClick={() => goToPage(page + 1)}>{t('crud.nextPage')}</button>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginLeft: 8 }}>{t('crud.pageOf', { page, pages: Math.max(1, Math.ceil(total / PAGE_SIZE)) })}</span>
         </div>
       </div>
       </>)}
@@ -912,13 +915,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         <div style={overlayStyle} onClick={() => setEditing(null)}>
           <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ margin: 0, fontSize: 'var(--font-lg)', fontWeight: 700 }}>{editing.mode === 'create' ? `新建${title}` : `编辑${title}`}</h3>
+              <h3 style={{ margin: 0, fontSize: 'var(--font-lg)', fontWeight: 700 }}>{editing.mode === 'create' ? `${t('crud.create')}${title}` : `${t('crud.edit')}${title}`}</h3>
               <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>×</button>
             </div>
             <div style={{ padding: '20px 22px', maxHeight: '64vh', overflowY: 'auto' }}>
               {error && <p className="msg-error">{error}</p>}
               <fieldset className="form-fieldset">
-                <legend className="form-legend">{title}信息</legend>
+                <legend className="form-legend">{title} {t('crud.info')}</legend>
                 {formFields}
               </fieldset>
             </div>

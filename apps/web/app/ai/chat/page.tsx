@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
 import Markdown from '../../../components/Markdown';
 
@@ -51,6 +52,7 @@ function PanelIcon({ collapsed }: { collapsed: boolean }) {
 }
 
 export default function AiChatPage() {
+  const t = useTranslations('ai.chat');
   const [convs, setConvs] = useState<Conv[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string; provider?: string; model?: string; emoji?: string }[]>([]);
   const [agentId, setAgentId] = useState('');
@@ -136,9 +138,9 @@ export default function AiChatPage() {
   }
 
   async function renameConv(c: Conv) {
-    const next = window.prompt('修改对话名称', c.title || '');
+    const next = window.prompt(t('renamePrompt'), c.title || '');
     if (next === null) return;
-    if (!next.trim()) { alert('名称不能为空'); return; }
+    if (!next.trim()) { alert(t('nameEmpty')); return; }
     try {
       await api.aiRenameConversation(c.id, next.trim());
       api.aiListConversations().then(setConvs).catch(() => null);
@@ -148,7 +150,7 @@ export default function AiChatPage() {
   }
 
   async function deleteConv(c: Conv) {
-    if (!window.confirm(`确认删除对话「${c.title || '未命名'}」？此操作不可恢复。`)) return;
+    if (!window.confirm(t('confirmDelete', { title: c.title || t('unnamed') }))) return;
     try {
       await api.aiDeleteConversation(c.id);
       if (sessionId === c.id) { setSessionId(null); setMessages([]); }
@@ -224,11 +226,11 @@ export default function AiChatPage() {
       {/* Top bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <h2 style={{ margin: 0 }}>AI 对话</h2>
+          <h2 style={{ margin: 0 }}>{t('title')}</h2>
           {/* Search button */}
           <button
             onClick={() => setSearchOpen(!searchOpen)}
-            title="搜索历史记录"
+            title={t('searchHistory')}
             style={{
               background: searchOpen ? 'var(--bg-tertiary)' : 'transparent',
               border: `1px solid ${searchOpen ? 'var(--border)' : 'transparent'}`,
@@ -247,7 +249,7 @@ export default function AiChatPage() {
           {/* Sidebar collapse toggle */}
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+            title={sidebarCollapsed ? t('expandSidebar') : t('collapseSidebar')}
             style={{
               background: 'transparent',
               border: '1px solid var(--border)',
@@ -265,13 +267,13 @@ export default function AiChatPage() {
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={{ fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            智能体 / Provider
+            {t('agentLabel')}
             <select
               value={agentId}
               onChange={(e) => setAgentId(e.target.value)}
               style={{ background: 'var(--bg-tertiary)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontSize: 13 }}
             >
-              <option value="">个人默认配置</option>
+              <option value="">{t('personalDefault')}</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}（{(a.provider || '—')}{a.model ? ` · ${a.model}` : ''}）
@@ -279,7 +281,7 @@ export default function AiChatPage() {
               ))}
             </select>
           </label>
-          <button style={btn()} onClick={newChat}>＋ 新对话</button>
+          <button style={btn()} onClick={newChat}>{t('newChat')}</button>
         </div>
       </div>
 
@@ -329,7 +331,7 @@ export default function AiChatPage() {
                   background: 'transparent',
                   color: 'var(--text)',
                 }}
-                placeholder="搜索"
+                placeholder={t('searchPlaceholder')}
                 value={searchQuery}
                 onChange={(e) => handleSearch(e.target.value)}
               />
@@ -347,12 +349,12 @@ export default function AiChatPage() {
                 onClick={() => { setSearchOpen(false); newChat(); }}
               >
                 <span style={{ fontSize: 18 }}>⊕</span>
-                <span>新工作</span>
+                <span>{t('newWork')}</span>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginLeft: 'auto' }}><path d="M23 4v6h-6M1 20v-6h6"/></svg>
               </div>
 
               {/* Recent conversations section */}
-              <div style={{ padding: '8px 20px 4px', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>最近对话</div>
+              <div style={{ padding: '8px 20px 4px', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>{t('recentConvs')}</div>
               {convs.map((c) => (
                 <div
                   key={c.id}
@@ -370,9 +372,9 @@ export default function AiChatPage() {
                 >
                   <span style={{ fontSize: 16, color: 'var(--text-muted)' }}>💬</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title || '未命名'}</div>
+                    <div style={{ fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title || t('unnamed')}</div>
                     {searchQuery.trim() && (
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>匹配关键词「{searchQuery.trim()}」</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{t('matchKeyword', { q: searchQuery.trim() })}</div>
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
@@ -382,7 +384,7 @@ export default function AiChatPage() {
               ))}
               {convs.length === 0 && (
                 <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
-                  {searchQuery.trim() ? `没有找到包含「${searchQuery.trim()}」的对话` : '暂无对话记录'}
+                  {searchQuery.trim() ? t('noResults', { q: searchQuery.trim() }) : t('noConvs')}
                 </div>
               )}
             </div>
@@ -395,11 +397,11 @@ export default function AiChatPage() {
         {!sidebarCollapsed && (
           <div style={{ ...panel, width: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', transition: 'width 0.2s, opacity 0.2s' }}>
             <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>对话历史</span>
+              <span>{t('history')}</span>
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{convs.length}</span>
             </div>
             <div style={{ overflowY: 'auto', flex: 1 }}>
-              {convs.length === 0 && <div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 13 }}>暂无对话</div>}
+              {convs.length === 0 && <div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 13 }}>{t('emptySidebar')}</div>}
               {convs.map((c) => (
                 <div
                   key={c.id}
@@ -416,19 +418,19 @@ export default function AiChatPage() {
                   }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title || '未命名'}</div>
+                    <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title || t('unnamed')}</div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>{c.updatedAt?.slice(0, 16) || ''}</div>
                   </div>
                   <div style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
                     <button
-                      title="更多操作"
+                      title={t('more')}
                       onClick={() => setMenuId(menuId === c.id ? null : c.id)}
                       style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 4px', borderRadius: 6 }}
                     >⋯</button>
                     {menuId === c.id && (
                       <div style={{ position: 'absolute', right: 0, top: '100%', zIndex: 10, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.25)', minWidth: 120 }}>
-                        <button onClick={() => { setMenuId(null); renameConv(c); }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>✏️ 重命名</button>
-                        <button onClick={() => { setMenuId(null); deleteConv(c); }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--danger, #ff5c5c)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>🗑️ 删除</button>
+                        <button onClick={() => { setMenuId(null); renameConv(c); }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>{t('rename')}</button>
+                        <button onClick={() => { setMenuId(null); deleteConv(c); }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--danger, #ff5c5c)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>{t('delete')}</button>
                       </div>
                     )}
                   </div>
@@ -443,7 +445,7 @@ export default function AiChatPage() {
           <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
             {messages.length === 0 && (
               <div style={{ color: 'var(--text-muted)', margin: 'auto', textAlign: 'center' }}>
-                开始与你的 AI 助手对话吧。支持天气、联网搜索、网页总结等实时能力。
+                {t('empty')}
               </div>
             )}
             {messages.map((m, i) => (
@@ -465,11 +467,11 @@ export default function AiChatPage() {
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                          编辑后将从此处重新开始对话，已有产物不会被删除
+                          {t('editHint')}
                         </span>
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <button onClick={cancelEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)' }}>取消</button>
-                          <button onClick={confirmEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: '#1a1a1a', color: '#fff', border: 'none' }}>发送</button>
+                          <button onClick={cancelEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)' }}>{t('cancel')}</button>
+                          <button onClick={confirmEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: '#1a1a1a', color: '#fff', border: 'none' }}>{t('send')}</button>
                         </div>
                       </div>
                     </div>
@@ -481,10 +483,10 @@ export default function AiChatPage() {
                       {m.role === 'user' && (
                         <div className="msg-actions" style={{ display: 'flex', gap: 6, alignItems: 'center', opacity: 0, transition: 'opacity 0.15s', height: 20 }}>
                           <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
-                          <button title="复制" onClick={() => copyMessage(m.content)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, borderRadius: 4, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}
+                          <button title={t('copy')} onClick={() => copyMessage(m.content)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, borderRadius: 4, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}
                             onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
                           ><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-                          <button title="编辑并重新发送" onClick={() => startEdit(i)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, borderRadius: 4, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}
+                          <button title={t('editResend')} onClick={() => startEdit(i)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, borderRadius: 4, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}
                             onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
                           ><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
                         </div>
@@ -494,7 +496,7 @@ export default function AiChatPage() {
                 </div>
               </div>
             ))}
-            {sending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>思考中…</div>}
+            {sending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{t('thinking')}</div>}
           </div>
           <div style={{ borderTop: '1px solid var(--border)', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {fileRefs.length > 0 && (
@@ -508,7 +510,7 @@ export default function AiChatPage() {
               </div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
-              <label title="添加本地文件" style={{ width: 36, height: 36, border: '0.5px solid var(--border)', borderRadius: 8, background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'border-color 0.15s, background 0.15s' }}
+              <label title={t('addFile')} style={{ width: 36, height: 36, border: '0.5px solid var(--border)', borderRadius: 8, background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'border-color 0.15s, background 0.15s' }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#999'; e.currentTarget.style.background = '#fafafa'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = '#fff'; }}
               >
@@ -522,13 +524,13 @@ export default function AiChatPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-                placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+                placeholder={t('inputPlaceholder')}
                 style={{ flex: 1, resize: 'none', height: 44, background: 'var(--bg-tertiary)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, fontSize: 14 }}
               />
               {sending ? (
-                <button style={{ ...btn(), borderColor: 'var(--danger, #ff5c5c)', color: 'var(--danger, #ff5c5c)' }} onClick={stopGenerating}>停止</button>
+                <button style={{ ...btn(), borderColor: 'var(--danger, #ff5c5c)', color: 'var(--danger, #ff5c5c)' }} onClick={stopGenerating}>{t('stop')}</button>
               ) : (
-                <button style={btn(true)} disabled={!input.trim()} onClick={() => send()}>发送</button>
+                <button style={btn(true)} disabled={!input.trim()} onClick={() => send()}>{t('send')}</button>
               )}
             </div>
           </div>

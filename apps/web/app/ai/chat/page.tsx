@@ -13,7 +13,7 @@ const wrap: React.CSSProperties = {
   display: 'flex',
   flex: 1,
   minHeight: 0,
-  gap: 12,
+  gap: 16,
 };
 const panel: React.CSSProperties = {
   background: 'var(--bg-secondary)',
@@ -220,9 +220,9 @@ export default function AiChatPage() {
 
   return (
     <div style={{ minHeight: 'calc(100vh - 64px)', background: 'var(--bg-primary)', padding: '16px 20px' }} onClick={() => { menuId && setMenuId(null); }}>
-      <div style={{ background: '#fff', borderRadius: 16, border: '1px solid var(--border)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 96px)' }}>
+      <div style={{ background: '#fff', borderRadius: 16, border: '1px solid var(--border)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 96px)', padding: '20px 28px 16px' }}>
       {/* Top bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <h2 style={{ margin: 0 }}>AI 对话</h2>
           {/* Search button */}

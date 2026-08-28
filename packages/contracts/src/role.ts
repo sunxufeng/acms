@@ -101,6 +101,9 @@ export const PERMISSIONS = [
   'ai:config',
   'ai:automation',
   'ai:admin',
+  // 邮件自动归档（招生与国外学校沟通留存）
+  'mail:read',
+  'mail:write',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -130,6 +133,7 @@ export const DOMAIN_LABELS: Record<string, string> = {
   admin: '系统管理',
   config: '系统配置',
   ai: 'AI 助手',
+  mail: '邮件归档',
 };
 
 const ACTION_LABELS: Record<string, string> = {

@@ -59,8 +59,8 @@ function toPrincipal(user: SessionUser): Principal {
 export class BaseRecordService {
   constructor(
     protected readonly meta: RecordMeta,
-    @Inject(BASE_CLIENT) private readonly base: BaseClient,
-    @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(BASE_CLIENT) protected readonly base: BaseClient,
+    @Inject(AuditService) protected readonly audit: AuditService,
   ) {}
 
   /** 操作人展示名 */

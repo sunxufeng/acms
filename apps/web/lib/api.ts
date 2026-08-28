@@ -731,6 +731,32 @@ export const api = {
   updateIdpCommunication: (id: string, data: Record<string, unknown>) =>
     request<Record<string, unknown>>(`/idp-communications/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveIdpCommunication: (id: string) => request<{ ok: boolean }>(`/idp-communications/${id}`, { method: 'DELETE' }),
+
+  // ── 邮件自动归档 ───────────────────────────────
+  listMailAccounts: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/mail-accounts${q ? `?${q}` : ''}`);
+  },
+  getMailAccount: (id: string) => request<Record<string, unknown>>(`/mail-accounts/${id}`),
+  createMailAccount: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/mail-accounts', { method: 'POST', body: JSON.stringify(data) }),
+  updateMailAccount: (id: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/mail-accounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveMailAccount: (id: string) => request<{ ok: boolean }>(`/mail-accounts/${id}`, { method: 'DELETE' }),
+  syncMailAccount: (id: string) => request<{ ok: boolean; fetched: number; stored: number; error?: string }>(`/mail-accounts/${id}/sync`, { method: 'POST' }),
+
+  listMailArchive: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/mail-archive${q ? `?${q}` : ''}`);
+  },
+  getMailArchive: (id: string) => request<Record<string, unknown>>(`/mail-archive/${id}`),
+  syncAllMail: () => request<{ synced: number; results: Record<string, unknown> }>('/mail-archive/sync-all', { method: 'POST' }),
+  getMailAttachmentUrl: (id: string, fileToken: string) =>
+    request<{ url: string }>(`/mail-archive/${id}/attachment-url?file_token=${encodeURIComponent(fileToken)}`),
 };
 
 export interface PermissionsPayload {

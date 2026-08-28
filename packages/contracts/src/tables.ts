@@ -33,6 +33,9 @@ export const TABLES = {
   auditLog: { tableId: 'tblDqovZWWuA7f0Q', name: '审计日志表' },
   // 微信登录用户（家长/学生通过微信小程序、家长 H5 登录的绑定记录，后台可管理）
   wechatBinding: { tableId: 'tblP8aLCQ1qgvwnT', name: '微信登录用户表' },
+  // 邮件自动归档：账户配置 + 归档记录（2026-08-28 新建）
+  mailAccount: { tableId: 'tbl1hfl00NnE53aq', name: '邮件账户表' },
+  mailArchive: { tableId: 'tblp0P9XVJZSfi3f', name: '邮件归档表' },
   // IDP 管理（2026-08-24 按 doc 精确字段重建）
   idpPlan: { tableId: 'tblMs4DTUTk0QgT5', name: 'IDP方案' },
   idpCommunication: { tableId: 'tbluU16XfgJJh3Rf', name: 'IDP沟通记录' },

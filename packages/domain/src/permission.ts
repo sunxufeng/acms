@@ -30,6 +30,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'export:run', 'admin:user', 'admin:studentUser', 'admin:audit', 'config:read', 'config:write',
     // AI 域
     'ai:chat', 'ai:config', 'ai:automation', 'ai:admin',
+    // 邮件自动归档
+    'mail:read', 'mail:write',
   ],
   院级管理: [
     'student:read', 'student:write', 'student:archive',
@@ -50,6 +52,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'schedule:read', 'schedule:write',
     'export:run', 'admin:audit', 'config:read', 'config:write',
     'ai:chat',
+    // 邮件自动归档（院级管理可配置账户并查看归档）
+    'mail:read', 'mail:write',
   ],
   教务: [
     'student:read', 'student:write', 'student:archive',
@@ -65,6 +69,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'schedule:read', 'schedule:write',
     'export:run', 'config:read', 'config:write',
     'ai:chat',
+    // 邮件自动归档：教务可查看归档
+    'mail:read',
   ],
   财务: [
     'student:read', 'export:run',
@@ -91,10 +97,14 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'communication:read', 'communication:write',
     'evaluation:read', 'evaluation:write',
     'ai:chat',
+    // 邮件自动归档：学生事务可查看归档
+    'mail:read',
   ],
   招生: [
     'student:read', 'student:write', 'followup:read', 'followup:write',
     'ai:chat',
+    // 招生人员：配置本人邮箱账户并查看归档
+    'mail:read', 'mail:write',
   ],
   HR行政: [
     'student:read',

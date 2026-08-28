@@ -73,6 +73,19 @@ fi
 # 启动双服务
 systemctl start acms-api acms-web
 sleep 5
+
+echo "=== 邮件归档：补齐依赖与密钥 ==="
+# 新增依赖（imapflow / mailparser 及其传递依赖）注入运行态 node_modules
+cd /opt/acms/api && npm install --no-save imapflow mailparser 2>&1 | tail -3 || true
+# 确保 MAIL_CRED_KEY 存在（缺失则生成随机 32 字节 base64 密钥，用于 AES 加密邮件账户密码）
+if ! grep -q '^MAIL_CRED_KEY=' /opt/acms/.env; then
+  echo "MAIL_CRED_KEY=$(head -c 32 /dev/urandom | base64)" >> /opt/acms/.env
+  echo "已生成 MAIL_CRED_KEY 并写入 /opt/acms/.env"
+fi
+# 重新加载环境变量后重启 API，使新密钥/依赖生效
+systemctl daemon-reload
+systemctl restart acms-api
+sleep 3
 echo "api: $(systemctl is-active acms-api)  web: $(systemctl is-active acms-web)"
 curl -sk -o /dev/null -w "https_index: %{http_code}\n" https://127.0.0.1/ || true
 echo DONE

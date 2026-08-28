@@ -191,6 +191,9 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'stageEvaluations', label: '阶段评价', href: '/stage-evaluations', icon: 'students', section: '学生闭环', order: 80 },
     { key: 'alumniFollowups', label: '校友跟进', href: '/alumni-followups', icon: 'students', section: '学生闭环', order: 90 },
 
+    { key: 'mailAccounts', label: '邮件账户', href: '/mail-accounts', icon: 'mail', section: '邮件归档', order: 10, perm: 'mail:write' },
+    { key: 'mailArchive', label: '邮件归档', href: '/mail-archive', icon: 'folder', section: '邮件归档', order: 20, perm: 'mail:read' },
+
     { key: 'teachers', label: '教师档案', href: '/teachers', icon: 'teachers', section: '教师管理', order: 10 },
     { key: 'attendance', label: '教师履约', href: '/attendance', icon: 'teachers', section: '教师管理', order: 20 },
     { key: 'billing', label: '计费结算', href: '/billing', icon: 'billing', section: '教师管理', order: 30 },

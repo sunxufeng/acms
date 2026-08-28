@@ -17,7 +17,9 @@
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "croner": "^10.0.1",
+    "imapflow": "^1.0.164",
     "ioredis": "^5.4.0",
+    "mailparser": "^3.7.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.0"
   },

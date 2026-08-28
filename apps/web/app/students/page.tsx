@@ -3,16 +3,17 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { api, type Page, type StudentRecord } from '../../lib/api';
+import { useTranslations } from 'next-intl';
 
 const COLS = [
-  { key: '学生姓名', label: '学生 / 编号', width: '' },
-  { key: '英文名', label: '英文名', width: '120px' },
-  { key: 'Arete毕业届', label: 'Arete毕业届', width: '110px' },
-  { key: '入学年级', label: 'Arete班', width: '' },
-  { key: '来源渠道', label: '来源', width: '80px' },
-  { key: '生源跟进状态', label: '跟进', width: '80px' },
-  { key: '更新时间', label: '更新', width: '140px' },
-  { key: '当前状态', label: '状态', width: '100px' },
+  { key: '学生姓名', label: 'colStudent', width: '' },
+  { key: '英文名', label: 'colEnglishName', width: '120px' },
+  { key: 'Arete毕业届', label: 'colAreteGraduation', width: '110px' },
+  { key: '入学年级', label: 'colAreteClass', width: '' },
+  { key: '来源渠道', label: 'colSource', width: '80px' },
+  { key: '生源跟进状态', label: 'colFollowUp', width: '80px' },
+  { key: '更新时间', label: 'colUpdated', width: '140px' },
+  { key: '当前状态', label: 'common.status', width: '100px' },
 ];
 
 function str(v: unknown): string {
@@ -85,6 +86,8 @@ function FilterSelect({
   options: string[];
   multi?: boolean;
 }) {
+  const t = useTranslations('students');
+  const c = useTranslations('common');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const sel = Array.isArray(value) ? value : value ? [value] : [];
@@ -125,7 +128,7 @@ function FilterSelect({
               className={`filter-select-opt${!value ? ' active' : ''}`}
               onClick={() => onChange('')}
             >
-              全部
+              {c('all')}
             </div>
           )}
           {options.map((o) => (
@@ -139,7 +142,7 @@ function FilterSelect({
             </div>
           ))}
           {sel.length > 0 && (
-            <div className="filter-select-clear" onClick={clear}>清除筛选</div>
+            <div className="filter-select-clear" onClick={clear}>{t('clearFilter')}</div>
           )}
         </div>
       )}
@@ -148,6 +151,12 @@ function FilterSelect({
 }
 
 export default function StudentsPage() {
+  const t = useTranslations('students');
+  const c = useTranslations('common');
+  const cr = useTranslations('crud');
+  const n = useTranslations('nav');
+  const colText = (k: string) => (k.startsWith('common.') ? c(k.slice(7)) : t(k));
+
   const [items, setItems] = useState<StudentRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -293,14 +302,14 @@ export default function StudentsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确认删除该学生档案？此操作不可恢复。')) return;
+    if (!confirm(t('confirmDeleteStudent'))) return;
     try {
       await api.archiveStudent(id);
       tokenStack.current = [];
       setPage(1);
       fetchPage(1, undefined);
     } catch (e) {
-      alert('删除失败：' + (e as Error).message);
+      alert(cr('deleteFailed'));
     }
   };
 
@@ -310,10 +319,10 @@ export default function StudentsPage() {
       <div className="page-header">
         <div className="page-header-row">
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-md)' }}>
-            <h1 className="page-title">学生档案</h1>
-            <span className="stat-inline">{total} 条结果</span>
+            <h1 className="page-title">{n('students')}</h1>
+            <span className="stat-inline">{t('resultCount', { total })}</span>
           </div>
-          <p className="page-subtitle">基础档案、学籍状态与数据密级在同一授权视图中呈现。</p>
+          <p className="page-subtitle">{t('subtitleList')}</p>
           <div className="page-actions">
             <button
               className="btn btn-outline btn-sm"
@@ -336,10 +345,10 @@ export default function StudentsPage() {
                 });
               }}
             >
-              ↓ 导出授权范围
+              ↓ {t('btnExportAuth')}
             </button>
             <Link href="/students/new" className="btn btn-primary">
-              + 新建学生
+              + {t('btnNewStudent')}
             </Link>
           </div>
         </div>
@@ -350,60 +359,60 @@ export default function StudentsPage() {
         <div className="search-bar" style={{ flex: 1, minWidth: 200 }}>
           <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input
-            placeholder="姓名、英文名"
+            placeholder={t('searchPlaceholder')}
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
-          <button type="submit">查询</button>
+          <button type="submit">{t('btnQuery')}</button>
         </div>
 
         <FilterSelect
-          label="状态"
+          label={c('status')}
           value={filters['当前状态'] as string[]}
           onChange={(v) => setFilter('当前状态', v)}
           options={dicts['当前状态'] ?? ['已录未报到', '在校在读', '离校未毕(休学）', '离校未毕(保留学籍）', '毕业', '退学', '放弃入学', '潜在学生']}
           multi
         />
         <FilterSelect
-          label="年级"
+          label={t('fldGrade')}
           value={filters['入学年级'] as string}
           onChange={(v) => setFilter('入学年级', v)}
           options={dicts['入学年级'] ?? ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '初一', '初二', '初三', '高一', '高二', '高三']}
         />
         <FilterSelect
-          label="班主任"
+          label={t('fldHeadTeacher')}
           value={filters['班主任'] as string[]}
           onChange={(v) => setFilter('班主任', v)}
           options={headTeacherOptions}
           multi
         />
         <FilterSelect
-          label="招生"
+          label={t('fldRecruiter')}
           value={filters['招生负责老师'] as string[]}
           onChange={(v) => setFilter('招生负责老师', v)}
           options={recruitOptions}
           multi
         />
         <FilterSelect
-          label="来源"
+          label={t('colSource')}
           value={filters['来源渠道'] as string}
           onChange={(v) => setFilter('来源渠道', v)}
           options={dicts['来源渠道'] ?? ['官网', '转介绍', '展会', '社交媒体', '代理', '其他']}
         />
         <FilterSelect
-          label="跟进"
+          label={t('colFollowUp')}
           value={filters['生源跟进状态'] as string}
           onChange={(v) => setFilter('生源跟进状态', v)}
           options={dicts['生源跟进状态'] ?? ['新线索', '跟进中', '已报名', '已入学', '已流失']}
         />
         <FilterSelect
-          label="入学"
+          label={t('fldEnrollYear')}
           value={filters['入学年份'] as string}
           onChange={(v) => setFilter('入学年份', v)}
           options={dicts['入学年份'] ?? ['2021春', '2021秋', '2022春', '2022秋', '2023春', '2023秋', '2024春', '2024秋', '2025春', '2025秋', '2026春', '2026秋', '2027春', '2027秋']}
         />
         <FilterSelect
-          label="Arete届"
+          label={t('fldAreteSession')}
           value={filters['Arete毕业届'] as string}
           onChange={(v) => setFilter('Arete毕业届', v)}
           options={dicts['Arete毕业届'] ?? ['第1届', '第2届', '第3届', '第4届', '第5届', '第6届']}
@@ -411,7 +420,7 @@ export default function StudentsPage() {
       </form>
 
       {/* ── Error / Loading ──────────────────── */}
-      {error && <p className="msg-error">加载失败：{error}</p>}
+      {error && <p className="msg-error">{c('loadFailed')}</p>}
       {loading && items.length === 0 && (
         <div className="empty-state" style={{ minHeight: 200 }}>
           <div style={{ width: 28, height: 28, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
@@ -425,10 +434,10 @@ export default function StudentsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  {COLS.map((c) => (
-                    <th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.label}</th>
+                  {COLS.map((col) => (
+                    <th key={col.key} style={col.width ? { width: col.width } : undefined}>{colText(col.label)}</th>
                   ))}
-                  <th style={{ width: 120 }}>操作</th>
+                  <th style={{ width: 120 }}>{c('actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -469,7 +478,7 @@ export default function StudentsPage() {
                       {/* Arete班（年级/班级） */}
                       <td>
                         <div style={{ fontWeight: 500 }}>{str(s['入学年级']) || '—'}</div>
-                        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['班级']) || '未分班'}</div>
+                        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['班级']) || t('noClass')}</div>
                       </td>
                       {/* 来源渠道 */}
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['来源渠道']) || '—'}</td>
@@ -488,14 +497,14 @@ export default function StudentsPage() {
                       <td>
                         <div style={{ display: 'flex', gap: 4 }}>
                           <Link href={`/students/${s.id}/edit`} className="btn btn-ghost btn-sm" style={{ padding: '4px 10px', fontSize: 'var(--font-xs)' }}>
-                            编辑
+                            {c('edit')}
                           </Link>
                           <button
                             className="btn btn-danger btn-sm"
                             style={{ padding: '4px 10px', fontSize: 'var(--font-xs)' }}
                             onClick={() => handleDelete(s.id)}
                           >
-                            删除
+                            {c('delete')}
                           </button>
                         </div>
                       </td>
@@ -504,9 +513,9 @@ export default function StudentsPage() {
                 })}
                 {!loading && items.length === 0 && (
                   <tr>
-                    <td colSpan={COLS.length + 1}>
+                      <td colSpan={COLS.length + 1}>
                       <div className="empty-state">
-                        <div className="empty-state-text">暂无学生数据</div>
+                        <div className="empty-state-text">{t('emptyNoStudents')}</div>
                       </div>
                     </td>
                   </tr>
@@ -524,9 +533,9 @@ export default function StudentsPage() {
             for (let i = startP; i <= endP; i++) pageNumbers.push(i);
             return (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
-                <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>共 {total} 条</span>
+                <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{cr('total', { total })}</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <button className="btn btn-outline btn-sm" disabled={page <= 1 || loading} onClick={() => goToPage(page - 1)}>上一页</button>
+                  <button className="btn btn-outline btn-sm" disabled={page <= 1 || loading} onClick={() => goToPage(page - 1)}>{cr('prevPage')}</button>
                   {pageNumbers.map((p) => (
                     <button
                       key={p}
@@ -537,8 +546,8 @@ export default function StudentsPage() {
                       {p}
                     </button>
                   ))}
-                  <button className="btn btn-outline btn-sm" disabled={page >= totalPages || loading} onClick={() => goToPage(page + 1)}>下一页</button>
-                  <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginLeft: 8 }}>第 {page} / {totalPages} 页</span>
+                  <button className="btn btn-outline btn-sm" disabled={page >= totalPages || loading} onClick={() => goToPage(page + 1)}>{cr('nextPage')}</button>
+                  <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginLeft: 8 }}>{cr('pageOf', { page, pages: totalPages })}</span>
                 </div>
               </div>
             );

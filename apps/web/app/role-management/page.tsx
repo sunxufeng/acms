@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api, type RoleManagementPayload } from '../../lib/api';
 import { DOMAIN_LABELS, PERMISSION_LABELS, type Permission, type DataLevel, type RoleDef } from '@acms/contracts';
 
@@ -15,6 +16,14 @@ const LEVEL_LABELS: Record<string, string> = {
   L2: 'L2（内部）',
   L3: 'L3（敏感）',
   L4: 'L4（高度敏感）',
+};
+
+/** 数据密级选项：value 是存储值（L1~L4），展示文案由 sidecar 键提供 */
+const LEVEL_LABEL_KEYS: Record<string, string> = {
+  L1: 'levelL1',
+  L2: 'levelL2',
+  L3: 'levelL3',
+  L4: 'levelL4',
 };
 
 function groupPerms(perms: string[]): { domain: string; label: string; perms: string[] }[] {
@@ -42,6 +51,8 @@ interface Draft {
 }
 
 export default function RoleManagementPage() {
+  const t = useTranslations('admin');
+  const tc = useTranslations('common');
   const [config, setConfig] = useState<RoleManagementPayload | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -62,8 +73,8 @@ export default function RoleManagementPage() {
       if (!selectedKey && d.roles.length) {
         selectRole(d.roles[0]);
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败');
+    } catch {
+      setError(tc('loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -143,10 +154,11 @@ export default function RoleManagementPage() {
       const saved = payload.roles.find((r) => r.key === draft.key);
       if (saved) selectRole(saved);
       const synced = payload.syncedToFeishu;
-      const syncText = synced && synced.length ? `，并已自动同步到飞书「系统角色」选项（${synced.join('、')}）` : '';
-      setMsg({ type: 'ok', text: (draft.isNew ? '角色已创建' : '已保存') + syncText });
-    } catch (e) {
-      setMsg({ type: 'err', text: e instanceof Error ? e.message : '保存失败' });
+      const base = draft.isNew ? t('roleCreated') : tc('saved');
+      const syncText = synced && synced.length ? t('roleSyncSuffix', { list: synced.join('、') }) : '';
+      setMsg({ type: 'ok', text: base + syncText });
+    } catch {
+      setMsg({ type: 'err', text: tc('saveFailed') });
     } finally {
       setSaving(false);
     }
@@ -154,7 +166,7 @@ export default function RoleManagementPage() {
 
   async function handleDelete() {
     if (!draft || draft.protected) return;
-    if (!confirm(`确定删除角色「${draft.label}」？删除后该角色不再授予任何权限。`)) return;
+    if (!confirm(t('confirmDeleteRole', { name: draft.label }))) return;
     setSaving(true);
     setMsg(null);
     try {
@@ -163,9 +175,9 @@ export default function RoleManagementPage() {
       setConfig(d);
       setSelectedKey(null);
       setDraft(null);
-      setMsg({ type: 'ok', text: '角色已删除' });
-    } catch (e) {
-      setMsg({ type: 'err', text: e instanceof Error ? e.message : '删除失败' });
+      setMsg({ type: 'ok', text: t('roleDeleted') });
+    } catch {
+      setMsg({ type: 'err', text: t('deleteFailed') });
     } finally {
       setSaving(false);
     }
@@ -180,11 +192,11 @@ export default function RoleManagementPage() {
   async function confirmCreate() {
     const key = newKey.trim();
     if (!key) {
-      setMsg({ type: 'err', text: '请填写角色标识' });
+      setMsg({ type: 'err', text: t('roleKeyRequired') });
       return;
     }
     if (config?.roles.some((r) => r.key === key)) {
-      setMsg({ type: 'err', text: '角色标识已存在' });
+      setMsg({ type: 'err', text: t('roleKeyExists') });
       return;
     }
     setDraft({
@@ -199,7 +211,7 @@ export default function RoleManagementPage() {
     setMsg(null);
   }
 
-  if (loading) return <div className="page"><div className="empty-state"><div className="empty-state-text">加载中…</div></div></div>;
+  if (loading) return <div className="page"><div className="empty-state"><div className="empty-state-text">{tc('loading')}</div></div></div>;
   if (error) return <div className="page"><p className="msg-error">{error}</p></div>;
   if (!config) return null;
 
@@ -222,14 +234,11 @@ export default function RoleManagementPage() {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">角色管理</h1>
-          <p className="page-subtitle">
-            管理系统的角色，以及每个角色被授予的具体权限。修改会即时生效并热更新鉴权引擎。
-            「系统管理员」权限集锁定不可改，内置角色不可删除。
-          </p>
+          <h1 className="page-title">{t('titleRoleManagement')}</h1>
+          <p className="page-subtitle">{t('subtitleRoleManagement')}</p>
         </div>
         <button className="btn btn-primary" onClick={startCreate} disabled={saving}>
-          + 新建角色
+          + {t('btnNewRole')}
         </button>
       </div>
 
@@ -241,31 +250,31 @@ export default function RoleManagementPage() {
 
       {showCreate && (
         <section className="form-fieldset" style={{ marginBottom: 'var(--space-lg)' }}>
-          <legend className="form-legend">新建角色</legend>
+          <legend className="form-legend">{t('legendNewRole')}</legend>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div className="form-field" style={{ minWidth: 200 }}>
-              <label className="form-label">角色标识（key）</label>
+              <label className="form-label">{t('fldRoleKey')}</label>
               <input
                 className="input"
                 value={newKey}
                 onChange={(e) => setNewKey(e.target.value)}
-                placeholder="如 班主任 / ClassTeacher"
+                placeholder={t('phRoleKey')}
               />
             </div>
             <div className="form-field" style={{ minWidth: 200 }}>
-              <label className="form-label">展示名</label>
+              <label className="form-label">{t('fldDisplayName')}</label>
               <input
                 className="input"
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
-                placeholder="留空则等同标识"
+                placeholder={t('phRoleDisplayName')}
               />
             </div>
-            <button className="btn btn-primary" onClick={confirmCreate}>下一步</button>
-            <button className="btn btn-outline" onClick={() => setShowCreate(false)}>取消</button>
+            <button className="btn btn-primary" onClick={confirmCreate}>{t('btnNext')}</button>
+            <button className="btn btn-outline" onClick={() => setShowCreate(false)}>{tc('cancel')}</button>
           </div>
           <p style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 8 }}>
-            提示：新建角色默认无任何权限，请在右侧勾选后保存；保存后会自动同步到飞书「系统用户表-系统角色」字段选项，可直接在飞书中分配给用户。
+            {t('hintNewRole')}
           </p>
         </section>
       )}

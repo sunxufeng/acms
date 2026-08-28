@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 import { formatDateTime } from '../../lib/date';
@@ -16,19 +17,6 @@ const TRANSITIONS: Record<string, string[]> = {
   已调课: ['待确认'],
 };
 
-const COLUMNS: CrudColumn[] = [
-  { key: '课次名称', label: '课次', width: '160px', form: true, required: true, type: 'text' },
-  { key: '教学班文本', label: '教学班', width: '140px', filter: true, filterType: 'text', form: true, type: 'text' },
-  { key: '授课教师文本', label: '授课教师', width: '120px', filter: true, filterType: 'text', form: true, type: 'text' },
-  { key: '场地文本', label: '场地', width: '120px', filter: true, filterType: 'text', form: true, type: 'text' },
-  { key: '课次日期', label: '日期', width: '120px', form: true, type: 'date' },
-  { key: '开始时间', label: '开始', width: '80px', form: true, type: 'text' },
-  { key: '结束时间', label: '结束', width: '80px', form: true, type: 'text' },
-  { key: '授课方式', label: '方式', width: '90px', filter: true, filterOptions: METHOD_OPTS, form: true, type: 'select', options: METHOD_OPTS },
-  { key: '课次状态', label: '状态', width: '100px', filter: true, filterOptions: STATUS_OPTS },
-  { key: '更新时间', label: '更新', width: '150px', render: (v) => <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-xs)' }}>{formatDateTime(v)}</span> },
-];
-
 function statusClass(s: string): string {
   if (s === '已确认' || s === '已完成') return 'status-active';
   if (s === '已取消') return 'status-left';
@@ -38,16 +26,31 @@ function statusClass(s: string): string {
 }
 
 export default function SchedulePage() {
+  const t = useTranslations('academic');
+
+  const COLUMNS: CrudColumn[] = [
+    { key: '课次名称', label: t('colSession'), width: '160px', form: true, required: true, type: 'text' },
+    { key: '教学班文本', label: t('colTcName'), width: '140px', filter: true, filterType: 'text', form: true, type: 'text' },
+    { key: '授课教师文本', label: t('colSessionTeacher'), width: '120px', filter: true, filterType: 'text', form: true, type: 'text' },
+    { key: '场地文本', label: t('colSessionVenue'), width: '120px', filter: true, filterType: 'text', form: true, type: 'text' },
+    { key: '课次日期', label: t('colSessionDate'), width: '120px', form: true, type: 'date' },
+    { key: '开始时间', label: t('colSessionStart'), width: '80px', form: true, type: 'text' },
+    { key: '结束时间', label: t('colSessionEnd'), width: '80px', form: true, type: 'text' },
+    { key: '授课方式', label: t('colSessionMethod'), width: '90px', filter: true, filterOptions: METHOD_OPTS, form: true, type: 'select', options: METHOD_OPTS },
+    { key: '课次状态', label: t('colStatus'), width: '100px', filter: true, filterOptions: STATUS_OPTS },
+    { key: '更新时间', label: t('colUpdated'), width: '150px', render: (v) => <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-xs)' }}>{formatDateTime(v)}</span> },
+  ];
+
   return (
     <div className="page">
       <CrudPage
-        title="课次列表"
-        subtitle="课次排课与冲突预检（M2 排课域）"
+        title={t('titleSessions')}
+        subtitle={t('subtitleSessions')}
         columns={COLUMNS}
         statusField="课次状态"
         transitions={TRANSITIONS}
         statusClass={statusClass}
-        search={{ placeholder: '课次名称' }}
+        search={{ placeholder: t('searchSessionName') }}
         api={{
           list: (p) => api.listSessions(p),
           create: (d) => api.createSession(d),
@@ -55,7 +58,7 @@ export default function SchedulePage() {
           archive: (id) => api.archiveSession(id),
           transition: (id, to) => api.transitionSession(id, to),
         }}
-        extraLinks={[{ label: '排课与课次', href: '/schedule/precheck' }]}
+        extraLinks={[{ label: t('linkPrecheck'), href: '/schedule/precheck' }]}
         createHref="/schedule/new"
         editHref={(id) => `/schedule/${id}/edit`}
       />

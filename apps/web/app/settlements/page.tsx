@@ -2,6 +2,7 @@
 
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
+import { useTranslations } from 'next-intl';
 
 const STATUS_OPTS = ['草拟', '已提交', '审批中', '已批准', '已关闭'];
 
@@ -12,22 +13,24 @@ const TRANSITIONS: Record<string, string[]> = {
   已批准: ['已关闭'],
 };
 
-const COLUMNS: CrudColumn[] = [
-  { key: '结算周期', label: '结算周期', width: '120px', filter: true, filterType: 'text', form: true, required: true, type: 'text' },
-  { key: '结算主体', label: '结算主体', width: '140px', form: true, type: 'text' },
-  { key: '明细数量', label: '明细数', width: '90px', form: true, type: 'number' },
-  { key: '总金额', label: '总金额', width: '110px', form: true, type: 'number' },
-  { key: '结算状态', label: '状态', width: '100px', filter: true, filterOptions: STATUS_OPTS, form: true, type: 'select', options: STATUS_OPTS },
-  { key: '审批人', label: '审批人', width: '110px', form: true, type: 'text' },
-  { key: '审批意见', label: '审批意见', form: true, type: 'textarea' },
-  { key: '备注', label: '备注', form: true, type: 'text' },
-];
-
 export default function SettlementsPage() {
+  const t = useTranslations('teachers');
+
+  const COLUMNS: CrudColumn[] = [
+    { key: '结算周期', label: t('colSettlePeriod'), width: '120px', filter: true, filterType: 'text', form: true, required: true, type: 'text' },
+    { key: '结算主体', label: t('colSettleSubject'), width: '140px', form: true, type: 'text' },
+    { key: '明细数量', label: t('colDetailCount'), width: '90px', form: true, type: 'number' },
+    { key: '总金额', label: t('colTotalAmount'), width: '110px', form: true, type: 'number' },
+    { key: '结算状态', label: t('colStatus'), width: '100px', filter: true, filterOptions: STATUS_OPTS, form: true, type: 'select', options: STATUS_OPTS },
+    { key: '审批人', label: t('colApprover'), width: '110px', form: true, type: 'text' },
+    { key: '审批意见', label: t('colApprovalComment'), form: true, type: 'textarea' },
+    { key: '备注', label: t('colRemark'), form: true, type: 'text' },
+  ];
+
   return (
     <CrudPage
-      title="月度结算"
-      subtitle="按周期聚合已确认计费，状态机审批后关闭锁定金额（SoD 审批，M3 计费）"
+      title={t('titleSettlements')}
+      subtitle={t('subtitleSettlements')}
       columns={COLUMNS}
       inlineEdit
       standaloneForm
@@ -40,14 +43,14 @@ export default function SettlementsPage() {
       }}
       statusField="结算状态"
       transitions={TRANSITIONS}
-      search={{ placeholder: '结算主体' }}
+      search={{ placeholder: t('searchPlaceholderSettlements') }}
       extraActions={[
         {
-          label: '按周期聚合',
+          label: t('btnAggregateByPeriod'),
           run: async (reload) => {
-            const period = window.prompt('输入结算周期（如 2026-08）：');
+            const period = window.prompt(t('promptSettlePeriod'));
             if (!period?.trim()) return;
-            const subject = window.prompt('结算主体（可选）：') || '';
+            const subject = window.prompt(t('promptSettleSubject')) || '';
             await api.aggregateSettlement({ 结算周期: period.trim(), 结算主体: subject });
             await reload();
           },

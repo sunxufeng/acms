@@ -1,14 +1,17 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { COLUMNS } from './columns';
+import { buildGradeColumns } from './columns';
 import { buildSelectionContext, studentName } from '../../lib/aiContext';
 
 export default function GradesPage() {
+  const t = useTranslations('academic');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
+  const COLUMNS = buildGradeColumns(t);
 
   const context = useMemo(
     () =>
@@ -33,14 +36,14 @@ export default function GradesPage() {
 
   const studentCount = useMemo(() => new Set(selected.map((r) => studentName(r))).size, [selected]);
   const resetKey = useMemo(() => selected.map((r) => String(r.id)).sort().join(','), [selected]);
-  const subject = selected.length ? `已选 ${selected.length} 条 / ${studentCount} 名学生` : '（未选择记录）';
+  const subject = selected.length ? t('aiSubjectSelected', { count: selected.length, students: studentCount }) : t('aiSubjectNone');
 
   return (
     <>
       <CrudPage
-        title="学业成绩"
-        subtitle="学科成绩与考核记录（M1 学生域）"
-        search={{ placeholder: '搜索学生姓名 / 学年 / 课程…' }}
+        title={t('titleGrades')}
+        subtitle={t('subtitleGrades')}
+        search={{ placeholder: t('searchGrades') }}
         columns={COLUMNS}
         statusField="成绩状态"
         inlineEdit
@@ -61,12 +64,12 @@ export default function GradesPage() {
         context={context}
         resetKey={resetKey}
         disabled={selected.length === 0}
-        disabledHint="请在列表前勾选一条或多条学业成绩记录"
+        disabledHint={t('hintSelectGrades')}
         label="AI"
         title="AI"
         subject={subject}
         storageKey="grades-ai-dialog"
-        placeholder="输入与学业成绩相关的问题，Enter 发送…"
+        placeholder={t('aiPlaceholderGrades')}
       />
     </>
   );

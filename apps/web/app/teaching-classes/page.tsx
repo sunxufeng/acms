@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 import { formatDateTime } from '../../lib/date';
@@ -15,17 +16,6 @@ const TRANSITIONS: Record<string, string[]> = {
   取消: [],
 };
 
-const COLUMNS: CrudColumn[] = [
-  { key: '教学班名称', label: '教学班', width: '180px', form: true, required: true, type: 'text' },
-  { key: '教学班类型', label: '类型', width: '110px', filter: true, filterOptions: TYPE_OPTS, form: true, type: 'select', options: TYPE_OPTS },
-  { key: '学期', label: '学期', width: '110px', form: true, type: 'text' },
-  { key: '主讲教师文本', label: '主讲教师', width: '120px', form: true, type: 'text' },
-  { key: '上课地点', label: '上课地点', width: '120px', form: true, type: 'text' },
-  { key: '教学状态', label: '教学状态', width: '100px', filter: true, filterOptions: STATUS_OPTS },
-  { key: '排课状态', label: '排课状态', width: '100px', filter: true, filterOptions: SCHEDULE_OPTS },
-  { key: '更新时间', label: '更新', width: '150px', render: (v) => <span className="muted">{formatDateTime(v)}</span> },
-];
-
 function statusClass(s: string): string {
   if (s === '进行中') return 'status-active';
   if (s === '已结课' || s === '取消') return 'status-left';
@@ -34,17 +24,30 @@ function statusClass(s: string): string {
 }
 
 export default function TeachingClassesPage() {
+  const t = useTranslations('academic');
+
+  const COLUMNS: CrudColumn[] = [
+    { key: '教学班名称', label: t('colTcName'), width: '180px', form: true, required: true, type: 'text' },
+    { key: '教学班类型', label: t('colType'), width: '110px', filter: true, filterOptions: TYPE_OPTS, form: true, type: 'select', options: TYPE_OPTS },
+    { key: '学期', label: t('colTerm'), width: '110px', form: true, type: 'text' },
+    { key: '主讲教师文本', label: t('colTcLeadTeacher'), width: '120px', form: true, type: 'text' },
+    { key: '上课地点', label: t('colTcLocation'), width: '120px', form: true, type: 'text' },
+    { key: '教学状态', label: t('colTcTeachingStatus'), width: '100px', filter: true, filterOptions: STATUS_OPTS },
+    { key: '排课状态', label: t('colTcScheduleStatus'), width: '100px', filter: true, filterOptions: SCHEDULE_OPTS },
+    { key: '更新时间', label: t('colUpdated'), width: '150px', render: (v) => <span className="muted">{formatDateTime(v)}</span> },
+  ];
+
   return (
     <CrudPage
-      title="教学班级"
-      subtitle="教学班开设与运行状态管理（M2 教学域）"
+      title={t('titleTeachingClasses')}
+      subtitle={t('subtitleTeachingClasses')}
       columns={COLUMNS}
       statusField="教学状态"
       transitions={TRANSITIONS}
       statusClass={statusClass}
       inlineEdit
       standaloneForm
-      search={{ placeholder: '教学班名称' }}
+      search={{ placeholder: t('searchTcName') }}
       api={{
         list: (p) => api.listTeachingClasses(p),
         create: (d) => api.createTeachingClass(d),

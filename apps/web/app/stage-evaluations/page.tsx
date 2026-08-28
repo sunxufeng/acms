@@ -1,14 +1,17 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { COLUMNS } from './columns';
+import { buildStageColumns } from './columns';
 import { buildSelectionContext, studentName } from '../../lib/aiContext';
 
 export default function StageEvaluationsPage() {
+  const t = useTranslations('academic');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
+  const COLUMNS = buildStageColumns(t);
 
   const context = useMemo(
     () =>
@@ -35,14 +38,14 @@ export default function StageEvaluationsPage() {
 
   const studentCount = useMemo(() => new Set(selected.map((r) => studentName(r))).size, [selected]);
   const resetKey = useMemo(() => selected.map((r) => String(r.id)).sort().join(','), [selected]);
-  const subject = selected.length ? `已选 ${selected.length} 条 / ${studentCount} 名学生` : '（未选择记录）';
+  const subject = selected.length ? t('aiSubjectSelected', { count: selected.length, students: studentCount }) : t('aiSubjectNone');
 
   return (
     <>
       <CrudPage
-        title="阶段评价"
-        subtitle="学业/行为/身心等阶段性综合评价（M1 学生域）"
-        search={{ placeholder: '搜索学生姓名…' }}
+        title={t('titleStage')}
+        subtitle={t('subtitleStage')}
+        search={{ placeholder: t('searchStage') }}
         columns={COLUMNS}
         statusField="评价完整度"
         inlineEdit
@@ -63,12 +66,12 @@ export default function StageEvaluationsPage() {
         context={context}
         resetKey={resetKey}
         disabled={selected.length === 0}
-        disabledHint="请在列表前勾选一条或多条阶段评价记录"
+        disabledHint={t('hintSelectStage')}
         label="AI"
         title="AI"
         subject={subject}
         storageKey="stage-evaluations-ai-dialog"
-        placeholder="输入与阶段评价相关的问题，Enter 发送…"
+        placeholder={t('aiPlaceholderStage')}
       />
     </>
   );

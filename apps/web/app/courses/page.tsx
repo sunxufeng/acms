@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 
@@ -15,17 +16,6 @@ const TRANSITIONS: Record<string, string[]> = {
   停用: ['草拟'],
 };
 
-const COLUMNS: CrudColumn[] = [
-  { key: '课程方案名称', label: '方案名称', width: '200px', form: true, required: true, type: 'text' },
-  { key: '方案类型', label: '类型', width: '120px', filter: true, filterOptions: TYPE_OPTS, form: true, type: 'select', options: TYPE_OPTS },
-  { key: '适用学段', label: '学段', width: '110px', filter: true, filterOptions: STAGE_OPTS, form: true, type: 'select', options: STAGE_OPTS },
-  { key: '适用年级', label: '适用年级', form: true, type: 'select', options: GRADE_OPTS },
-  { key: '方案状态', label: '状态', width: '100px', filter: true, filterOptions: STATUS_OPTS },
-  { key: '标准总课时', label: '总课时', width: '90px', form: true, type: 'number' },
-  { key: '版本号', label: '版本', width: '80px', form: true, type: 'text' },
-  { key: '更新时间', label: '更新', width: '90px', render: (v) => <span className="muted">{String(v ?? '').slice(0, 10)}</span> },
-];
-
 function statusClass(s: string): string {
   if (s === '已发布') return 'status-active';
   if (s === '停用') return 'status-left';
@@ -34,17 +24,30 @@ function statusClass(s: string): string {
 }
 
 export default function CoursesPage() {
+  const t = useTranslations('academic');
+
+  const COLUMNS: CrudColumn[] = [
+    { key: '课程方案名称', label: t('colPlanName'), width: '200px', form: true, required: true, type: 'text' },
+    { key: '方案类型', label: t('colType'), width: '120px', filter: true, filterOptions: TYPE_OPTS, form: true, type: 'select', options: TYPE_OPTS },
+    { key: '适用学段', label: t('colPlanStage'), width: '110px', filter: true, filterOptions: STAGE_OPTS, form: true, type: 'select', options: STAGE_OPTS },
+    { key: '适用年级', label: t('colPlanGrade'), form: true, type: 'select', options: GRADE_OPTS },
+    { key: '方案状态', label: t('colStatus'), width: '100px', filter: true, filterOptions: STATUS_OPTS },
+    { key: '标准总课时', label: t('colPlanTotalHours'), width: '90px', form: true, type: 'number' },
+    { key: '版本号', label: t('colPlanVersion'), width: '80px', form: true, type: 'text' },
+    { key: '更新时间', label: t('colUpdated'), width: '90px', render: (v) => <span className="muted">{String(v ?? '').slice(0, 10)}</span> },
+  ];
+
   return (
     <CrudPage
-      title="课程方案"
-      subtitle="课程体系与方案管理，状态机：草拟→审核中→已发布→停用（M2 教学域）"
+      title={t('titleCourses')}
+      subtitle={t('subtitleCourses')}
       columns={COLUMNS}
       statusField="方案状态"
       transitions={TRANSITIONS}
       statusClass={statusClass}
       inlineEdit
       standaloneForm
-      search={{ placeholder: '方案名称' }}
+      search={{ placeholder: t('searchPlanName') }}
       api={{
         list: (p) => api.listCoursePlans(p),
         create: (d) => api.createCoursePlan(d),

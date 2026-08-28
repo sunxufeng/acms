@@ -298,7 +298,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         }
         setPage(target);
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : '加载失败');
+        setError(e instanceof Error ? e.message : t('common.loadFailed'));
       } finally {
         setLoading(false);
       }
@@ -484,7 +484,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       setEditing(null);
       await reload();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : '保存失败');
+      setError(e instanceof Error ? e.message : t('common.saveFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -507,7 +507,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       setTxMenu(null);
       await reload();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : '状态变更失败');
+      setError(e instanceof Error ? e.message : t('common.statusChangeFailed'));
     }
   }
 
@@ -519,7 +519,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     try {
       await action.run(row, () => reload());
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : `${action.label} 失败`);
+      setError(e instanceof Error ? e.message : t('common.operationFailed'));
     } finally {
       setRowActionBusy(null);
     }
@@ -548,9 +548,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         return out;
       });
     } catch {
-      setError(
-        '未能读取本机 WiFi：请先在本机运行 `node scripts/wifi-helper.mjs`（保持运行），并用本地 dev 地址 http://localhost:3000 打开本页；或手动填写。',
-      );
+      setError(t('crud.wifiError'));
     } finally {
       setWifiBusy(false);
     }
@@ -584,7 +582,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   disabled={wifiBusy}
                   onClick={() => quickFillWifi(c)}
                 >
-                  {wifiBusy ? '读取中…' : '一键填入本机 WiFi'}
+                  {wifiBusy ? t('crud.readingWifi') : t('crud.fillWifi')}
                 </button>
               )}
             </div>
@@ -594,7 +592,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             <MarkdownField value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} height={300} />
           ) : c.type === 'select' ? (
             <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
-              <option value="">（未填）</option>
+              <option value="">{t('common.notFilled')}</option>
               {optionsFor(c).map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           ) : c.type === 'multiselect' ? (
@@ -614,7 +612,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             <input className="form-input" type="number" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
           ) : c.type === 'person' ? (
             <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
-              <option value="">（未填）</option>
+              <option value="">{t('common.notFilled')}</option>
               {userNames.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           ) : c.type === 'student' ? (
@@ -629,7 +627,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               const listId = `parent-opt-${c.key}`;
               return (
                 <>
-                  <input className="form-input" list={listId} value={str(form[c.key])} placeholder="从下拉选择或手工录入" onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
+                  <input className="form-input" list={listId} value={str(form[c.key])} placeholder={t('crud.parentPlaceholder')} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
                   <datalist id={listId}>{opts.map((o) => <option key={o} value={o} />)}</datalist>
                 </>
               );
@@ -643,7 +641,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   const res = await apiClient.uploadFile(file);
                   setForm((f) => ({ ...f, [c.key]: [...(Array.isArray(f[c.key]) ? (f[c.key] as { file_token: string; name: string }[]) : []), { file_token: res.file_token, name: res.name }] }));
                 } catch (err) {
-                  setError(err instanceof Error ? err.message : '上传失败');
+                  setError(err instanceof Error ? err.message : t('common.uploadFailed'));
                 } finally {
                   e.target.value = '';
                 }
@@ -718,7 +716,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 key={c.key}
                 className="form-input"
                 style={{ width: 160 }}
-                placeholder={`筛选${c.label}`}
+                placeholder={t('crud.filterBy', { label: c.label })}
                 value={filters[c.filterParam ?? c.key] ?? ''}
                 onChange={(e) => setFilters((f) => ({ ...f, [c.filterParam ?? c.key]: e.target.value }))}
               />
@@ -926,8 +924,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               </fieldset>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '16px 22px', borderTop: '1px solid var(--border)' }}>
-              <button className="btn btn-ghost" onClick={() => setEditing(null)}>取消</button>
-              <button className="btn btn-primary" onClick={submit} disabled={submitting}>{submitting ? '保存中…' : '保存'}</button>
+              <button className="btn btn-ghost" onClick={() => setEditing(null)}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" onClick={submit} disabled={submitting}>{submitting ? t('common.saving') : t('common.save')}</button>
             </div>
           </div>
         </div>

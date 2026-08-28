@@ -1,14 +1,17 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { COLUMNS } from './columns';
+import { buildPracticeColumns } from './columns';
 import { buildSelectionContext, studentName } from '../../lib/aiContext';
 
 export default function PracticeActivitiesPage() {
+  const t = useTranslations('academic');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
+  const COLUMNS = buildPracticeColumns(t);
 
   const context = useMemo(
     () =>
@@ -33,14 +36,14 @@ export default function PracticeActivitiesPage() {
 
   const studentCount = useMemo(() => new Set(selected.map((r) => studentName(r))).size, [selected]);
   const resetKey = useMemo(() => selected.map((r) => String(r.id)).sort().join(','), [selected]);
-  const subject = selected.length ? `已选 ${selected.length} 条 / ${studentCount} 名学生` : '（未选择记录）';
+  const subject = selected.length ? t('aiSubjectSelected', { count: selected.length, students: studentCount }) : t('aiSubjectNone');
 
   return (
     <>
       <CrudPage
-        title="实践活动"
-        subtitle="研学/志愿/竞赛等实践活动记录（M1 学生域）"
-        search={{ placeholder: '搜索活动名称…' }}
+        title={t('titlePractice')}
+        subtitle={t('subtitlePractice')}
+        search={{ placeholder: t('searchPractice') }}
         columns={COLUMNS}
         statusField="安全确认状态"
         inlineEdit
@@ -61,12 +64,12 @@ export default function PracticeActivitiesPage() {
         context={context}
         resetKey={resetKey}
         disabled={selected.length === 0}
-        disabledHint="请在列表前勾选一条或多条实践活动记录"
+        disabledHint={t('hintSelectPractice')}
         label="AI"
         title="AI"
         subject={subject}
         storageKey="practice-activities-ai-dialog"
-        placeholder="输入与实践活动相关的问题，Enter 发送…"
+        placeholder={t('aiPlaceholderPractice')}
       />
     </>
   );

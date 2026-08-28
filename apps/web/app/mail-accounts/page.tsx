@@ -12,6 +12,7 @@ export default function MailAccountsPage() {
       title="邮件账户"
       subtitle="配置招生人员的邮箱 IMAP 接入（密码以 AES 加密入库）。系统每 15 分钟按频率自动收取，留存全部往来邮件。"
       search={{ placeholder: '搜索账户名称 / 归属人员…' }}
+      backHref="/mail-archive"
       columns={COLUMNS}
       inlineEdit
       extraActions={[

@@ -108,6 +108,8 @@ export interface CrudPageProps {
   selection?: boolean;
   /** 已选行变化回调（跨页合并后的全部已选记录） */
   onSelectionChange?: (rows: Record<string, unknown>[]) => void;
+  /** 列表页头部返回箭头：设置后渲染一个返回链接（用于非一级导航的深层子页，如邮件账户） */
+  backHref?: string;
 }
 
 function str(v: unknown): string {
@@ -187,7 +189,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate, selection, onSelectionChange }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate, selection, onSelectionChange, backHref }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = pageSize ?? 5;
@@ -675,6 +677,17 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     <div className="page">
       {!showingStandaloneForm && (
         <div className="page-header page-header-row">
+          {backHref && (
+            <Link
+              href={backHref}
+              className="btn btn-icon"
+              title={t('crud.back')}
+              aria-label={t('crud.back')}
+              style={{ marginRight: 'var(--space-md)' }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
+            </Link>
+          )}
           <div>
             <h1 className="page-title">{tl(title)}</h1>
             {subtitle && <p className="page-subtitle">{tl(subtitle)}</p>}

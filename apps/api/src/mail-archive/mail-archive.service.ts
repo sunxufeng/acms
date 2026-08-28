@@ -31,7 +31,9 @@ interface MailFilterRule {
   onlyWithAttachment?: boolean;
 }
 
-const FETCH_FOLDERS = ['INBOX'];
+/** 发件箱文件夹名的常见写法（服务器未返回 SPECIAL-USE 标志时兜底匹配）。
+ *  各家命名不统一：Gmail `[Gmail]/Sent Mail`、Exchange `Sent Items`、163/QQ `Sent Messages` 或「已发送」。 */
+const SENT_NAME_RE = /^(sent|sent items|sent mail|sent messages|已发送|已发送邮件)$/i;
 
 @Injectable()
 export class MailArchiveService extends BaseRecordService {
@@ -68,7 +70,11 @@ export class MailArchiveService extends BaseRecordService {
       });
       await client.connect();
       try {
-        for (const folder of FETCH_FOLDERS) {
+        // 收取范围：收件箱 + 自动探测到的发件箱
+        const sentFolder = await this.resolveSentFolder(client);
+        const folders: Array<{ path: string; isSent: boolean }> = [{ path: 'INBOX', isSent: false }];
+        if (sentFolder) folders.push({ path: sentFolder, isSent: true });
+        for (const { path: folder, isSent } of folders) {
           let lock;
           try {
             lock = await client.getMailboxLock(folder);
@@ -85,7 +91,7 @@ export class MailArchiveService extends BaseRecordService {
               if (!msg || !msg.source) continue;
               const { simpleParser } = await import('mailparser');
               const parsed = await simpleParser(msg.source);
-              if (!this.matchFilter(a.filters, parsed)) continue;
+              if (!this.matchFilter(a.filters, parsed, isSent)) continue;
               const saved = await this.archiveOne(a, folder, String(uid), parsed);
               if (saved) stored++;
             }
@@ -140,6 +146,33 @@ export class MailArchiveService extends BaseRecordService {
     return this.fileUpload.resolveDownloadUrl(fileToken);
   }
 
+  /** 探测发件箱文件夹路径：优先用 IMAP SPECIAL-USE 标志 `\Sent`（RFC 6154），
+   *  服务器未返回该标志时按常见名称兜底；都找不到返回 null（此时只收收件箱）。 */
+  private async resolveSentFolder(client: {
+    list: () => Promise<Array<{ path?: string; delimiter?: string; specialUse?: unknown }>>;
+  }): Promise<string | null> {
+    let boxes: Array<{ path?: string; delimiter?: string; specialUse?: unknown }> = [];
+    try {
+      boxes = (await client.list()) ?? [];
+    } catch (e) {
+      this.logger.warn(`列取邮箱文件夹失败: ${(e as Error).message}`);
+      return null;
+    }
+
+    const byFlag = boxes.find(
+      (b) => typeof b.specialUse === 'string' && b.specialUse.toLowerCase() === '\\sent',
+    );
+    if (byFlag?.path) return byFlag.path;
+
+    const byName = boxes.find((b) => {
+      const p = (b.path ?? '').trim();
+      // 按层级分隔符取最后一段，使 `[Gmail]/Sent Mail` 也能匹配到
+      const last = p.split(b.delimiter || '/').pop() ?? p;
+      return SENT_NAME_RE.test(last.trim());
+    });
+    return byName?.path ?? null;
+  }
+
   // ── 内部工具 ──────────────────────────────────────────────
 
   private parseAccount(f: Record<string, unknown>): ParsedAccount {
@@ -169,14 +202,25 @@ export class MailArchiveService extends BaseRecordService {
     };
   }
 
-  private matchFilter(rule: MailFilterRule, parsed: { from?: { text?: string }; subject?: string; attachments?: unknown[] }): boolean {
+  /** 过滤规则匹配。
+   *  ⚠️ 发件箱邮件的「发件人」是账户本人，若仍按 from 匹配，
+   *  配了 fromDomain（只归档与某方往来）的账户其发件箱邮件会被全部过滤掉。
+   *  因此发件箱改按「收件人 + 抄送」匹配，使同一条规则在收发双向都生效。 */
+  private matchFilter(
+    rule: MailFilterRule,
+    parsed: { from?: { text?: string }; to?: { text?: string }; cc?: { text?: string }; subject?: string; attachments?: unknown[] },
+    isSent = false,
+  ): boolean {
+    const counterparty = isSent
+      ? `${parsed.to?.text ?? ''} ${parsed.cc?.text ?? ''}`
+      : (parsed.from?.text ?? '');
+    const who = counterparty.toLowerCase();
+
     if (rule.fromContains) {
-      const from = (parsed.from?.text ?? '').toLowerCase();
-      if (!from.includes(rule.fromContains.toLowerCase())) return false;
+      if (!who.includes(rule.fromContains.toLowerCase())) return false;
     }
     if (rule.fromDomain) {
-      const from = (parsed.from?.text ?? '').toLowerCase();
-      if (!from.includes(rule.fromDomain.toLowerCase())) return false;
+      if (!who.includes(rule.fromDomain.toLowerCase())) return false;
     }
     if (rule.subjectContains) {
       const subj = (parsed.subject ?? '').toLowerCase();
@@ -188,19 +232,22 @@ export class MailArchiveService extends BaseRecordService {
     return true;
   }
 
-  /** 单封邮件落库；已存在（同账户+同UID）则跳过，返回是否新增 */
+  /** 单封邮件落库；已存在（同账户+同文件夹+同UID）则跳过，返回是否新增 */
   private async archiveOne(
     acc: ParsedAccount,
     folder: string,
     uid: string,
     parsed: { from?: { text?: string }; to?: { text?: string }; cc?: { text?: string }; subject?: string; date?: Date; text?: string; html?: string; attachments?: Array<{ filename?: string; contentType?: string; content?: Buffer }> },
   ): Promise<boolean> {
-    // 去重：同账户 + 同 UID 已存在则跳过
+    // 去重：同账户 + 同文件夹 + 同 UID 已存在则跳过。
+    // ⚠️ IMAP 的 UID 是按文件夹独立编号的，收件箱与发件箱会有相同 UID，
+    // 因此去重必须带「邮箱文件夹」维度，否则发件箱邮件会被误判为重复而丢失。
     const dup = await this.base.search(this.meta.tableId, {
       pageSize: 1,
       filter: buildFilter([
         { field: '邮件UID', value: [uid] },
         { field: '归属账户', value: [acc.name] },
+        { field: '邮箱文件夹', value: [folder] },
       ]),
     });
     if (dup.items.length > 0) return false;

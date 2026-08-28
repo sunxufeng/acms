@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api } from '../../../lib/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -27,6 +28,10 @@ export type Agent = {
   heartbeatHour?: string;
   heartbeatMinute?: string;
   heartbeatRecipients?: string;
+  heartbeatRetries?: number;
+  heartbeatTimeout?: number;
+  heartbeatErrorNotify?: boolean;
+  heartbeatPrompt?: string;
   userScope?: string;
 };
 
@@ -46,62 +51,7 @@ const TABS = [
 
 type TabKey = typeof TABS[number]['key'];
 
-// ── Shared styles ──────────────────────────────────────────────
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  background: '#fff',
-  color: '#1a1a1a',
-  border: '1px solid #d4d4d4',
-  borderRadius: 8,
-  padding: '9px 12px',
-  fontSize: 14,
-  outline: 'none',
-  transition: 'border-color 0.15s',
-};
-
-const labelStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: '#666',
-  marginBottom: 5,
-  display: 'block',
-  fontWeight: 500,
-};
-
-const sectionLabelStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: '#888',
-  marginBottom: 8,
-};
-
-// Tab button style (underline style like reference)
-const tabBtnStyle = (active: boolean): React.CSSProperties => ({
-  padding: '8px 16px',
-  border: 'none',
-  borderBottom: active ? '2px solid #10b981' : '2px solid transparent',
-  cursor: 'pointer',
-  fontSize: 14,
-  fontWeight: active ? 600 : 400,
-  color: active ? '#1a1a1a' : '#888',
-  background: 'transparent',
-  transition: 'all 0.15s',
-  marginBottom: -1,
-});
-
-// MD edit/preview pill buttons
-const mdPillStyle = (active: boolean): React.CSSProperties => ({
-  padding: '5px 14px',
-  borderRadius: 20,
-  border: 'none',
-  cursor: 'pointer',
-  fontSize: 13,
-  fontWeight: active ? 600 : 400,
-  background: active ? '#10b981' : 'transparent',
-  color: active ? '#fff' : '#888',
-  transition: 'all 0.15s',
-});
-
-// ── Reusable MD editor component ────────────────────────────────
+// ── MD editor component (uses app CSS classes) ───────────────────
 
 function MdEditor({ value, onChange, placeholder, label }: { value: string; onChange: (v: string) => void; placeholder?: string; label?: string }) {
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
@@ -116,31 +66,34 @@ function MdEditor({ value, onChange, placeholder, label }: { value: string; onCh
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button type="button" style={mdPillStyle(mode === 'edit')} onClick={() => setMode('edit')}>MD</button>
-          <button type="button" style={mdPillStyle(mode === 'preview')} onClick={() => setMode('preview')}>预览</button>
+      {/* Toolbar */}
+      <div className="md-editor-toolbar">
+        <div className="md-pills">
+          <button type="button" className={`md-pill${mode === 'edit' ? ' active' : ''}`} onClick={() => setMode('edit')}>MD</button>
+          <button type="button" className={`md-pill${mode === 'preview' ? ' active' : ''}`} onClick={() => setMode('preview')}>预览</button>
         </div>
-        <label style={{ fontSize: 12, color: '#10b981', cursor: 'pointer', fontWeight: 500 }}>
+        <label className="md-import-label">
           MD 导入
           <input type="file" accept=".md,.txt,.markdown" onChange={importMd} style={{ display: 'none' }} />
         </label>
       </div>
-      {label && <label style={sectionLabelStyle}>{label}</label>}
+
+      {label && <div className="form-hint" style={{ marginBottom: 8 }}>{label}</div>}
+
       {mode === 'edit' ? (
         <textarea
+          className="form-input md-textarea"
           rows={10}
-          style={{ ...inputStyle, fontFamily: 'monospace', resize: 'vertical', minHeight: 160, lineHeight: 1.65 }}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
         />
       ) : (
-        <div style={{ ...inputStyle, minHeight: 160, maxHeight: 420, overflowY: 'auto', padding: '16px 18px', lineHeight: 1.75, whiteSpace: 'pre-wrap', background: '#fafafa' }}>
+        <div className="md-preview">
           {value ? (
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown>
           ) : (
-            <span style={{ color: '#aaa' }}>（无内容）</span>
+            <span className="md-empty">（无内容）</span>
           )}
         </div>
       )}
@@ -148,36 +101,23 @@ function MdEditor({ value, onChange, placeholder, label }: { value: string; onCh
   );
 }
 
-// ── Tool checkbox item (for Skill tab) ─────────────────────────
+// ── Tool checkbox item ───────────────────────────────────────────
 
 function ToolCheckItem({ tool, checked, onToggle }: { tool: Tool; checked: boolean; onToggle: () => void }) {
   return (
     <div
-      style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 10,
-        padding: '12px 14px',
-        background: checked ? '#f0fdf4' : '#fff',
-        border: `1px solid ${checked ? '#86efac' : '#e5e7eb'}`,
-        borderRadius: 10,
-        cursor: 'pointer',
-        transition: 'all 0.15s',
-      }}
+      className={`tool-check-item${checked ? ' checked' : ''}`}
       onClick={onToggle}
-      onMouseEnter={(e) => { if (!checked) e.currentTarget.style.borderColor = '#10b981'; }}
-      onMouseLeave={(e) => { if (!checked) e.currentTarget.style.borderColor = '#e5e7eb'; }}
     >
       <input
         type="checkbox"
         checked={checked}
         onChange={() => {}}
-        style={{ marginTop: 2, width: 16, height: 16, accentColor: '#10b981', cursor: 'pointer' }}
         onClick={(e) => e.stopPropagation()}
       />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a', marginBottom: 3 }}>{tool.name}</div>
-        <div style={{ fontSize: 12, color: '#888', lineHeight: 1.55 }}>{tool.description}</div>
+      <div className="tool-check-info">
+        <div className="tool-check-name">{tool.name}</div>
+        <div className="tool-check-desc">{tool.description}</div>
       </div>
     </div>
   );
@@ -186,7 +126,6 @@ function ToolCheckItem({ tool, checked, onToggle }: { tool: Tool; checked: boole
 // ── Main Form Component ─────────────────────────────────────────
 
 export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => void }) {
-  // Form state — initialize defaults for new agents
   const [form, setForm] = useState<Agent>({
     ...initial,
     toolList: initial?.toolList || [],
@@ -202,6 +141,10 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
     heartbeatHour: initial?.heartbeatHour || '09',
     heartbeatMinute: initial?.heartbeatMinute || '00',
     heartbeatRecipients: initial?.heartbeatRecipients || '',
+    heartbeatRetries: initial?.heartbeatRetries ?? 3,
+    heartbeatTimeout: initial?.heartbeatTimeout ?? 60,
+    heartbeatErrorNotify: initial?.heartbeatErrorNotify ?? true,
+    heartbeatPrompt: initial?.heartbeatPrompt || '',
     userScope: initial?.userScope || USER_DEFAULT,
   });
   const [activeTab, setActiveTab] = useState<TabKey>('agent');
@@ -223,7 +166,6 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
     api.aiPresets().then((data) => setPresets((data as ProviderPreset[]) || [])).catch(() => []);
   }, []);
 
-  // Auto-select all tools by default when tools load (only for new agent)
   useEffect(() => {
     if (tools.length > 0 && (!initial?.toolList || initial.toolList.length === 0)) {
       setForm((prev) => ({ ...prev, toolList: tools.map((t) => t.name) }));
@@ -265,6 +207,10 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
         heartbeatHour: form.heartbeatHour || '',
         heartbeatMinute: form.heartbeatMinute || '',
         heartbeatRecipients: form.heartbeatRecipients || '',
+        heartbeatRetries: form.heartbeatRetries ?? 3,
+        heartbeatTimeout: form.heartbeatTimeout ?? 60,
+        heartbeatErrorNotify: form.heartbeatErrorNotify ?? true,
+        heartbeatPrompt: form.heartbeatPrompt || '',
         userScope: form.userScope?.trim() || '',
         toolList: form.toolList || [],
         provider: chosenPreset?.type || selectedProvider || cfg?.provider || '',
@@ -288,7 +234,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       case 'agent':
         return (
           <MdEditor
-            label={`简介 Agent（Markdown）`}
+            label="简介 Agent（Markdown）"
             value={form.systemPrompt || ''}
             onChange={(v) => setForm({ ...form, systemPrompt: v })}
             placeholder="在此输入 / 粘贴 Markdown 内容..."
@@ -297,20 +243,19 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
 
       case 'skill':
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <MdEditor
-              label={`简介 Skill（Markdown）`}
+              label="简介 Skill（Markdown）"
               value={form.description || ''}
               onChange={(v) => setForm({ ...form, description: v })}
               placeholder="# SKILL.md - 你能做什么..."
             />
 
-            {/* Tool toggle list below MD editor */}
             <div>
-              <label style={{ ...sectionLabelStyle, marginBottom: 10 }}>
+              <span className="form-label-text" style={{ display: 'block', marginBottom: 12 }}>
                 可用工具开关（仅勾选的工具该智能体才能调用；全不选 = 放开全部内置工具）
-              </label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              </span>
+              <div className="tool-grid">
                 {tools.map((tool) => (
                   <ToolCheckItem
                     key={tool.name}
@@ -320,33 +265,32 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
                   />
                 ))}
               </div>
-              {tools.length === 0 && <div style={{ color: '#aaa', fontSize: 13 }}>加载中…</div>}
+              {tools.length === 0 && <span style={{ color: 'var(--fg-tertiary)', fontSize: 13 }}>加载中…</span>}
             </div>
           </div>
         );
 
       case 'heartbeat':
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {/* Enable toggle */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 }}>
+            <label className="heartbeat-enable">
               <input
                 type="checkbox"
                 checked={form.heartbeatEnabled ?? false}
                 onChange={(e) => setForm({ ...form, heartbeatEnabled: e.target.checked })}
-                style={{ width: 17, height: 17, accentColor: '#10b981', cursor: 'pointer' }}
               />
-              启用心跳（定时自检 / 主动推送）
+              <span>启用心跳（定时自检 / 主动推送）</span>
+              <small>按设定频率自动触发智能体执行任务</small>
             </label>
 
             {form.heartbeatEnabled && (
               <>
-                {/* Action + Frequency row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label style={labelStyle}>动作</label>
+                <div className="form-grid">
+                  <div className="form-label">
+                    <span className="form-label-text">动作</span>
                     <select
-                      style={inputStyle}
+                      className="form-input"
                       value={form.heartbeatAction || '推送结果给用户'}
                       onChange={(e) => setForm({ ...form, heartbeatAction: e.target.value })}
                     >
@@ -355,77 +299,139 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
                       <option value="执行自定义任务">执行自定义任务</option>
                     </select>
                   </div>
-                  <div>
-                    <label style={labelStyle}>频率</label>
+
+                  <div className="form-label">
+                    <span className="form-label-text">频率</span>
                     <select
-                      style={inputStyle}
+                      className="form-input"
                       value={form.heartbeatFrequency || '每天'}
                       onChange={(e) => setForm({ ...form, heartbeatFrequency: e.target.value })}
                     >
                       <option value="每分钟">每分钟</option>
+                      <option value="每5分钟">每5分钟</option>
+                      <option value="每15分钟">每15分钟</option>
+                      <option value="每30分钟">每30分钟</option>
                       <option value="每小时">每小时</option>
                       <option value="每天">每天</option>
                       <option value="每周">每周</option>
                       <option value="每月">每月</option>
+                      <option value="自定义 Cron">自定义 Cron</option>
                     </select>
+                  </div>
+
+                  <div className="form-label">
+                    <span className="form-label-text">Cron 表达式</span>
+                    <input
+                      className="form-input"
+                      style={{ fontFamily: 'monospace', background: 'var(--bg-subtle)' }}
+                      readOnly
+                      value={
+                        form.heartbeatFrequency === '自定义 Cron'
+                          ? form.heartbeatCron || ''
+                          : form.heartbeatEnabled
+                            ? `${form.heartbeatMinute || '0'} ${form.heartbeatHour || '*'} * * *`
+                            : ''
+                      }
+                      placeholder="自动生成"
+                    />
                   </div>
                 </div>
 
-                {/* Hour + Minute row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label style={labelStyle}>小时</label>
-                    <select
-                      style={inputStyle}
-                      value={form.heartbeatHour || '09'}
-                      onChange={(e) => setForm({ ...form, heartbeatHour: e.target.value })}
-                    >
-                      {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map((h) => (
-                        <option key={h} value={h}>{h}</option>
-                      ))}
-                    </select>
+                {/* Hour + Minute (only for daily+ frequencies) */}
+                {!['每分钟', '每5分钟', '每15分钟', '每30分钟', '每小时'].includes(form.heartbeatFrequency || '') && (
+                  <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                    <div className="form-label">
+                      <span className="form-label-text">小时</span>
+                      <select
+                        className="form-input"
+                        value={form.heartbeatHour || '09'}
+                        onChange={(e) => setForm({ ...form, heartbeatHour: e.target.value })}
+                      >
+                        {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map((h) => (
+                          <option key={h} value={h}>{h}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="form-label">
+                      <span className="form-label-text">分钟</span>
+                      <select
+                        className="form-input"
+                        value={form.heartbeatMinute || '00'}
+                        onChange={(e) => setForm({ ...form, heartbeatMinute: e.target.value })}
+                      >
+                        {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label style={labelStyle}>分钟</label>
-                    <select
-                      style={inputStyle}
-                      value={form.heartbeatMinute || '00'}
-                      onChange={(e) => setForm({ ...form, heartbeatMinute: e.target.value })}
-                    >
-                      {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                )}
 
-                {/* Recipient */}
-                <div>
-                  <label style={labelStyle}>推送收件人（仅「推送结果」动作需要）</label>
+                <div className="form-label">
+                  <span className="form-label-text">推送收件人（仅「推送结果」动作需要）</span>
                   <input
-                    style={inputStyle}
+                    className="form-input"
                     value={form.heartbeatRecipients || ''}
                     onChange={(e) => setForm({ ...form, heartbeatRecipients: e.target.value })}
-                    placeholder="默认推送给自己"
+                    placeholder="默认推送给自己，可输入多个 open_id 用逗号分隔"
                   />
                 </div>
+
+                <div className="form-grid">
+                  <div className="form-label">
+                    <span className="form-label-text">最大重试次数</span>
+                    <select
+                      className="form-input"
+                      value={String(form.heartbeatRetries ?? 3)}
+                      onChange={(e) => setForm({ ...form, heartbeatRetries: Number(e.target.value) })}
+                    >
+                      {[0, 1, 2, 3, 5].map((n) => (
+                        <option key={n} value={n}>{n === 0 ? '不重试' : `${n} 次`}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-label">
+                    <span className="form-label-text">超时时间</span>
+                    <select
+                      className="form-input"
+                      value={String(form.heartbeatTimeout ?? 60)}
+                      onChange={(e) => setForm({ ...form, heartbeatTimeout: Number(e.target.value) })}
+                    >
+                      {[30, 60, 120, 300, 600].map((n) => (
+                        <option key={n} value={n}>{n >= 60 ? `${n / 60} 分钟` : `${n} 秒`}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-label">
+                    <span className="form-label-text">失败通知</span>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.heartbeatErrorNotify ?? true}
+                        onChange={(e) => setForm({ ...form, heartbeatErrorNotify: e.target.checked })}
+                      />
+                      执行失败时通知管理员
+                    </label>
+                  </div>
+                </div>
+
+                <MdEditor
+                  label="心跳提示词（Markdown，留空用默认自检提示词）"
+                  value={form.heartbeatPrompt || ''}
+                  onChange={(v) => setForm({ ...form, heartbeatPrompt: v })}
+                  placeholder="# 心跳任务提示词\n\n当心跳触发时，将以下内容喂给智能体：\n\n- 当前时间：{{timestamp}}\n- 上次执行时间：{{lastRun}}\n\n请执行以下检查..."
+                />
               </>
             )}
-
-            {/* Prompt */}
-            <MdEditor
-              label="心跳提示词（Markdown，留空用默认自检提示词）"
-              value={form.systemPrompt || ''}
-              onChange={(v) => setForm({ ...form, systemPrompt: v })}
-              placeholder="心跳触发时喂给智能体的提示词..."
-            />
           </div>
         );
 
       case 'identity':
         return (
           <MdEditor
-            label={`简介 Identity（Markdown）`}
+            label="简介 Identity（Markdown）"
             value={form.identityPrompt || ''}
             onChange={(v) => setForm({ ...form, identityPrompt: v })}
             placeholder={IDENTITY_DEFAULT.slice(0, 60) + '...'}
@@ -435,7 +441,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       case 'memory':
         return (
           <MdEditor
-            label={`简介 Memory（Markdown）`}
+            label="简介 Memory（Markdown）"
             value={form.memoryPrompt || ''}
             onChange={(v) => setForm({ ...form, memoryPrompt: v })}
             placeholder={MEMORY_DEFAULT.slice(0, 60) + '...'}
@@ -445,7 +451,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       case 'soul':
         return (
           <MdEditor
-            label={`简介 Soul（Markdown）`}
+            label="简介 Soul（Markdown）"
             value={form.soulPrompt || ''}
             onChange={(v) => setForm({ ...form, soulPrompt: v })}
             placeholder={SOUL_DEFAULT.slice(0, 60) + '...'}
@@ -455,7 +461,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       case 'user':
         return (
           <MdEditor
-            label={`简介 User（Markdown）`}
+            label="简介 User（Markdown）"
             value={form.userScope || ''}
             onChange={(v) => setForm({ ...form, userScope: v })}
             placeholder={USER_DEFAULT.slice(0, 60) + '...'}
@@ -470,93 +476,92 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
   // ── Render ───────────────────────────────────────────────────
 
   return (
-    <div style={{ maxWidth: 800 }}>
-      {/* Page title + save button */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700 }}>{initial?.id ? '编辑智能体' : '新建智能体'}</h2>
-        <button
-          type="button"
-          onClick={save}
-          disabled={busy}
-          style={{
-            padding: '8px 22px',
-            borderRadius: 20,
-            border: 'none',
-            cursor: busy ? 'not-allowed' : 'pointer',
-            fontSize: 14,
-            fontWeight: 600,
-            background: '#10b981',
-            color: '#fff',
-            opacity: busy ? 0.7 : 1,
-          }}
-        >
-          {busy ? '保存中…' : '保存'}
-        </button>
-      </div>
-
-      {/* Global: Name + Provider bar (above tabs) */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: 16,
-        marginBottom: 20,
-        padding: '16px 18px',
-        background: '#fff',
-        border: '1px solid #e5e7eb',
-        borderRadius: 12,
-      }}>
-        <div>
-          <label style={labelStyle}>名称 *</label>
-          <input
-            style={inputStyle}
-            value={form.name || ''}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="如：ACMSBot-01、测试智能体"
-          />
+    <div className="page">
+      {/* Header — matches CrudPage standaloneForm pattern */}
+      <div className="page-header page-header-row">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+          <div>
+            <div className="page-eyebrow">{initial?.id ? 'EDIT' : 'CREATE'} / 智能体配置</div>
+            <h1 className="page-title">{initial?.id ? '编辑智能体' : '新建智能体'}</h1>
+          </div>
         </div>
-        <div>
-          <label style={labelStyle}>Provider 池</label>
-          <select
-            style={inputStyle}
-            value={selectedProvider}
-            onChange={(e) => setSelectedProvider(e.target.value)}
-          >
-            <option value="">（不选池，使用默认）</option>
-            {/* User's own configured provider */}
-            {cfg?.provider && (
-              <option value="__personal__">
-                我的配置（{cfg.provider}{cfg.model ? ` · ${cfg.model}` : ''}）
-              </option>
-            )}
-            {/* Preset providers */}
-            {presets.map((p) => (
-              <option key={p.label} value={p.label}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e5e7eb', marginBottom: 20, overflowX: 'auto' }}>
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            style={tabBtnStyle(activeTab === t.key)}
-            onClick={() => setActiveTab(t.key)}
-          >
-            {t.label}
+        <div className="page-actions">
+          <Link href="/ai/agents" className="btn btn-ghost">取消</Link>
+          <button type="button" className="btn btn-primary" onClick={save} disabled={busy}>
+            {busy ? '保存中…' : '保存'}
           </button>
-        ))}
+        </div>
       </div>
 
-      {/* Tab content area */}
-      <form onSubmit={save} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {renderTabContent()}
-        {error && <p style={{ color: '#ef4444', fontSize: 13, marginTop: 8 }}>{error}</p>}
-      </form>
+      {/* Form card — matches crud-inline-form */}
+      <fieldset className="form-fieldset">
+        <legend className="form-legend">基本信息</legend>
+
+        {/* Name + Provider row using form-grid */}
+        <div className="form-grid" style={{ gridTemplateColumns: '1.2fr 1fr 1fr' }}>
+          <div className="form-label">
+            <span className="form-label-text">名称 <span style={{ color: 'var(--danger)' }}>*</span></span>
+            <input
+              className="form-input"
+              value={form.name || ''}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="如：ACMSBot-01、测试智能体"
+            />
+          </div>
+          <div className="form-label">
+            <span className="form-label-text">Provider 池</span>
+            <select
+              className="form-input"
+              value={selectedProvider}
+              onChange={(e) => setSelectedProvider(e.target.value)}
+            >
+              <option value="">（不选池，使用默认）</option>
+              {cfg?.provider && (
+                <option value="__personal__">
+                  我的配置（{cfg.provider}{cfg.model ? ` · ${cfg.model}` : ''}）
+                </option>
+              )}
+              {presets.map((p) => (
+                <option key={p.label} value={p.label}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-label">
+            <span className="form-label-text">模型</span>
+            <input
+              className="form-input"
+              value={cfg?.model || ''}
+              readOnly
+              placeholder="跟随 Provider"
+            />
+          </div>
+        </div>
+      </fieldset>
+
+      {/* Tab bar + content — inside a second fieldset */}
+      <fieldset className="form-fieldset" style={{ marginTop: 'var(--space-md)' }}>
+        {/* Tab navigation */}
+        <div className="agent-tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              className={`agent-tab${activeTab === t.key ? ' active' : ''}`}
+              onClick={() => setActiveTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        <form onSubmit={save}>
+          <div style={{ paddingTop: 'var(--space-md)' }}>
+            {renderTabContent()}
+          </div>
+          {error && <p className="msg-error" style={{ marginTop: 'var(--space-md)' }}>{error}</p>}
+        </form>
+      </fieldset>
     </div>
   );
 }

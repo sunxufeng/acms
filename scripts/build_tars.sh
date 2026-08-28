@@ -3,6 +3,8 @@
 # 用法：先在 acms 目录执行 pnpm build，再执行 bash scripts/build_tars.sh
 # 产物：/tmp/api_dist.tar.gz  /tmp/pkgs_dist.tar.gz  /tmp/web_next.tar.gz
 set -euo pipefail
+# 禁用 macOS tar 写入 ._* AppleDouble 元数据文件（避免在 Linux 解压产生垃圾文件）
+export COPYFILE_DISABLE=1
 cd "$(git rev-parse --show-toplevel)"
 
 for d in apps/api/dist apps/web/.next packages/base-adapter/dist packages/contracts/dist packages/domain/dist; do

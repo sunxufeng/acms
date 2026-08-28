@@ -37,7 +37,7 @@ export default function AiConfigPage() {
             <p className="page-subtitle">每个人独立维护自己的 Provider、API Key 和模型，不共享密钥。</p>
           </div>
           <div className="page-actions">
-            <Link href={config ? '/ai/config/edit' : '/ai/config/new'} className="btn btn-primary">
+            <Link href="/ai/config/new" className="btn btn-primary">
               新建
             </Link>
           </div>

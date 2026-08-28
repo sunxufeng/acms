@@ -1,97 +1,90 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import CrudPage, { type CrudColumn } from '../../../components/CrudPage';
 import { api } from '../../../lib/api';
 
-type Auto = {
-  id: string;
-  title: string;
-  description: string;
-  cron: string;
-  cronText?: string;
-  enabled: boolean;
-  idleOnly?: boolean;
-  pushTo?: string[];
-  maxSteps?: number;
-  runs?: { ts: number; status: string; durationMs?: number; preview?: string }[];
-  updatedAt?: number;
-};
+function str(v: unknown): string {
+  if (v == null) return '';
+  if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' ? x : String((x as { text?: string })?.text ?? ''))).join('、');
+  if (typeof v === 'object') return String((v as { text?: string })?.text ?? '');
+  return String(v);
+}
 
-const btn = (primary = false): React.CSSProperties => ({
-  background: primary ? 'var(--accent)' : 'transparent',
-  color: primary ? '#fff' : 'var(--text)',
-  border: primary ? 'none' : '1px solid var(--border)',
-  borderRadius: 8,
-  padding: '6px 12px',
-  cursor: 'pointer',
-  fontSize: 13,
-});
+const COLUMNS: CrudColumn[] = [
+  {
+    key: 'title',
+    label: '任务名',
+    render: (v) => <strong>{str(v)}</strong>,
+  },
+  {
+    key: 'cronText',
+    label: '调度',
+    render: (v, row) => {
+      const sched = str(row.cronText) || str(row.cron);
+      return <span>{sched}{row.idleOnly ? '（闲时）' : ''}</span>;
+    },
+  },
+  {
+    key: 'pushTo',
+    label: '收件人',
+    render: (v) => `${(Array.isArray(v) ? v : []).length} 人`,
+  },
+  {
+    key: 'actionType',
+    label: '结果动作',
+    render: (v) => (str(v) === 'memory' ? '仅记忆' : '推送'),
+  },
+  {
+    key: 'enabled',
+    label: '状态',
+    filter: true,
+    filterOptions: ['启用', '停用'],
+    render: (v) => (
+      <span className={`status-dot ${v ? 'status-on' : 'status-off'}`}>{v ? '启用' : '停用'}</span>
+    ),
+  },
+];
 
 export default function AiAutomationsPage() {
-  const [list, setList] = useState<Auto[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  async function load() {
-    setLoading(true);
-    try { setList((await api.aiListAutomations()) as Auto[]); } catch (e) { alert(e instanceof Error ? e.message : String(e)); }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { load(); }, []);
-
-  async function remove(id: string) {
-    if (!confirm('确认删除该自动化任务？')) return;
-    try { await api.aiDeleteAutomation(id); await load(); } catch (e) { alert(e instanceof Error ? e.message : String(e)); }
-  }
-  async function run(id: string) {
-    try { await api.aiRunAutomation(id); alert('已触发（后台异步执行，可在运行记录查看）'); } catch (e) { alert(e instanceof Error ? e.message : String(e)); }
-  }
+  const router = useRouter();
 
   return (
-    <div style={{ padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div>
-          <h2 style={{ margin: 0 }}>自动化任务</h2>
-          <small style={{ color: 'var(--text-muted)' }}>按 cron 定时调用模型并将结果推送至飞书。可关联智能体（自动沿用其 Provider / Model），否则使用收件人个人配置。</small>
-        </div>
-        <Link href="/ai/automations/new" style={btn(true) as React.CSSProperties}>＋ 新建</Link>
-      </div>
-
-      {loading ? (
-        <div style={{ color: 'var(--text-muted)' }}>加载中…</div>
-      ) : (
-        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: 'var(--bg-tertiary)', textAlign: 'left' }}>
-                <th style={{ padding: 10 }}>任务名</th>
-                <th style={{ padding: 10 }}>调度</th>
-                <th style={{ padding: 10 }}>收件人</th>
-                <th style={{ padding: 10 }}>状态</th>
-                <th style={{ padding: 10 }}>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.length === 0 && (
-                <tr><td colSpan={5} style={{ padding: 16, color: 'var(--text-muted)', textAlign: 'center' }}>暂无自动化任务</td></tr>
-              )}
-              {list.map((a) => (
-                <tr key={a.id} style={{ borderTop: '1px solid var(--border)' }}>
-                  <td style={{ padding: 10 }}>{a.title}</td>
-                  <td style={{ padding: 10 }}>{a.cronText || a.cron}{a.idleOnly ? '（闲时）' : ''}</td>
-                  <td style={{ padding: 10 }}>{(a.pushTo || []).length} 人</td>
-                  <td style={{ padding: 10 }}>{a.enabled ? '✅ 启用' : '⏸ 停用'}</td>
-                  <td style={{ padding: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <Link href={`/ai/automations/${a.id}/edit`} style={btn() as React.CSSProperties}>编辑</Link>
-                    <button style={btn()} onClick={() => run(a.id)}>运行</button>
-                    <button style={btn()} onClick={() => remove(a.id)}>删除</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+    <CrudPage
+      title="自动化任务"
+      subtitle="按 cron 定时调用模型并将结果推送至飞书。可关联智能体（自动沿用其 Provider / Model），否则使用收件人个人配置。"
+      search={{ placeholder: '搜索任务名…' }}
+      columns={COLUMNS}
+      createHref="/ai/automations/new"
+      editHref={(id) => `/ai/automations/${id}/edit`}
+      rowExtraActions={[
+        {
+          label: '运行',
+          run: async (row) => {
+            await api.aiRunAutomation(String(row.id));
+            alert('已触发（后台异步执行，可在运行记录查看）');
+          },
+        },
+      ]}
+      api={{
+        list: async (p) => {
+          const all = (await api.aiListAutomations()) as Record<string, unknown>[];
+          let items = all;
+          if (p.q) {
+            const q = String(p.q).toLowerCase();
+            items = items.filter((it) =>
+              (str(it.title) + str(it.description)).toLowerCase().includes(q),
+            );
+          }
+          if (p.enabled) {
+            items = items.filter((it) => (p.enabled === '启用') === !!it.enabled);
+          }
+          return { items, total: items.length, pageToken: undefined, hasMore: false };
+        },
+        create: async () => ({}),
+        update: async () => ({}),
+        archive: (id) => api.aiDeleteAutomation(id),
+      }}
+    />
   );
 }

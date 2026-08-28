@@ -11,7 +11,8 @@ type Conv = { id: string; title: string; updatedAt: string };
 
 const wrap: React.CSSProperties = {
   display: 'flex',
-  height: 'calc(100vh - 220px)',
+  flex: 1,
+  minHeight: 0,
   gap: 12,
 };
 const panel: React.CSSProperties = {
@@ -218,7 +219,8 @@ export default function AiChatPage() {
   }
 
   return (
-    <div style={{ padding: 16 }} onClick={() => { menuId && setMenuId(null); searchOpen && undefined; }}>
+    <div style={{ minHeight: 'calc(100vh - 64px)', background: 'var(--bg-primary)', padding: '16px 20px' }} onClick={() => { menuId && setMenuId(null); }}>
+      <div style={{ background: '#fff', borderRadius: 16, border: '1px solid var(--border)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 96px)' }}>
       {/* Top bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -525,6 +527,7 @@ export default function AiChatPage() {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

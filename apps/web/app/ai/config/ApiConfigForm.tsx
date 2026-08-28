@@ -120,7 +120,7 @@ export function ApiConfigForm({ initial, onDone }: { initial?: ApiConfig | null;
   }
 
   return (
-    <form onSubmit={save} style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 920 }}>
+    <form id="api-config-form" onSubmit={save} style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 920 }}>
       <fieldset className="form-fieldset">
         <legend className="form-legend">个人 API 配置</legend>
         <p className="page-subtitle" style={{ margin: '0 0 18px' }}>
@@ -171,7 +171,6 @@ export function ApiConfigForm({ initial, onDone }: { initial?: ApiConfig | null;
       {testMessage && <p className="msg-success">{testMessage}</p>}
 
       <div style={{ display: 'flex', gap: 10 }}>
-        <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button>
         <button type="button" className="btn btn-outline" disabled={testing} onClick={testConnection}>{testing ? '测试中…' : '测试连接'}</button>
         <button type="button" className="btn btn-ghost" onClick={onDone}>取消</button>
       </div>

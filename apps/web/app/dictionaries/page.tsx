@@ -8,7 +8,7 @@ type DictMap = Record<string, string[]>;
 
 export default function DictionariesPage() {
 
-  const tl = useTranslations('labels');  const [dicts, setDicts] = useState<DictMap>({});
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [dicts, setDicts] = useState<DictMap>({});
   const [drafts, setDrafts] = useState<DictMap>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -186,7 +186,7 @@ export default function DictionariesPage() {
                 <div className="dict-options">
                   {options.length === 0 && <div className="dict-empty">{tl('暂无选项')}</div>}
                   {options.map((opt, idx) => {
-  const tl = useTranslations('labels');
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
                     const isEditing =
                       editingOpt?.key === key && editingOpt?.value === opt;
                     if (isEditing) {
@@ -365,7 +365,7 @@ function EditableOption({
 }
 
 function AddRow({ onAdd }: { onAdd: (v: string) => void }) {
-  const tl = useTranslations('labels');
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
   const [val, setVal] = useState('');
   return (
     <div className="dict-add-row">

@@ -104,7 +104,7 @@ function ColorInput({ value, onChange }: { value: string; onChange: (v: string) 
 }
 
 function DashboardPreview({ theme }: { theme: DashboardTheme }) {
-  const tl = useTranslations('labels');
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
   const logoSrc = theme.logoUrl ? imageUrl(theme.logoUrl) : '/logo.png';
   const brandName = theme.brandName || 'ARETE';
   const brandSubtitle = theme.brandSubtitle || 'COLLEGE OPS';
@@ -263,7 +263,7 @@ function DashboardPreview({ theme }: { theme: DashboardTheme }) {
 
 export default function HomepageManagementPage() {
 
-  const tl = useTranslations('labels');  const [config, setConfig] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [config, setConfig] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);

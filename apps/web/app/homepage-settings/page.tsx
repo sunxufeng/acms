@@ -187,7 +187,7 @@ function FeatureRow({
   item: LoginFeature;
   onChange: (next: LoginFeature) => void;
 }) {
-  const tl = useTranslations('labels');
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
   const icons = ['shield', 'users', 'layers', 'lock', 'check', 'zap'];
   return (
     <div
@@ -227,7 +227,7 @@ function FeatureRow({
 
 export default function HomepageSettingsPage() {
 
-  const tl = useTranslations('labels');  const [config, setConfig] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [config, setConfig] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);

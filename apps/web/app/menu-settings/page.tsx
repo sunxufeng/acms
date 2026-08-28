@@ -49,7 +49,7 @@ function emptyItem(): NavMenuItem {
 
 /** 图标选择器：按钮展示当前图标预览，展开为图标网格，支持搜索 */
 function IconPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const tl = useTranslations('labels');
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const Current = ICONS[value] ?? ICONS['settings'];
@@ -123,7 +123,7 @@ function IconPicker({ value, onChange }: { value: string; onChange: (v: string) 
 
 export default function MenuSettingsPage() {
 
-  const tl = useTranslations('labels');  const [items, setItems] = useState<NavMenuItem[]>(DEFAULT_NAV_MENU_CONFIG.items);
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [items, setItems] = useState<NavMenuItem[]>(DEFAULT_NAV_MENU_CONFIG.items);
   const [groups, setGroups] = useState<NavMenuGroupConfig['items']>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

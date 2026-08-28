@@ -33,7 +33,7 @@ function fmt(dt?: string): string {
 
 export default function StudentUsersPage() {
 
-  const tl = useTranslations('labels');  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [keyword, setKeyword] = useState('');

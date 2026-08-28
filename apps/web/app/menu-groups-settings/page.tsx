@@ -8,7 +8,7 @@ import { useTranslations } from 'next-intl';
 
 export default function MenuGroupsSettingsPage() {
 
-  const tl = useTranslations('labels');  const [groups, setGroups] = useState<NavMenuGroup[]>([]);
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [groups, setGroups] = useState<NavMenuGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);

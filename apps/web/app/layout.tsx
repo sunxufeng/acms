@@ -10,6 +10,11 @@ export const metadata: Metadata = {
   description: '学院运营管理系统',
 };
 
+// 中英文靠 NEXT_LOCALE cookie 在「请求期」决定；必须强制动态渲染，
+// 否则 next build 会把页面静态预渲染、把 locale 在构建期定死为 zh，
+// 运行期切换 cookie 不再触发重渲染（表现为「切英文仍是中文」）。
+export const dynamic = 'force-dynamic';
+
 // SSR 阶段读取工作台主题，作为 AppShell 的初值下传，避免进入工作台时先闪一下
 // 默认深色调、再切到已配置主题（FOUC）。服务端 fetch 必须用绝对地址。
 const API_ORIGIN = process.env.API_ORIGIN || 'http://localhost:3000';

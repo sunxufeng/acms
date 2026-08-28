@@ -31,7 +31,7 @@ const TABLES: { key: string; label: string }[] = [
 
 export default function ExportPage() {
 
-  const tl = useTranslations('labels');  const [selected, setSelected] = useState('studentProfile');
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [selected, setSelected] = useState('studentProfile');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 

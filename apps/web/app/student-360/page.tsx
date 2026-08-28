@@ -90,7 +90,7 @@ function str(v: unknown): string {
 
 export default function Student360Page() {
 
-  const tl = useTranslations('labels');  const [students, setStudents] = useState<StudentHit[]>([]);
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [students, setStudents] = useState<StudentHit[]>([]);
   const [selected, setSelected] = useState<StudentHit | null>(null);
   const [data, setData] = useState<{ student: Record<string, unknown>; sections: Section[] } | null>(null);
   const [loadingStudents, setLoadingStudents] = useState(true);
@@ -305,7 +305,7 @@ export default function Student360Page() {
 
           {/* 各生命周期分段 */}
           {data.sections.map((sec) => {
-  const tl = useTranslations('labels');
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
             const comm = COMM_MODULES[sec.key];
             if (comm) {
               return (
@@ -483,7 +483,7 @@ function buildStudentContext(student: Record<string, unknown> | undefined, secti
 
 
 function DetailModal({ title, content, onClose }: { title: string; content: string; onClose: () => void }) {
-  const tl = useTranslations('labels');
+  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
   if (!title && !content) return null;
   const isMarkdown = /(^|\n)(#{1,4}\s|[-*]\s+\S|\d+\.\s+\S|>|\*\*\*|---|```|\[[^\]]+\]\(https?:\/\/)/.test(content);
   return (

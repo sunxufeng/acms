@@ -170,9 +170,12 @@ export function ApiConfigForm({ initial, onDone }: { initial?: ApiConfig | null;
       {error && <p className="msg-error">{error}</p>}
       {testMessage && <p className="msg-success">{testMessage}</p>}
 
-      <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
         <button type="button" className="btn btn-outline" disabled={testing} onClick={testConnection}>{testing ? '测试中…' : '测试连接'}</button>
-        <button type="button" className="btn btn-ghost" onClick={onDone}>取消</button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button type="button" className="btn btn-ghost" onClick={onDone}>取消</button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button>
+        </div>
       </div>
     </form>
   );

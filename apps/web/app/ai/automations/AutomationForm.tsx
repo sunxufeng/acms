@@ -217,6 +217,11 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
           </div>
         </div>
       </fieldset>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+        <button type="button" className="btn btn-ghost" onClick={onDone}>取消</button>
+        <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button>
+      </div>
     </form>
   );
 }

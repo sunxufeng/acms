@@ -480,16 +480,13 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       {/* Header — matches CrudPage standaloneForm pattern */}
       <div className="page-header page-header-row">
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+          <Link href="/ai/agents" className="btn btn-icon" title="返回列表">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
+          </Link>
           <div>
             <div className="page-eyebrow">{initial?.id ? 'EDIT' : 'CREATE'} / 智能体配置</div>
             <h1 className="page-title">{initial?.id ? '编辑智能体' : '新建智能体'}</h1>
           </div>
-        </div>
-        <div className="page-actions">
-          <Link href="/ai/agents" className="btn btn-ghost">取消</Link>
-          <button type="button" className="btn btn-primary" onClick={save} disabled={busy}>
-            {busy ? '保存中…' : '保存'}
-          </button>
         </div>
       </div>
 
@@ -560,6 +557,10 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
             {renderTabContent()}
           </div>
           {error && <p className="msg-error" style={{ marginTop: 'var(--space-md)' }}>{error}</p>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 'var(--space-md)' }}>
+            <Link href="/ai/agents" className="btn btn-ghost">取消</Link>
+            <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button>
+          </div>
         </form>
       </fieldset>
     </div>

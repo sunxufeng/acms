@@ -52,7 +52,7 @@ rm -rf /tmp/pkgs_extract && mkdir -p /tmp/pkgs_extract
 tar xzf /tmp/pkgs_dist.tar.gz -C /tmp/pkgs_extract/ 2>/dev/null
 for p in base-adapter contracts domain; do
   rm -rf /opt/acms/api/node_modules/@acms/$p/dist
-  cp -r /tmp/pkgs_extract/packages/$p/dist /opt/acms/api/node_modules/@acms/$p/dist
+  cp -r /tmp/pkgs_extract/$p/dist /opt/acms/api/node_modules/@acms/$p/dist
 done
 # web（只替换 .next 目录，不要覆盖 apps/web/package.json 等源码/工作区文件）
 rm -rf /opt/acms/repo/apps/web/.next

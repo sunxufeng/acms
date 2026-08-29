@@ -143,16 +143,23 @@ export class MailArchiveService extends BaseRecordService {
           let fFetched = 0;
           let fStored = 0;
           try {
-            const searchRes = await client.search({});
+            // ⚠️ 必须传 { uid: true }：imapflow 不传时返回的是 1..N 的**序号**（sequence number），
+            // 会随邮件删除整体前移而漂移，不能作为去重键。实测同一邮箱：
+            // 序号 = 1..20，而真实 UID = 84..102,105（其中 103/104 已被删除）。
+            const searchRes = await client.search({}, { uid: true });
             const uids = (Array.isArray(searchRes) ? searchRes : []).slice(-500);
             for (const uid of uids) {
               fFetched++;
-              const msg = await client.fetchOne(uid, { uid: true, source: true });
+              // uid 要放在第三个参数 options 里才会走 `UID FETCH`；
+              // 放在第二个参数 query 里只是「顺便取回 UID 属性」，并不会改变按序号取的模式。
+              const msg = await client.fetchOne(String(uid), { source: true }, { uid: true });
               if (!msg || !msg.source) continue;
               const { simpleParser } = await import('mailparser');
               const parsed = await simpleParser(msg.source);
               if (!this.matchFilter(a.filters, parsed, isSent)) continue;
-              const saved = await this.archiveOne(a, folder, String(uid), parsed, isSent);
+              // 以服务端返回的 UID 为准（imapflow 的 FETCH 响应总是带 uid）
+              const mailUid = msg.uid != null ? String(msg.uid) : String(uid);
+              const saved = await this.archiveOne(a, folder, mailUid, parsed, isSent);
               if (saved) fStored++;
             }
             folderStats.push({ folder, isSent, fetched: fFetched, stored: fStored });

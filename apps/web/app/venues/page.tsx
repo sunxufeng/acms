@@ -37,6 +37,8 @@ export default function VenuesPage() {
       columns={COLUMNS}
       statusField="可用状态"
       statusClass={statusClass}
+      inlineEdit
+      standaloneForm
       api={{
         list: (p) => api.listVenues(p),
         create: (d) => api.createVenue(d),

@@ -2,6 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
+import { SessionForm } from '../../components/SessionForm';
 import { api } from '../../lib/api';
 import { formatDateTime } from '../../lib/date';
 
@@ -59,8 +60,14 @@ export default function SchedulePage() {
           transition: (id, to) => api.transitionSession(id, to),
         }}
         extraLinks={[{ label: t('linkPrecheck'), href: '/schedule/precheck' }]}
-        createHref="/schedule/new"
-        editHref={(id) => `/schedule/${id}/edit`}
+        inlineEdit
+        standaloneForm
+        renderForm={({ row, onDone }) => (
+          <SessionForm
+            initial={row ?? undefined}
+            onSubmit={onDone}
+          />
+        )}
       />
     </div>
   );

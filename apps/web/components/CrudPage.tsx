@@ -88,6 +88,10 @@ export interface CrudPageProps {
   inlineEdit?: boolean;
   /** 新建/编辑时使用独立页面风格，隐藏列表页标题、操作与筛选区 */
   standaloneForm?: boolean;
+  /** 自定义表单插槽：传入时用该组件替换 columns 自动生成的表单字段区。
+   *  用于承载无法用 columns 表达的自定义富表单（如 SessionForm）。
+   *  row 为编辑中的行（新建时为 null）；onDone 在保存成功后调用，用于关闭表单并刷新列表。 */
+  renderForm?: (ctx: { row: Record<string, unknown> | null; onDone: () => void }) => React.ReactNode;
   /** 新建/编辑状态变化回调（true=进入表单，false=返回列表） */
   onEditingChange?: (editing: boolean) => void;
   /** 每页记录数（默认 5，参考学生列表页） */
@@ -189,7 +193,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate, selection, onSelectionChange, backHref }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate, selection, onSelectionChange, backHref }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = pageSize ?? 5;
@@ -465,6 +469,12 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     setForm(init);
     setEditing({ mode: 'edit', row });
     setError(null);
+  }
+
+  /** 自定义表单（renderForm）保存成功后的收尾：关闭表单并刷新列表 */
+  function handleFormDone() {
+    setEditing(null);
+    reload();
   }
 
   async function submit() {
@@ -778,15 +788,21 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               </>
             )}
           </div>
-          {error && <p className="msg-error">{error}</p>}
-          <fieldset className="form-fieldset">
-            <legend className="form-legend">{title} {t('crud.info')}</legend>
-            {formFields}
-          </fieldset>
-          <div className="crud-inline-form-actions">
-            <button className="btn btn-ghost" onClick={() => setEditing(null)}>{t('common.cancel')}</button>
-            <button className="btn btn-primary" onClick={submit} disabled={submitting}>{submitting ? t('common.saving') : t('common.save')}</button>
-          </div>
+          {renderForm ? (
+            renderForm({ row: editing.row ?? null, onDone: handleFormDone })
+          ) : (
+            <>
+              {error && <p className="msg-error">{error}</p>}
+              <fieldset className="form-fieldset">
+                <legend className="form-legend">{title} {t('crud.info')}</legend>
+                {formFields}
+              </fieldset>
+              <div className="crud-inline-form-actions">
+                <button className="btn btn-ghost" onClick={() => setEditing(null)}>{t('common.cancel')}</button>
+                <button className="btn btn-primary" onClick={submit} disabled={submitting}>{submitting ? t('common.saving') : t('common.save')}</button>
+              </div>
+            </>
+          )}
         </div>
       )}
 

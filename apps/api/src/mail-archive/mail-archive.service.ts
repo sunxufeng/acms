@@ -67,11 +67,22 @@ interface FolderStat {
 export class MailArchiveService extends BaseRecordService {
   private readonly logger = new Logger('MailArchive');
 
+  /**
+   * ⚠️ 后两个参数必须写显式 @Inject，否则会被父类的注入元数据覆盖。
+   *
+   * 父类 BaseRecordService 的构造函数是 (meta, @Inject(BASE_CLIENT) base, @Inject(AuditService) audit)，
+   * 其 self:paramtypes 的 index 2 是 AuditService。而 Nest 的 Inject 装饰器内部用
+   * Reflect.getMetadata（会沿原型链继承父类元数据）读取后再 defineMetadata 写回子类，
+   * 于是父类那条 index 2 = AuditService 会残留到本类的 index 2（即 fileUpload）槽位，
+   * 表现为 this.fileUpload.uploadFile is not a function。
+   *
+   * 结论：子类的构造参数多于父类时，多出来的槽位一律显式标注 token。
+   */
   constructor(
     @Inject(BASE_CLIENT) base: BaseClient,
     @Inject(AuditService) audit: AuditService,
-    private readonly fileUpload: FileUploadService,
-    private readonly accountSvc: MailAccountService,
+    @Inject(FileUploadService) private readonly fileUpload: FileUploadService,
+    @Inject(MailAccountService) private readonly accountSvc: MailAccountService,
   ) {
     super(MAIL_ARCHIVE_META, base, audit);
   }

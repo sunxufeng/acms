@@ -806,7 +806,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         </div>
       )}
 
-      {error && <p className="msg-error">{error}</p>}
+      {/* 仅在没有打开表单时显示：表单内的错误由内联表单（上方）或弹窗（下方）各自渲染一份，
+          否则打开表单时同一条错误会显示两遍。 */}
+      {!editing && error && <p className="msg-error">{error}</p>}
 
       {!(inlineEdit && editing) && (
       <>{/* 编辑/新建（inline）时不显示列表，避免表单下方仍展示整张用户表 */}

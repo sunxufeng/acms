@@ -75,8 +75,12 @@ systemctl start acms-api acms-web
 sleep 5
 
 echo "=== 邮件归档：补齐依赖与密钥 ==="
-# 新增依赖（imapflow / mailparser 及其传递依赖）注入运行态 node_modules
-cd /opt/acms/api && npm install --no-save imapflow mailparser 2>&1 | tail -3 || true
+# 注：原先在此执行 `npm install --no-save imapflow mailparser`，已移除。
+# 原因：/opt/acms/api 是独立 checkout，其 package.json 含 pnpm `workspace:*` 协议，
+# npm 在依赖解析阶段必然报 EUNSUPPORTEDPROTOCOL 而失败（曾卡住 28 分钟，也会额外
+# 触发一次 restart acms-api）。imapflow / mailparser 已常驻 /opt/acms/api/node_modules。
+# 换机需补装时：在 /tmp 下临时 `npm init -y && npm install imapflow mailparser`，
+# 再 `cp -r node_modules/* /opt/acms/api/node_modules/`，切勿在 /opt/acms/api 直接装。
 # 确保 MAIL_CRED_KEY 存在（缺失则生成随机 32 字节 base64 密钥，用于 AES 加密邮件账户密码）
 if ! grep -q '^MAIL_CRED_KEY=' /opt/acms/.env; then
   echo "MAIL_CRED_KEY=$(head -c 32 /dev/urandom | base64)" >> /opt/acms/.env

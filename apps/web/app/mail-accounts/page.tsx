@@ -14,6 +14,7 @@ export default function MailAccountsPage() {
       search={{ placeholder: '搜索账户名称 / 归属人员…' }}
       columns={COLUMNS}
       inlineEdit
+      standaloneForm
       extraActions={[
         {
           label: '同步全部启用账户',

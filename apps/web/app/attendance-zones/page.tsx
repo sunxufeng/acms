@@ -50,6 +50,7 @@ export default function AttendanceZonesPage() {
       columns={COLUMNS}
       statusField="状态"
       inlineEdit
+      standaloneForm
       search={{ placeholder: '校区' }}
       api={{
         list: (p) => api.listAttendanceZones(p),

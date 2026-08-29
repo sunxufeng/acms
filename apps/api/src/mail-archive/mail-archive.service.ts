@@ -39,6 +39,21 @@ interface MailFilterRule {
 const SENT_NAME_RE =
   /^(sent|sent items|sent mail|sent messages|sent box|已发送|已发送邮件|已寄出|发件箱|寄件備份|寄件备份)$/i;
 
+/** 「收取频率」的中文字面值 → 分钟数。由 syncAll 的节流判断与 parseAccount 共用，
+ *  避免各处重复定义，也避免误用 Number() 解析中文得到 NaN 后恒回落成默认值。 */
+const FREQ_MINUTES: Record<string, number> = {
+  每15分钟: 15, 每30分钟: 30, 每小时: 60, 每天: 1440,
+};
+
+/** 把「收取频率」字段值解析为分钟数，兼容中文字面值与纯数字分钟 */
+function parseFreqMinutes(raw: unknown): number {
+  const s = String(raw ?? '').trim();
+  if (!s) return 60;
+  if (FREQ_MINUTES[s] != null) return FREQ_MINUTES[s];
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : 60;
+}
+
 /** 单个文件夹的收取结果 */
 interface FolderStat {
   folder: string;
@@ -183,7 +198,9 @@ export class MailArchiveService extends BaseRecordService {
       const fields = row.fields as Record<string, unknown>;
       const lastRaw = fields['最后收取时间'];
       const last = typeof lastRaw === 'number' ? lastRaw : 0;
-      const intervalMs = (Number(fields['收取频率'] ?? 60) || 60) * 60 * 1000;
+      // 收取频率存的是中文（如「每15分钟」），必须用 parseFreqMinutes 映射；
+      // 直接用 Number() 会得到 NaN 从而恒回落成 60 分钟，导致配置失效。
+      const intervalMs = parseFreqMinutes(fields['收取频率'] ?? '每小时') * 60 * 1000;
       if (last && Date.now() - last < intervalMs) continue; // 未到收取频率，跳过
       const r = await this.syncAccount(id);
       results[String(fields['账户名称'] ?? id)] = r;
@@ -268,9 +285,6 @@ export class MailArchiveService extends BaseRecordService {
     } catch {
       filters = {};
     }
-    const freqMap: Record<string, number> = {
-      每15分钟: 15, 每30分钟: 30, 每小时: 60, 每天: 1440,
-    };
     return {
       id: recordId,
       name: String(f['账户名称'] ?? ''),
@@ -280,7 +294,7 @@ export class MailArchiveService extends BaseRecordService {
       secure: String(f['使用SSL'] ?? '是') !== '否',
       user: String(f['用户名'] ?? ''),
       pass: String(f['密码'] ?? ''),
-      freqMinutes: freqMap[String(f['收取频率'] ?? '每小时')] ?? 60,
+      freqMinutes: parseFreqMinutes(f['收取频率'] ?? '每小时'),
       filters,
       enabled: String(f['启用'] ?? '启用') !== '停用',
       sentFolder: String(f['发件箱文件夹'] ?? '').trim(),

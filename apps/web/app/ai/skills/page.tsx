@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
-import type { Skill } from './SkillForm';
+import { SkillForm, type Skill } from './SkillForm';
 
 type Tool = { name: string; description: string };
 type SkillRow = Tool & Skill;
@@ -45,15 +44,59 @@ export default function AiSkillsPage() {
   const [q, setQ] = useState('');
   const [docFilter, setDocFilter] = useState('');
 
-  useEffect(() => {
+  // 新建/编辑改为页内独立表单（URL 保持不变），与全站统一的 standaloneForm 交互一致
+  const [editing, setEditing] = useState<{ mode: 'create' } | { mode: 'edit'; row: SkillRow } | null>(null);
+  const [editSkill, setEditSkill] = useState<Skill | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  const reload = useCallback(() => {
+    setLoading(true);
     Promise.all([api.aiTools(), api.aiListSkills()])
       .then(([toolData, skillData]) => {
         const skills = new Map((skillData as Skill[]).map((skill) => [skill.name, skill]));
         setAll((toolData as Tool[]).map((tool) => ({ ...tool, ...(skills.get(tool.name) || { name: tool.name }) })) as SkillRow[]);
+        setError('');
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  /** 列表接口（listSkills）不返回 markdown，编辑前必须按名称拉取完整记录，
+   *  否则表单里的文档内容为空，保存时会被清空。 */
+  function openEdit(row: SkillRow) {
+    setEditing({ mode: 'edit', row });
+    setEditSkill(null);
+    setEditError('');
+    setEditLoading(true);
+    Promise.all([api.aiGetSkill(row.name), api.aiTools()])
+      .then(([data, tools]) => {
+        const tool = (tools as Tool[]).find((item) => item.name === row.name);
+        setEditSkill(data ? (data as Skill) : { name: row.name, description: tool?.description || '' });
+      })
+      .catch((e) => setEditError((e as Error).message))
+      .finally(() => setEditLoading(false));
+  }
+
+  function openCreate() {
+    setEditSkill(null);
+    setEditError('');
+    setEditing({ mode: 'create' });
+  }
+
+  /** 关闭表单（返回箭头：未做改动，无需重新拉取列表） */
+  function closeForm() {
+    setEditing(null);
+    setEditSkill(null);
+  }
+
+  /** 表单保存/取消后回调：关闭并刷新列表 */
+  function handleDone() {
+    closeForm();
+    reload();
+  }
 
   const rows = all.filter((row) => {
     if (q) {
@@ -65,6 +108,39 @@ export default function AiSkillsPage() {
     return true;
   });
 
+  if (editing) {
+    const editRow = editing.mode === 'edit' ? editing.row : null;
+    return (
+      <div className="page">
+        <div className="page-header page-header-row">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+            <button className="btn btn-icon" title={t('backToList')} aria-label={t('backToList')} onClick={closeForm}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
+            </button>
+            <div>
+              <div className="page-eyebrow">{editRow ? t('eyebrowEdit') : t('eyebrowCreate')}</div>
+              <h1 className="page-title">{editRow ? t('editTitle', { name: editRow.name }) : t('create')}</h1>
+            </div>
+          </div>
+        </div>
+        {editRow ? (
+          editLoading ? (
+            <div className="empty-state">{tc('loading')}</div>
+          ) : editError ? (
+            <div>
+              <p className="msg-error">{t('errLoad')}：{editError}</p>
+              <button className="btn btn-outline btn-sm" style={{ marginTop: 12 }} onClick={closeForm}>{t('backToList')}</button>
+            </div>
+          ) : (
+            <SkillForm initial={editSkill ?? undefined} onDone={handleDone} />
+          )
+        ) : (
+          <SkillForm onDone={handleDone} />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <div className="page-header page-header-row">
@@ -74,7 +150,7 @@ export default function AiSkillsPage() {
             <p className="page-subtitle">{t('pageSubtitle')}</p>
           </div>
           <div className="page-actions">
-            <Link href="/ai/skills/new" className="btn btn-primary">{t('newBtn')}</Link>
+            <button className="btn btn-primary" onClick={openCreate}>{t('newBtn')}</button>
           </div>
         </div>
 
@@ -119,7 +195,7 @@ export default function AiSkillsPage() {
                     <td>{row.description || '—'}</td>
                     <td>{row.tags?.length ? row.tags.join(' · ') : '—'}</td>
                     <td><span className={`status-dot ${row.hasMarkdown ? 'status-on' : 'status-off'}`}>{row.hasMarkdown ? t('statusMaintained') : t('statusUnmaintained')}</span></td>
-                    <td><Link href={`/ai/skills/${encodeURIComponent(row.name)}/edit`} className="btn btn-outline btn-sm">{t('editBtn')}</Link></td>
+                    <td><button className="btn btn-outline btn-sm" onClick={() => openEdit(row)}>{t('editBtn')}</button></td>
                   </tr>
                 ))}
               </tbody>

@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
-import { type ApiConfig } from './ApiConfigForm';
+import { ApiConfigForm, type ApiConfig } from './ApiConfigForm';
 
 function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
   const [open, setOpen] = useState(false);
@@ -42,12 +41,21 @@ export default function AiConfigPage() {
   const [q, setQ] = useState('');
   const [keyFilter, setKeyFilter] = useState('');
 
-  useEffect(() => {
+  // 新建/编辑改为页内独立表单（URL 保持不变），与全站统一的 standaloneForm 交互一致
+  const [editing, setEditing] = useState<'create' | 'edit' | null>(null);
+
+  const reload = useCallback(() => {
+    setLoading(true);
     api.aiGetConfig()
-      .then((data) => setConfig(data as ApiConfig | null))
+      .then((data) => {
+        setConfig(data as ApiConfig | null);
+        setError('');
+      })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { reload(); }, [reload]);
 
   async function remove() {
     if (!confirm(t('deleteConfirm'))) return;
@@ -57,6 +65,17 @@ export default function AiConfigPage() {
     } catch (e) {
       setError((e as Error).message);
     }
+  }
+
+  /** 关闭表单（返回箭头：未做改动，无需重新拉取） */
+  function closeForm() {
+    setEditing(null);
+  }
+
+  /** 表单保存/取消后回调：关闭并刷新 */
+  function handleDone() {
+    closeForm();
+    reload();
   }
 
   const visible = !config ? null : (() => {
@@ -69,6 +88,26 @@ export default function AiConfigPage() {
     return config;
   })();
 
+  if (editing) {
+    const isEdit = editing === 'edit';
+    return (
+      <div className="page">
+        <div className="page-header page-header-row">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+            <button className="btn btn-icon" title={t('backToList')} aria-label={t('backToList')} onClick={closeForm}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
+            </button>
+            <div>
+              <div className="page-eyebrow">{isEdit ? t('eyebrowEdit') : t('eyebrowCreate')}</div>
+              <h1 className="page-title">{isEdit ? t('edit') : t('create')}</h1>
+            </div>
+          </div>
+        </div>
+        <ApiConfigForm initial={isEdit ? config : null} onDone={handleDone} />
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <div className="page-header page-header-row">
@@ -78,9 +117,9 @@ export default function AiConfigPage() {
             <p className="page-subtitle">{t('pageSubtitle')}</p>
           </div>
           <div className="page-actions">
-            <Link href="/ai/config/new" className="btn btn-primary">
+            <button className="btn btn-primary" onClick={() => setEditing('create')}>
               {t('newBtn')}
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -125,7 +164,7 @@ export default function AiConfigPage() {
                     <td>{visible.updatedAt ? new Date(visible.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '—'}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <Link href="/ai/config/edit" className="btn btn-outline btn-sm">{t('editBtn')}</Link>
+                        <button className="btn btn-outline btn-sm" onClick={() => setEditing('edit')}>{t('editBtn')}</button>
                         <button className="btn btn-danger btn-sm" onClick={remove}>{t('deleteBtn')}</button>
                       </div>
                     </td>

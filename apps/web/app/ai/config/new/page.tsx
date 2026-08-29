@@ -1,28 +1,7 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
-import { ApiConfigForm } from '../ApiConfigForm';
-
-export default function NewApiConfigPage() {
-  const router = useRouter();
-  const t = useTranslations('ai.config');
-
-  return (
-    <div className="page">
-      <div className="page-header page-header-row">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
-          <Link href="/ai/config" className="btn btn-icon" title={t('backToList')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
-          </Link>
-          <div>
-            <div className="page-eyebrow">{t('eyebrowCreate')}</div>
-            <h1 className="page-title">{t('create')}</h1>
-          </div>
-        </div>
-      </div>
-      <ApiConfigForm onDone={() => router.push('/ai/config')} />
-    </div>
-  );
+// 新建 API 配置已改为在 /ai/config 页内的独立表单页完成（URL 保持不变，与全站统一），
+// 旧路由保留仅用于让已有收藏/分享链接重定向回列表页，不直接 404。
+export default function NewApiConfigRedirect() {
+  redirect('/ai/config');
 }

@@ -1,61 +1,7 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
-import { api } from '../../../../../lib/api';
-import { AutomationForm, type Auto } from '../../AutomationForm';
-
-export default function EditAutomationPage() {
-  const params = useParams();
-  const id = String(params.id);
-  const router = useRouter();
-  const t = useTranslations('ai.automations');
-
-  const [initial, setInitial] = useState<Partial<Auto> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    api
-      .aiGetAutomation(id)
-      .then((data) => setInitial(data as Partial<Auto>))
-      .catch((e) => setError((e as Error).message))
-      .finally(() => setLoading(false));
-  }, [id]);
-
-  if (loading) {
-    return (
-      <div className="empty-state" style={{ minHeight: '50vh' }}>
-        <div style={{ width: 28, height: 28, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-      </div>
-    );
-  }
-  if (error || !initial) {
-    return (
-      <div className="page">
-        <p className="msg-error">{t('errLoad')}：{error || t('errLoadNotFound')}</p>
-        <Link href="/ai/automations" className="btn btn-outline btn-sm" style={{ marginTop: 12 }}>{t('backToList')}</Link>
-      </div>
-    );
-  }
-
-  return (
-    <div className="page">
-      <div className="page-header page-header-row">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
-          <Link href="/ai/automations" className="btn btn-icon" title={t('backToList')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
-          </Link>
-          <div>
-            <div className="page-eyebrow">{t('eyebrowEdit')}</div>
-            <h1 className="page-title">{t('edit')}</h1>
-          </div>
-        </div>
-      </div>
-
-      <AutomationForm initial={initial} onDone={() => router.push('/ai/automations')} />
-    </div>
-  );
+// 编辑自动化任务已改为在 /ai/automations 列表页内的独立表单页完成（URL 保持不变，与全站统一），
+// 旧路由保留仅用于让已有收藏/分享链接重定向回列表页，不直接 404。
+export default function EditAutomationRedirect() {
+  redirect('/ai/automations');
 }

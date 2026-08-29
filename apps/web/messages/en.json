@@ -708,7 +708,8 @@
     "noClass": "Unassigned Class",
     "resultCount": "{total} records",
     "searchPlaceholder": "Name, English name",
-    "subtitleList": "Student profiles list (M1 Student domain)"
+    "subtitleList": "Student profiles list (M1 Student domain)",
+    "msgCreatedKeepUploading": "Student profile created. You can keep uploading photos and attachments, or refine the details and save again."
   },
   "admin": {
     "titleRoleManagement": "Role Management",

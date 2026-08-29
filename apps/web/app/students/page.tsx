@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { api, type Page, type StudentRecord } from '../../lib/api';
 import { useTranslations } from 'next-intl';
+import { StudentForm } from '../../components/StudentForm';
 
 const COLS = [
   { key: '学生姓名', label: 'colStudent', width: '' },
@@ -301,6 +302,47 @@ export default function StudentsPage() {
     setFilters((prev) => ({ ...prev, [key]: val }));
   };
 
+  // 新建/编辑改为页内独立表单（URL 保持不变），与全站统一的 standaloneForm 交互一致
+  const [editing, setEditing] = useState<{ mode: 'create' } | { mode: 'edit'; id: string } | null>(null);
+  const [editStudent, setEditStudent] = useState<StudentRecord | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState('');
+  /** 新建成功提示：与原 /students/new 一致，保存后停留在本页以便继续上传照片与附件 */
+  const [createMsg, setCreateMsg] = useState('');
+
+  /** 列表接口不解析「证件与文件」附件（仅详情接口 resolveDocFiles 才解析），
+   *  故编辑前必须按 id 拉取完整记录，否则附件会显示为空并在保存时丢失。 */
+  function openEdit(id: string) {
+    setEditing({ mode: 'edit', id });
+    setEditStudent(null);
+    setEditError('');
+    setEditLoading(true);
+    api
+      .getStudent(id)
+      .then((data) => setEditStudent(data))
+      .catch((e) => setEditError((e as Error).message))
+      .finally(() => setEditLoading(false));
+  }
+
+  function openCreate() {
+    setCreateMsg('');
+    setEditing({ mode: 'create' });
+  }
+
+  function closeForm() {
+    setEditing(null);
+    setEditStudent(null);
+    setCreateMsg('');
+  }
+
+  /** 编辑保存后：关闭表单并回到列表第一页刷新 */
+  function handleEditDone() {
+    closeForm();
+    tokenStack.current = [];
+    setPage(1);
+    fetchPage(1, undefined);
+  }
+
   const handleDelete = async (id: string) => {
     if (!confirm(t('confirmDeleteStudent'))) return;
     try {
@@ -312,6 +354,47 @@ export default function StudentsPage() {
       alert(cr('deleteFailed'));
     }
   };
+
+  if (editing) {
+    const isEdit = editing.mode === 'edit';
+    return (
+      <div>
+        <div className="page-header">
+          <div className="page-header-row">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+              <button className="btn btn-icon" title={c('back')} aria-label={c('back')} onClick={closeForm}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+              <div>
+                <div className="page-eyebrow">{isEdit ? 'EDIT' : 'CREATE'} / {n('students')}</div>
+                <h1 className="page-title">{isEdit ? c('edit') : c('create')}{n('students')}</h1>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {isEdit ? (
+          editLoading ? (
+            <div className="empty-state">{c('loading')}</div>
+          ) : editError || !editStudent ? (
+            <div>
+              <p className="msg-error">{c('loadFailed')}：{editError}</p>
+              <button className="btn btn-outline btn-sm" style={{ marginTop: 12 }} onClick={closeForm}>{c('back')}</button>
+            </div>
+          ) : (
+            <StudentForm initial={editStudent} onSubmit={handleEditDone} />
+          )
+        ) : (
+          <>
+            {createMsg && <p className="msg-success">{createMsg}</p>}
+            <StudentForm
+              onSubmit={() => setCreateMsg(t('msgCreatedKeepUploading'))}
+            />
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -347,9 +430,9 @@ export default function StudentsPage() {
             >
               ↓ {t('btnExportAuth')}
             </button>
-            <Link href="/students/new" className="btn btn-primary">
+            <button className="btn btn-primary" onClick={openCreate}>
               + {t('btnNewStudent')}
-            </Link>
+            </button>
           </div>
         </div>
       </div>
@@ -496,9 +579,13 @@ export default function StudentsPage() {
                       {/* Actions: 编辑 + 删除 */}
                       <td>
                         <div style={{ display: 'flex', gap: 4 }}>
-                          <Link href={`/students/${s.id}/edit`} className="btn btn-ghost btn-sm" style={{ padding: '4px 10px', fontSize: 'var(--font-xs)' }}>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ padding: '4px 10px', fontSize: 'var(--font-xs)' }}
+                            onClick={() => openEdit(String(s.id))}
+                          >
                             {c('edit')}
-                          </Link>
+                          </button>
                           <button
                             className="btn btn-danger btn-sm"
                             style={{ padding: '4px 10px', fontSize: 'var(--font-xs)' }}

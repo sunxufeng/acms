@@ -1,8 +1,6 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { api } from '../../lib/api';
 import BalanceWheel, { type WheelDim } from './BalanceWheel';
 import Combobox from '../Combobox';
@@ -74,8 +72,8 @@ function Chips({ options, value, onChange }: { options: string[]; value: string[
   );
 }
 
-export default function PlanForm({ planId }: { planId?: string }) {
-  const router = useRouter();
+/** 内嵌表单：页眉由外层 CrudPage 的 standaloneForm 统一提供，保存或取消后回调 onDone。 */
+export default function PlanForm({ planId, onDone }: { planId?: string; onDone: () => void }) {
   const isEdit = Boolean(planId);
   const [dicts, setDicts] = useState<Record<string, string[]>>({});
   const [students, setStudents] = useState<{ value: string; label: string }[]>([]);
@@ -188,7 +186,7 @@ export default function PlanForm({ planId }: { planId?: string }) {
     try {
       if (planId) await api.updateIdpPlan(planId, payload);
       else await api.createIdpPlan(payload);
-      router.push('/idp-plans');
+      onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
     } finally { setSaving(false); }
@@ -204,21 +202,8 @@ export default function PlanForm({ planId }: { planId?: string }) {
   if (loading) return <div className="empty-state">加载中…</div>;
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <div className="page-header-row">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-lg)' }}>
-            <Link href="/idp-plans" className="btn btn-icon" title="返回列表">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
-            </Link>
-            <div>
-              <div className="page-eyebrow">IDP / {isEdit ? 'EDIT' : 'CREATE'}</div>
-              <h1 className="page-title">{isEdit ? '编辑 IDP 方案' : '新建 IDP 方案'}</h1>
-              <p className="page-subtitle">一个学生同一学期仅可创建一个 IDP 方案</p>
-            </div>
-          </div>
-        </div>
-      </div>
+    <>
+      <p className="page-subtitle">一个学生同一学期仅可创建一个 IDP 方案</p>
 
       {error && <p className="msg-error">{error}</p>}
 
@@ -341,9 +326,9 @@ export default function PlanForm({ planId }: { planId?: string }) {
 
       <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
         <button className="btn btn-primary" onClick={submit} disabled={saving}>{saving ? '保存中…' : '保存'}</button>
-        <button className="btn btn-ghost" onClick={() => router.push('/idp-plans')}>取消</button>
+        <button className="btn btn-ghost" onClick={onDone}>取消</button>
       </div>
-    </div>
+    </>
   );
 }
 

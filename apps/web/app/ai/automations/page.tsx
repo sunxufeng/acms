@@ -1,9 +1,9 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import CrudPage, { type CrudColumn } from '../../../components/CrudPage';
 import { api } from '../../../lib/api';
+import { AutomationForm, type Auto } from './AutomationForm';
 
 function str(v: unknown): string {
   if (v == null) return '';
@@ -13,7 +13,6 @@ function str(v: unknown): string {
 }
 
 export default function AiAutomationsPage() {
-  const router = useRouter();
   const t = useTranslations('ai.automations');
 
   const COLUMNS: CrudColumn[] = [
@@ -57,8 +56,11 @@ export default function AiAutomationsPage() {
       subtitle={t('pageSubtitle')}
       search={{ placeholder: t('searchPlaceholder') }}
       columns={COLUMNS}
-      createHref="/ai/automations/new"
-      editHref={(id) => `/ai/automations/${id}/edit`}
+      inlineEdit
+      standaloneForm
+      renderForm={({ row, onDone }) => (
+        <AutomationForm initial={(row ?? undefined) as Partial<Auto> | undefined} onDone={onDone} />
+      )}
       rowExtraActions={[
         {
           label: t('run'),

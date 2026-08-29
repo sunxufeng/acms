@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import CrudPage from '../../components/CrudPage';
 import { api } from '../../lib/api';
 import { COLUMNS } from './columns';
+import PlanForm from '../../components/idp/PlanForm';
 
 export default function IdpPlansPage() {
   const router = useRouter();
@@ -14,8 +15,11 @@ export default function IdpPlansPage() {
       search={{ placeholder: '搜索学生…' }}
       columns={COLUMNS}
       statusField="状态"
-      createHref="/idp-plans/new"
-      editHref={(id) => `/idp-plans/${id}/edit`}
+      inlineEdit
+      standaloneForm
+      renderForm={({ row, onDone }) => (
+        <PlanForm planId={row?.id != null ? String(row.id) : undefined} onDone={onDone} />
+      )}
       detailHref={(id) => `/idp-plans/${id}`}
       rowExtraActions={[
         {

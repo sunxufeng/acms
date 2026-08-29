@@ -708,7 +708,8 @@
     "noClass": "未分班",
     "resultCount": "共 {total} 条",
     "searchPlaceholder": "姓名、英文名",
-    "subtitleList": "学生档案列表（M1 学生域）"
+    "subtitleList": "学生档案列表（M1 学生域）",
+    "msgCreatedKeepUploading": "已创建学生档案，可继续上传照片与附件，或完善信息后再次保存。"
   },
   "admin": {
     "titleRoleManagement": "角色管理",

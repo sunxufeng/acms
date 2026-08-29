@@ -55,12 +55,12 @@ export class MailArchiveController {
   }
   /** 解析归档附件的临时下载链接（file_token 来自记录「附件信息」JSON） */
   @Get(':id/attachment-url')
-  async attachmentUrl(@Req() req: Request, @Query('file_token') fileToken: string) {
+  async attachmentUrl(@Req() req: Request, @Param('id') id: string, @Query('file_token') fileToken: string) {
     const user = (req as Request & { user: SessionUser }).user;
     if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'mail:read').allowed)
       throw new HttpException('FORBIDDEN:mail:read', HttpStatus.FORBIDDEN);
     if (!fileToken) throw new HttpException('MISSING_FILE_TOKEN', HttpStatus.BAD_REQUEST);
-    const url = await this.svc.getAttachmentUrl(fileToken);
+    const url = await this.svc.getAttachmentUrl(id, fileToken);
     return { url };
   }
   /** 立即同步全部启用账户 */

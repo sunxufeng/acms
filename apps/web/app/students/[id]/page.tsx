@@ -23,6 +23,18 @@ export default function StudentDetailPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  // 该生相关邮件（按归档表「关联学生」关联字段过滤）
+  const [mails, setMails] = useState<Record<string, unknown>[]>([]);
+  const [mailsLoading, setMailsLoading] = useState(true);
+  useEffect(() => {
+    setMailsLoading(true);
+    api
+      .listMailArchive({ '关联学生': id })
+      .then((d) => setMails(d.items))
+      .catch(() => setMails([]))
+      .finally(() => setMailsLoading(false));
+  }, [id]);
+
   if (loading) return <div className="empty-state" style={{ minHeight: '50vh' }}><div style={{ width: 28, height: 28, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /></div>;
   if (error) return <div className="page-header"><p className="msg-error">加载失败：{error}</p></div>;
   if (!student) return <div className="page-header"><p style={{ color: 'var(--fg-tertiary)' }}>未找到</p></div>;
@@ -53,6 +65,32 @@ export default function StudentDetailPage() {
 
       {/* ── Read-only form (same layout as 新建) ── */}
       <StudentForm initial={student} readOnly onSubmit={() => {}} />
+
+      {/* ── 相关邮件 ── */}
+      <section style={{ marginTop: 24 }}>
+        <h2 style={{ fontSize: 16, margin: '0 0 12px' }}>相关邮件</h2>
+        {mailsLoading ? (
+          <p style={{ color: 'var(--fg-tertiary)' }}>加载中…</p>
+        ) : mails.length === 0 ? (
+          <p style={{ color: 'var(--fg-tertiary)' }}>暂无关联邮件</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {mails.map((m) => (
+              <Link
+                key={String(m.id)}
+                href={`/mail-archive/${String(m.id)}`}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--fg)', textDecoration: 'none' }}
+              >
+                <span className="badge" style={{ background: String(m['邮件方向']) === '发件' ? 'var(--success-muted)' : 'var(--accent-muted)', color: String(m['邮件方向']) === '发件' ? 'var(--success)' : 'var(--accent)' }}>
+                  {String(m['邮件方向'] ?? '—')}
+                </span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(m['主题'] ?? '(无主题)')}</span>
+                <span style={{ color: 'var(--fg-tertiary)', fontSize: 12, flexShrink: 0 }}>{String(m['发送时间'] ?? '')}</span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

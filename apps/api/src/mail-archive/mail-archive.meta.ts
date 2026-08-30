@@ -12,5 +12,12 @@ export const MAIL_ARCHIVE_META: RecordMeta = {
   numbers: ['附件数'],
   // 「邮箱文件夹」存的是 IMAP 原始路径（INBOX / Sent Items），加入检索便于按路径排查
   searchFields: ['发件人', '收件人', '主题', '归属账户', '关联学生', '邮箱文件夹'],
+  // 「关联学生」是飞书单向关联字段（type=18，指向学生档案表）。
+  // 声明为 linkField 后，API 返回：
+  //   - 关联学生      : 解析后的学生姓名（如「陈佳琳」），便于直接展示
+  //   - 关联学生__link: 学生记录 id 数组（如 ["recxxx"]），便于前端跳转到学生档案
+  linkFields: [
+    { field: '关联学生', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
+  ],
   sortField: '发送时间',
 };

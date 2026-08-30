@@ -71,4 +71,14 @@ export class MailArchiveController {
       throw new HttpException('FORBIDDEN:mail:write', HttpStatus.FORBIDDEN);
     return this.svc.syncAll();
   }
+
+  /** 手动关联/解除关联学生：body { studentIds: string[] }，传 [] 即清空。需 mail:write。 */
+  @Put(':id/link')
+  async link(@Req() req: Request, @Param('id') id: string, @Body() body: { studentIds?: string[] }) {
+    const user = (req as Request & { user: SessionUser }).user;
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'mail:write').allowed)
+      throw new HttpException('FORBIDDEN:mail:write', HttpStatus.FORBIDDEN);
+    await this.svc.linkStudents(id, body?.studentIds ?? []);
+    return { ok: true };
+  }
 }

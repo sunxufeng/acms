@@ -128,7 +128,30 @@ export const COLUMNS: CrudColumn[] = [
   { key: '主题', label: '主题', width: '300px', openRecord: true },
   { key: '归属账户', label: '归属账户', width: '130px', filter: true },
   { key: '邮箱文件夹', label: '文件夹', width: '140px', filter: true },
-  { key: '关联学生', label: '关联学生', width: '120px', filter: true },
+  {
+    key: '关联学生',
+    label: '关联学生',
+    width: '140px',
+    filter: true,
+    // API（linkField）返回：关联学生=姓名串；关联学生__link=学生 id 数组。二者并行对应。
+    render: (v, row) => {
+      const ids = Array.isArray(row['关联学生__link']) ? (row['关联学生__link'] as string[]) : [];
+      if (ids.length === 0) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+      const names = String(v ?? '')
+        .split('、')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return (
+        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
+          {ids.map((id, i) => (
+            <span key={id} style={{ padding: '1px 6px', borderRadius: 6, background: 'var(--accent-muted)', color: 'var(--accent)', fontSize: 'var(--font-xs)' }}>
+              {names[i] || id}
+            </span>
+          ))}
+        </span>
+      );
+    },
+  },
   { key: '发送时间', label: '发送时间', width: '170px', type: 'datetime' },
   { key: '附件数', label: '附件', width: '190px', type: 'number', render: (_v, row) => <AttachmentCell row={row} /> },
   { key: '是否已读', label: '已读', width: '90px', type: 'select', options: ['是', '否'], filter: true },

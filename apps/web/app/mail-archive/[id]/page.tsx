@@ -28,6 +28,69 @@ export default function MailArchiveDetailPage() {
   const [err, setErr] = useState<string | null>(null);
   const [atts, setAtts] = useState<AttachmentMeta[]>([]);
   const [busyToken, setBusyToken] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
+  const [search, setSearch] = useState('');
+  const [cands, setCands] = useState<{ id: string; name: string }[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  type Linked = { id: string; name?: string };
+  const linkIds = Array.isArray(rec?.['关联学生__link']) ? (rec!['关联学生__link'] as string[]) : [];
+  const linkNames = String(rec?.['关联学生'] ?? '')
+    .split('、')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const linked: Linked[] = linkIds.map((id, i) => ({ id, name: linkNames[i] || id }));
+
+  async function refresh() {
+    try {
+      const r = await api.getMailArchive(id);
+      setRec(r);
+    } catch {
+      /* 忽略刷新失败 */
+    }
+  }
+
+  async function doSearch(q: string) {
+    setSearch(q);
+    if (!q.trim()) {
+      setCands([]);
+      return;
+    }
+    try {
+      const data = await api.listStudents({ q: q.trim() });
+      setCands(data.items.map((s) => ({ id: s.id, name: String(s['学生姓名'] ?? s['英文名'] ?? s.id) })));
+    } catch {
+      setCands([]);
+    }
+  }
+
+  async function addLink(studentId: string) {
+    if (linked.some((l) => l.id === studentId)) return;
+    setSaving(true);
+    try {
+      await api.linkMailStudents(id, [...linked.map((l) => l.id), studentId]);
+      setLinking(false);
+      setSearch('');
+      setCands([]);
+      await refresh();
+    } catch (e) {
+      alert('关联失败：' + String((e as { message?: string })?.message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeLink(studentId: string) {
+    setSaving(true);
+    try {
+      await api.linkMailStudents(id, linked.filter((l) => l.id !== studentId).map((l) => l.id));
+      await refresh();
+    } catch (e) {
+      alert('取消关联失败：' + String((e as { message?: string })?.message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -85,7 +148,68 @@ export default function MailArchiveDetailPage() {
         <span>收件人</span><span style={{ color: 'var(--fg)' }}>{String(rec['收件人'] ?? '')}</span>
         <span>抄送</span><span style={{ color: 'var(--fg)' }}>{String(rec['抄送'] ?? '')}</span>
         <span>归属账户</span><span style={{ color: 'var(--fg)' }}>{String(rec['归属账户'] ?? '')}</span>
-        <span>关联学生</span><span style={{ color: 'var(--fg)' }}>{String(rec['关联学生'] ?? '')}</span>
+        <span>关联学生</span>
+        <span style={{ color: 'var(--fg)' }}>
+          {linked.length === 0 && !linking && <span style={{ color: 'var(--fg-tertiary)' }}>未关联</span>}
+          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            {linked.map((l) => (
+              <span
+                key={l.id}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', borderRadius: 6, background: 'var(--accent-muted)', color: 'var(--accent)', fontSize: 13 }}
+              >
+                <Link href={`/students/${l.id}`} style={{ color: 'inherit' }}>
+                  {l.name || l.id}
+                </Link>
+                <button
+                  type="button"
+                  title="取消关联"
+                  disabled={saving}
+                  onClick={() => removeLink(l.id)}
+                  style={{ border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {linking ? (
+              <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 4, minWidth: 220 }}>
+                <input
+                  autoFocus
+                  value={search}
+                  placeholder="搜索学生姓名/英文名…"
+                  onChange={(e) => doSearch(e.target.value)}
+                  style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }}
+                />
+                {cands.length > 0 && (
+                  <span style={{ display: 'flex', flexDirection: 'column', gap: 2, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-elevated)', padding: 4 }}>
+                    {cands.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        disabled={saving}
+                        onClick={() => addLink(c.id)}
+                        style={{ textAlign: 'left', border: 'none', background: 'transparent', color: 'var(--fg)', cursor: 'pointer', padding: '4px 6px', borderRadius: 4, fontSize: 13 }}
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </span>
+                )}
+                <button type="button" onClick={() => { setLinking(false); setSearch(''); setCands([]); }} style={{ fontSize: 12, color: 'var(--fg-tertiary)', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                  取消
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setLinking(true)}
+                style={{ padding: '2px 8px', borderRadius: 6, border: '1px dashed var(--border)', background: 'transparent', color: 'var(--accent)', cursor: 'pointer', fontSize: 13 }}
+              >
+                + 关联学生
+              </button>
+            )}
+          </span>
+        </span>
         <span>发送时间</span><span style={{ color: 'var(--fg)' }}>{String(rec['发送时间'] ?? '')}</span>
         <span>收取时间</span><span style={{ color: 'var(--fg)' }}>{String(rec['收取时间'] ?? '')}</span>
       </div>

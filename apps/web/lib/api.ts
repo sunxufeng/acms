@@ -754,6 +754,9 @@ export const api = {
     return request<Page<Record<string, unknown>>>(`/mail-archive${q ? `?${q}` : ''}`);
   },
   getMailArchive: (id: string) => request<Record<string, unknown>>(`/mail-archive/${id}`),
+  /** 手动关联/解除关联学生：studentIds 为完整列表，传 [] 即清空 */
+  linkMailStudents: (id: string, studentIds: string[]) =>
+    request<{ ok: boolean }>(`/mail-archive/${id}/link`, { method: 'PUT', body: JSON.stringify({ studentIds }) }),
   syncAllMail: () => request<{ synced: number; results: Record<string, unknown> }>('/mail-archive/sync-all', { method: 'POST' }),
   getMailAttachmentUrl: (id: string, fileToken: string) =>
     request<{ url: string }>(`/mail-archive/${id}/attachment-url?file_token=${encodeURIComponent(fileToken)}`),

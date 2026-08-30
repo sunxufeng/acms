@@ -406,7 +406,7 @@ export class MailArchiveService extends BaseRecordService {
       '收取时间': new Date().toISOString(),
       '附件数': meta.length,
       '附件信息': JSON.stringify(meta),
-      '关联学生': '',
+      '关联学生': [], // 关联字段（type=18）必须是数组，空数组表示未关联
       '是否已读': '否',
     };
     // 附件 token 同时写入原生「文件附件」字段，使其具备 bitablePerm 归属，
@@ -435,5 +435,17 @@ export class MailArchiveService extends BaseRecordService {
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .trim();
+  }
+
+  /**
+   * 手动关联/解除关联学生（招生老师在 UI 上操作）。
+   * studentIds 为完整列表：传 [] 即清空关联；传若干 record_id 即设为这些学生。
+   * 关联字段（type=18）写入格式为 [{ record_id }]，base-adapter 透传。
+   */
+  async linkStudents(recordId: string, studentIds: string[]): Promise<void> {
+    // 飞书单向关联（type=18）写入格式为 record_id 字符串数组：["recxxx"]
+    const links = (studentIds || [])
+      .filter((id) => typeof id === 'string' && id.length > 0);
+    await this.base.update(this.meta.tableId, recordId, { '关联学生': links });
   }
 }

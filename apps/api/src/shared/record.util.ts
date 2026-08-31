@@ -45,6 +45,11 @@ export function toFlatRecord(
 export function buildFilter(
   conditions: (FilterCondition | FilterGroup)[],
 ): FilterGroup {
+  // 飞书拒绝「AND 仅包一个 OR 组」的冗余嵌套（报 99992402 field validation failed）。
+  // 当只有一个条件且该条件本身是分组（conjunction）时，直接作为顶层分组返回。
+  if (conditions.length === 1 && 'conjunction' in (conditions[0] as FilterGroup)) {
+    return conditions[0] as FilterGroup;
+  }
   return { conjunction: 'and', conditions };
 }
 

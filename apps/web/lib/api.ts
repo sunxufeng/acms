@@ -754,6 +754,9 @@ export const api = {
     return request<Page<Record<string, unknown>>>(`/mail-archive${q ? `?${q}` : ''}`);
   },
   getMailArchive: (id: string) => request<Record<string, unknown>>(`/mail-archive/${id}`),
+  /** 列表页筛选下拉的动态候选项（发件人/收件人/归属账户/邮箱文件夹/关联学生的真实去重值） */
+  listMailArchiveFilterOptions: () =>
+    request<Record<string, string[]>>('/mail-archive/filter-options'),
   /** 手动关联/解除关联学生：studentIds 为完整列表，传 [] 即清空 */
   linkMailStudents: (id: string, studentIds: string[]) =>
     request<{ ok: boolean }>(`/mail-archive/${id}/link`, { method: 'PUT', body: JSON.stringify({ studentIds }) }),

@@ -147,7 +147,9 @@ export class MailArchiveService extends BaseRecordService {
             // 会随邮件删除整体前移而漂移，不能作为去重键。实测同一邮箱：
             // 序号 = 1..20，而真实 UID = 84..102,105（其中 103/104 已被删除）。
             const searchRes = await client.search({}, { uid: true });
-            const uids = (Array.isArray(searchRes) ? searchRes : []).slice(-500);
+            // 不再截断（此前 .slice(-500) 会静默丢弃单文件夹超过 500 封的较早邮件）。
+            // 依赖邮件UID去重避免重复入库；超大邮箱的逐封解析开销由「收取频率」节流控制。
+            const uids = Array.isArray(searchRes) ? searchRes : [];
             for (const uid of uids) {
               fFetched++;
               // uid 要放在第三个参数 options 里才会走 `UID FETCH`；
@@ -201,6 +203,47 @@ export class MailArchiveService extends BaseRecordService {
       .catch((e) => this.logger.error(`回写账户收取结果失败 ${a.id}: ${(e as Error).message}`));
 
     return { ok: !lastErr, fetched, stored, error: lastErr || undefined, folders: folderStats };
+  }
+
+  /**
+   * 返回邮件归档各筛选列（发件人/收件人/归属账户/邮箱文件夹/关联学生）的
+   * 真实去重候选项，供列表页下拉框动态加载（避免写死枚举、也避免只显示空「全部」）。
+   * 一次翻页扫描全表，关联字段取解析后的名称（text）。每个字段上限 300 项，按中文排序。
+   */
+  async getFilterOptions(): Promise<Record<string, string[]>> {
+    const fields = ['发件人', '收件人', '归属账户', '邮箱文件夹', '关联学生'];
+    const sets: Record<string, Set<string>> = {};
+    for (const f of fields) sets[f] = new Set();
+    let pageToken: string | undefined;
+    let guard = 0;
+    do {
+      const res = await this.base.search(this.meta.tableId, { pageSize: 100, pageToken });
+      for (const item of res.items) {
+        const flds = (item.fields ?? {}) as Record<string, unknown>;
+        for (const f of fields) {
+          const set = sets[f];
+          if (!set) continue;
+          const v = flds[f];
+          if (v == null) continue;
+          if (Array.isArray(v)) {
+            // 关联字段：[{ text, link }]
+            for (const el of v as Array<{ text?: unknown }>) {
+              const t = typeof el?.text === 'string' ? (el.text as string).trim() : '';
+              if (t) set.add(t);
+            }
+          } else if (typeof v === 'string' && v.trim()) {
+            set.add(v.trim());
+          }
+        }
+      }
+      pageToken = res.pageToken;
+    } while (pageToken && guard++ < 200);
+    const out: Record<string, string[]> = {};
+    for (const f of fields) {
+      const set = sets[f];
+      out[f] = set ? Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN')).slice(0, 300) : [];
+    }
+    return out;
   }
 
   /** 同步全部「启用」账户；按各账户收取频率跳过未到点的账户 */

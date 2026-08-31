@@ -50,6 +50,14 @@ export class MailArchiveController {
   @Get() list(@Req() req: Request, @Query() q: Record<string, string | undefined>) {
     return this.svc.list((req as Request & { user: SessionUser }).user, q);
   }
+  /** 列表页筛选下拉的动态候选项（发件人/收件人/归属账户/邮箱文件夹/关联学生的真实去重值） */
+  @Get('filter-options')
+  async filterOptions(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'mail:read').allowed)
+      throw new HttpException('FORBIDDEN:mail:read', HttpStatus.FORBIDDEN);
+    return this.svc.getFilterOptions();
+  }
   @Get(':id') detail(@Req() req: Request, @Param('id') id: string) {
     return this.svc.detail((req as Request & { user: SessionUser }).user, id);
   }

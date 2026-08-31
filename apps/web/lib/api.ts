@@ -76,6 +76,18 @@ export interface Page<T> {
   hasMore: boolean;
 }
 
+/** 邮件同步的实时进度（「立即收取」异步化后轮询展示） */
+export interface MailSyncProgress {
+  running: boolean;
+  startedAt: number;
+  finishedAt?: number;
+  fetched: number;
+  stored: number;
+  folders?: { folder: string; isSent: boolean; fetched: number; stored: number; error?: string }[];
+  error?: string;
+  result?: string;
+}
+
 export interface StudentRecord {
   id: string;
   [key: string]: unknown;
@@ -745,7 +757,9 @@ export const api = {
   updateMailAccount: (id: string, data: Record<string, unknown>) =>
     request<Record<string, unknown>>(`/mail-accounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveMailAccount: (id: string) => request<{ ok: boolean }>(`/mail-accounts/${id}`, { method: 'DELETE' }),
-  syncMailAccount: (id: string) => request<{ ok: boolean; fetched: number; stored: number; error?: string }>(`/mail-accounts/${id}/sync`, { method: 'POST' }),
+  // 立即收取是异步的：POST 立即返回，之后轮询 sync-status 拿实时进度
+  syncMailAccount: (id: string) => request<MailSyncProgress>(`/mail-accounts/${id}/sync`, { method: 'POST' }),
+  getMailSyncStatus: (id: string) => request<MailSyncProgress>(`/mail-accounts/${id}/sync-status`),
 
   listMailArchive: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();

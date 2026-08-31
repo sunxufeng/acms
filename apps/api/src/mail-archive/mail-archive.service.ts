@@ -55,7 +55,7 @@ function parseFreqMinutes(raw: unknown): number {
 }
 
 /** 单个文件夹的收取结果 */
-interface FolderStat {
+export interface FolderStat {
   folder: string;
   isSent: boolean;
   fetched: number;
@@ -63,9 +63,28 @@ interface FolderStat {
   error?: string;
 }
 
+/**
+ * 后台同步任务的实时进度。
+ * 「立即收取」改为异步后 HTTP 立即返回，前端轮询该状态展示进度，
+ * 避免大邮箱（数百封）同步耗时超过 nginx proxy_read_timeout 而被掐断成 504。
+ */
+export interface SyncProgress {
+  running: boolean;
+  startedAt: number;
+  finishedAt?: number;
+  fetched: number;
+  stored: number;
+  folders: FolderStat[];
+  error?: string;
+  result?: string;
+}
+
 @Injectable()
 export class MailArchiveService extends BaseRecordService {
   private readonly logger = new Logger('MailArchive');
+
+  /** 账户 ID → 最近一次同步的进度（「立即收取」异步化后供前端轮询） */
+  private readonly syncStates = new Map<string, SyncProgress>();
 
   /**
    * ⚠️ 后两个参数必须写显式 @Inject，否则会被父类的注入元数据覆盖。
@@ -87,13 +106,17 @@ export class MailArchiveService extends BaseRecordService {
     super(MAIL_ARCHIVE_META, base, audit);
   }
 
-  /** 同步单个账户；返回本次收取统计（含每个文件夹的明细） */
-  async syncAccount(accountId: string): Promise<{
+  /**
+   * 同步单个账户；返回本次收取统计（含每个文件夹的明细）。
+   * @param progress 传入则由同步过程实时写入 fetched/stored，供前端轮询展示进度。
+   */
+  async syncAccount(accountId: string, progress?: SyncProgress): Promise<{
     ok: boolean;
     fetched: number;
     stored: number;
     error?: string;
     folders: FolderStat[];
+    resultText?: string;
   }> {
     const acc = await this.accountSvc.getForSync(accountId);
     if (!acc) return { ok: false, fetched: 0, stored: 0, error: '账户不存在', folders: [] };
@@ -129,6 +152,11 @@ export class MailArchiveService extends BaseRecordService {
         const folders: Array<{ path: string; isSent: boolean }> = [{ path: 'INBOX', isSent: false }];
         if (sentFolder) folders.push({ path: sentFolder, isSent: true });
 
+        // 批量预加载该账户已归档的 UID（一次翻页扫完，替代此前「每封一次飞书查询」）。
+        // 邮件量从数十封涨到数百封后，逐封查重意味着数百次 API 调用，是同步变慢的主因。
+        const existing = await this.loadExistingUids(a.name);
+        this.logger.log(`账户 ${a.name} 已归档 ${existing.size} 封，开始增量收取`);
+
         for (const { path: folder, isSent } of folders) {
           let lock;
           try {
@@ -152,6 +180,7 @@ export class MailArchiveService extends BaseRecordService {
             const uids = Array.isArray(searchRes) ? searchRes : [];
             for (const uid of uids) {
               fFetched++;
+              if (progress) progress.fetched++;
               // uid 要放在第三个参数 options 里才会走 `UID FETCH`；
               // 放在第二个参数 query 里只是「顺便取回 UID 属性」，并不会改变按序号取的模式。
               const msg = await client.fetchOne(String(uid), { source: true }, { uid: true });
@@ -161,10 +190,19 @@ export class MailArchiveService extends BaseRecordService {
               if (!this.matchFilter(a.filters, parsed, isSent)) continue;
               // 以服务端返回的 UID 为准（imapflow 的 FETCH 响应总是带 uid）
               const mailUid = msg.uid != null ? String(msg.uid) : String(uid);
-              const saved = await this.archiveOne(a, folder, mailUid, parsed, isSent);
-              if (saved) fStored++;
+              const saved = await this.archiveOne(a, folder, mailUid, parsed, isSent, existing);
+              if (saved) {
+                fStored++;
+                if (progress) progress.stored++;
+              }
             }
             folderStats.push({ folder, isSent, fetched: fFetched, stored: fStored });
+            if (progress) {
+              // 进度里保留每个文件夹的实时计数，便于前端展示「收件箱 x/y」
+              const cur = progress.folders.find((f) => f.folder === folder);
+              if (cur) Object.assign(cur, { fetched: fFetched, stored: fStored });
+              else progress.folders.push({ folder, isSent, fetched: fFetched, stored: fStored });
+            }
           } finally {
             lock.release();
           }
@@ -202,7 +240,90 @@ export class MailArchiveService extends BaseRecordService {
       } as Record<string, unknown>)
       .catch((e) => this.logger.error(`回写账户收取结果失败 ${a.id}: ${(e as Error).message}`));
 
-    return { ok: !lastErr, fetched, stored, error: lastErr || undefined, folders: folderStats };
+    return { ok: !lastErr, fetched, stored, error: lastErr || undefined, folders: folderStats, resultText };
+  }
+
+  /**
+   * 异步启动「立即收取」：HTTP 立即返回，同步在后台执行，进度写入 syncStates 供轮询。
+   * 同一个账户已在同步中时直接返回现有状态，不重复启动（避免并发把同一批邮件收两遍）。
+   */
+  startSync(accountId: string): SyncProgress {
+    const running = this.syncStates.get(accountId);
+    if (running?.running) return running;
+    const state: SyncProgress = {
+      running: true,
+      startedAt: Date.now(),
+      fetched: 0,
+      stored: 0,
+      folders: [],
+    };
+    this.syncStates.set(accountId, state);
+    void this.runSync(accountId, state); // 不 await：后台跑
+    return state;
+  }
+
+  /** 查询某账户当前/最近一次同步进度 */
+  getSyncStatus(accountId: string): SyncProgress {
+    return this.syncStates.get(accountId) ?? {
+      running: false, startedAt: 0, fetched: 0, stored: 0, folders: [],
+    };
+  }
+
+  /** 后台执行同步并把结果回填到进度对象 */
+  private async runSync(accountId: string, state: SyncProgress): Promise<void> {
+    try {
+      const r = await this.syncAccount(accountId, state);
+      state.folders = r.folders;
+      state.error = r.error;
+      state.result = r.resultText;
+    } catch (e) {
+      state.error = (e as Error).message;
+    } finally {
+      state.running = false;
+      state.finishedAt = Date.now();
+    }
+  }
+
+  /**
+   * 预加载某账户已归档的全部「文件夹+UID」组合。
+   * 替代此前每封邮件一次飞书 search 的做法：数百封邮件 = 数百次 API 调用 → 降为 1 次翻页扫描。
+   * 返回的 key 形如 `INBOX\u0000123`，与 archiveOne 的 uidKey 保持一致。
+   */
+  private async loadExistingUids(accountName: string): Promise<Set<string>> {
+    const set = new Set<string>();
+    let pageToken: string | undefined;
+    let guard = 0;
+    do {
+      const res = await this.base.search(this.meta.tableId, {
+        pageSize: 100,
+        pageToken,
+        filter: buildFilter([{ field: '归属账户', value: [accountName] }]),
+      });
+      for (const item of res.items) {
+        const f = (item.fields ?? {}) as Record<string, unknown>;
+        const uid = this.plainText(f['邮件UID']);
+        if (!uid) continue;
+        set.add(this.uidKey(this.plainText(f['邮箱文件夹']), uid));
+      }
+      pageToken = res.pageToken;
+    } while (pageToken && guard++ < 500);
+    return set;
+  }
+
+  /** 飞书文本字段可能返回 string 或 [{ text }]，统一取纯文本 */
+  private plainText(v: unknown): string {
+    if (v == null) return '';
+    if (typeof v === 'string') return v.trim();
+    if (Array.isArray(v)) {
+      const first = (v as Array<{ text?: unknown }>)[0];
+      return typeof first?.text === 'string' ? first.text.trim() : '';
+    }
+    return '';
+  }
+
+  /** 去重键：IMAP 的 UID 按文件夹独立编号，必须带文件夹维度 */
+  private uidKey(folder: string, uid: string): string {
+    return `${folder} ${uid}`;
   }
 
   /**
@@ -392,26 +513,35 @@ export class MailArchiveService extends BaseRecordService {
     return true;
   }
 
-  /** 单封邮件落库；已存在（同账户+同文件夹+同UID）则跳过，返回是否新增 */
+  /** 单封邮件落库；已存在（同账户+同文件夹+同UID）则跳过，返回是否新增。
+   *  @param existing 该账户已归档的 uidKey 集合（由 loadExistingUids 一次性预加载）。
+   *                  传了就走内存去重，不再逐封查飞书。 */
   private async archiveOne(
     acc: ParsedAccount,
     folder: string,
     uid: string,
     parsed: { from?: { text?: string }; to?: { text?: string }; cc?: { text?: string }; subject?: string; date?: Date; text?: string; html?: string; attachments?: Array<{ filename?: string; contentType?: string; content?: Buffer }> },
     isSent = false,
+    existing?: Set<string>,
   ): Promise<boolean> {
     // 去重：同账户 + 同文件夹 + 同 UID 已存在则跳过。
     // ⚠️ IMAP 的 UID 是按文件夹独立编号的，收件箱与发件箱会有相同 UID，
     // 因此去重必须带「邮箱文件夹」维度，否则发件箱邮件会被误判为重复而丢失。
-    const dup = await this.base.search(this.meta.tableId, {
-      pageSize: 1,
-      filter: buildFilter([
-        { field: '邮件UID', value: [uid] },
-        { field: '归属账户', value: [acc.name] },
-        { field: '邮箱文件夹', value: [folder] },
-      ]),
-    });
-    if (dup.items.length > 0) return false;
+    const key = this.uidKey(folder, uid);
+    if (existing) {
+      if (existing.has(key)) return false;
+    } else {
+      // 未预加载时的兜底（保持原有逐封查询语义）
+      const dup = await this.base.search(this.meta.tableId, {
+        pageSize: 1,
+        filter: buildFilter([
+          { field: '邮件UID', value: [uid] },
+          { field: '归属账户', value: [acc.name] },
+          { field: '邮箱文件夹', value: [folder] },
+        ]),
+      });
+      if (dup.items.length > 0) return false;
+    }
 
     const attachments = parsed.attachments ?? [];
     const meta: { name: string; size: number; type: string; file_token: string }[] = [];
@@ -462,6 +592,8 @@ export class MailArchiveService extends BaseRecordService {
     }
 
     await this.base.create(this.meta.tableId, fields);
+    // 同一批次内再次遇到相同 key 时直接跳过，避免重复入库
+    existing?.add(key);
 
     return true;
   }

@@ -31,14 +31,26 @@ export class MailAccountController {
   @Delete(':id') archive(@Req() req: Request, @Param('id') id: string) {
     return this.svc.archive((req as Request & { user: SessionUser }).user, id);
   }
-  /** 立即收取该账户邮件（fire & forget，返回触发结果） */
+  /**
+   * 立即收取该账户邮件。
+   * 改为**异步**：立即返回 202，同步在后台跑，前端轮询 sync-status 展示进度。
+   * 大邮箱（数百封）同步要几分钟，同步阻塞 HTTP 会被 nginx 掐断成 504。
+   */
   @Post(':id/sync')
   async sync(@Req() req: Request, @Param('id') id: string) {
     const user = (req as Request & { user: SessionUser }).user;
     if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'mail:write').allowed)
       throw new HttpException('FORBIDDEN:mail:write', HttpStatus.FORBIDDEN);
-    const r = await this.archiveSvc.syncAccount(id);
-    return r;
+    return this.archiveSvc.startSync(id);
+  }
+
+  /** 查询该账户当前/最近一次同步进度。⚠️ 必须声明在 @Get(':id') 之前，否则会被 :id 路由吃掉 */
+  @Get(':id/sync-status')
+  async syncStatus(@Req() req: Request, @Param('id') id: string) {
+    const user = (req as Request & { user: SessionUser }).user;
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'mail:read').allowed)
+      throw new HttpException('FORBIDDEN:mail:read', HttpStatus.FORBIDDEN);
+    return this.archiveSvc.getSyncStatus(id);
   }
 }
 

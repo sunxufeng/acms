@@ -127,6 +127,10 @@
   --accent-soft:     var(--accent-muted);
   --accent-strong:   var(--accent-hover);
   --shadow-card:     var(--shadow-md);
+
+  /* .card 一直引用 var(--radius)，但这个变量此前从未定义过，
+     计算值回退成 0（方角）—— 这里补上定义，对齐 --radius-lg。 */
+  --radius:          var(--radius-lg);
 }
 
 /* ── Light Theme — 月之明面 (opt-in via toggle) ───────────
@@ -736,6 +740,10 @@ a:hover { color: var(--accent-hover); }
   transition: all var(--dur-fast) var(--ease);
 }
 .btn-icon:hover { background: var(--surface); color: var(--fg); }
+/* 禁用态：此前全站没有 :disabled 规则，55 处 disabled 按钮和可用按钮长得一模一样。
+   放在 .btn-primary:hover 之后，靠同等特异性的「后者优先」覆盖掉 hover 的位移。 */
+.btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-primary:disabled { filter: none; transform: none; }
 
 /* ── Stat cards (numbered) ─────────────────────────────────── */
 
@@ -1481,4 +1489,54 @@ select.form-input:disabled { color: var(--fg); }
 .locale-switcher .locale-opt.active {
   background: var(--accent, #10b981); color: #fff; font-weight: 500;
 }
+
+/* ================================================================ */
+/*  MOBILE BIND PAGES — /student-login · /parent                     */
+/*  这一节只定义「布局 / 尺寸 / 间距」，颜色一律取主题变量，          */
+/*  因此深浅两个主题自动跟随（此前这些页面把 #f5f6fa / #fff /         */
+/*  #4f46e5 写死在页内，默认暗色主题下是刺眼的白卡片 + 靛蓝按钮）。  */
+/*  必须搭配既有标准类使用，不要单独使用：                           */
+/*    .card · .form-input · .btn / .btn-primary / .btn-outline        */
+/*    .msg-error / .msg-success · .muted                              */
+/* ================================================================ */
+
+/* 页面容器：480px 窄栏居中，铺满视口高度 */
+.mobile-page {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: var(--space-lg) var(--space-md);
+  background: var(--bg);
+  min-height: 100dvh;
+}
+
+/* 卡片：配 .card 使用（.card 自带 surface 背景 + 边框 + 圆角 + 内边距） */
+.mobile-card { margin-bottom: var(--space-md); }
+
+/* 首屏只有一张卡时的顶部留白（/student-login） */
+.mobile-card-offset { margin-top: var(--space-2xl); }
+
+/* 卡片标题 */
+.mobile-title { font-size: var(--font-xl); font-weight: 700; margin: 0 0 var(--space-xs); }
+
+/* 标题下的一行说明 */
+.mobile-desc { color: var(--fg-tertiary); font-size: var(--font-sm); margin: var(--space-xs) 0 var(--space-md); }
+
+/* 单行输入：配 .form-input 使用（补足宽度与下间距） */
+.mobile-field { display: block; width: 100%; margin-bottom: var(--space-sm); }
+
+/* 多行输入：配 .form-input .mobile-field */
+.mobile-textarea { min-height: 90px; }
+
+/* 全宽胶囊按钮：配 .btn / .btn-primary / .btn-outline 使用 */
+.mobile-btn { width: 100%; border-radius: var(--radius-full); padding: 13px 0; font-size: var(--font-md); }
+
+/* 卡片底部的按钮区：与上方列表行/输入框拉开距离 */
+.mobile-actions { margin-top: var(--space-sm); }
+
+/* 卡片底部的次要链接 */
+.mobile-link { display: block; text-align: center; margin-top: 14px; color: var(--fg-tertiary); font-size: var(--font-sm); }
+
+/* 列表行（家长端考勤记录） */
+.mobile-row { border-bottom: 1px solid var(--border); padding: var(--space-sm) 0; }
+.mobile-row-title { font-weight: 600; }
 

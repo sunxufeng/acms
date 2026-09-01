@@ -2,8 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import Markdown from './Markdown';
 
 export interface MarkdownFieldProps {
   /** 当前 Markdown 文本 */
@@ -21,7 +20,8 @@ export interface MarkdownFieldProps {
 /**
  * 全站统一的 Markdown 编辑器（MD / 浏览双 Tab + MD 导入）。
  *  - MD tab：可编辑的纯文本（仅 onChange 存在时可编辑）
- *  - 浏览 tab：只读渲染后的内容，走 react-markdown + remarkGfm（支持表格、任务列表、删除线）
+ *  - 浏览 tab：只读渲染，复用全站唯一的 components/Markdown.tsx（react-markdown + remarkGfm，
+ *              支持表格、任务列表、删除线），保证「编辑预览」与「保存后展示」完全一致
  *  - MD导入：从本地选择 .md/.markdown/.txt 文件，读入为 Markdown 文本
  * 渲染样式来自 globals.css 的 .md 规则集，与 components/Markdown.tsx 共用同一套。
  * 被 CrudPage 的 markdown 类型字段、ai/agents 各 Tab、ai/skills 等复用。
@@ -116,9 +116,7 @@ export default function MarkdownField({
         ) : (
           <div style={{ minHeight: height, maxHeight: height * 1.5, overflowY: 'auto', padding: '12px 14px' }}>
             {value && value.trim() ? (
-              <div className="md">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown>
-              </div>
+              <Markdown>{value}</Markdown>
             ) : (
               <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>{t('mdEmpty')}</span>
             )}

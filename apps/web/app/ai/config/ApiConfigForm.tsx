@@ -122,7 +122,7 @@ export function ApiConfigForm({ initial, onDone }: { initial?: ApiConfig | null;
   }
 
   return (
-    <form id="api-config-form" onSubmit={save} style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 920 }}>
+    <form id="api-config-form" onSubmit={save} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <fieldset className="form-fieldset">
         <legend className="form-legend">{t('legend')}</legend>
         <p className="page-subtitle" style={{ margin: '0 0 18px' }}>

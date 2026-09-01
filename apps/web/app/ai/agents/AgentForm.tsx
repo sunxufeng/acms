@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
 import ReactMarkdown from 'react-markdown';
@@ -479,19 +478,8 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
   // ── Render ───────────────────────────────────────────────────
 
   return (
-    <div className="page">
-      {/* Header — matches CrudPage standaloneForm pattern */}
-      <div className="page-header page-header-row">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
-          <Link href="/ai/agents" className="btn btn-icon" title={t('backToList')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
-          </Link>
-          <div>
-            <div className="page-eyebrow">{initial?.id ? t('eyebrowEdit') : t('eyebrowCreate')}</div>
-            <h1 className="page-title">{initial?.id ? t('edit') : t('create')}</h1>
-          </div>
-        </div>
-      </div>
+    <>
+      {/* 页头由 CrudPage 的 standaloneForm 提供，这里只渲染表单主体，避免重复显示 */}
 
       {/* Form card — matches crud-inline-form */}
       <fieldset className="form-fieldset">
@@ -561,12 +549,12 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
           </div>
           {error && <p className="msg-error" style={{ marginTop: 'var(--space-md)' }}>{error}</p>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 'var(--space-md)' }}>
-            <Link href="/ai/agents" className="btn btn-ghost">{t('cancel')}</Link>
+            <button type="button" className="btn btn-ghost" onClick={onDone}>{t('cancel')}</button>
             <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? t('saving') : t('save')}</button>
           </div>
         </form>
       </fieldset>
-    </div>
+    </>
   );
 }
 

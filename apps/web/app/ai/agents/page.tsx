@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import CrudPage, { type CrudColumn } from '../../../components/CrudPage';
 import { api } from '../../../lib/api';
+import { AgentForm, type Agent } from './AgentForm';
 
 function str(v: unknown): string {
   if (v == null) return '';
@@ -62,8 +63,11 @@ export default function AiAgentsPage() {
       subtitle={t('pageSubtitle')}
       search={{ placeholder: t('searchPlaceholder') }}
       columns={COLUMNS}
-      createHref="/ai/agents/new"
-      editHref={(id) => `/ai/agents/${id}/edit`}
+      inlineEdit
+      standaloneForm
+      renderForm={({ row, onDone }) => (
+        <AgentForm initial={(row ?? undefined) as Agent} onDone={onDone} />
+      )}
       rowExtraActions={[
         {
           label: t('openChat'),

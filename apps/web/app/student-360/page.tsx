@@ -16,7 +16,7 @@ interface StudentHit {
   当前状态?: string;
   校区?: string;
   入学年级?: string;
-  班级?: string;
+  当前年级?: string;
 }
 
 interface Section {
@@ -291,7 +291,7 @@ export default function Student360Page() {
                 <span className="badge">{str(data.student.当前状态) || '未知状态'}</span>
               </div>
               <div className="sh-sub">
-                {[data.student.学生编号, data.student.校区, data.student.入学年级, data.student.班级, data.student.当前学段]
+                {[data.student.学生编号, data.student.校区, data.student.入学年级, data.student.当前年级, data.student.当前学段]
                   .map(str)
                   .filter(Boolean)
                   .join(' · ')}
@@ -443,7 +443,7 @@ function buildStudentContext(student: Record<string, unknown> | undefined, secti
   lines.push(`- 当前状态：${str(student.当前状态) || '—'}`);
   lines.push(`- 校区：${str(student.校区) || '—'}`);
   lines.push(`- 入学年级：${str(student.入学年级) || '—'}`);
-  lines.push(`- 班级：${str(student.班级) || '—'}`);
+  lines.push(`- 当前年级：${str(student.当前年级) || '—'}`);
   lines.push(`- 当前学段：${str(student.当前学段) || '—'}`);
   lines.push(`- 英文名：${str(student.英文名) || '—'}`);
   lines.push('');

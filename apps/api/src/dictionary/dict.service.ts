@@ -634,7 +634,12 @@ export class DictService {
       const fields = await this.base.listFields(this.TABLE);
       const byName = new Map(fields.map((f) => [f.name, f]));
 
-      // 1) 重命名 当前年级 → 入学年级
+      // 1) 重命名 当前年级 → 入学年级（一次性历史迁移，早已在所有环境跑完）
+      //    ⚠️ 注意：2026-09-01 起「当前年级」已是独立的一等字段（由原「班级」改名而来，
+      //    含义为「现在所处年级」，与「入学年级 = 入学时的年级」是两个不同字段）。
+      //    本规则**只允许**在「存在旧 当前年级 且不存在 入学年级」的遗留库里触发，
+      //    因此下面 `!byName.has('入学年级')` 这个前置判断不可删除——删了会把
+      //    新库里的「当前年级」又改回「入学年级」，直接毁掉字段。
       const oldGrade = byName.get('当前年级');
       if (oldGrade && !byName.has('入学年级')) {
         await this.base.updateField(this.TABLE, oldGrade.id, {
@@ -653,6 +658,7 @@ export class DictService {
         { name: '城市', dictKey: '城市' },
         { name: '入学年份', dictKey: '入学年份' },
         { name: '实际学制', dictKey: '实际学制' },
+        { name: '是否是新生', dictKey: '是否是新生' },
         { name: '原学校类型', dictKey: '原学校类型' },
         { name: '合同状态', dictKey: '合同状态' },
         { name: '付款状态', dictKey: '付款状态' },

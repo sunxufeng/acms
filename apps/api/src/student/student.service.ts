@@ -105,7 +105,7 @@ export class StudentService {
     if (query.入学年级) conditions.push({ field: '入学年级', value: [query.入学年级] });
     if (query.入学年份) conditions.push({ field: '入学年份', value: [query.入学年份] });
     if (query.实际学制) conditions.push({ field: '实际学制', value: [query.实际学制] });
-    if (query.班级) conditions.push({ field: '班级', value: [query.班级] });
+    if (query.当前年级) conditions.push({ field: '当前年级', value: [query.当前年级] });
     if (query.班主任) conditions.push({ field: '班主任', value: [query.班主任] });
     if (query.招生负责老师) conditions.push({ field: '招生负责老师', value: [query.招生负责老师] });
     if (query.校区) conditions.push({ field: '校区', value: [query.校区] });
@@ -133,7 +133,7 @@ export class StudentService {
   /** 内存中执行非 q 的等值筛选（仅在 q 路径需要，因飞书不支持嵌套过滤组） */
   private matchesNonQ(s: StudentRecord, query: StudentFilterDto): boolean {
     const eq: Array<keyof StudentFilterDto> = [
-      '当前状态', '入学年级', '班级', '班主任', '招生负责老师', '校区',
+      '当前状态', '入学年级', '当前年级', '班主任', '招生负责老师', '校区',
       '数据密级', '性别', '来源渠道', '生源跟进状态', '入学级', '毕业届',
       '入学年份', '实际学制', '现居住省', '城市', '学生标签', '特长标签',
       '原学校类型', '合同状态', '付款状态', '家庭关键决策点',
@@ -470,7 +470,7 @@ export class StudentService {
     });
     const students = res.items.map((r) => this.toStudent(r));
 
-    const cols = ['学生编号', '学生姓名', '性别', '班级', '校区', '当前状态', '数据密级', '证件号码（脱敏）', '学籍号（脱敏）', '学生手机号', '学生邮箱'];
+    const cols = ['学生编号', '学生姓名', '性别', '当前年级', '校区', '当前状态', '数据密级', '证件号码（脱敏）', '学籍号（脱敏）', '学生手机号', '学生邮箱'];
     const mask = (s: ReturnType<StudentService['toStudent']>, f: string): string => {
       const lvl = s.数据密级 as keyof typeof SENSITIVE_FIELDS;
       if (lvl === 'L4' && (SENSITIVE_FIELDS.L3.includes(f) || SENSITIVE_FIELDS.L4.includes(f))) return '***';

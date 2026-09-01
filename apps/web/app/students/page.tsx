@@ -561,7 +561,7 @@ export default function StudentsPage() {
                       {/* Arete班（年级/班级） */}
                       <td>
                         <div style={{ fontWeight: 500 }}>{str(s['入学年级']) || '—'}</div>
-                        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['班级']) || t('noClass')}</div>
+                        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['当前年级']) || t('noClass')}</div>
                       </td>
                       {/* 来源渠道 */}
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['来源渠道']) || '—'}</td>

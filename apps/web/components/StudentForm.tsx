@@ -51,7 +51,7 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     title: '学籍信息',
     fields: [
       { key: '学籍号（脱敏）', label: '学籍号（脱敏）', type: 'text' },
-      { key: '班级', label: '班级', type: 'select', dictKey: '班级', options: ['Foundation', 'Pre1', 'Pre2', 'Pre3', '大一班'] },
+      { key: '当前年级', label: '当前年级', type: 'select', dictKey: '当前年级', options: ['Foundation', 'Pre-1', 'Pre-2', 'Pre-3', '大一', '未来企业家班', '全球领航计划'] },
       { key: '校区', label: '校区', type: 'select', dictKey: '校区', options: ['主校区', '东校区', '西校区', '南校区', '北校区', '国际部校区'] },
       { key: '当前学段', label: '当前学段', type: 'select', dictKey: '当前学段', options: ['幼儿园', '小学', '初中', '高中', '国际课程'] },
       { key: '入学年级', label: '入学年级', type: 'select', dictKey: '入学年级', options: ['托班', '小班', '中班', '大班', '一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '初一', '初二', '初三', '高一', '高二', '高三'] },

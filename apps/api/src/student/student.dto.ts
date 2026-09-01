@@ -7,7 +7,7 @@ export interface CreateStudentDto {
   生源跟进状态?: string;
   招生负责老师?: string[];
   当前状态?: string;
-  班级?: string;
+  当前年级?: string;
   班主任?: string[];
   入学日期?: string;
   毕业日期?: string;
@@ -132,7 +132,7 @@ export interface UpdateStudentDto {
   生源跟进状态?: string;
   招生负责老师?: string[];
   当前状态?: string;
-  班级?: string;
+  当前年级?: string;
   班主任?: string[];
   入学日期?: string;
   毕业日期?: string;
@@ -201,7 +201,7 @@ export interface StudentFilterDto {
   q?: string; // 姓名模糊搜索
   当前状态?: string;
   入学年级?: string;
-  班级?: string;
+  当前年级?: string;
   班主任?: string;
   招生负责老师?: string;
   校区?: string;
@@ -238,7 +238,7 @@ export interface ExportQueryDto {
   q?: string;
   当前状态?: string;
   入学年级?: string;
-  班级?: string;
+  当前年级?: string;
   校区?: string;
   数据密级?: string;
 }

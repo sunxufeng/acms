@@ -10,3 +10,5 @@ coverage/
 .DS_Store
 logs/
 *.log
+# 临时工作目录（飞书导出/生产数据备份等，含真实业务数据，禁止入库）
+.acms-tmp/

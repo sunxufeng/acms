@@ -9,6 +9,7 @@ import { StudentForm } from '../../components/StudentForm';
 const COLS = [
   { key: '学生姓名', label: 'colStudent', width: '' },
   { key: '英文名', label: 'colEnglishName', width: '120px' },
+  { key: '性别', label: 'colGender', width: '64px' },
   { key: 'Arete毕业届', label: 'colAreteGraduation', width: '110px' },
   { key: '入学年级', label: 'colAreteClass', width: '' },
   { key: '来源渠道', label: 'colSource', width: '80px' },
@@ -556,6 +557,8 @@ export default function StudentsPage() {
                       </td>
                       {/* 英文名 */}
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['英文名']) || '—'}</td>
+                      {/* 性别 */}
+                      <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['性别']) || '—'}</td>
                       {/* Arete毕业届 */}
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['Arete毕业届']) || '—'}</td>
                       {/* Arete班（年级/班级） */}
@@ -571,10 +574,9 @@ export default function StudentsPage() {
                       <td style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>
                         {fmtDate(s['更新时间']) || '—'}
                       </td>
-                      {/* Status（移到更新列后） */}
+                      {/* Status（移到更新列后）→ 只显示状态；性别已独立成列，不再挂在状态下面 */}
                       <td>
                         <div className={`status-dot ${statusClass(status)}`}>{status || '—'}</div>
-                        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 2 }}>{str(s['性别'] || '')}</div>
                       </td>
                       {/* Actions: 编辑 + 删除 */}
                       <td>

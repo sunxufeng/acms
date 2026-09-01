@@ -92,7 +92,7 @@ export default function AiConfigPage() {
     const isEdit = editing === 'edit';
     return (
       <div className="page">
-        <div className="crud-inline-form" style={{ maxWidth: 920, margin: '0 auto' }}>
+        <div className="crud-inline-form">
           <div className="crud-inline-form-head">
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
               <button className="btn btn-icon" title={t('backToList')} aria-label={t('backToList')} onClick={closeForm}>

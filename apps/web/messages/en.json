@@ -55,7 +55,13 @@
     "noMatch": "No matching results",
     "selectAll": "Select all",
     "uploading": "Uploading…",
-    "reading": "Reading…"
+    "reading": "Reading…",
+    "mdTabMd": "MD",
+    "mdTabView": "Preview",
+    "mdImport": "Import MD",
+    "mdEmpty": "No content",
+    "mdImportFailed": "Import failed",
+    "mdPlaceholder": "Type or paste Markdown here…"
   },
   "auth": {
     "loginTitle": "Sign in to ACMS",
@@ -272,9 +278,6 @@
       "tabMemory": "Memory",
       "tabSoul": "Soul",
       "tabUser": "User",
-      "mdEditorPreview": "Preview",
-      "mdImport": "Import MD",
-      "mdEmpty": "(empty)",
       "skillToolsHint": "Tool toggles (only checked tools can be called; none checked = all built-in tools allowed)",
       "loadingTools": "Loading…",
       "heartbeatEnable": "Enable Heartbeat (scheduled self-check / proactive push)",
@@ -404,10 +407,7 @@
       "note": "Summary",
       "tags": "Tags (comma separated)",
       "description": "Description",
-      "mdEdit": "MD",
-      "mdPreview": "Preview",
-      "mdImport": "Import MD",
-      "mdEmpty": "(no content yet; write or import a doc in MD mode)",
+      "mdDoc": "SKILL.md doc",
       "save": "Save",
       "saving": "Saving…",
       "cancel": "Cancel"

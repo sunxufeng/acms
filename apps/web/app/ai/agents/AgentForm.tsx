@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import MarkdownField from '../../../components/MarkdownField';
 
 export type Agent = {
   id?: string;
@@ -51,56 +50,8 @@ const TABS = [
 
 type TabKey = typeof TABS[number]['key'];
 
-// ── MD editor component (uses app CSS classes) ───────────────────
-
-function MdEditor({ value, onChange, placeholder, label }: { value: string; onChange: (v: string) => void; placeholder?: string; label?: string }) {
-  const t = useTranslations('ai.agents');
-  const [mode, setMode] = useState<'edit' | 'preview'>('edit');
-
-  async function importMd(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const text = await f.text();
-    onChange(text);
-    e.target.value = '';
-  }
-
-  return (
-    <div>
-      {/* Toolbar */}
-      <div className="md-editor-toolbar">
-        <div className="md-pills">
-          <button type="button" className={`md-pill${mode === 'edit' ? ' active' : ''}`} onClick={() => setMode('edit')}>MD</button>
-          <button type="button" className={`md-pill${mode === 'preview' ? ' active' : ''}`} onClick={() => setMode('preview')}>{t('mdEditorPreview')}</button>
-        </div>
-        <label className="md-import-label">
-          {t('mdImport')}
-          <input type="file" accept=".md,.txt,.markdown" onChange={importMd} style={{ display: 'none' }} />
-        </label>
-      </div>
-
-      {label && <div className="form-hint" style={{ marginBottom: 8 }}>{label}</div>}
-
-      {mode === 'edit' ? (
-        <textarea
-          className="form-input md-textarea"
-          rows={10}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-        />
-      ) : (
-        <div className="md-preview">
-          {value ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown>
-          ) : (
-            <span className="md-empty">{t('mdEmpty')}</span>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+// MD 编辑器统一复用全站标准组件 components/MarkdownField
+// （MD / 浏览双 Tab + MD 导入，高度与 CrudPage 一致用 300）
 
 // ── Tool checkbox item ───────────────────────────────────────────
 
@@ -235,7 +186,8 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
     switch (activeTab) {
       case 'agent':
         return (
-          <MdEditor
+          <MarkdownField
+            height={300}
             label={`${t('tabAgent')} (Markdown)`}
             value={form.systemPrompt || ''}
             onChange={(v) => setForm({ ...form, systemPrompt: v })}
@@ -246,7 +198,8 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
       case 'skill':
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <MdEditor
+            <MarkdownField
+              height={300}
               label={`${t('tabSkill')} (Markdown)`}
               value={form.description || ''}
               onChange={(v) => setForm({ ...form, description: v })}
@@ -419,7 +372,8 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
                   </div>
                 </div>
 
-                <MdEditor
+                <MarkdownField
+                  height={300}
                   label={t('hbPrompt')}
                   value={form.heartbeatPrompt || ''}
                   onChange={(v) => setForm({ ...form, heartbeatPrompt: v })}
@@ -432,7 +386,8 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
 
       case 'identity':
         return (
-          <MdEditor
+          <MarkdownField
+            height={300}
             label={`${t('tabIdentity')} (Markdown)`}
             value={form.identityPrompt || ''}
             onChange={(v) => setForm({ ...form, identityPrompt: v })}
@@ -442,7 +397,8 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
 
       case 'memory':
         return (
-          <MdEditor
+          <MarkdownField
+            height={300}
             label={`${t('tabMemory')} (Markdown)`}
             value={form.memoryPrompt || ''}
             onChange={(v) => setForm({ ...form, memoryPrompt: v })}
@@ -452,7 +408,8 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
 
       case 'soul':
         return (
-          <MdEditor
+          <MarkdownField
+            height={300}
             label={`${t('tabSoul')} (Markdown)`}
             value={form.soulPrompt || ''}
             onChange={(v) => setForm({ ...form, soulPrompt: v })}
@@ -462,7 +419,8 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
 
       case 'user':
         return (
-          <MdEditor
+          <MarkdownField
+            height={300}
             label={`${t('tabUser')} (Markdown)`}
             value={form.userScope || ''}
             onChange={(v) => setForm({ ...form, userScope: v })}

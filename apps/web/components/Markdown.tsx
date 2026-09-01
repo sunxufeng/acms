@@ -2,22 +2,10 @@
 
 import React from 'react';
 
-const MD_STYLE = `
-.md { font-size: 14px; line-height: 1.65; word-break: break-word; }
-.md > :first-child { margin-top: 0; }
-.md > :last-child { margin-bottom: 0; }
-.md p { margin: 0 0 8px; }
-.md ul, .md ol { margin: 0 0 8px; padding-left: 22px; }
-.md li { margin: 2px 0; }
-.md h3, .md h4, .md h5, .md h6 { margin: 8px 0 6px; font-weight: 700; line-height: 1.35; }
-.md h3 { font-size: 16px; } .md h4 { font-size: 15px; } .md h5, .md h6 { font-size: 14px; }
-.md code.md-inline-code { background: rgba(127,127,127,0.20); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.md pre.md-pre { background: rgba(0,0,0,0.30); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 0 0 8px; }
-.md pre.md-pre code { font-size: 12.5px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.md blockquote.md-quote { border-left: 3px solid var(--accent); margin: 0 0 8px; padding: 2px 10px; color: var(--text-muted); }
-.md hr.md-hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
-.md a { color: var(--accent); text-decoration: underline; }
-`;
+// 本组件是自研的轻量 Markdown 解析器（供 AI 输出等只读场景使用）。
+// 样式统一来自 globals.css 的 .md 规则集，与 components/MarkdownField.tsx
+// （react-markdown + GFM）共用同一套样式，保证观感一致。
+// 注意：本解析器不支持 GFM（表格、任务列表、删除线），需要这些能力请用 MarkdownField。
 
 // 行内格式：**粗体** *斜体* `代码` [文本](链接)。支持换行 → <br/>。
 function tokenize(text: string, keyPrefix: string): React.ReactNode[] {
@@ -127,10 +115,5 @@ export default function Markdown({ children }: { children: string }) {
     blocks.push(<p key={key++} className="md-p">{renderInline(para.join('\n'), `p${key}`)}</p>);
   }
 
-  return (
-    <>
-      <style>{MD_STYLE}</style>
-      <div className="md">{blocks}</div>
-    </>
-  );
+  return <div className="md">{blocks}</div>;
 }

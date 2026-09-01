@@ -55,7 +55,13 @@
     "noMatch": "没有符合条件的结果",
     "selectAll": "全选",
     "uploading": "上传中…",
-    "reading": "读取中…"
+    "reading": "读取中…",
+    "mdTabMd": "MD",
+    "mdTabView": "浏览",
+    "mdImport": "MD 导入",
+    "mdEmpty": "暂无内容",
+    "mdImportFailed": "导入失败",
+    "mdPlaceholder": "在此输入 / 粘贴 Markdown 内容…"
   },
   "auth": {
     "loginTitle": "登录 ACMS",
@@ -272,9 +278,6 @@
       "tabMemory": "Memory",
       "tabSoul": "Soul",
       "tabUser": "User",
-      "mdEditorPreview": "预览",
-      "mdImport": "MD 导入",
-      "mdEmpty": "（无内容）",
       "skillToolsHint": "可用工具开关（仅勾选的工具该智能体才能调用；全不选 = 放开全部内置工具）",
       "loadingTools": "加载中…",
       "heartbeatEnable": "启用心跳（定时自检 / 主动推送）",
@@ -404,10 +407,7 @@
       "note": "一句话说明",
       "tags": "标签（逗号分隔）",
       "description": "描述",
-      "mdEdit": "MD",
-      "mdPreview": "预览",
-      "mdImport": "MD 导入",
-      "mdEmpty": "（暂无内容，请先在 MD 模式下编写或导入文档）",
+      "mdDoc": "SKILL.md 文档",
       "save": "保存",
       "saving": "保存中…",
       "cancel": "取消"

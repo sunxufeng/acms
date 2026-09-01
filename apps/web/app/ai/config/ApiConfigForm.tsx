@@ -172,7 +172,7 @@ export function ApiConfigForm({ initial, onDone }: { initial?: ApiConfig | null;
       {error && <p className="msg-error">{error}</p>}
       {testMessage && <p className="msg-success">{testMessage}</p>}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-md)' }}>
         <button type="button" className="btn btn-outline" disabled={testing} onClick={testConnection}>{testing ? t('testing') : t('testConnection')}</button>
         <div style={{ display: 'flex', gap: 10 }}>
           <button type="button" className="btn btn-ghost" onClick={onDone}>{t('cancel')}</button>

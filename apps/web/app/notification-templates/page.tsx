@@ -19,7 +19,7 @@ export default function NotificationTemplatesPage() {
   return (
     <CrudPage
       title="通知模板"
-      subtitle="消息模板维护（M4 通知闭环），新建/编辑时进入独立表单，顶部不再显示「新建」「查询」"
+      subtitle="通知模板"
       columns={TPL_COLUMNS}
       inlineEdit
       standaloneForm

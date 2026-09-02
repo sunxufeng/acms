@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { exportTable } from '../../lib/api';
 import { useTranslations } from 'next-intl';
+import { exportTable } from '../../lib/api';
+import { useTl } from '../../lib/useTl';
 
 const TABLES: { key: string; label: string }[] = [
   { key: 'studentProfile', label: '学生档案' },
@@ -31,7 +32,9 @@ const TABLES: { key: string; label: string }[] = [
 
 export default function ExportPage() {
 
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [selected, setSelected] = useState('studentProfile');
+  const tl = useTl();
+  const tc = useTranslations('common');
+  const [selected, setSelected] = useState('studentProfile');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -71,7 +74,7 @@ export default function ExportPage() {
         </div>
         <div style={{ marginTop: 16 }}>
           <button className="btn btn-primary" onClick={run} disabled={busy}>
-            {busy ? '导出中…' : '导出 CSV'}
+            {busy ? tc('exporting') : tc('exportCsv')}
           </button>
           {msg && <span style={{ marginLeft: 12 }} className="muted">{msg}</span>}
         </div>

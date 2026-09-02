@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
+import { useTl } from '../lib/useTl';
 import { api } from '../lib/api';
 
 const METHOD_OPTS = ['线下', '线上', '混合'];
@@ -34,6 +36,9 @@ export function SessionForm({
   initial?: Record<string, unknown>;
   onSubmit: (data: Record<string, unknown>) => void;
 }) {
+  const tl = useTl();
+  const t = useTranslations('academic');
+  const tc = useTranslations('common');
   const [values, setValues] = useState<Record<string, string>>(() => {
     const v: Record<string, string> = {};
     for (const f of FIELDS) {
@@ -90,7 +95,7 @@ export function SessionForm({
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <fieldset className="form-fieldset">
-        <legend className="form-legend">课次信息</legend>
+        <legend className="form-legend">{t('legendSessionInfo')}</legend>
         <div className="form-grid">
           {FIELDS.map((f) => (
             <label key={f.key} className="form-label">
@@ -106,7 +111,7 @@ export function SessionForm({
                 >
                   <option value="">（未填）</option>
                   {f.options?.map((o) => (
-                    <option key={o} value={o}>{o}</option>
+                    <option key={o} value={o}>{tl(o)}</option>
                   ))}
                 </select>
               ) : f.type === 'textarea' ? (
@@ -135,7 +140,7 @@ export function SessionForm({
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8 }}>
         <button type="submit" className="btn btn-primary" disabled={saving}>
-          {saving ? '保存中…' : '保存'}
+          {saving ? tc('saving') : tc('save')}
         </button>
       </div>
     </form>

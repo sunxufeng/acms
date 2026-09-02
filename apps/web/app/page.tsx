@@ -2,6 +2,7 @@
 
 import { useEffect, useState, FormEvent } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api, type SessionUser } from '../lib/api';
 
 interface Metrics {
@@ -17,6 +18,7 @@ interface SearchResult {
 }
 
 export default function Home() {
+  const tc = useTranslations('common');
   const [me, setMe] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -64,12 +66,12 @@ export default function Home() {
         <div className="page-header-row">
           <div>
             <h1 className="page-title">{greeting}，{me.name}</h1>
-            <p className="page-subtitle">实时运营概览（M6 仪表盘），数据按你的授权范围聚合。</p>
+            <p className="page-subtitle">{tc('dashboardSubtitle')}</p>
           </div>
           <div className="page-actions" style={{ minWidth: 280 }}>
             <form onSubmit={onSearch} style={{ display: 'flex', gap: 8 }}>
               <input className="form-input" placeholder="全局搜索：学生 / 教师 / 课程 / 教学班" value={q} onChange={(e) => setQ(e.target.value)} />
-              <button className="btn btn-outline" type="submit">搜索</button>
+              <button className="btn btn-outline" type="submit">{tc('search')}</button>
             </form>
             {results && (
               <div className="form-fieldset" style={{ marginTop: 8, textAlign: 'left' }}>
@@ -78,7 +80,7 @@ export default function Home() {
                 <SearchGroup title="课程方案" items={results.courses} href={() => '/courses'} />
                 <SearchGroup title="教学班" items={results.classes} href={() => '/teaching-classes'} />
                 {results.students.length + results.teachers.length + results.courses.length + results.classes.length === 0 && (
-                  <p className="muted" style={{ fontSize: 'var(--font-sm)' }}>无匹配结果</p>
+                  <p className="muted" style={{ fontSize: 'var(--font-sm)' }}>{tc('noMatchResult')}</p>
                 )}
               </div>
             )}
@@ -105,7 +107,7 @@ export default function Home() {
                 <span className="stat-number" style={{ fontSize: 'var(--font-md)' }}>{t.value}</span>
               </div>
             ))}
-            {(metrics?.todos ?? []).length === 0 && <p className="muted" style={{ fontSize: 'var(--font-sm)' }}>暂无待办</p>}
+            {(metrics?.todos ?? []).length === 0 && <p className="muted" style={{ fontSize: 'var(--font-sm)' }}>{tc('noTodos')}</p>}
           </div>
         </div>
 

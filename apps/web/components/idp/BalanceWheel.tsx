@@ -1,5 +1,7 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
+
 export interface WheelDim { dim: string; current: number; expected: number }
 
 /**
@@ -8,6 +10,7 @@ export interface WheelDim { dim: string; current: number; expected: number }
  *  - 不传 onChange → 只读展示。
  */
 export default function BalanceWheel({ dims, onChange }: { dims: WheelDim[]; onChange?: (d: WheelDim[]) => void }) {
+  const ti = useTranslations('idp');
   const N = dims.length || 1;
   const cx = 200, cy = 200, R = 150;
   const angle = (i: number) => (-90 + (360 / N) * i) * (Math.PI / 180);
@@ -45,14 +48,14 @@ export default function BalanceWheel({ dims, onChange }: { dims: WheelDim[]; onC
         {dims.map((d, i) => (
           <div key={d.dim} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
             <span style={{ width: 84, fontSize: 'var(--font-sm)' }}>{d.dim}</span>
-            <label style={{ fontSize: 'var(--font-sm)', color: 'var(--chart-current)' }}>当前</label>
+            <label style={{ fontSize: 'var(--font-sm)', color: 'var(--chart-current)' }}>{ti('wheelCurrent')}</label>
             {editable ? (
               <input type="number" min={0} max={10} value={d.current} style={{ width: 64 }}
                 onChange={(e) => { const v = Number(e.target.value); const n = [...dims]; n[i] = { ...n[i], current: v }; onChange!(n); }} />
             ) : (
               <span style={{ width: 64, fontSize: 'var(--font-sm)', fontWeight: 500 }}>{d.current || 0}</span>
             )}
-            <label style={{ fontSize: 'var(--font-sm)', color: 'var(--accent)' }}>期望</label>
+            <label style={{ fontSize: 'var(--font-sm)', color: 'var(--accent)' }}>{ti('wheelExpected')}</label>
             {editable ? (
               <input type="number" min={0} max={10} value={d.expected} style={{ width: 64 }}
                 onChange={(e) => { const v = Number(e.target.value); const n = [...dims]; n[i] = { ...n[i], expected: v }; onChange!(n); }} />

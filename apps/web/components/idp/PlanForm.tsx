@@ -4,6 +4,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../../lib/api';
 import BalanceWheel, { type WheelDim } from './BalanceWheel';
 import Combobox from '../Combobox';
+import { useTl } from '../../lib/useTl';
+import { useTranslations } from 'next-intl';
 
 // ── 数据结构 ───────────────────────────────
 interface Goal { title: string; areas: string; importance: number; urgency: number; meaning: number; measures: string[]; note: string }
@@ -74,6 +76,9 @@ function Chips({ options, value, onChange }: { options: string[]; value: string[
 
 /** 内嵌表单：页眉由外层 CrudPage 的 standaloneForm 统一提供，保存或取消后回调 onDone。 */
 export default function PlanForm({ planId, onDone }: { planId?: string; onDone: () => void }) {
+  const t = useTranslations('common');
+  const ti = useTranslations('idp');
+  const tl = useTl();
   const isEdit = Boolean(planId);
   const [dicts, setDicts] = useState<Record<string, string[]>>({});
   const [students, setStudents] = useState<{ value: string; label: string }[]>([]);
@@ -192,23 +197,29 @@ export default function PlanForm({ planId, onDone }: { planId?: string; onDone: 
     } finally { setSaving(false); }
   }
 
-  const field = (key: string, node: ReactNode) => (
-    <div className="form-label">
-      <span className="form-label-text">{key}</span>
-      {node}
-    </div>
-  );
+  // key 是界面标签文案，可能带 ` *` 必填后缀。
+  // 后缀不属于字段语义，先剥掉再翻译，否则 labels 里查不到「关联学生 *」这类 key。
+  const field = (key: string, node: ReactNode) => {
+    const required = key.endsWith(' *');
+    const base = required ? key.slice(0, -2) : key;
+    return (
+      <div className="form-label">
+        <span className="form-label-text">{tl(base)}{required ? ' *' : ''}</span>
+        {node}
+      </div>
+    );
+  };
 
-  if (loading) return <div className="empty-state">加载中…</div>;
+  if (loading) return <div className="empty-state">{t('loading')}</div>;
 
   return (
     <>
-      <p className="page-subtitle">一个学生同一学期仅可创建一个 IDP 方案</p>
+      <p className="page-subtitle">{ti('onePlanPerTerm')}</p>
 
       {error && <p className="msg-error">{error}</p>}
 
       <fieldset className="form-fieldset">
-        <legend className="form-legend">基本信息</legend>
+        <legend className="form-legend">{tl('基本信息')}</legend>
         <div className="form-grid">
           {field('关联学生 *', (
             <Combobox value={str(form['关联学生'])} onChange={(v) => set('关联学生', v)} options={students} placeholder="输入或选择学生姓名" />
@@ -216,13 +227,13 @@ export default function PlanForm({ planId, onDone }: { planId?: string; onDone: 
           {field('学期 *', (
             <select className="form-input" value={str(form['学期'])} onChange={(e) => set('学期', e.target.value)}>
               <option value="">（未选）</option>
-              {(dicts['学期'] ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
+              {(dicts['学期'] ?? []).map((o) => <option key={o} value={o}>{tl(o)}</option>)}
             </select>
           ))}
           {field('导师', <Combobox value={str(form['导师'])} onChange={(v) => set('导师', v)} options={mentors} placeholder="输入或选择导师姓名" allowFreeText />)} 
           {field('状态', (
             <select className="form-input" value={str(form['状态'])} onChange={(e) => set('状态', e.target.value)}>
-              {(dicts['IDP状态'] ?? ['草稿', '待确认', '已确认', '已关闭']).map((o) => <option key={o} value={o}>{o}</option>)}
+              {(dicts['IDP状态'] ?? ['草稿', '待确认', '已确认', '已关闭']).map((o) => <option key={o} value={o}>{tl(o)}</option>)}
             </select>
           ))}
           {field('制定日期', <input type="date" className="form-input" value={str(form['制定日期'])} onChange={(e) => set('制定日期', e.target.value)} />)}
@@ -230,31 +241,31 @@ export default function PlanForm({ planId, onDone }: { planId?: string; onDone: 
       </fieldset>
 
       <fieldset className="form-fieldset">
-        <legend className="form-legend">人生平衡轮（当前值 vs 期望値）</legend>
+        <legend className="form-legend">{ti('balanceWheelForm')}</legend>
         <BalanceWheel dims={wheel} onChange={setWheel} />
       </fieldset>
 
       <fieldset className="form-fieldset">
-        <legend className="form-legend">目标制定与行动计划（目标1/2/3）</legend>
+        <legend className="form-legend">{ti('goalsSectionForm')}</legend>
         {goals.map((g, gi) => (
           <div key={gi} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <strong>目标 {gi + 1}</strong>
-              <button type="button" className="btn btn-danger btn-sm" onClick={() => setGoals(goals.filter((_, i) => i !== gi))}>删除目标</button>
+              <button type="button" className="btn btn-danger btn-sm" onClick={() => setGoals(goals.filter((_, i) => i !== gi))}>{ti('deleteGoal')}</button>
             </div>
             <div className="form-grid">
               {field('目标标题', <input className="form-input" value={g.title} onChange={(e) => { const n = [...goals]; n[gi] = { ...n[gi], title: e.target.value }; setGoals(n); }} />)}
               {field('提升领域', (
                 <select className="form-input" value={g.areas} onChange={(e) => { const n = [...goals]; n[gi] = { ...n[gi], areas: e.target.value }; setGoals(n); }}>
                   <option value="">（未选）</option>
-                  {areas.map((o) => <option key={o} value={o}>{o}</option>)}
+                  {areas.map((o) => <option key={o} value={o}>{tl(o)}</option>)}
                 </select>
               ))}
             </div>
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 10 }}>
-              <div><div style={{ fontSize: 'var(--font-sm)', marginBottom: 4 }}>重要性</div><Stars value={g.importance} onChange={(v) => { const n = [...goals]; n[gi] = { ...n[gi], importance: v }; setGoals(n); }} /></div>
-              <div><div style={{ fontSize: 'var(--font-sm)', marginBottom: 4 }}>紧急程度</div><Stars value={g.urgency} onChange={(v) => { const n = [...goals]; n[gi] = { ...n[gi], urgency: v }; setGoals(n); }} /></div>
-              <div><div style={{ fontSize: 'var(--font-sm)', marginBottom: 4 }}>意义</div><Stars value={g.meaning} onChange={(v) => { const n = [...goals]; n[gi] = { ...n[gi], meaning: v }; setGoals(n); }} /></div>
+              <div><div style={{ fontSize: 'var(--font-sm)', marginBottom: 4 }}>{ti('importance')}</div><Stars value={g.importance} onChange={(v) => { const n = [...goals]; n[gi] = { ...n[gi], importance: v }; setGoals(n); }} /></div>
+              <div><div style={{ fontSize: 'var(--font-sm)', marginBottom: 4 }}>{ti('urgency')}</div><Stars value={g.urgency} onChange={(v) => { const n = [...goals]; n[gi] = { ...n[gi], urgency: v }; setGoals(n); }} /></div>
+              <div><div style={{ fontSize: 'var(--font-sm)', marginBottom: 4 }}>{ti('meaning')}</div><Stars value={g.meaning} onChange={(v) => { const n = [...goals]; n[gi] = { ...n[gi], meaning: v }; setGoals(n); }} /></div>
             </div>
             <div style={{ marginTop: 10 }}>{field('衡量方式', <Chips options={measures} value={g.measures} onChange={(v) => { const n = [...goals]; n[gi] = { ...n[gi], measures: v }; setGoals(n); }} />)}</div>
             <div style={{ marginTop: 10 }}>{field('其他说明', <textarea className="form-input" rows={2} value={g.note} onChange={(e) => { const n = [...goals]; n[gi] = { ...n[gi], note: e.target.value }; setGoals(n); }} />)}</div>
@@ -266,17 +277,17 @@ export default function PlanForm({ planId, onDone }: { planId?: string; onDone: 
       </fieldset>
 
       <fieldset className="form-fieldset">
-        <legend className="form-legend">阶段性预期成果</legend>
+        <legend className="form-legend">{ti('phaseTitle')}</legend>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th style={{ width: 80 }}>序号</th><th>时间节点</th><th>预期成果</th><th style={{ width: 80 }}>操作</th></tr></thead>
+            <thead><tr><th style={{ width: 80 }}>{ti('phaseNo')}</th><th>{ti('timeNode')}</th><th>{ti('expectedResult')}</th><th style={{ width: 80 }}>{t('actions')}</th></tr></thead>
             <tbody>
               {phases.map((p, pi) => (
                 <tr key={pi}>
                   <td><input className="form-input" value={p.no} onChange={(e) => { const n = [...phases]; n[pi] = { ...n[pi], no: e.target.value }; setPhases(n); }} /></td>
                   <td><input className="form-input" value={p.node} onChange={(e) => { const n = [...phases]; n[pi] = { ...n[pi], node: e.target.value }; setPhases(n); }} /></td>
                   <td><input className="form-input" value={p.result} onChange={(e) => { const n = [...phases]; n[pi] = { ...n[pi], result: e.target.value }; setPhases(n); }} /></td>
-                  <td><button type="button" className="btn btn-danger btn-sm" onClick={() => setPhases(phases.filter((_, i) => i !== pi))}>删除</button></td>
+                  <td><button type="button" className="btn btn-danger btn-sm" onClick={() => setPhases(phases.filter((_, i) => i !== pi))}>{t('delete')}</button></td>
                 </tr>
               ))}
             </tbody>
@@ -293,7 +304,7 @@ export default function PlanForm({ planId, onDone }: { planId?: string; onDone: 
           {field('展示方式', (
             <select className="form-input" value={str(form['展示方式'])} onChange={(e) => set('展示方式', e.target.value)}>
               <option value="">（未选）</option>
-              {(dicts['IDP展示方式'] ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
+              {(dicts['IDP展示方式'] ?? []).map((o) => <option key={o} value={o}>{tl(o)}</option>)}
             </select>
           ))}
           {field('邀请参与人员', <input className="form-input" value={str(form['邀请人员'])} onChange={(e) => set('邀请人员', e.target.value)} />)}
@@ -303,7 +314,7 @@ export default function PlanForm({ planId, onDone }: { planId?: string; onDone: 
       </fieldset>
 
       <fieldset className="form-fieldset">
-        <legend className="form-legend">确认（以时间替代电子签名）</legend>
+        <legend className="form-legend">{ti('confirmSection')}</legend>
         <div className="form-grid">
           {field('学生确认时间', <input type="datetime-local" className="form-input" value={toLocal(str(form['学生确认时间']))} onChange={(e) => set('学生确认时间', e.target.value)} />)}
           {field('导师确认时间', <input type="datetime-local" className="form-input" value={toLocal(str(form['导师确认时间']))} onChange={(e) => set('导师确认时间', e.target.value)} />)}
@@ -311,21 +322,21 @@ export default function PlanForm({ planId, onDone }: { planId?: string; onDone: 
       </fieldset>
 
       <fieldset className="form-fieldset">
-        <legend className="form-legend">原始文档（学生填写的 docx 附件，备查）</legend>
+        <legend className="form-legend">{ti('sourceDocSection')}</legend>
         <input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ''; }} disabled={uploading} />
-        {uploading && <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>上传中…</span>}
+        {uploading && <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{t('uploading')}</span>}
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {att.map((a, i) => (
             <div key={a.file_token ?? i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--font-sm)' }}>
               <a href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{a.name}</a>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAtt(att.filter((_, j) => j !== i))}>移除</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAtt(att.filter((_, j) => j !== i))}>{t('remove')}</button>
             </div>
           ))}
         </div>
       </fieldset>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-        <button className="btn btn-primary" onClick={submit} disabled={saving}>{saving ? '保存中…' : '保存'}</button>
+        <button className="btn btn-primary" onClick={submit} disabled={saving}>{saving ? t('saving') : t('save')}</button>
         <button className="btn btn-ghost" onClick={onDone}>取消</button>
       </div>
     </>

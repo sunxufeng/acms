@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
+import { useTl } from '../lib/useTl';
 import { api as apiClient, type Page } from '../lib/api';
 import MarkdownField from './MarkdownField';
 import TagInput from './TagInput';
@@ -229,7 +230,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const t = useTranslations();
   // 业务文案（页面传入的 title/列名/字段名/按钮/占位符）以中文原文为 key，
   // 中文环境 fallback 回原文，英文环境返回 labels 命名空间映射的英文。
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
+  const tl = useTl();
 
   const filterCols = columns.filter((c) => c.filter);
   const formCols = columns.filter((c) => c.form);
@@ -612,7 +613,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           ) : c.type === 'select' ? (
             <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
               <option value="">{t('common.notFilled')}</option>
-              {optionsFor(c).map((o) => <option key={o} value={o}>{o}</option>)}
+              {optionsFor(c).map((o) => <option key={o} value={o}>{tl(o)}</option>)}
             </select>
           ) : c.type === 'multiselect' ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -632,7 +633,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           ) : c.type === 'person' ? (
             <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
               <option value="">{t('common.notFilled')}</option>
-              {userNames.map((o) => <option key={o} value={o}>{o}</option>)}
+              {userNames.map((o) => <option key={o} value={o}>{tl(o)}</option>)}
             </select>
           ) : c.type === 'student' ? (
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentOptions} placeholder="输入学生姓名筛选…" />

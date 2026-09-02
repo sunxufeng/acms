@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 
 export interface TagInputProps {
   value: string[];
@@ -26,6 +27,8 @@ function TagInput({
   onPersist,
   quickAdd,
 }: TagInputProps) {
+  // 变量名为 tc：避免与下方 map 回调 / add() 内的局部变量 t 重名
+  const tc = useTranslations('common');
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -83,7 +86,7 @@ function TagInput({
         ))}
         <input
           className="tag-input"
-          placeholder={selected.length ? '继续添加…' : placeholder}
+          placeholder={selected.length ? tc('continueAdding') : placeholder}
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value);

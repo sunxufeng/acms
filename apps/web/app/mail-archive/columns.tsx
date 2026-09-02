@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
+import { useTranslations } from 'next-intl';
 import type { CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 
@@ -27,6 +28,7 @@ function fmtSize(n: number): string {
 
 /** 附件单元格：直接列出附件名，点击即换取下载链接并打开 */
 function AttachmentCell({ row }: { row: Record<string, unknown> }) {
+  const t = useTranslations('mailArchive');
   const [busy, setBusy] = useState<string | null>(null);
   const atts = parseAtts(row['附件信息']);
   const failed = String(row['附件失败原因'] ?? '').trim();
@@ -43,7 +45,7 @@ function AttachmentCell({ row }: { row: Record<string, unknown> }) {
       const { url } = await api.getMailAttachmentUrl(recordId, token);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch {
-      alert('附件下载链接获取失败，请稍后重试');
+      alert(t('attachmentUrlFailed'));
     } finally {
       setBusy(null);
     }
@@ -107,6 +109,7 @@ type Linked = { id: string; name: string };
  * 父级 CrudPage 重新拉取数据时（过滤/翻页）通过 seed 同步重置。
  */
 function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
+  const t = useTranslations('mailArchive');
   const recordId = String(row.id ?? '');
   const seedIds = Array.isArray(row['关联学生__link']) ? (row['关联学生__link'] as string[]) : [];
   const seedNames = String(row['关联学生'] ?? '')
@@ -158,7 +161,7 @@ function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
       setQ('');
       setCands([]);
     } catch (e) {
-      alert('关联失败：' + String((e as { message?: string })?.message ?? e));
+      alert(t('linkFailed', { msg: String((e as { message?: string })?.message ?? e) }));
     } finally {
       setSaving(false);
     }
@@ -173,7 +176,7 @@ function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
       );
       setLinked(linked.filter((l) => l.id !== id));
     } catch (e) {
-      alert('取消关联失败：' + String((e as { message?: string })?.message ?? e));
+      alert(t('unlinkFailed', { msg: String((e as { message?: string })?.message ?? e) }));
     } finally {
       setSaving(false);
     }
@@ -199,7 +202,7 @@ function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
           </a>
           <button
             type="button"
-            title="取消关联"
+            title={t('unlink')}
             disabled={saving}
             onClick={(e) => {
               e.preventDefault();
@@ -260,7 +263,7 @@ function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
             autoFocus
             value={q}
             onChange={(e) => doSearch(e.target.value)}
-            placeholder="搜索学生姓名 / 英文名"
+            placeholder={t('searchStudentNamePlaceholder')}
             style={{
               width: '100%',
               padding: '4px 8px',
@@ -274,7 +277,7 @@ function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
           <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto' }}>
             {cands.length === 0 && (
               <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-xs)' }}>
-                {q.trim() ? '无匹配学生' : '输入关键字搜索'}
+                {q.trim() ? t('noMatchStudent') : t('enterKeywordSearch')}
               </span>
             )}
             {cands.map((c) => (

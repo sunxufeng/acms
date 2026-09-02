@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { imageUrl } from '@acms/contracts';
 import { api } from '../../lib/api';
 
@@ -12,6 +13,8 @@ interface ImageFieldProps {
 }
 
 export default function ImageField({ label, value, onChange, placeholder }: ImageFieldProps) {
+  const t = useTranslations('settings');
+  const tc = useTranslations('common');
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -28,7 +31,7 @@ export default function ImageField({ label, value, onChange, placeholder }: Imag
       const res = await api.uploadFile(file);
       if (res.file_token) onChange(res.file_token);
     } catch (err) {
-      alert(`上传失败：${err instanceof Error ? err.message : '未知错误'}`);
+      alert(t('uploadFailedMsg', { msg: err instanceof Error ? err.message : t('unknownError') }));
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = '';
@@ -46,7 +49,7 @@ export default function ImageField({ label, value, onChange, placeholder }: Imag
           type="text"
           value={value || ''}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder || '图片 URL 或上传后显示 file_token'}
+          placeholder={placeholder || t('imageUrlPlaceholder')}
         />
         <button
           type="button"
@@ -54,14 +57,14 @@ export default function ImageField({ label, value, onChange, placeholder }: Imag
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
         >
-          {uploading ? '上传中…' : '上传'}
+          {uploading ? tc('uploading') : t('upload')}
         </button>
         <input ref={inputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
       </div>
       {previewUrl && !imgError ? (
         <img
           src={previewUrl}
-          alt="预览"
+          alt={t('preview')}
           onError={() => setImgError(true)}
           style={{
             width: '100%',

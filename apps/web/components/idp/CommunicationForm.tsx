@@ -5,6 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '../../lib/api';
 import MarkdownField from '../MarkdownField';
+import { useTl } from '../../lib/useTl';
+import { useTranslations } from 'next-intl';
 
 interface Att { file_token: string; name: string }
 
@@ -20,6 +22,9 @@ function attachmentFiles(v: unknown): Att[] {
 const EMPTY = { 沟通日期: '', 沟通人: '', 沟通内容: '', help: '', 原始文档: [] as Att[] };
 
 export default function CommunicationForm({ commId }: { commId?: string }) {
+  const t = useTranslations('common');
+  const ti = useTranslations('idp');
+  const tl = useTl();
   const params = useParams<{ id: string }>();
   const planId = params.id;
   const router = useRouter();
@@ -82,57 +87,57 @@ export default function CommunicationForm({ commId }: { commId?: string }) {
           </Link>
           <div>
             <div className="page-eyebrow">IDP / COMMUNICATION</div>
-            <h1 className="page-title">{commId ? '编辑沟通记录' : '新增沟通记录'}</h1>
-            <p className="page-subtitle">沟通内容 / 需要的帮助·下一步计划 支持 Markdown（MD · 浏览 · MD导入）</p>
+            <h1 className="page-title">{commId ? ti('editComm') : ti('newComm')}</h1>
+            <p className="page-subtitle">{ti('commSubtitle')}</p>
           </div>
         </div>
       </div>
 
       {error && <p className="msg-error">{error}</p>}
-      {loading ? <div className="empty-state">加载中…</div> : (
+      {loading ? <div className="empty-state">{t('loading')}</div> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <fieldset className="form-fieldset">
-            <legend className="form-legend">沟通信息</legend>
+            <legend className="form-legend">{ti('commInfo')}</legend>
             <div className="form-grid">
               <div className="form-label"><span className="form-label-text">沟通日期</span>
                 <input type="date" className="form-input" value={form.沟通日期} onChange={(e) => setForm((f) => ({ ...f, 沟通日期: e.target.value }))} />
               </div>
-              <div className="form-label"><span className="form-label-text">沟通人</span>
+              <div className="form-label"><span className="form-label-text">{tl('沟通人')}</span>
                 <input className="form-input" value={form.沟通人} onChange={(e) => setForm((f) => ({ ...f, 沟通人: e.target.value }))} />
               </div>
             </div>
           </fieldset>
 
           <fieldset className="form-fieldset">
-            <legend className="form-legend">沟通明细（MD 对话记录）</legend>
+            <legend className="form-legend">{tl('沟通明细（MD 对话记录）')}</legend>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="form-label">
                 <span className="form-label-text">沟通内容</span>
                 <MarkdownField value={form.沟通内容} onChange={(v) => setForm((f) => ({ ...f, 沟通内容: v }))} />
               </div>
               <div className="form-label">
-                <span className="form-label-text">需要的帮助 / 下一步计划</span>
+                <span className="form-label-text">{ti('helpNextStep')}</span>
                 <MarkdownField value={form.help} onChange={(v) => setForm((f) => ({ ...f, help: v }))} />
               </div>
             </div>
           </fieldset>
 
           <fieldset className="form-fieldset">
-            <legend className="form-legend">原始文档</legend>
+            <legend className="form-legend">{tl('原始文档')}</legend>
             <input type="file" disabled={uploading} onChange={(e) => { const fl = e.target.files?.[0]; if (fl) onUpload(fl); e.target.value = ''; }} />
-            {uploading && <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>上传中…</span>}
+            {uploading && <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{t('uploading')}</span>}
             <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {form.原始文档.map((a, i) => (
                 <div key={a.file_token ?? i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--font-sm)' }}>
                   <a href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{a.name}</a>
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setForm((f) => ({ ...f, 原始文档: f.原始文档.filter((_, j) => j !== i) }))}>移除</button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setForm((f) => ({ ...f, 原始文档: f.原始文档.filter((_, j) => j !== i) }))}>{t('remove')}</button>
                 </div>
               ))}
             </div>
           </fieldset>
 
           <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn btn-primary" onClick={submit} disabled={saving}>{saving ? '保存中…' : '保存'}</button>
+            <button className="btn btn-primary" onClick={submit} disabled={saving}>{saving ? t('saving') : t('save')}</button>
             <button className="btn btn-ghost" onClick={() => router.push(`/idp-plans/${planId}/communications`)}>取消</button>
           </div>
         </div>

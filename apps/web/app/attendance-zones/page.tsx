@@ -46,7 +46,7 @@ export default function AttendanceZonesPage() {
   return (
     <CrudPage
       title="考勤围栏"
-      subtitle="配置各校区 GPS 打卡中心点（WGS-84 经纬度）与允许 WiFi（SSID / BSSID）；移动端打卡时按就近围栏 + WiFi 校验（见 docs/student-portal-plan §6）"
+      subtitle="考勤围栏"
       columns={COLUMNS}
       statusField="状态"
       inlineEdit

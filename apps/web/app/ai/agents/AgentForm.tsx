@@ -377,7 +377,7 @@ export function AgentForm({ initial, onDone }: { initial?: Agent; onDone: () => 
                   label={t('hbPrompt')}
                   value={form.heartbeatPrompt || ''}
                   onChange={(v) => setForm({ ...form, heartbeatPrompt: v })}
-                  placeholder="# 心跳任务提示词\n\n当心跳触发时，将以下内容喂给智能体：\n\n- 当前时间：{{timestamp}}\n- 上次执行时间：{{lastRun}}\n\n请执行以下检查..."
+                  placeholder={t('hbPromptPlaceholder')}
                 />
               </>
             )}

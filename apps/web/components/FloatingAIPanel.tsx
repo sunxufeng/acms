@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslations } from 'next-intl';
 import { api } from '../lib/api';
 import Markdown from './Markdown';
 
@@ -57,6 +58,7 @@ export default function FloatingAIPanel({
   storageKey,
   placeholder = '输入你的问题，Enter 发送…',
 }: FloatingAIPanelProps) {
+  const t = useTranslations('ai');
   const [open, setOpen] = useState(false);
   const [dialog, setDialog] = useState<DialogRect>({ x: 0, y: 80, width: 560, height: 640 });
   const [dlgDragging, setDlgDragging] = useState(false);
@@ -244,7 +246,7 @@ export default function FloatingAIPanel({
     let sid = sessionId;
     if (!sid) {
       try {
-        const r = await api.aiCreateConversation({ title: `${title} · ${subject || '未命名'}` });
+        const r = await api.aiCreateConversation({ title: `${title} · ${subject || t('panelUnnamed')}` });
         sid = r.id;
         setSessionId(sid);
       } catch {
@@ -308,7 +310,7 @@ export default function FloatingAIPanel({
     e.target.value = '';
   }
 
-  const subjectText = subject || '（未选择对象）';
+  const subjectText = subject || t('panelNoSubject');
 
   const fab = !open && typeof document !== 'undefined'
     ? createPortal(
@@ -316,7 +318,7 @@ export default function FloatingAIPanel({
           type="button"
           className="ai-fab"
           disabled={disabled}
-          title={disabled ? (disabledHint ?? '暂无可分析的数据') : `打开 ${label}（可拖拽移动位置）`}
+          title={disabled ? (disabledHint ?? t('panelNoData')) : `打开 ${label}（可拖拽移动位置）`}
           style={fabPos ? { left: fabPos.x, top: fabPos.y, right: 'auto' } : undefined}
           onMouseDown={(e) => {
             if (!fabPos) return;
@@ -402,7 +404,7 @@ export default function FloatingAIPanel({
                   fontSize: 13,
                 }}
               >
-                <option value="">个人默认配置</option>
+                <option value="">{t('panelPersonalDefault')}</option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}（{a.provider || '—'}{a.model ? ` · ${a.model}` : ''}）
@@ -449,7 +451,7 @@ export default function FloatingAIPanel({
                           </span>
                           <div style={{ display: 'flex', gap: 8 }}>
                             <button onClick={cancelEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)' }}>取消</button>
-                            <button onClick={confirmEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: 'var(--accent)', color: 'var(--fg-on-accent)', border: 'none' }}>发送</button>
+                            <button onClick={confirmEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: 'var(--accent)', color: 'var(--fg-on-accent)', border: 'none' }}>{t('panelSend')}</button>
                           </div>
                         </div>
                       </div>
@@ -489,7 +491,7 @@ export default function FloatingAIPanel({
                 </div>
               );
             })}
-            {sending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>思考中…</div>}
+            {sending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{t('panelThinking')}</div>}
           </div>
 
           <div style={{ flexShrink: 0, borderTop: '1px solid var(--border)', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -532,10 +534,10 @@ export default function FloatingAIPanel({
                 }}
               />
               {sending ? (
-                <button type="button" className="btn btn-ghost btn-sm" onClick={stopGenerating} style={{ borderColor: 'var(--danger, #ff5c5c)', color: 'var(--danger, #ff5c5c)' }}>停止</button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={stopGenerating} style={{ borderColor: 'var(--danger, #ff5c5c)', color: 'var(--danger, #ff5c5c)' }}>{t('panelStop')}</button>
               ) : (
-                <button type="button" className="btn btn-primary btn-sm" disabled={disabled || sending || !input.trim()} onClick={() => send()}>
-                  发送
+                <button type="button" className="btn btn-primary btn-sm" disabled={disabled || sending || !input.trim()}                 onClick={() => send()}>
+                  {t('panelSend')}
                 </button>
               )}
             </div>

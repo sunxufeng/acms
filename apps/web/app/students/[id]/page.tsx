@@ -5,10 +5,13 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, type StudentRecord } from '../../../lib/api';
 import { StudentForm } from '../../../components/StudentForm';
+import { useTranslations } from 'next-intl';
 
 export default function StudentDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const t = useTranslations('students');
+  const tc = useTranslations('common');
   const id = String(params.id);
   const [student, setStudent] = useState<StudentRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,7 +40,7 @@ export default function StudentDetailPage() {
 
   if (loading) return <div className="empty-state" style={{ minHeight: '50vh' }}><div style={{ width: 28, height: 28, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /></div>;
   if (error) return <div className="page-header"><p className="msg-error">加载失败：{error}</p></div>;
-  if (!student) return <div className="page-header"><p style={{ color: 'var(--fg-tertiary)' }}>未找到</p></div>;
+  if (!student) return <div className="page-header"><p style={{ color: 'var(--fg-tertiary)' }}>{t('notFound')}</p></div>;
 
   const name = String(student['学生姓名'] ?? '—');
   const code = String(student['学生编号'] ?? '');
@@ -54,11 +57,11 @@ export default function StudentDetailPage() {
             <div>
               <div className="page-eyebrow">STUDENT / {code || id.slice(0, 6)}</div>
               <h1 className="page-title">学生档案 · {name}</h1>
-              <p className="page-subtitle">{code ? `编号：${code}` : ''}</p>
+              <p className="page-subtitle">{code ? t('codeLabel', { code }) : ''}</p>
             </div>
           </div>
           <div className="page-actions">
-            <button className="btn btn-primary btn-sm" onClick={() => router.push(`/students/${id}/edit`)}>编辑</button>
+            <button className="btn btn-primary btn-sm" onClick={() => router.push(`/students/${id}/edit`)}>{tc('edit')}</button>
           </div>
         </div>
       </div>
@@ -68,11 +71,11 @@ export default function StudentDetailPage() {
 
       {/* ── 相关邮件 ── */}
       <section style={{ marginTop: 24 }}>
-        <h2 style={{ fontSize: 16, margin: '0 0 12px' }}>相关邮件</h2>
+        <h2 style={{ fontSize: 16, margin: '0 0 12px' }}>{t('relatedMails')}</h2>
         {mailsLoading ? (
           <p style={{ color: 'var(--fg-tertiary)' }}>加载中…</p>
         ) : mails.length === 0 ? (
-          <p style={{ color: 'var(--fg-tertiary)' }}>暂无关联邮件</p>
+          <p style={{ color: 'var(--fg-tertiary)' }}>{t('noRelatedMails')}</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {mails.map((m) => (
@@ -84,7 +87,7 @@ export default function StudentDetailPage() {
                 <span className="badge" style={{ background: String(m['邮件方向']) === '发件' ? 'var(--success-muted)' : 'var(--accent-muted)', color: String(m['邮件方向']) === '发件' ? 'var(--success)' : 'var(--accent)' }}>
                   {String(m['邮件方向'] ?? '—')}
                 </span>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(m['主题'] ?? '(无主题)')}</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(m['主题'] ?? t('noSubject'))}</span>
                 <span style={{ color: 'var(--fg-tertiary)', fontSize: 12, flexShrink: 0 }}>{String(m['发送时间'] ?? '')}</span>
               </Link>
             ))}

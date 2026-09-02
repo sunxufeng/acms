@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
+import { useTl } from '../lib/useTl';
+import { useTranslations } from 'next-intl';
 
 export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone' | 'textarea' | 'number' | 'typescore';
 
@@ -267,6 +269,7 @@ function TagInput({
   onPersist: (tag: string) => void;
   readOnly: boolean;
 }) {
+  const ts = useTranslations('students');
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const selected = Array.isArray(value) ? value : [];
@@ -299,7 +302,7 @@ function TagInput({
         {!readOnly && (
           <input
             className="tag-input"
-            placeholder={selected.length ? '继续添加…' : '选择或输入标签'}
+            placeholder={selected.length ? ts('continueAdd') : ts('selectOrInputTag')}
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);
@@ -348,6 +351,7 @@ function UserField({
   users: { openId: string; name: string; role?: string; campus?: string; teacherType?: string }[];
   title?: string;
 }) {
+  const ts = useTranslations('students');
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ids = toStringArray(value);
@@ -383,7 +387,7 @@ function UserField({
           />
         </div>
         <div className="user-picker-list">
-          {filtered.length === 0 && <div className="user-picker-empty">无匹配用户</div>}
+          {filtered.length === 0 && <div className="user-picker-empty">{ts('noMatchUser')}</div>}
           {filtered.map((u) => {
             const isSel = u.openId === selectedId;
             return (
@@ -456,6 +460,7 @@ function UserDisplay({
   users: { openId: string; name: string; role?: string; campus?: string }[];
   hint?: string;
 }) {
+  const ts = useTranslations('students');
   const ids = toStringArray(value);
   const u = users.find((x) => x.openId === ids[0]);
   return (
@@ -470,7 +475,7 @@ function UserDisplay({
         </span>
       )}
       <div className="user-pick-meta">
-        <div className="user-pick-name">{u?.name || ids[0] || '未设置'}</div>
+        <div className="user-pick-name">{u?.name || ids[0] || ts('notSet')}</div>
         <div className="user-pick-sub">{hint ?? (u?.role || u?.campus || '')}</div>
       </div>
     </div>
@@ -489,12 +494,15 @@ function DocInfoEditor({
   options: string[];
   readOnly: boolean;
 }) {
+  const t = useTranslations('common');
+  const ts = useTranslations('students');
+  const tl = useTl();
   const [type, setType] = useState('');
   const [num, setNum] = useState('');
   const list = Array.isArray(value) ? (value as { type: string; number: string }[]) : [];
   const add = () => {
-    if (!type) { alert('请选择证件类型'); return; }
-    if (!num.trim()) { alert('请填写证件号码'); return; }
+    if (!type) { alert(ts('pleaseSelectIdType')); return; }
+    if (!num.trim()) { alert(ts('pleaseInputIdNumber')); return; }
     onChange([...list, { type, number: num.trim() }]);
     setType('');
     setNum('');
@@ -504,9 +512,9 @@ function DocInfoEditor({
     <div className="docinfo-editor">
       <div className="docinfo-add-row">
         <select className="form-input" value={type} disabled={readOnly} onChange={(e) => setType(e.target.value)}>
-          <option value="">证件类型</option>
+          <option value="">{ts('idType')}</option>
           {options.map((o) => (
-            <option key={o} value={o}>{o}</option>
+            <option key={o} value={o}>{tl(o)}</option>
           ))}
         </select>
         <input
@@ -517,16 +525,16 @@ function DocInfoEditor({
           onChange={(e) => setNum(e.target.value)}
         />
         {!readOnly && (
-          <button type="button" className="btn btn-primary btn-sm" onClick={add}>添加</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={add}>{ts('addEntry')}</button>
         )}
       </div>
       {list.length > 0 && (
         <table className="data-table docinfo-list">
           <thead>
             <tr>
-              <th style={{ width: '40%' }}>证件类型</th>
-              <th>证件号码</th>
-              {!readOnly && <th style={{ width: 80 }}>操作</th>}
+              <th style={{ width: '40%' }}>{ts('idType')}</th>
+              <th>{tl('证件号码')}</th>
+              {!readOnly && <th style={{ width: 80 }}>{t('actions')}</th>}
             </tr>
           </thead>
           <tbody>
@@ -536,7 +544,7 @@ function DocInfoEditor({
                 <td>{d.number}</td>
                 {!readOnly && (
                   <td>
-                    <button type="button" className="btn btn-danger btn-sm" onClick={() => remove(i)}>删除</button>
+                    <button type="button" className="btn btn-danger btn-sm" onClick={() => remove(i)}>{t('delete')}</button>
                   </td>
                 )}
               </tr>
@@ -564,12 +572,15 @@ function TypeScoreEditor({
   scoreLabel: string;
   readOnly: boolean;
 }) {
+  const t = useTranslations('common');
+  const ts = useTranslations('students');
+  const tl = useTl();
   const [type, setType] = useState('');
   const [score, setScore] = useState('');
   const list = Array.isArray(value) ? (value as { type: string; score: string }[]) : [];
   const add = () => {
-    if (!type) { alert(`请选择${typeLabel}`); return; }
-    if (!score.trim()) { alert(`请填写${scoreLabel}`); return; }
+    if (!type) { alert(ts('pleaseSelectLabel', { label: typeLabel })); return; }
+    if (!score.trim()) { alert(ts('pleaseInputLabel', { label: scoreLabel })); return; }
     onChange([...list, { type, score: score.trim() }]);
     setType('');
     setScore('');
@@ -581,7 +592,7 @@ function TypeScoreEditor({
         <select className="form-input" value={type} disabled={readOnly} onChange={(e) => setType(e.target.value)}>
           <option value="">{typeLabel}</option>
           {options.map((o) => (
-            <option key={o} value={o}>{o}</option>
+            <option key={o} value={o}>{tl(o)}</option>
           ))}
         </select>
         <input
@@ -592,7 +603,7 @@ function TypeScoreEditor({
           onChange={(e) => setScore(e.target.value)}
         />
         {!readOnly && (
-          <button type="button" className="btn btn-primary btn-sm" onClick={add}>添加</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={add}>{ts('addEntry')}</button>
         )}
       </div>
       {list.length > 0 && (
@@ -601,7 +612,7 @@ function TypeScoreEditor({
             <tr>
               <th style={{ width: '40%' }}>{typeLabel}</th>
               <th>{scoreLabel}</th>
-              {!readOnly && <th style={{ width: 80 }}>操作</th>}
+              {!readOnly && <th style={{ width: 80 }}>{t('actions')}</th>}
             </tr>
           </thead>
           <tbody>
@@ -611,7 +622,7 @@ function TypeScoreEditor({
                 <td>{d.score}</td>
                 {!readOnly && (
                   <td>
-                    <button type="button" className="btn btn-danger btn-sm" onClick={() => remove(i)}>删除</button>
+                    <button type="button" className="btn btn-danger btn-sm" onClick={() => remove(i)}>{t('delete')}</button>
                   </td>
                 )}
               </tr>
@@ -634,6 +645,9 @@ export function StudentForm({
   submitting?: boolean;
   readOnly?: boolean;
 }) {
+  const tl = useTl();
+  const ts = useTranslations('students');
+  const tc = useTranslations('common');
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     const v: Record<string, unknown> = {};
     if (initial) {
@@ -730,11 +744,12 @@ function PhotoAttachmentSection({
   onAttRemove: (fileToken: string) => void;
   onPhotoRemove: (fileToken: string) => void;
 }) {
+  const ts = useTranslations('students');
   return (
     <div className="photo-att-row">
       {/* 照片 */}
       <fieldset className="form-fieldset" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <legend className="form-legend">学生照片</legend>
+        <legend className="form-legend">{ts('studentPhoto')}</legend>
         <div style={{ flex: 1, display: 'flex', alignItems: 'flex-start', gap: 24 }}>
           <div className="student-photo-wrap">
             {photos.length > 0 ? (
@@ -746,14 +761,14 @@ function PhotoAttachmentSection({
               />
             ) : (
               <div className="student-photo-placeholder">
-                <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-xs)' }}>暂无照片</span>
+                <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-xs)' }}>{ts('noPhoto')}</span>
               </div>
             )}
           </div>
           {!readOnly && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 4 }}>
               <button type="button" className="btn btn-outline btn-sm" onClick={onPhotoUpload} disabled={uploadingPhoto}>
-                {uploadingPhoto ? '上传中...' : '上传照片'}
+                {uploadingPhoto ? ts('uploadingFile') : ts('uploadPhoto')}
               </button>
               {photos.length > 0 && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -777,16 +792,16 @@ function PhotoAttachmentSection({
 
       {/* 附件 */}
       <fieldset className="form-fieldset" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <legend className="form-legend">证件与文件</legend>
+        <legend className="form-legend">{ts('idDocuments')}</legend>
         <div style={{ flex: 1 }}>
           {attachments.length === 0 ? (
-            <p style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>暂无附件</p>
+            <p style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>{ts('noAttachment')}</p>
           ) : (
             <div className="attachment-list">
               {attachments.map((att, i) => (
                 <div key={att.file_token ?? i} className="attachment-item" style={{ justifyContent: 'space-between' }}>
                   <a href={getFileUrl(att)} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    <span>{att.name || `文件${i + 1}`}</span>
+                    <span>{att.name || ts('fileIndex', { index: i + 1 })}</span>
                   </a>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                     {formatUploadTime(att.uploadedAt) && (
@@ -811,7 +826,7 @@ function PhotoAttachmentSection({
         {!readOnly && (
           <div style={{ marginTop: 10 }}>
             <button type="button" className="btn btn-outline btn-sm" onClick={onAttUpload} disabled={uploadingAtt}>
-              {uploadingAtt ? '上传中...' : '上传附件'}
+              {uploadingAtt ? ts('uploadingFile') : ts('uploadAttachment')}
             </button>
           </div>
         )}
@@ -963,14 +978,14 @@ function PhotoAttachmentSection({
     const file = e.target.files?.[0];
     if (!file) return;
     // 仅允许图片
-    if (!file.type.startsWith('image/')) { alert('请选择图片文件'); return; }
-    if (!values['学生姓名']?.toString().trim()) { alert('请先填写「学生姓名」再上传照片'); return; }
+    if (!file.type.startsWith('image/')) { alert(ts('pleaseSelectImageFile')); return; }
+    if (!values['学生姓名']?.toString().trim()) { alert(ts('fillNameBeforeUploadPhoto')); return; }
     setUploadingPhoto(true);
     try {
       const id = await ensureRecord();
       const res = await api.uploadStudentPhoto(id, file);
       setPhotos((prev) => [...prev, { file_token: res.file_token, viewUrl: res.viewUrl }]);
-    } catch (err) { alert('上传失败：' + (err as Error).message); }
+    } catch (err) { alert(ts('uploadFailedMsg', { msg: (err as Error).message })); }
     finally { setUploadingPhoto(false); if (photoInputRef.current) photoInputRef.current.value = ''; }
   };
 
@@ -978,13 +993,13 @@ function PhotoAttachmentSection({
   const handleAttUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!values['学生姓名']?.toString().trim()) { alert('请先填写「学生姓名」再上传附件'); return; }
+    if (!values['学生姓名']?.toString().trim()) { alert(ts('fillNameBeforeUploadAtt')); return; }
     setUploadingAtt(true);
     try {
       const id = await ensureRecord();
       const res = await api.uploadStudentAttachment(id, file);
       setAttachments((prev) => [...prev, { file_token: res.file_token, name: res.name, viewUrl: res.viewUrl, uploadedAt: new Date().toISOString() }]);
-    } catch (err) { alert('上传失败：' + (err as Error).message); }
+    } catch (err) { alert(ts('uploadFailedMsg', { msg: (err as Error).message })); }
     finally {     setUploadingAtt(false); if (attInputRef.current) attInputRef.current.value = ''; }
   };
 
@@ -996,11 +1011,11 @@ function PhotoAttachmentSection({
       setAttachments((prev) => prev.filter((a) => a.file_token !== fileToken));
       return;
     }
-    if (!confirm('确定移除该附件？')) return;
+    if (!confirm(ts('confirmRemoveAttachment'))) return;
     try {
       await api.deleteStudentAttachment(studentId, fileToken);
       setAttachments((prev) => prev.filter((a) => a.file_token !== fileToken));
-    } catch (err) { alert('移除失败：' + (err as Error).message); }
+    } catch (err) { alert(ts('removeFailedMsg', { msg: (err as Error).message })); }
   };
 
   /** 移除照片 */
@@ -1011,11 +1026,11 @@ function PhotoAttachmentSection({
       setPhotos((prev) => prev.filter((p) => p.file_token !== fileToken));
       return;
     }
-    if (!confirm('确定移除该照片？')) return;
+    if (!confirm(ts('confirmRemovePhoto'))) return;
     try {
       await api.deleteStudentPhoto(studentId, fileToken);
       setPhotos((prev) => prev.filter((p) => p.file_token !== fileToken));
-    } catch (err) { alert('移除失败：' + (err as Error).message); }
+    } catch (err) { alert(ts('removeFailedMsg', { msg: (err as Error).message })); }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1030,7 +1045,7 @@ function PhotoAttachmentSection({
         setStudentId(created.id);
       }
       onSubmit(data);
-    } catch (err) { alert('保存失败：' + (err as Error).message); }
+    } catch (err) { alert(ts('saveFailedMsg', { msg: (err as Error).message })); }
     finally { setSaving(false); }
   };
 
@@ -1054,11 +1069,12 @@ function PhotoAttachmentSection({
 
       {STUDENT_SECTIONS.map((section) => (
         <fieldset key={section.title} className="form-fieldset">
-          <legend className="form-legend">{section.title}</legend>
+          <legend className="form-legend">{tl(section.title)}</legend>
           <div className="form-grid">
             {section.fields.map((f) => (
               <label key={f.key} className="form-label">
-                <span className="form-label-text">{f.label}</span>
+                {/* f.label 同时是飞书字段名（数据 key），只能在渲染时翻译，不能把中文换成 i18n key */}
+                <span className="form-label-text">{tl(f.label)}</span>
                 {f.type === 'select' ? (
                   <select
                     className="form-input"
@@ -1074,7 +1090,7 @@ function PhotoAttachmentSection({
                       ? (provinceCities[String(values['现居住省'] ?? '')] ?? [])
                       : optionsFor(f)
                     ).map((o) => (
-                      <option key={o} value={o}>{o}</option>
+                      <option key={o} value={o}>{tl(o)}</option>
                     ))}
                   </select>
                 ) : f.type === 'multiselect' ? (
@@ -1108,7 +1124,7 @@ function PhotoAttachmentSection({
                   >
                     {f.singleChoice && <option value="">—</option>}
                     {optionsFor(f).map((o) => (
-                      <option key={o} value={o}>{o}</option>
+                      <option key={o} value={o}>{tl(o)}</option>
                     ))}
                   </select>
                   )
@@ -1188,7 +1204,7 @@ function PhotoAttachmentSection({
           </div>
           {section.title === '联系方式' && (
             <div className="docinfo-block">
-              <div className="form-label-text" style={{ margin: 'var(--space-md) 0 var(--space-xs)' }}>证件信息（类型 + 号码）</div>
+              <div className="form-label-text" style={{ margin: 'var(--space-md) 0 var(--space-xs)' }}>{ts('docInfoBlockTitle')}</div>
               <DocInfoEditor
                 value={values['证件信息']}
                 onChange={(v) => setField('证件信息', v)}
@@ -1203,7 +1219,7 @@ function PhotoAttachmentSection({
       {!readOnly && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8 }}>
           <button type="submit" className="btn btn-primary" disabled={saving || submitting}>
-            {saving ? '保存中…' : '保存'}
+            {saving ? tc('saving') : tc('save')}
           </button>
           {!initial && (
             <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>

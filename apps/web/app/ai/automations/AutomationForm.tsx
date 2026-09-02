@@ -23,6 +23,8 @@ type UserOption = { openId: string; name: string; role?: string };
 
 export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; onDone: () => void }) {
   const t = useTranslations('ai.automations');
+  // 通用文案（「（未设置）」等）放在 ai 命名空间根层
+  const ta = useTranslations('ai');
   const isEdit = !!initial?.id;
   const [title, setTitle] = useState(initial?.title || '');
   const [description, setDescription] = useState(initial?.description || '');
@@ -138,7 +140,7 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
             <div className="form-label">
               <span className="form-label-text">{t('inheritConfig')}</span>
               <p className="form-hint" style={{ margin: 0 }}>
-                {t('inheritProvider')}：{selAgent.provider || '（未设置）'} ／ {t('inheritModel')}：{selAgent.model || '（未设置）'}
+                {t('inheritProvider')}：{selAgent.provider || ta('notSet')} ／ {t('inheritModel')}：{selAgent.model || ta('notSet')}
               </p>
             </div>
           )}

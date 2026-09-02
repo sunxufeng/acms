@@ -6,8 +6,11 @@ import Link from 'next/link';
 import { api } from '../../../lib/api';
 import { COLUMNS } from '../columns';
 import CrudView from '../../../components/CrudView';
+import { useTranslations } from 'next-intl';
 
 export default function StudentAttendanceDetailPage() {
+  const t = useTranslations('common');
+  const ts = useTranslations('students');
   const params = useParams();
   const router = useRouter();
   const id = String(params.id);
@@ -26,7 +29,7 @@ export default function StudentAttendanceDetailPage() {
 
   if (loading) return <div className="empty-state" style={{ minHeight: '50vh' }}><div style={{ width: 28, height: 28, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /></div>;
   if (error) return <div className="page-header"><p className="msg-error">加载失败：{error}</p></div>;
-  if (!record) return <div className="page-header"><p style={{ color: 'var(--fg-tertiary)' }}>未找到</p></div>;
+  if (!record) return <div className="page-header"><p style={{ color: 'var(--fg-tertiary)' }}>{ts('notFound')}</p></div>;
 
   const studentName = (() => {
     const v = record['关联学生编号'];
@@ -47,11 +50,11 @@ export default function StudentAttendanceDetailPage() {
             <div>
               <div className="page-eyebrow">STUDENT-ATTENDANCE / {String(record['考勤日期'] ?? id.slice(0, 6))}</div>
               <h1 className="page-title">学生考勤详情 · {studentName}</h1>
-              <p className="page-subtitle">仅查看，不可修改</p>
+              <p className="page-subtitle">{ts('subtitleViewOnly')}</p>
             </div>
           </div>
           <div className="page-actions">
-            <button className="btn btn-outline btn-sm" onClick={() => router.push('/student-attendances')}>返回列表</button>
+            <button className="btn btn-outline btn-sm" onClick={() => router.push('/student-attendances')}>{t('backToList')}</button>
           </div>
         </div>
       </div>

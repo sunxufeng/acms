@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
@@ -15,6 +16,7 @@ function str(v: unknown): string {
 }
 
 export default function SourceFollowupsPage() {
+  const ts = useTranslations('students');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
 
   // 按学生聚合已选招生跟进记录，构建 AI 上下文
@@ -22,7 +24,7 @@ export default function SourceFollowupsPage() {
     if (selected.length === 0) return '（未选择招生跟进记录）';
     const byStudent = new Map<string, Record<string, unknown>[]>();
     for (const row of selected) {
-      const name = studentName(row) || '未知学生';
+      const name = studentName(row) || ts('unknownStudent');
       if (!byStudent.has(name)) byStudent.set(name, []);
       byStudent.get(name)!.push(row);
     }
@@ -54,7 +56,9 @@ export default function SourceFollowupsPage() {
 
   const studentCount = useMemo(() => new Set(selected.map((r) => studentName(r))).size, [selected]);
   const resetKey = useMemo(() => selected.map((r) => String(r.id)).sort().join(','), [selected]);
-  const subject = selected.length ? `已选 ${selected.length} 条 / ${studentCount} 名学生` : '（未选择记录）';
+  const subject = selected.length
+    ? ts('aiSubjectSelected', { count: selected.length, students: studentCount })
+    : ts('aiSubjectNone');
 
   return (
     <>

@@ -23,7 +23,7 @@ export default function WechatBindingsPage() {
   return (
     <CrudPage
       title="微信用户"
-      subtitle="家长/学生通过微信小程序、家长 H5 登录后的绑定记录。可解绑（移除绑定并强制下线）或强制下线当前会话。"
+      subtitle="微信用户"
       columns={COLUMNS}
       statusField="状态"
       inlineEdit

@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
+import { useTl } from '../../lib/useTl';
 
 
 const CHANNEL_OPTS = ['飞书', '短信', '邮件'];
@@ -25,6 +27,8 @@ const LOG_COLUMNS: CrudColumn[] = [
 ];
 
 function SendPanel() {
+  const tl = useTl();
+  const t = useTranslations('settings');
   const [templates, setTemplates] = useState<{ id: string; label: string }[]>([]);
   const [tpl, setTpl] = useState('');
   const [receivers, setReceivers] = useState('');
@@ -59,38 +63,39 @@ function SendPanel() {
 
   return (
     <div className="form-fieldset" style={{ marginBottom: 'var(--space-lg)' }}>
-      <legend className="form-legend">发送工作台</legend>
+      <legend className="form-legend">{t('sendConsole')}</legend>
       <div className="form-grid">
         <div className="form-label">
-          <span className="form-label-text">通知模板</span>
+          <span className="form-label-text">{tl('通知模板')}</span>
           <select className="form-input" value={tpl} onChange={(e) => setTpl(e.target.value)}>
             <option value="">（选择模板）</option>
             {templates.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
           </select>
         </div>
         <div className="form-label" style={{ gridColumn: '1 / -1' }}>
-          <span className="form-label-text">接收人（多个用逗号或换行分隔）</span>
+          <span className="form-label-text">{t('receiversHint')}</span>
           <textarea className="form-input" rows={3} value={receivers} onChange={(e) => setReceivers(e.target.value)} placeholder="如 张老师、李老师" />
         </div>
       </div>
       {err && <p className="msg-error">{err}</p>}
       {msg && <p className="muted" style={{ color: 'var(--accent)' }}>{msg}</p>}
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        <button className="btn btn-primary" disabled={busy} onClick={() => doSend(false)}>发送</button>
-        <button className="btn btn-outline" disabled={busy} onClick={() => doSend(true)}>批量发送</button>
+        <button className="btn btn-primary" disabled={busy} onClick={() => doSend(false)}>{t('send')}</button>
+        <button className="btn btn-outline" disabled={busy} onClick={() => doSend(true)}>{t('batchSend')}</button>
       </div>
     </div>
   );
 }
 
 export default function NotificationsPage() {
+  const t = useTranslations('settings');
   const [editing, setEditing] = useState(false);
   return (
     <div>
       {!editing && <SendPanel />}
       <CrudPage
         title="通知发送记录"
-        subtitle="单发 / 批量发送与回执状态机（M4 通知闭环）。新建/编辑时进入独立表单，顶部不再显示「新建」「查询」"
+        subtitle="通知发送记录"
         columns={LOG_COLUMNS}
         inlineEdit
         standaloneForm

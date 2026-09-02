@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
@@ -8,6 +9,7 @@ import { COLUMNS } from './columns';
 import { buildSelectionContext, studentName } from '../../lib/aiContext';
 
 export default function AlumniFollowupsPage() {
+  const ta = useTranslations('alumni');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
 
   const context = useMemo(
@@ -31,7 +33,9 @@ export default function AlumniFollowupsPage() {
 
   const studentCount = useMemo(() => new Set(selected.map((r) => studentName(r))).size, [selected]);
   const resetKey = useMemo(() => selected.map((r) => String(r.id)).sort().join(','), [selected]);
-  const subject = selected.length ? `已选 ${selected.length} 条 / ${studentCount} 名学生` : '（未选择记录）';
+  const subject = selected.length
+    ? ta('aiSubjectSelected', { count: selected.length, students: studentCount })
+    : ta('aiSubjectNone');
 
   return (
     <>

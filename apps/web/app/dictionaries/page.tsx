@@ -1,14 +1,18 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { api } from '../../lib/api';
 import { useTranslations } from 'next-intl';
+import { api } from '../../lib/api';
+import { useTl } from '../../lib/useTl';
 
 type DictMap = Record<string, string[]>;
 
 export default function DictionariesPage() {
 
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [dicts, setDicts] = useState<DictMap>({});
+  const tl = useTl();
+  const t = useTranslations('settings');
+  const tc = useTranslations('common');
+  const [dicts, setDicts] = useState<DictMap>({});
   const [drafts, setDrafts] = useState<DictMap>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -41,7 +45,7 @@ export default function DictionariesPage() {
       setDicts(data);
       setDrafts(JSON.parse(JSON.stringify(data)));
     } catch (e) {
-      setError((e as Error).message || '加载失败');
+      setError((e as Error).message || tc('loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -74,7 +78,7 @@ export default function DictionariesPage() {
       };
       const ok = (res.synced ?? []).length;
       const err = (res.errors ?? []).length;
-      flash(`已同步到飞书 Base：成功 ${ok}${err ? `，失败 ${err}` : ''}`);
+      flash(err ? t('syncResultWithErrors', { ok, err }) : t('syncResult', { ok }));
     } catch (e) {
       flash(`同步失败：${(e as Error).message}`);
     } finally {
@@ -162,7 +166,7 @@ export default function DictionariesPage() {
         </div>
         <div className="page-header-actions">
           <button className="btn btn-outline" onClick={syncToBase} disabled={syncing}>
-            {syncing ? '同步中…' : '同步到飞书 Base'}
+            {syncing ? t('syncing') : t('syncToBase')}
           </button>
         </div>
       </div>
@@ -268,7 +272,7 @@ export default function DictionariesPage() {
                     onClick={() => save(key)}
                     disabled={savingKey === key || !dirty}
                   >
-                    {savingKey === key ? '保存中…' : '保存'}
+                    {savingKey === key ? tc('saving') : tc('save')}
                   </button>
                   {dirty && <span className="dict-dirty">{tl('有未保存的修改')}</span>}
                 </div>
@@ -313,7 +317,7 @@ export default function DictionariesPage() {
                   onClick={createDict}
                   disabled={creating || !newDictName.trim()}
                 >
-                  {creating ? '创建中…' : '创建'}
+                  {creating ? t('creating') : t('create')}
                 </button>
               </div>
             </div>
@@ -364,7 +368,7 @@ function EditableOption({
 }
 
 function AddRow({ onAdd }: { onAdd: (v: string) => void }) {
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
+  const tl = useTl();
   const [val, setVal] = useState('');
   return (
     <div className="dict-add-row">

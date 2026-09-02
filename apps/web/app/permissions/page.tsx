@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api, type PermissionsPayload } from '../../lib/api';
-import { useTranslations } from 'next-intl';
+import { useTl } from '../../lib/useTl';
 
 const DOMAIN_LABELS: Record<string, string> = {
   student: '学生',
@@ -45,7 +45,8 @@ function groupPerms(perms: string[]): { domain: string; label: string; perms: st
 
 export default function PermissionsPage() {
 
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [data, setData] = useState<PermissionsPayload | null>(null);
+  const tl = useTl();
+  const [data, setData] = useState<PermissionsPayload | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 

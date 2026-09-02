@@ -11,7 +11,7 @@ export default function IdpPlansPage() {
   return (
     <CrudPage
       title="IDP管理"
-      subtitle="学生个性化发展计划（IDP）：人生平衡轮、目标与行动、阶段成果与展示路演（M1 学生域）"
+      subtitle="IDP管理"
       search={{ placeholder: '搜索学生…' }}
       columns={COLUMNS}
       statusField="状态"

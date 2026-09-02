@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
+import { useTl } from '../../lib/useTl';
+import { useTranslations } from 'next-intl';
 
 type Tab = 'profile' | 'schedule' | 'grades' | 'teachers' | 'attendance';
 
@@ -27,6 +29,9 @@ function val(v: unknown): string {
 }
 
 export default function PortalPage() {
+  const t = useTranslations('common');
+  const tp = useTranslations('portal');
+  const tl = useTl();
   const [tab, setTab] = useState<Tab>('profile');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +70,7 @@ export default function PortalPage() {
       else if (t === 'attendance') setAttendances((await api.portalAttendances()).items);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '加载失败';
-      setError(msg.includes('FORBIDDEN') || msg.includes('未关联') ? '当前登录账号未关联到学生档案，无法访问自助门户。' : msg);
+      setError(msg.includes('FORBIDDEN') || msg.includes('未关联') ? tp('notLinkedToStudent') : msg);
     } finally {
       setLoading(false);
     }
@@ -89,15 +94,15 @@ export default function PortalPage() {
         : { mode: 'wifi' as const };
       const res = await api.portalSign(data);
       if (res.duplicated) {
-        setSignToast(`今日已${res.direction === '到达' ? '到校' : '离校'}，无需重复打卡`);
+        setSignToast(`${tp('alreadySignedToday')}${res.direction === '到达' ? tp('arrived') : tp('left')}${tp('noNeedRepeat')}`);
       } else {
-        const status = res.passed ? '打卡成功（已在围栏内）' : '已记录，但不在围栏内（异常，待教师确认）';
-        setSignToast(`${res.direction === '到达' ? '到校' : '离校'}打卡 · ${status}`);
+        const status = res.passed ? tp('signSuccessInFence') : tp('signRecordedOutFence');
+        setSignToast(tp('signResult', { dir: res.direction === '到达' ? tp('arrived') : tp('left'), status }));
       }
       if (tab === 'attendance') void load('attendance');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '打卡失败';
-      setSignToast(`打卡失败：${msg}`);
+      setSignToast(tp('signFailed', { msg }));
     } finally {
       setSigning(false);
       setTimeout(() => setSignToast(null), 4000);
@@ -108,13 +113,13 @@ export default function PortalPage() {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">学生自助门户</h1>
-          <p className="page-subtitle">本人档案、周课表、成绩与授课教师（仅可查看本人数据）</p>
+          <h1 className="page-title">{tp('pageTitle')}</h1>
+          <p className="page-subtitle">{tp('pageSubtitle')}</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           {me?.name && <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>{me.name}</span>}
           <button className="btn btn-primary" style={{ borderRadius: 999 }} onClick={handleSign} disabled={signing}>
-            {signing ? '打卡中…' : '一键打卡'}
+            {signing ? tp('signing') : tp('signNow')}
           </button>
           <button className="filter-select-trigger" style={{ borderRadius: 999 }} onClick={logout}>
             退出
@@ -132,7 +137,7 @@ export default function PortalPage() {
 
       {signToast && <div className="toast">{signToast}</div>}
       {error && <p className="msg-error">{error}</p>}
-      {loading && <div className="empty-state"><div className="empty-state-text">加载中…</div></div>}
+      {loading && <div className="empty-state"><div className="empty-state-text">{t('loading')}</div></div>}
 
       {!loading && !error && tab === 'profile' && profile && (
         <div className="data-table-wrap" style={{ padding: 20 }}>
@@ -146,7 +151,7 @@ export default function PortalPage() {
           </div>
           {!!profile['摘要'] && (
             <div style={{ marginTop: 18 }}>
-              <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>摘要</span>
+              <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{t('summary')}</span>
               <p style={{ margin: '4px 0 0', lineHeight: 1.6 }}>{val(profile['摘要'])}</p>
             </div>
           )}
@@ -156,7 +161,7 @@ export default function PortalPage() {
       {!loading && !error && tab === 'schedule' && (
         <div className="data-table-wrap">
           <table className="data-table">
-            <thead><tr><th>日期</th><th>时间</th><th>课次</th><th>教学班</th><th>授课教师</th><th>场地</th><th>方式</th><th>状态</th></tr></thead>
+            <thead><tr><th>{tl('日期')}</th><th>{tl('时间')}</th><th>{tl('课次')}</th><th>{tl('教学班')}</th><th>{tl('授课教师')}</th><th>{tl('场地')}</th><th>{tl('方式')}</th><th>{tl('状态')}</th></tr></thead>
             <tbody>
               {schedule.map((s) => (
                 <tr key={String(s.id)}>
@@ -170,7 +175,7 @@ export default function PortalPage() {
                   <td><span className="status-dot">{val(s['课次状态'])}</span></td>
                 </tr>
               ))}
-              {schedule.length === 0 && <tr><td colSpan={8}><div className="empty-state"><div className="empty-state-text">暂无课表</div></div></td></tr>}
+              {schedule.length === 0 && <tr><td colSpan={8}><div className="empty-state"><div className="empty-state-text">{tp('emptySchedule')}</div></div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -179,7 +184,7 @@ export default function PortalPage() {
       {!loading && !error && tab === 'grades' && (
         <div className="data-table-wrap">
           <table className="data-table">
-            <thead><tr><th>学科</th><th>学期</th><th>考核类型</th><th>成绩</th><th>等级</th><th>任课教师</th><th>评语</th></tr></thead>
+            <thead><tr><th>{tl('学科')}</th><th>{tl('学期')}</th><th>{tl('考核类型')}</th><th>{tl('成绩')}</th><th>{tl('等级')}</th><th>{tl('任课教师')}</th><th>{tl('评语')}</th></tr></thead>
             <tbody>
               {grades.map((g, i) => (
                 <tr key={i}>
@@ -192,7 +197,7 @@ export default function PortalPage() {
                   <td>{val(g['教师评语'])}</td>
                 </tr>
               ))}
-              {grades.length === 0 && <tr><td colSpan={7}><div className="empty-state"><div className="empty-state-text">暂无成绩</div></div></td></tr>}
+              {grades.length === 0 && <tr><td colSpan={7}><div className="empty-state"><div className="empty-state-text">{tp('emptyGrades')}</div></div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -209,14 +214,14 @@ export default function PortalPage() {
               <p style={{ margin: 0, fontSize: 'var(--font-sm)', lineHeight: 1.6, color: 'var(--fg-secondary)' }}>{val(t['简介'])}</p>
             </div>
           ))}
-          {teachers.length === 0 && <div className="empty-state"><div className="empty-state-text">暂无授课教师</div></div>}
+          {teachers.length === 0 && <div className="empty-state"><div className="empty-state-text">{tp('emptyTeachers')}</div></div>}
         </div>
       )}
 
       {!loading && !error && tab === 'attendance' && (
         <div className="data-table-wrap">
           <table className="data-table">
-            <thead><tr><th>考勤日期</th><th>方向</th><th>状态</th><th>方式</th><th>校区</th><th>到校时间</th><th>离校时间</th><th>距离(米)</th><th>结果</th></tr></thead>
+            <thead><tr><th>{tl('考勤日期')}</th><th>{tl('方向')}</th><th>{tl('状态')}</th><th>{tl('方式')}</th><th>{tl('校区')}</th><th>{tl('到校时间')}</th><th>{tl('离校时间')}</th><th>{tp('distanceMeters')}</th><th>{tp('result')}</th></tr></thead>
             <tbody>
               {attendances.map((a) => (
                 <tr key={String(a.id)}>
@@ -231,7 +236,7 @@ export default function PortalPage() {
                   <td>{val(a['考勤结果'])}</td>
                 </tr>
               ))}
-              {attendances.length === 0 && <tr><td colSpan={9}><div className="empty-state"><div className="empty-state-text">暂无考勤记录</div></div></td></tr>}
+              {attendances.length === 0 && <tr><td colSpan={9}><div className="empty-state"><div className="empty-state-text">{tp('emptyAttendance')}</div></div></td></tr>}
             </tbody>
           </table>
         </div>

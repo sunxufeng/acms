@@ -4,11 +4,15 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { type NavMenuGroup, type NavMenuGroupConfig } from '@acms/contracts';
 import { api } from '../../lib/api';
+import { useTl } from '../../lib/useTl';
 import { useTranslations } from 'next-intl';
 
 export default function MenuGroupsSettingsPage() {
 
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [groups, setGroups] = useState<NavMenuGroup[]>([]);
+  const tl = useTl();
+  const ts = useTranslations('settings');
+  const tc = useTranslations('common');
+  const [groups, setGroups] = useState<NavMenuGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -37,7 +41,7 @@ export default function MenuGroupsSettingsPage() {
   }
 
   function remove(idx: number) {
-    if (!confirm('确定删除该菜单分组吗？该分组下的菜单项「分组」将变为旧分组（需在菜单管理中重新指定）。')) return;
+    if (!confirm(ts('confirmDeleteMenuGroup'))) return;
     setGroups((prev) => prev.filter((_, i) => i !== idx));
   }
 
@@ -95,7 +99,7 @@ export default function MenuGroupsSettingsPage() {
             返回菜单管理
           </Link>
           <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? '保存中…' : '保存分组'}
+            {saving ? tc('saving') : ts('saveGroups')}
           </button>
         </div>
       </div>

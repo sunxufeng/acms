@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '../../lib/api';
 
 interface Attachment {
@@ -43,6 +44,7 @@ const sectionStyle: React.CSSProperties = {
 };
 
 export default function AiSummarizeModal({ recordId, recordName, kind = 'home-school-comms', onClose, onSuccess }: AiSummarizeModalProps) {
+  const t = useTranslations('homeSchool');
   const [loading, setLoading] = useState(false);
   const [preparing, setPreparing] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -135,12 +137,12 @@ export default function AiSummarizeModal({ recordId, recordName, kind = 'home-sc
         {error && <p className="msg-error" style={{ margin: '12px 22px 0' }}>{error}</p>}
 
         {preparing ? (
-          <div style={{ padding: '32px 22px', textAlign: 'center', color: 'var(--fg-tertiary)' }}>准备中…</div>
+          <div style={{ padding: '32px 22px', textAlign: 'center', color: 'var(--fg-tertiary)' }}>{t('preparing')}</div>
         ) : (
           <>
             {(hasDetail || hasSummary) && (
               <div style={sectionStyle}>
-                <div style={{ fontWeight: 600, marginBottom: 12 }}>已有内容处理</div>
+                <div style={{ fontWeight: 600, marginBottom: 12 }}>{t('existingContent')}</div>
                 {hasDetail && (
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)', marginBottom: 6 }}>
@@ -196,13 +198,13 @@ export default function AiSummarizeModal({ recordId, recordName, kind = 'home-sc
 
             <div style={sectionStyle}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div style={{ fontWeight: 600 }}>附件列表</div>
+                <div style={{ fontWeight: 600 }}>{t('attachmentList')}</div>
                 <button
                   className="btn btn-primary btn-sm"
                   disabled={loading || !hasSource}
                   onClick={mergeAll}
                 >
-                  {loading ? '处理中…' : '合并所有'}
+                  {loading ? t('processing') : t('mergeAll')}
                 </button>
               </div>
 
@@ -252,7 +254,7 @@ export default function AiSummarizeModal({ recordId, recordName, kind = 'home-sc
                       <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>
                         沟通内容（文本）
                       </span>
-                      <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>将在“合并所有”时自动纳入</span>
+                      <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{t('autoIncludedOnMerge')}</span>
                     </div>
                   )}
                 </div>

@@ -11,6 +11,7 @@ import {
 } from '@acms/contracts';
 import { api } from '../../lib/api';
 import { ICONS } from '../../components/AppShell';
+import { useTl } from '../../lib/useTl';
 import { useTranslations } from 'next-intl';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -49,7 +50,7 @@ function emptyItem(): NavMenuItem {
 
 /** 图标选择器：按钮展示当前图标预览，展开为图标网格，支持搜索 */
 function IconPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
+  const tl = useTl();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const Current = ICONS[value] ?? ICONS['settings'];
@@ -123,7 +124,10 @@ function IconPicker({ value, onChange }: { value: string; onChange: (v: string) 
 
 export default function MenuSettingsPage() {
 
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [items, setItems] = useState<NavMenuItem[]>(DEFAULT_NAV_MENU_CONFIG.items);
+  const tl = useTl();
+  const ts = useTranslations('settings');
+  const tc = useTranslations('common');
+  const [items, setItems] = useState<NavMenuItem[]>(DEFAULT_NAV_MENU_CONFIG.items);
   const [groups, setGroups] = useState<NavMenuGroupConfig['items']>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -161,7 +165,7 @@ export default function MenuSettingsPage() {
   }
 
   function removeItem(idx: number) {
-    if (!confirm('确定删除该菜单项吗？')) return;
+    if (!confirm(ts('confirmDeleteMenuItem'))) return;
     const target = items[idx];
     setItems((prev) => {
       // 同时删除以该菜单为父级的子菜单
@@ -230,17 +234,17 @@ export default function MenuSettingsPage() {
       const normalized = items.map((it, i) => ({ ...it, order: (i + 1) * 10 }));
       await api.updateMenuConfig({ items: normalized });
       setItems(normalized);
-      setToast('保存成功，刷新页面后菜单生效');
+      setToast(ts('saveSuccessRefreshMenu'));
       setTimeout(() => setToast(null), 2500);
     } catch (err) {
-      setToast(`保存失败：${err instanceof Error ? err.message : '未知错误'}`);
+      setToast(ts('saveFailedMsg', { msg: err instanceof Error ? err.message : ts('unknownError') }));
     } finally {
       setSaving(false);
     }
   }
 
   function handleReset() {
-    if (confirm('确定恢复为默认菜单吗？未保存的修改将丢失。')) {
+    if (confirm(ts('confirmResetMenu'))) {
       setItems(DEFAULT_NAV_MENU_CONFIG.items);
     }
   }
@@ -264,7 +268,7 @@ export default function MenuSettingsPage() {
             恢复默认
           </button>
           <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? '保存中…' : '保存菜单'}
+            {saving ? tc('saving') : ts('saveMenu')}
           </button>
         </div>
       </div>

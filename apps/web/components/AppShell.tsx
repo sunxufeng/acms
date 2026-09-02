@@ -372,7 +372,7 @@ export default function AppShell({
             <strong>{sidebarBrandName}</strong>
             <small>{sidebarBrandSubtitle}</small>
           </div>
-          <button className="sidebar-collapse-btn" onClick={toggleSidebar} title={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}>
+          <button className="sidebar-collapse-btn" onClick={toggleSidebar} title={sidebarOpen ? tn('collapseSidebar') : tn('expandSidebar')}>
             {sidebarOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
           </button>
         </div>
@@ -440,7 +440,7 @@ export default function AppShell({
         {/* Top bar */}
         <header className="topbar" style={sidebarStyle}>
           <div className="topbar-left">
-            <button className="btn-icon" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="切换侧边栏">
+            <button className="btn-icon" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label={tn('toggleSidebar')}>
               <MenuIcon />
             </button>
             <span className="topbar-breadcrumb">{tTop('campus')} <span>/</span> {breadcrumbLabel(pathname, tb)}</span>
@@ -457,7 +457,7 @@ export default function AppShell({
                 <span style={{ fontSize: 'var(--font-sm)', color: 'var(--topbar-fg-secondary)' }}>{me.name}</span>
                 <div className="user-chip">
                   <span className="user-avatar-xs">{initial(me.name)}</span>
-                  <span>{me.roles[0] || '用户'}</span>
+                  <span>{me.roles[0] || t('common.user')}</span>
                 </div>
               </>
             )}

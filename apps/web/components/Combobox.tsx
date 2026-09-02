@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTl } from '../lib/useTl';
 
 export interface ComboboxOption {
   /** 选中后写入表单的值 */
@@ -38,12 +39,17 @@ export default function Combobox({
   const [highlight, setHighlight] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const ignoreBlurRef = useRef(false);
+  const tl = useTl();
+
+  // 选项的展示文本：中文原文 → 目标语言译文（查不到时回退原文）。
+  // 注意只影响显示，onChange 始终回传原始 value，绝不把译文写回飞书。
+  const showText = (o: ComboboxOption) => tl(o.label || o.value);
 
   // 根据外部 value 同步显示文本（优先 label，找不到则回退 value）
   useEffect(() => {
     const opt = options.find((o) => o.value === value);
     if (opt) {
-      setDisplay(opt.label || opt.value);
+      setDisplay(showText(opt));
     } else if (allowFreeText) {
       setDisplay(value);
     } else {
@@ -55,8 +61,9 @@ export default function Combobox({
     if (!display.trim()) return options;
     const q = normalize(display);
     return options.filter((o) => {
+      // 中英文都要能搜到：原文用于手输场景，译文用于英文界面下按显示文本搜索
       const text = normalize(o.label || o.value);
-      return text.includes(q);
+      return text.includes(q) || normalize(showText(o)).includes(q);
     });
   }, [display, options]);
 
@@ -75,7 +82,7 @@ export default function Combobox({
   }, []);
 
   function selectOption(opt: ComboboxOption) {
-    setDisplay(opt.label || opt.value);
+    setDisplay(showText(opt));
     onChange(opt.value);
     setOpen(false);
   }
@@ -95,14 +102,15 @@ export default function Combobox({
         return;
       }
       if (!allowFreeText) {
-        const opt = options.find((o) => (o.label || o.value) === display);
+        // display 是展示文本（英文模式下为译文），反查也要按展示文本比对
+        const opt = options.find((o) => showText(o) === display);
         if (opt) {
           onChange(opt.value);
         } else if (!value) {
           setDisplay('');
         } else {
           const selected = options.find((o) => o.value === value);
-          setDisplay(selected ? selected.label || selected.value : '');
+          setDisplay(selected ? showText(selected) : '');
         }
       }
       setOpen(false);
@@ -175,7 +183,7 @@ export default function Combobox({
               }}
               onMouseEnter={() => setHighlight(i)}
             >
-              {o.label || o.value}
+              {showText(o)}
             </li>
           ))}
         </ul>

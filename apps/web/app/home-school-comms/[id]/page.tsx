@@ -6,8 +6,11 @@ import Link from 'next/link';
 import { api } from '../../../lib/api';
 import { COLUMNS } from '../columns';
 import CrudView from '../../../components/CrudView';
+import { useTranslations } from 'next-intl';
 
 export default function HomeSchoolCommDetailPage() {
+  const t = useTranslations('common');
+  const th = useTranslations('homeSchool');
   const params = useParams();
   const router = useRouter();
   const id = String(params.id);
@@ -26,7 +29,7 @@ export default function HomeSchoolCommDetailPage() {
 
   if (loading) return <div className="empty-state" style={{ minHeight: '50vh' }}><div style={{ width: 28, height: 28, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /></div>;
   if (error) return <div className="page-header"><p className="msg-error">加载失败：{error}</p></div>;
-  if (!record) return <div className="page-header"><p style={{ color: 'var(--fg-tertiary)' }}>未找到</p></div>;
+  if (!record) return <div className="page-header"><p style={{ color: 'var(--fg-tertiary)' }}>{th('notFound')}</p></div>;
 
   const studentName = (() => {
     const v = record['关联学生'];
@@ -47,11 +50,11 @@ export default function HomeSchoolCommDetailPage() {
             <div>
               <div className="page-eyebrow">HOME-SCHOOL-COMM / {String(record['沟通编号'] ?? id.slice(0, 6))}</div>
               <h1 className="page-title">家校沟通详情 · {studentName}</h1>
-              <p className="page-subtitle">仅查看，不可修改</p>
+              <p className="page-subtitle">{th('readOnly')}</p>
             </div>
           </div>
           <div className="page-actions">
-            <button className="btn btn-outline btn-sm" onClick={() => router.push('/home-school-comms')}>返回列表</button>
+            <button className="btn btn-outline btn-sm" onClick={() => router.push('/home-school-comms')}>{t('backToList')}</button>
           </div>
         </div>
       </div>

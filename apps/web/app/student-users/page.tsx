@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api } from '../../lib/api';
 import { useTranslations } from 'next-intl';
+import { api } from '../../lib/api';
+import { useTl } from '../../lib/useTl';
 
 interface StudentHit {
   studentNo: string;
@@ -33,7 +34,10 @@ function fmt(dt?: string): string {
 
 export default function StudentUsersPage() {
 
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const tl = useTl();
+  const t = useTranslations('students');
+  const tc = useTranslations('common');
+  const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [keyword, setKeyword] = useState('');
@@ -141,7 +145,7 @@ export default function StudentUsersPage() {
             style={{ minWidth: 240, flex: 1 }}
           />
           <button type="button" className="btn btn-primary" onClick={handleSearch} disabled={searching}>
-            {searching ? '检索中…' : '检索'}
+            {searching ? t('querying') : t('query')}
           </button>
         </div>
         {hits.length > 0 && (
@@ -174,7 +178,7 @@ export default function StudentUsersPage() {
                           border: `1px solid ${h.hasAccount ? 'var(--accent)' : 'var(--border)'}`,
                         }}
                       >
-                        {h.hasAccount ? '已开户' : '未开户'}
+                        {h.hasAccount ? t('accountOpened') : t('accountNotOpened')}
                       </span>
                     </td>
                     <td style={{ padding: '6px 10px', textAlign: 'center' }}>
@@ -183,7 +187,7 @@ export default function StudentUsersPage() {
                         className="btn btn-sm btn-primary"
                         onClick={() => setModal({ studentNo: h.studentNo, name: h.name })}
                       >
-                        {h.hasAccount ? '重置密码' : '设置密码'}
+                        {h.hasAccount ? t('resetPassword') : t('setPassword')}
                       </button>
                     </td>
                   </tr>
@@ -239,7 +243,7 @@ export default function StudentUsersPage() {
                         className="btn btn-sm btn-primary"
                         onClick={() => setModal({ studentNo: a.studentNo, name: a.name })}
                       >
-                        重置密码
+                        {t('resetPassword')}
                       </button>
                     </td>
                   </tr>
@@ -278,7 +282,11 @@ export default function StudentUsersPage() {
             }}
           >
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--fg)' }}>
-              为 {modal.name}（{modal.studentNo}）{modal.studentNo ? '设置 / 重置' : ''}登录密码
+              {t('setPasswordForTitle', {
+                name: modal.name,
+                studentNo: modal.studentNo,
+                action: modal.studentNo ? t('setOrResetPwd') : '',
+              })}
             </div>
             <input
               className="input"
@@ -293,7 +301,7 @@ export default function StudentUsersPage() {
                 取消
               </button>
               <button type="button" className="btn btn-primary" onClick={handleSavePassword} disabled={saving}>
-                {saving ? '保存中…' : '确认保存'}
+                {saving ? tc('saving') : t('confirmSave')}
               </button>
             </div>
           </div>

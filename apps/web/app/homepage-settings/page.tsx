@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { DEFAULT_HOMEPAGE_CONFIG, type HomepageConfig, type LoginFeature } from '@acms/contracts';
 import { api } from '../../lib/api';
 import LoginShell from '../login/LoginShell';
 import ImageField from './ImageField';
-import { useTranslations } from 'next-intl';
+import { useTl } from '../../lib/useTl';
 
 const PREVIEW_BASE_W = 1440;
 const PREVIEW_BASE_H = 900;
@@ -187,7 +188,7 @@ function FeatureRow({
   item: LoginFeature;
   onChange: (next: LoginFeature) => void;
 }) {
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
+  const tl = useTl();
   const icons = ['shield', 'users', 'layers', 'lock', 'check', 'zap'];
   return (
     <div
@@ -226,8 +227,11 @@ function FeatureRow({
 }
 
 export default function HomepageSettingsPage() {
+  const t = useTranslations('settings');
+  const tc = useTranslations('common');
 
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [config, setConfig] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
+  const tl = useTl();
+  const [config, setConfig] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -270,17 +274,17 @@ export default function HomepageSettingsPage() {
     setSaving(true);
     try {
       await api.updateHomepageConfig(config);
-      setToast('保存成功');
+      setToast(t('saveSuccess'));
       setTimeout(() => setToast(null), 2500);
     } catch (err) {
-      setToast(`保存失败：${err instanceof Error ? err.message : '未知错误'}`);
+      setToast(t('saveFailedMsg', { msg: err instanceof Error ? err.message : t('unknownError') }));
     } finally {
       setSaving(false);
     }
   }
 
   function handleReset() {
-    if (confirm('确定要恢复为默认配置吗？未保存的修改将丢失。')) {
+    if (confirm(t('confirmResetHomepage'))) {
       setConfig(DEFAULT_HOMEPAGE_CONFIG);
     }
   }
@@ -301,7 +305,7 @@ export default function HomepageSettingsPage() {
             恢复默认
           </button>
           <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? '保存中…' : '保存配置'}
+            {saving ? tc('saving') : t('saveConfig')}
           </button>
         </div>
       </div>

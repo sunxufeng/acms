@@ -3,8 +3,10 @@
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import CommunicationManager from '../../../../components/idp/CommunicationManager';
+import { useTl } from '../../../../lib/useTl';
 
 export default function CommunicationsListPage() {
+  const tl = useTl();
   const params = useParams<{ id: string }>();
   const planId = params.id;
 
@@ -17,7 +19,7 @@ export default function CommunicationsListPage() {
           </Link>
           <div>
             <div className="page-eyebrow">IDP / COMMUNICATION</div>
-            <h1 className="page-title">沟通记录</h1>
+            <h1 className="page-title">{tl('沟通记录')}</h1>
           </div>
         </div>
       </div>

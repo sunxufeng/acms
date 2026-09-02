@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { api } from '../../../lib/api';
 import BalanceWheel, { type WheelDim } from '../../../components/idp/BalanceWheel';
 import CommunicationManager from '../../../components/idp/CommunicationManager';
+import { useTl } from '../../../lib/useTl';
+import { useTranslations } from 'next-intl';
 
 interface Goal { title: string; areas: string[]; importance: number; urgency: number; meaning: number; measures: string[]; note: string }
 interface Phase { no: string; node: string; result: string }
@@ -41,6 +43,9 @@ function InfoItem({ label, value }: { label: string; value: string }) {
 }
 
 export default function IdpPlanDetailPage() {
+  const t = useTranslations('common');
+  const ti = useTranslations('idp');
+  const tl = useTl();
   const params = useParams<{ id: string }>();
   const [plan, setPlan] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,9 +59,9 @@ export default function IdpPlanDetailPage() {
       .finally(() => setLoading(false));
   }, [params.id]);
 
-  if (loading) return <div className="empty-state">加载中…</div>;
+  if (loading) return <div className="empty-state">{t('loading')}</div>;
   if (error) return <div className="empty-state" style={{ color: 'var(--danger)' }}>错误：{error}</div>;
-  if (!plan) return <div className="empty-state">未找到该 IDP 方案</div>;
+  if (!plan) return <div className="empty-state">{ti('idpPlanNotFound')}</div>;
 
   const wheel: WheelDim[] = parseJSON<WheelDim[]>(plan['人生平衡轮'], []);
   const goals: Goal[] = parseJSON<Goal[]>(plan['目标列表'], []);
@@ -77,7 +82,7 @@ export default function IdpPlanDetailPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <Link className="btn btn-outline" href={`/idp-plans/${params.id}/edit`}>编辑</Link>
+          <Link className="btn btn-outline" href={`/idp-plans/${params.id}/edit`}>{t('edit')}</Link>
         </div>
       </div>
 
@@ -91,16 +96,16 @@ export default function IdpPlanDetailPage() {
       </div>
 
       <section style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', borderRadius: 12, padding: 18, marginBottom: 18 }}>
-        <h2 style={{ marginTop: 0, fontSize: 'var(--font-lg)' }}>人生平衡轮</h2>
-        {wheel.length ? <BalanceWheel dims={wheel} /> : <div className="muted">未填写</div>}
+        <h2 style={{ marginTop: 0, fontSize: 'var(--font-lg)' }}>{ti('balanceWheel')}</h2>
+        {wheel.length ? <BalanceWheel dims={wheel} /> : <div className="muted">{ti('notProvided')}</div>}
       </section>
 
       <section style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', borderRadius: 12, padding: 18, marginBottom: 18 }}>
-        <h2 style={{ marginTop: 0, fontSize: 'var(--font-lg)' }}>目标制定与行动计划</h2>
-        {goals.length === 0 ? <div className="muted">未填写目标</div> : (
+        <h2 style={{ marginTop: 0, fontSize: 'var(--font-lg)' }}>{ti('goalsSection')}</h2>
+        {goals.length === 0 ? <div className="muted">{ti('goalsEmpty')}</div> : (
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th style={{ width: 50 }}>#</th><th>目标</th><th>领域</th><th>重要性</th><th>紧急</th><th>意义</th><th>衡量方式</th><th>其他说明</th></tr></thead>
+              <thead><tr><th style={{ width: 50 }}>#</th><th>{ti('goal')}</th><th>{ti('domain')}</th><th>{ti('importance')}</th><th>{ti('urgent')}</th><th>{ti('meaning')}</th><th>{ti('measure')}</th><th>{ti('otherNote')}</th></tr></thead>
               <tbody>
                 {goals.map((g, i) => (
                   <tr key={i}>
@@ -121,11 +126,11 @@ export default function IdpPlanDetailPage() {
       </section>
 
       <section style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', borderRadius: 12, padding: 18, marginBottom: 18 }}>
-        <h2 style={{ marginTop: 0, fontSize: 'var(--font-lg)' }}>阶段性预期成果</h2>
-        {phases.length === 0 ? <div className="muted">未填写</div> : (
+        <h2 style={{ marginTop: 0, fontSize: 'var(--font-lg)' }}>{ti('phaseTitle')}</h2>
+        {phases.length === 0 ? <div className="muted">{ti('notProvided')}</div> : (
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th style={{ width: 80 }}>序号</th><th>时间节点</th><th>预期成果</th></tr></thead>
+              <thead><tr><th style={{ width: 80 }}>{ti('phaseNo')}</th><th>{ti('timeNode')}</th><th>{ti('expectedResult')}</th></tr></thead>
               <tbody>
                 {phases.map((p, i) => (
                   <tr key={i}><td>{p.no || i + 1}</td><td>{p.node || '—'}</td><td>{p.result || '—'}</td></tr>
@@ -137,7 +142,7 @@ export default function IdpPlanDetailPage() {
       </section>
 
       <section style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', borderRadius: 12, padding: 18, marginBottom: 18 }}>
-        <h2 style={{ marginTop: 0, fontSize: 'var(--font-lg)' }}>展示路演计划</h2>
+        <h2 style={{ marginTop: 0, fontSize: 'var(--font-lg)' }}>{ti('roadshowTitle')}</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
           <InfoItem label="展示方式" value={str(plan['展示方式'])} />
           <InfoItem label="邀请人员" value={str(plan['邀请人员'])} />
@@ -149,8 +154,8 @@ export default function IdpPlanDetailPage() {
       </section>
 
       <section style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', borderRadius: 12, padding: 18, marginBottom: 18 }}>
-        <h2 style={{ marginTop: 0, fontSize: 'var(--font-lg)' }}>原始文档</h2>
-        {atts.length === 0 ? <div className="muted">未上传</div> : (
+        <h2 style={{ marginTop: 0, fontSize: 'var(--font-lg)' }}>{tl('原始文档')}</h2>
+        {atts.length === 0 ? <div className="muted">{ti('notUploaded')}</div> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {atts.map((a, i) => (
               <a key={a.file_token ?? i} href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{a.name}</a>

@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '../../../lib/api';
+import { useTl } from '../../../lib/useTl';
+import { useTranslations } from 'next-intl';
 
 interface AttachmentMeta {
   name: string;
@@ -20,6 +22,9 @@ function fmtSize(n?: number): string {
 }
 
 export default function MailArchiveDetailPage() {
+  const t = useTranslations('common');
+  const tl = useTl();
+  const tm = useTranslations('mailArchive');
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const id = params.id;
@@ -74,7 +79,7 @@ export default function MailArchiveDetailPage() {
       setCands([]);
       await refresh();
     } catch (e) {
-      alert('关联失败：' + String((e as { message?: string })?.message ?? e));
+      alert(tm('linkFailed', { msg: String((e as { message?: string })?.message ?? e) }));
     } finally {
       setSaving(false);
     }
@@ -86,7 +91,7 @@ export default function MailArchiveDetailPage() {
       await api.linkMailStudents(id, linked.filter((l) => l.id !== studentId).map((l) => l.id));
       await refresh();
     } catch (e) {
-      alert('取消关联失败：' + String((e as { message?: string })?.message ?? e));
+      alert(tm('unlinkFailed', { msg: String((e as { message?: string })?.message ?? e) }));
     } finally {
       setSaving(false);
     }
@@ -121,17 +126,17 @@ export default function MailArchiveDetailPage() {
       const { url } = await api.getMailAttachmentUrl(id, token);
       window.open(url, '_blank', 'noopener');
     } catch (e) {
-      alert('获取下载链接失败：' + String((e as { message?: string })?.message ?? e));
+      alert(tm('getDownloadUrlFailed', { msg: String((e as { message?: string })?.message ?? e) }));
     } finally {
       setBusyToken(null);
     }
   };
 
-  if (loading) return <div style={{ padding: 32 }}>加载中…</div>;
+  if (loading) return <div style={{ padding: 32 }}>{t('loading')}</div>;
   if (err) return <div style={{ padding: 32, color: 'var(--fg-error)' }}>加载失败：{err}</div>;
   if (!rec) return null;
 
-  const body = String(rec['正文'] ?? '(无正文)');
+  const body = String(rec['正文'] ?? tm('noBody'));
 
   return (
     <div style={{ maxWidth: 920, margin: '0 auto', padding: '24px 16px 64px' }}>
@@ -141,16 +146,16 @@ export default function MailArchiveDetailPage() {
         </Link>
       </div>
 
-      <h1 style={{ fontSize: 20, margin: '8px 0', wordBreak: 'break-word' }}>{String(rec['主题'] ?? '(无主题)')}</h1>
+      <h1 style={{ fontSize: 20, margin: '8px 0', wordBreak: 'break-word' }}>{String(rec['主题'] ?? tm('noSubject'))}</h1>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 16px', fontSize: 14, color: 'var(--fg-secondary)', marginBottom: 20 }}>
-        <span>发件人</span><span style={{ color: 'var(--fg)' }}>{String(rec['发件人'] ?? '')}</span>
-        <span>收件人</span><span style={{ color: 'var(--fg)' }}>{String(rec['收件人'] ?? '')}</span>
-        <span>抄送</span><span style={{ color: 'var(--fg)' }}>{String(rec['抄送'] ?? '')}</span>
-        <span>归属账户</span><span style={{ color: 'var(--fg)' }}>{String(rec['归属账户'] ?? '')}</span>
-        <span>关联学生</span>
+        <span>{tl('发件人')}</span><span style={{ color: 'var(--fg)' }}>{String(rec['发件人'] ?? '')}</span>
+        <span>{tl('收件人')}</span><span style={{ color: 'var(--fg)' }}>{String(rec['收件人'] ?? '')}</span>
+        <span>{tm('cc')}</span><span style={{ color: 'var(--fg)' }}>{String(rec['抄送'] ?? '')}</span>
+        <span>{tl('归属账户')}</span><span style={{ color: 'var(--fg)' }}>{String(rec['归属账户'] ?? '')}</span>
+        <span>{tl('关联学生')}</span>
         <span style={{ color: 'var(--fg)' }}>
-          {linked.length === 0 && !linking && <span style={{ color: 'var(--fg-tertiary)' }}>未关联</span>}
+          {linked.length === 0 && !linking && <span style={{ color: 'var(--fg-tertiary)' }}>{tm('notLinked')}</span>}
           <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
             {linked.map((l) => (
               <span
@@ -162,7 +167,7 @@ export default function MailArchiveDetailPage() {
                 </Link>
                 <button
                   type="button"
-                  title="取消关联"
+                  title={tm('unlink')}
                   disabled={saving}
                   onClick={() => removeLink(l.id)}
                   style={{ border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}
@@ -176,7 +181,7 @@ export default function MailArchiveDetailPage() {
                 <input
                   autoFocus
                   value={search}
-                  placeholder="搜索学生姓名/英文名…"
+                  placeholder={tm('searchStudentPlaceholder')}
                   onChange={(e) => doSearch(e.target.value)}
                   style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }}
                 />
@@ -210,8 +215,8 @@ export default function MailArchiveDetailPage() {
             )}
           </span>
         </span>
-        <span>发送时间</span><span style={{ color: 'var(--fg)' }}>{String(rec['发送时间'] ?? '')}</span>
-        <span>收取时间</span><span style={{ color: 'var(--fg)' }}>{String(rec['收取时间'] ?? '')}</span>
+        <span>{tl('发送时间')}</span><span style={{ color: 'var(--fg)' }}>{String(rec['发送时间'] ?? '')}</span>
+        <span>{tm('receivedAt')}</span><span style={{ color: 'var(--fg)' }}>{String(rec['收取时间'] ?? '')}</span>
       </div>
 
       {atts.length > 0 && (

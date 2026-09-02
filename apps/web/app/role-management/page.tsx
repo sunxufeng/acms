@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { useTl } from '../../lib/useTl';
 import { api, type RoleManagementPayload } from '../../lib/api';
 import { DOMAIN_LABELS, PERMISSION_LABELS, type Permission, type DataLevel, type RoleDef } from '@acms/contracts';
 
@@ -51,8 +52,10 @@ interface Draft {
 }
 
 export default function RoleManagementPage() {
+  const tl = useTl();
   const t = useTranslations('admin');
   const tc = useTranslations('common');
+  const ts = useTranslations('settings');
   const [config, setConfig] = useState<RoleManagementPayload | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -295,7 +298,7 @@ export default function RoleManagementPage() {
                 disabled={saving}
               >
                 <span>{r.label}</span>
-                {r.protected && <span className="tag tag-muted" style={{ fontSize: 'var(--font-xs)' }}>内置</span>}
+                {r.protected && <span className="tag tag-muted" style={{ fontSize: 'var(--font-xs)' }}>{ts('builtIn')}</span>}
               </button>
             ))}
           </div>
@@ -304,25 +307,25 @@ export default function RoleManagementPage() {
         {/* 编辑器 */}
         <section className="card" style={{ padding: 'var(--space-lg)' }}>
           {!draft ? (
-            <div className="empty-state"><div className="empty-state-text">请选择左侧角色进行编辑</div></div>
+            <div className="empty-state"><div className="empty-state-text">{ts('selectRoleToEdit')}</div></div>
           ) : (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-md)' }}>
                 <div>
-                  <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>角色标识</div>
+                  <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{ts('roleKey')}</div>
                   <div style={{ fontWeight: 700 }}>{draft.key}</div>
                 </div>
                 {draft.protected && (
-                  <span className="tag tag-muted">内置角色（不可删除）</span>
+                  <span className="tag tag-muted">{ts('builtInRoleNoDelete')}</span>
                 )}
                 {draft.lockedPermissions && (
-                  <span className="tag tag-muted">权限集锁定</span>
+                  <span className="tag tag-muted">{ts('permissionsLocked')}</span>
                 )}
               </div>
 
               <div style={{ display: 'flex', gap: 'var(--space-lg)', flexWrap: 'wrap', marginBottom: 'var(--space-lg)' }}>
                 <div className="form-field" style={{ minWidth: 220 }}>
-                  <label className="form-label">展示名</label>
+                  <label className="form-label">{ts('displayName')}</label>
                   <input
                     className="input"
                     value={draft.label}
@@ -331,7 +334,7 @@ export default function RoleManagementPage() {
                   />
                 </div>
                 <div className="form-field" style={{ minWidth: 220 }}>
-                  <label className="form-label">数据密级上限</label>
+                  <label className="form-label">{tl('数据密级上限')}</label>
                   <select
                     className="input"
                     value={draft.maxDataLevel}
@@ -344,12 +347,12 @@ export default function RoleManagementPage() {
                   </select>
                 </div>
                 <div className="form-field" style={{ minWidth: 160, alignSelf: 'flex-end' }}>
-                  <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>已授予权限点</div>
+                  <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{ts('grantedPermissions')}</div>
                   <div style={{ fontSize: 'var(--font-lg)', fontWeight: 700 }}>{draft.permissions.length}</div>
                 </div>
               </div>
 
-              <div className="form-legend" style={{ marginBottom: 10 }}>权限分配（按业务域分组）</div>
+              <div className="form-legend" style={{ marginBottom: 10 }}>{ts('permissionAssignment')}</div>
               {draft.lockedPermissions && (
                 <p style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginTop: 0, marginBottom: 12 }}>
                   系统管理员拥有全部权限，此处为只读展示。
@@ -414,14 +417,14 @@ export default function RoleManagementPage() {
 
               <div style={{ display: 'flex', gap: 12, marginTop: 'var(--space-lg)' }}>
                 <button className="btn btn-primary" onClick={handleSave} disabled={saving || !dirty}>
-                  {saving ? '保存中…' : draft.isNew ? '创建角色' : '保存'}
+                  {saving ? tc('saving') : draft.isNew ? ts('createRole') : tc('save')}
                 </button>
                 {!draft.protected && (
                   <button className="btn btn-danger" onClick={handleDelete} disabled={saving}>
                     删除角色
                   </button>
                 )}
-                {dirty && <span className="tag tag-accent">有未保存修改</span>}
+                {dirty && <span className="tag tag-accent">{ts('unsavedChanges')}</span>}
               </div>
             </>
           )}

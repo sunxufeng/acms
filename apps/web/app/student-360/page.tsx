@@ -6,6 +6,7 @@ import { api } from '../../lib/api';
 import Markdown from '../../components/Markdown';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import Combobox from '../../components/Combobox';
+import { useTl } from '../../lib/useTl';
 import { useTranslations } from 'next-intl';
 
 interface StudentHit {
@@ -90,7 +91,9 @@ function str(v: unknown): string {
 
 export default function Student360Page() {
 
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;  const [students, setStudents] = useState<StudentHit[]>([]);
+  const tl = useTl();
+  const ts = useTranslations('students');
+  const [students, setStudents] = useState<StudentHit[]>([]);
   const [selected, setSelected] = useState<StudentHit | null>(null);
   const [data, setData] = useState<{ student: Record<string, unknown>; sections: Section[] } | null>(null);
   const [loadingStudents, setLoadingStudents] = useState(true);
@@ -208,11 +211,11 @@ export default function Student360Page() {
             value={selected?.id ?? ''}
             onChange={(v) => selectStudent(v)}
             options={students.map((student) => {
-              const name = str(student.学生姓名) || '(无名)';
+              const name = str(student.学生姓名) || ts('unnamed');
               const englishName = str(student.英文名);
               return { value: student.id, label: englishName ? `${name} / ${englishName}` : name };
             })}
-            placeholder={loadingStudents ? '学生列表加载中…' : '输入学生姓名筛选…'}
+            placeholder={loadingStudents ? ts('loadingStudents') : ts('filterByNamePlaceholder')}
           />
         </label>
         <label className="form-label" style={{ width: '160px' }}>
@@ -234,11 +237,11 @@ export default function Student360Page() {
           />
         </label>
         <button type="button" className="btn btn-primary" onClick={handleQuery} disabled={!selected || loading}>
-          {loading ? '查询中…' : '查询'}
+          {loading ? ts('querying') : ts('query')}
         </button>
         {selected && (
           <span className="badge">
-            已选：{str(selected.学生姓名)}{str(selected.英文名) ? ` / ${str(selected.英文名)}` : ''}
+            {ts('selected')}{str(selected.学生姓名)}{str(selected.英文名) ? ` / ${str(selected.英文名)}` : ''}
           </span>
         )}
       </div>
@@ -287,8 +290,8 @@ export default function Student360Page() {
             <div className="sh-avatar">{str(data.student.学生姓名).charAt(0) || '?'}</div>
             <div className="sh-info">
               <div className="sh-name">
-                {str(data.student.学生姓名) || '(无名)'}
-                <span className="badge">{str(data.student.当前状态) || '未知状态'}</span>
+                {str(data.student.学生姓名) || ts('unnamed')}
+                <span className="badge">{str(data.student.当前状态) || ts('unknownStatus')}</span>
               </div>
               <div className="sh-sub">
                 {[data.student.学生编号, data.student.校区, data.student.入学年级, data.student.当前年级, data.student.当前学段]
@@ -417,13 +420,13 @@ export default function Student360Page() {
 
       {/* 悬浮「AI」：可拖拽，点击展开对话框，复用通用 FloatingAIPanel */}
       <FloatingAIPanel
-        context={buildStudentContext(data?.student ?? (selected as unknown as Record<string, unknown>), data?.sections ?? [])}
+        context={buildStudentContext(data?.student ?? (selected as unknown as Record<string, unknown>), data?.sections ?? [], ts)}
         resetKey={`${selected?.id ?? 'none'}-${data ? totalRecords : 'empty'}`}
         disabled={!selected}
         disabledHint="请先选择学生"
         label="AI"
         title="AI"
-        subject={str(data?.student?.学生姓名) || str(selected?.学生姓名) || '未选学生'}
+        subject={str(data?.student?.学生姓名) || str(selected?.学生姓名) || ts('noStudentSelected')}
         storageKey="student360-analysis-dialog"
         placeholder={tl('输入与学生相关的问题，Enter 发送…')}
       />
@@ -432,13 +435,13 @@ export default function Student360Page() {
   );
 }
 
-function buildStudentContext(student: Record<string, unknown> | undefined, sections: Section[]): string {
+function buildStudentContext(student: Record<string, unknown> | undefined, sections: Section[], ts: (k: string) => string): string {
   if (!student) return '（未选择学生）';
   const lines: string[] = [];
   lines.push('你是 ACMS 学生全景智能分析助手。请基于以下学生信息回答用户问题，若信息不足请明确说明。');
   lines.push('');
   lines.push('【学生基本信息】');
-  lines.push(`- 姓名：${str(student.学生姓名) || '未知'}`);
+  lines.push(`- 姓名：${str(student.学生姓名) || ts('unknownName')}`);
   lines.push(`- 学生编号：${str(student.学生编号) || '—'}`);
   lines.push(`- 当前状态：${str(student.当前状态) || '—'}`);
   lines.push(`- 校区：${str(student.校区) || '—'}`);
@@ -482,7 +485,7 @@ function buildStudentContext(student: Record<string, unknown> | undefined, secti
 
 
 function DetailModal({ title, content, onClose }: { title: string; content: string; onClose: () => void }) {
-  const __lT = useTranslations('labels'); const tl = ((k: string, v?: any) => { const __r = __lT(k as any, v); return (__r === k || __r.startsWith('labels.')) ? k : __r; }) as any;
+  const tl = useTl();
   if (!title && !content) return null;
   const isMarkdown = /(^|\n)(#{1,4}\s|[-*]\s+\S|\d+\.\s+\S|>|\*\*\*|---|```|\[[^\]]+\]\(https?:\/\/)/.test(content);
   return (

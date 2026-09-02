@@ -171,6 +171,7 @@ export default function StudentsPage() {
   const [filters, setFilters] = useState<Record<string, string | string[]>>({
     当前状态: [],
     入学年级: '',
+    当前年级: '',
     班主任: [],
     招生负责老师: [],
     来源渠道: '',
@@ -462,6 +463,12 @@ export default function StudentsPage() {
           value={filters['入学年级'] as string}
           onChange={(v) => setFilter('入学年级', v)}
           options={dicts['入学年级'] ?? ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '初一', '初二', '初三', '高一', '高二', '高三']}
+        />
+        <FilterSelect
+          label={t('fldCurrentGrade')}
+          value={filters['当前年级'] as string}
+          onChange={(v) => setFilter('当前年级', v)}
+          options={dicts['当前年级'] ?? ['Foundation', 'Pre-1', 'Pre-2', 'Pre-3', '大一', '未来企业家班', '全球领航计划']}
         />
         <FilterSelect
           label={t('fldHeadTeacher')}

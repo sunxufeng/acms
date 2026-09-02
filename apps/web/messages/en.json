@@ -121,6 +121,7 @@
     "工作台": "Workspace",
     "业务管理": "Operations",
     "学生闭环": "Student Lifecycle",
+    "邮件归档": "Mail Archive",
     "教师管理": "Faculty",
     "智能助手": "AI Assistant",
     "后台管理": "Administration"
@@ -1080,7 +1081,7 @@
     "通知模板": "Notification Templates",
     "消息模板维护（M4 通知闭环），新建/编辑时进入独立表单，顶部不再显示「新建」「查询」": "Message template maintenance (M4 notification loop); create/edit opens a standalone form, top bar hides \"Create\"/\"Search\"",
     "考勤围栏": "Attendance Fence",
-    "配置各校区 GPS 打卡中心点（WGS-84 经纬度）与允许 WiFi（SSID / BSSID）；移动端打卡时按就近围栏 + WiFi 校验（见 docs/student-portal-plan.md §6）": "Configure GPS check-in centers (WGS-84 lat/lng) and allowed WiFi (SSID/BSSID) per campus; mobile check-in validates by nearest fence + WiFi (see docs/student-portal-plan.md §6)",
+    "配置各校区 GPS 打卡中心点（WGS-84 经纬度）与允许 WiFi（SSID / BSSID）；移动端打卡时按就近围栏 + WiFi 校验（见 docs/student-portal-plan §6）": "Configure GPS check-in centers (WGS-84 lat/lng) and allowed WiFi (SSID/BSSID) per campus; mobile check-in validates by nearest fence + WiFi (see docs/student-portal-plan §6)",
     "教师档案": "Teacher Profile",
     "课程方案": "Course Plan",
     "教学班级": "Teaching Class",
@@ -1238,6 +1239,10 @@
     "课次日期": "Session Date",
     "授课方式": "Teaching Method",
     "课次状态": "Session Status",
-    "输入学生姓名筛选…": "Filter by student name…"
+    "输入学生姓名筛选…": "Filter by student name…",
+    "文件夹": "Folder",
+    "方向": "Direction",
+    "发件箱文件夹": "Sent Folder",
+    "SSL": "SSL"
   }
 }

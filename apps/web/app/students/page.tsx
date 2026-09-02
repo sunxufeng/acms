@@ -166,7 +166,7 @@ export default function StudentsPage() {
   const tokenStack = useRef<(string | undefined)[]>([]); // tokenStack[i] = 拉取第 i+1 页所需的 pageToken
   // 每页条数可在分页条上切换；切换后 buildParams → fetchPage 重建，
   // 下方 [q, filters, fetchPage] 的 effect 会重置游标并回到第 1 页。
-  const [size, setSize] = useState(5);
+  const [size, setSize] = useState(10);
   const PAGE_SIZE = size;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -624,7 +624,7 @@ export default function StudentsPage() {
             </table>
           </div>
 
-          {/* Footer：分页（默认每页 5 条，可切换条数 / 跳页；按学籍号升序） */}
+          {/* Footer：分页（默认每页 10 条，可切换条数 / 跳页；按学籍号升序） */}
           <Pagination
             total={total}
             page={page}

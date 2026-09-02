@@ -197,9 +197,9 @@ const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: '
 export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate, selection, onSelectionChange, backHref }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
-  // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 5）。
+  // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
   // 切换后 buildParams → fetchPage → reload 链路自动重建，reload 的 effect 会重置游标并回到第 1 页。
-  const [size, setSize] = useState(pageSize ?? 5);
+  const [size, setSize] = useState(pageSize ?? 10);
   const PAGE_SIZE = size;
   const [page, setPage] = useState(1);
   const tokenStack = useRef<(string | undefined)[]>([]); // tokenStack[i] = 拉取第 i+1 页所需的 pageToken

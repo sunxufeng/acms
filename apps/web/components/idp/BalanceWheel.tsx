@@ -29,9 +29,9 @@ export default function BalanceWheel({ dims, onChange }: { dims: WheelDim[]; onC
           return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--border)" strokeWidth={1} />;
         })}
         {dims.some((d) => d.expected > 0) && (
-          <polygon points={poly('expected')} fill="rgba(45,160,120,0.18)" stroke="var(--accent)" strokeWidth={2} />
+          <polygon points={poly('expected')} fill="var(--accent-muted)" stroke="var(--accent)" strokeWidth={2} />
         )}
-        <polygon points={poly('current')} fill="rgba(230,120,60,0.28)" stroke="#e6783c" strokeWidth={2} />
+        <polygon points={poly('current')} fill="var(--chart-current-soft)" stroke="var(--chart-current)" strokeWidth={2} />
         {dims.map((d, i) => {
           const [x, y] = point(i, R + 22);
           return <text key={i} x={x} y={y} fontSize={12} fill="var(--fg)" textAnchor="middle" dominantBaseline="middle">{d.dim}</text>;
@@ -39,13 +39,13 @@ export default function BalanceWheel({ dims, onChange }: { dims: WheelDim[]; onC
       </svg>
       <div style={{ flex: 1, minWidth: 240 }}>
         <div style={{ display: 'flex', gap: 16, fontSize: 'var(--font-sm)', marginBottom: 8 }}>
-          <span style={{ color: '#e6783c' }}>● 当前值</span>
+          <span style={{ color: 'var(--chart-current)' }}>● 当前值</span>
           <span style={{ color: 'var(--accent)' }}>● 期望値（IDP 后）</span>
         </div>
         {dims.map((d, i) => (
           <div key={d.dim} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
             <span style={{ width: 84, fontSize: 'var(--font-sm)' }}>{d.dim}</span>
-            <label style={{ fontSize: 'var(--font-sm)', color: '#e6783c' }}>当前</label>
+            <label style={{ fontSize: 'var(--font-sm)', color: 'var(--chart-current)' }}>当前</label>
             {editable ? (
               <input type="number" min={0} max={10} value={d.current} style={{ width: 64 }}
                 onChange={(e) => { const v = Number(e.target.value); const n = [...dims]; n[i] = { ...n[i], current: v }; onChange!(n); }} />

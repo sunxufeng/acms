@@ -358,7 +358,7 @@ export default function FloatingAIPanel({
             background: 'var(--bg)',
             border: '1px solid var(--border)',
             borderRadius: 12,
-            boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+            boxShadow: 'var(--shadow-lg)',
             zIndex: 2000,
             overflow: 'hidden',
           }}
@@ -433,14 +433,14 @@ export default function FloatingAIPanel({
                 >
                   <div style={{ maxWidth: '86%', display: 'flex', flexDirection: 'column', gap: 4, alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                     {editingIdx === i ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', background: 'var(--bg-secondary)', borderRadius: 14, padding: 16, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', background: 'var(--bg-secondary)', borderRadius: 14, padding: 16, boxShadow: 'var(--shadow-md)' }}>
                         <textarea
                           value={editText}
                           onChange={(e) => setEditText(e.target.value)}
                           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmEdit(); } }}
                           rows={7}
                           autoFocus
-                          style={{ width: '100%', resize: 'vertical', minHeight: 120, background: '#fff', color: '#1a1a1a', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', fontSize: 14, lineHeight: 1.65, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+                          style={{ width: '100%', resize: 'vertical', minHeight: 120, background: 'var(--surface-input)', color: 'var(--fg)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', fontSize: 14, lineHeight: 1.65, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
                         />
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -449,7 +449,7 @@ export default function FloatingAIPanel({
                           </span>
                           <div style={{ display: 'flex', gap: 8 }}>
                             <button onClick={cancelEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)' }}>取消</button>
-                            <button onClick={confirmEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: '#1a1a1a', color: '#fff', border: 'none' }}>发送</button>
+                            <button onClick={confirmEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: 'var(--accent)', color: 'var(--fg-on-accent)', border: 'none' }}>发送</button>
                           </div>
                         </div>
                       </div>
@@ -460,7 +460,7 @@ export default function FloatingAIPanel({
                           style={{
                             position: 'relative',
                             background: m.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)',
-                            color: m.role === 'user' ? '#fff' : 'var(--text)',
+                            color: m.role === 'user' ? 'var(--fg-on-accent)' : 'var(--text)',
                             padding: '10px 14px',
                             borderRadius: 12,
                             fontSize: 14,

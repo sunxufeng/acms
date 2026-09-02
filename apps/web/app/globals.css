@@ -107,6 +107,16 @@
   --shadow-md:  0 4px 12px rgba(0,0,0,0.3);
   --shadow-lg:  0 8px 28px rgba(0,0,0,0.35);
 
+  /* 遮罩与大弹窗阴影：此前散落在 JSX 内联样式里写死 rgba，
+     浅色主题下会变成一块黑幕。改为变量后两主题自动适配。 */
+  --overlay:      rgba(8, 12, 20, 0.62);
+  --shadow-modal: 0 24px 60px rgba(0, 0, 0, 0.4);
+
+  /* 图表 / 数据可视化配色（IDP 平衡轮）：
+     期望值取 --accent（teal），当前值用橙色——橙在深底与浅底上都可辨，两主题同值。 */
+  --chart-current:      #E6783C;
+  --chart-current-soft: rgba(230, 120, 60, 0.28);
+
   /* ── Login page tokens (kept for auth) ────────────────────── */
   --login-left-bg:   #174A45;
   --login-right-bg:  #0F2E2B;
@@ -131,6 +141,27 @@
   /* .card 一直引用 var(--radius)，但这个变量此前从未定义过，
      计算值回退成 0（方角）—— 这里补上定义，对齐 --radius-lg。 */
   --radius:          var(--radius-lg);
+
+  /* ── 补齐「悬空变量」─────────────────────────────────────────
+     下面这些名字被 JSX 里的 var() 引用，但此前从未在 CSS 中定义，
+     且大多没有 fallback → var() 取不到值 → 整条样式属性失效
+     （背景变透明、文字回落继承值），这正是 ai/chat 等页面当年
+     被迫在 JSX 里写死 #fff / #1a1a1a 的根因。
+     统一映射成语义别名：值仍取自既有 token，故两套主题自动跟随，
+     浅色主题下无需再重复定义一遍。 */
+  --text:            var(--fg);            /* 正文主色 */
+  --text-muted:      var(--fg-tertiary);   /* 次要/说明文字 */
+  --fg-primary:      var(--fg);
+  --fg-error:        var(--danger);        /* 错误提示文字 */
+  --bg-primary:      var(--bg-elevated);   /* 浮层/下拉底色 */
+  --bg-secondary:    var(--surface-input); /* 输入区、编辑框底色 */
+  --bg-tertiary:     var(--surface-hover); /* 对方气泡等次一级表面 */
+  --bg-input:        var(--surface-input);
+  --right-text-color: var(--fg-tertiary);  /* 登录页右侧说明文字 */
+
+  /* 动效 token（首页搜索卡在用，此前同样未定义） */
+  --dur-fast:        0.15s;
+  --ease:            cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ── Light Theme — 月之明面 (opt-in via toggle) ───────────
@@ -183,6 +214,13 @@
   --shadow-sm:  0 1px 2px rgba(23, 74, 69, 0.08);
   --shadow-md:  0 4px 12px rgba(23, 74, 69, 0.1);
   --shadow-lg:  0 8px 28px rgba(23, 74, 69, 0.12);
+
+  /* 浅色主题下遮罩减淡、阴影换用深 teal，避免黑幕与黑影 */
+  --overlay:      rgba(15, 61, 57, 0.38);
+  --shadow-modal: 0 24px 60px rgba(23, 74, 69, 0.18);
+  /* 浅底上橙色需要压深才够对比 */
+  --chart-current:      #C2622B;
+  --chart-current-soft: rgba(194, 98, 43, 0.20);
 
   --login-left-bg:   #1B6B63;
   --login-right-bg:  #E9EFEC;

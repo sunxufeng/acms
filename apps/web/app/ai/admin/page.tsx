@@ -6,7 +6,7 @@ import { api } from '../../../lib/api';
 
 const btn = (primary = false): React.CSSProperties => ({
   background: primary ? 'var(--accent)' : 'transparent',
-  color: primary ? '#fff' : 'var(--text)',
+  color: primary ? 'var(--fg-on-accent)' : 'var(--text)',
   border: primary ? 'none' : '1px solid var(--border)',
   borderRadius: 8,
   padding: '6px 12px',

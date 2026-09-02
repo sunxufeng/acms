@@ -153,7 +153,7 @@ export default function Combobox({
             background: 'var(--bg-elevated)',
             border: '1px solid var(--border)',
             borderRadius: 8,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+            boxShadow: 'var(--shadow-lg)',
             zIndex: 100,
             margin: 0,
             padding: 4,

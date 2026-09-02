@@ -58,15 +58,15 @@ export default function MailAccountsPage() {
         <div
           className="mb-4 rounded-lg border px-4 py-3 text-sm"
           style={{
-            borderColor: sync.running ? '#bfdbfe' : (sync.error ? '#fecaca' : '#bbf7d0'),
-            background: sync.running ? '#eff6ff' : (sync.error ? '#fef2f2' : '#f0fdf4'),
-            color: '#1f2937',
+            borderColor: sync.running ? 'var(--accent)' : (sync.error ? 'var(--danger)' : 'var(--success)'),
+            background: sync.running ? 'var(--accent-muted)' : (sync.error ? 'var(--danger-muted)' : 'var(--success-muted)'),
+            color: 'var(--fg)',
           }}
         >
           <div className="font-medium">
             {sync.running ? `正在收取「${syncName}」…` : `「${syncName}」收取完成`}
           </div>
-          <div className="mt-1 text-xs" style={{ color: '#4b5563' }}>
+          <div className="mt-1 text-xs" style={{ color: 'var(--fg-tertiary)' }}>
             已读取 {sync.fetched} 封，新增 {sync.stored} 封
             {sync.folders?.length
               ? `　|　${sync.folders
@@ -74,9 +74,9 @@ export default function MailAccountsPage() {
                   .join('；')}`
               : ''}
           </div>
-          {sync.error && <div className="mt-1 text-xs" style={{ color: '#b91c1c' }}>失败：{sync.error}</div>}
+          {sync.error && <div className="mt-1 text-xs" style={{ color: 'var(--danger)' }}>失败：{sync.error}</div>}
           {!sync.running && sync.result && (
-            <div className="mt-1 text-xs" style={{ color: '#4b5563' }}>
+            <div className="mt-1 text-xs" style={{ color: 'var(--fg-tertiary)' }}>
               {sync.result}
             </div>
           )}

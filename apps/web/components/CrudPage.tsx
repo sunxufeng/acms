@@ -185,12 +185,12 @@ function FilterSelect({
 }
 
 const overlayStyle: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(8,12,20,0.62)', zIndex: 50,
+  position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 50,
   display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px', overflowY: 'auto',
 };
 const modalStyle: React.CSSProperties = {
   background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 14,
-  width: 'min(880px, 100%)', boxShadow: '0 24px 60px rgba(0,0,0,0.4)',
+  width: 'min(880px, 100%)', boxShadow: 'var(--shadow-modal)',
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
@@ -887,7 +887,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                         <div style={{ position: 'relative' }}>
                           <button className="btn btn-ghost btn-sm" onClick={() => setTxMenu(txMenu === String(row.id) ? null : String(row.id))}>{t('common.status')}▾</button>
                           {txMenu === String(row.id) && (
-                            <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 20, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 10, padding: 6, minWidth: 120, boxShadow: '0 10px 30px rgba(0,0,0,0.35)' }}>
+                            <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 20, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 10, padding: 6, minWidth: 120, boxShadow: 'var(--shadow-lg)' }}>
                               {allowed.map((to) => (
                                 <div key={to} onClick={() => doTransition(row, to)}
                                   style={{ padding: '7px 10px', borderRadius: 7, cursor: 'pointer', fontSize: 'var(--font-sm)' }}

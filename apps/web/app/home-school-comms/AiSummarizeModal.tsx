@@ -20,7 +20,7 @@ interface AiSummarizeModalProps {
 const overlayStyle: React.CSSProperties = {
   position: 'fixed',
   inset: 0,
-  background: 'rgba(8,12,20,0.62)',
+  background: 'var(--overlay)',
   zIndex: 60,
   display: 'flex',
   alignItems: 'flex-start',
@@ -34,7 +34,7 @@ const modalStyle: React.CSSProperties = {
   border: '1px solid var(--border)',
   borderRadius: 14,
   width: 'min(640px, 100%)',
-  boxShadow: '0 24px 60px rgba(0,0,0,0.4)',
+  boxShadow: 'var(--shadow-modal)',
 };
 
 const sectionStyle: React.CSSProperties = {

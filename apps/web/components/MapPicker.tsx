@@ -131,7 +131,7 @@ export default function MapPicker({ lat, lng, onChange, height = 320 }: MapPicke
           width: '100%',
           borderRadius: 'var(--radius-sm, 8px)',
           border: '1px solid var(--border)',
-          background: '#eef1f5',
+          background: 'var(--surface-input)',
         }}
       />
       {err && (

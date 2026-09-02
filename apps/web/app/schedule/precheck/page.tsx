@@ -68,9 +68,9 @@ export default function SchedulePrecheckPage() {
         {result && (
           <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {result.hard.length === 0
-              ? <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(78,205,196,0.12)', border: '1px solid rgba(78,205,196,0.4)', color: 'var(--success)', fontSize: 'var(--font-sm)' }}>{t('msgNoHardConflict')}</div>
-              : <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(255,107,107,0.12)', border: '1px solid rgba(255,107,107,0.4)', color: 'var(--danger)', fontSize: 'var(--font-sm)' }}>{t('msgHardConflict', { count: result.hard.length, types: result.hard.map((h) => h.type).join('、') })}</div>}
-            {result.soft.length > 0 && <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(245,166,35,0.12)', border: '1px solid rgba(245,166,35,0.4)', color: 'var(--warning)', fontSize: 'var(--font-sm)' }}>{t('msgSoftConflict', { count: result.soft.length })}</div>}
+              ? <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--accent-muted)', border: '1px solid var(--accent)', color: 'var(--success)', fontSize: 'var(--font-sm)' }}>{t('msgNoHardConflict')}</div>
+              : <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--danger-muted)', border: '1px solid var(--danger)', color: 'var(--danger)', fontSize: 'var(--font-sm)' }}>{t('msgHardConflict', { count: result.hard.length, types: result.hard.map((h) => h.type).join('、') })}</div>}
+            {result.soft.length > 0 && <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--gold-muted)', border: '1px solid var(--warning)', color: 'var(--warning)', fontSize: 'var(--font-sm)' }}>{t('msgSoftConflict', { count: result.soft.length })}</div>}
           </div>
         )}
       </div>

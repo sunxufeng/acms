@@ -252,7 +252,7 @@ function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
             borderRadius: 8,
             border: '1px solid var(--border)',
             background: 'var(--bg-elevated)',
-            boxShadow: '0 6px 20px rgba(0,0,0,.16)',
+            boxShadow: 'var(--shadow-md)',
           }}
           onClick={(e) => e.stopPropagation()}
         >

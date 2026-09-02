@@ -484,7 +484,7 @@ export default function HomepageSettingsPage() {
               overflow: 'hidden',
               borderRadius: 8,
               border: '1px solid var(--border)',
-              background: '#000',
+              background: 'var(--bg-subtle)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',

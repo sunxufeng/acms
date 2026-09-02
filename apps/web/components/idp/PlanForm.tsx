@@ -49,7 +49,7 @@ function Stars({ value, onChange }: { value: number; onChange: (v: number) => vo
     <span style={{ display: 'inline-flex', gap: 2 }}>
       {[1, 2, 3, 4, 5].map((n) => (
         <span key={n} onClick={() => onChange(n)}
-          style={{ cursor: 'pointer', fontSize: 18, color: n <= value ? '#f5a623' : 'var(--border)' }}>★</span>
+          style={{ cursor: 'pointer', fontSize: 18, color: n <= value ? 'var(--gold)' : 'var(--border)' }}>★</span>
       ))}
     </span>
   );

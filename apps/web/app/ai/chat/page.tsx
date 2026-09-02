@@ -24,7 +24,7 @@ const panel: React.CSSProperties = {
 };
 const btn = (primary = false): React.CSSProperties => ({
   background: primary ? 'var(--accent)' : 'transparent',
-  color: primary ? '#fff' : 'var(--text)',
+  color: primary ? 'var(--fg-on-accent)' : 'var(--text)',
   border: primary ? 'none' : '1px solid var(--border)',
   borderRadius: 8,
   padding: '7px 14px',
@@ -222,7 +222,7 @@ export default function AiChatPage() {
 
   return (
     <div style={{ minHeight: 'calc(100vh - 64px)', background: 'var(--bg-primary)', padding: '16px 20px' }} onClick={() => { menuId && setMenuId(null); }}>
-      <div style={{ background: '#fff', borderRadius: 16, border: '1px solid var(--border)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 96px)', padding: '20px 28px 16px' }}>
+      <div style={{ background: 'var(--surface)', borderRadius: 16, border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 96px)', padding: '20px 28px 16px' }}>
       {/* Top bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -294,7 +294,7 @@ export default function AiChatPage() {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0,0,0,0.25)',
+            background: 'var(--overlay)',
             zIndex: 100,
             display: 'flex',
             justifyContent: 'center',
@@ -304,9 +304,9 @@ export default function AiChatPage() {
         >
           <div
             style={{
-              background: '#ffffff',
+              background: 'var(--bg-elevated)',
               borderRadius: 16,
-              boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+              boxShadow: 'var(--shadow-modal)',
               width: 520,
               maxWidth: '90vw',
               maxHeight: '70vh',
@@ -428,7 +428,7 @@ export default function AiChatPage() {
                       style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 4px', borderRadius: 6 }}
                     >⋯</button>
                     {menuId === c.id && (
-                      <div style={{ position: 'absolute', right: 0, top: '100%', zIndex: 10, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.25)', minWidth: 120 }}>
+                      <div style={{ position: 'absolute', right: 0, top: '100%', zIndex: 10, background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-md)', minWidth: 120 }}>
                         <button onClick={() => { setMenuId(null); renameConv(c); }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>{t('rename')}</button>
                         <button onClick={() => { setMenuId(null); deleteConv(c); }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--danger, #ff5c5c)', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>{t('delete')}</button>
                       </div>
@@ -455,14 +455,14 @@ export default function AiChatPage() {
               >
                 <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 4, alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                   {editingIdx === i ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', background: 'var(--bg-secondary)', borderRadius: 14, padding: 16, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', background: 'var(--bg-secondary)', borderRadius: 14, padding: 16, boxShadow: 'var(--shadow-md)' }}>
                       <textarea
                         value={editText}
                         onChange={(e) => setEditText(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmEdit(); } }}
                         rows={7}
                         autoFocus
-                        style={{ width: '100%', resize: 'vertical', minHeight: 120, background: '#fff', color: '#1a1a1a', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', fontSize: 14, lineHeight: 1.65, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+                        style={{ width: '100%', resize: 'vertical', minHeight: 120, background: 'var(--surface-input)', color: 'var(--fg)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', fontSize: 14, lineHeight: 1.65, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
                       />
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -471,13 +471,13 @@ export default function AiChatPage() {
                         </span>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button onClick={cancelEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)' }}>{t('cancel')}</button>
-                          <button onClick={confirmEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: '#1a1a1a', color: '#fff', border: 'none' }}>{t('send')}</button>
+                          <button onClick={confirmEdit} style={{ padding: '6px 18px', fontSize: 13, borderRadius: 20, cursor: 'pointer', background: 'var(--accent)', color: 'var(--fg-on-accent)', border: 'none' }}>{t('send')}</button>
                         </div>
                       </div>
                     </div>
                   ) : (
                     <>
-                      <div className="msg-bubble" style={{ position: 'relative', background: m.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)', color: m.role === 'user' ? '#fff' : 'var(--text)', padding: '10px 14px', borderRadius: 12, fontSize: 14, lineHeight: 1.6, transition: 'filter 0.15s' }}>
+                      <div className="msg-bubble" style={{ position: 'relative', background: m.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)', color: m.role === 'user' ? 'var(--fg-on-accent)' : 'var(--text)', padding: '10px 14px', borderRadius: 12, fontSize: 14, lineHeight: 1.6, transition: 'filter 0.15s' }}>
                         <Markdown>{m.content}</Markdown>
                       </div>
                       {m.role === 'user' && (
@@ -510,11 +510,11 @@ export default function AiChatPage() {
               </div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
-              <label title={t('addFile')} style={{ width: 36, height: 36, border: '0.5px solid var(--border)', borderRadius: 8, background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'border-color 0.15s, background 0.15s' }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#999'; e.currentTarget.style.background = '#fafafa'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = '#fff'; }}
+              <label title={t('addFile')} style={{ width: 36, height: 36, border: '0.5px solid var(--border)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'border-color 0.15s, background 0.15s' }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.background = 'var(--surface-hover)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--surface)'; }}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--fg-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>

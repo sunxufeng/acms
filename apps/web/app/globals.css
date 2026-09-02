@@ -1540,3 +1540,69 @@ select.form-input:disabled { color: var(--fg); }
 .mobile-row { border-bottom: 1px solid var(--border); padding: var(--space-sm) 0; }
 .mobile-row-title { font-weight: 600; }
 
+/* ================================================================ */
+/*  PAGINATION — 全站列表分页条（CrudPage / 学生档案共用）            */
+/*  同样只定义「布局 / 尺寸 / 间距」，颜色一律取主题变量，           */
+/*  因此深浅两套主题自动跟随。                                       */
+/* ================================================================ */
+
+/* 分页条容器：总数在左、页码居中、每页条数 + 跳页在右；窄屏自动换行 */
+.pagination {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: var(--space-sm);
+  margin-top: var(--space-md); padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+
+.pagination-total { font-size: var(--font-sm); color: var(--fg-tertiary); }
+
+.pagination-pages { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+
+.pagination-page,
+.pagination-nav {
+  min-width: 30px; height: 30px; padding: 0 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: transparent; color: var(--fg-secondary);
+  font-size: var(--font-sm); line-height: 1; cursor: pointer;
+  transition: all 0.15s;
+}
+.pagination-page:hover:not(:disabled),
+.pagination-nav:hover:not(:disabled) { border-color: var(--accent); color: var(--fg); }
+.pagination-page:disabled,
+.pagination-nav:disabled { opacity: 0.4; cursor: not-allowed; }
+.pagination-page.active {
+  background: var(--accent); border-color: var(--accent);
+  color: var(--fg-on-accent); font-weight: 600;
+}
+/* 页码断层省略号 */
+.pagination-gap { padding: 0 2px; color: var(--fg-tertiary); font-size: var(--font-sm); }
+
+.pagination-tail { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; }
+
+/* 每页条数下拉 */
+.pagination-size { position: relative; display: inline-flex; align-items: center; }
+.pagination-select {
+  appearance: none; -webkit-appearance: none;
+  height: 30px; padding: 0 26px 0 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-input); color: var(--fg-secondary);
+  font-size: var(--font-sm); cursor: pointer;
+}
+.pagination-select:hover { border-color: var(--border-strong); color: var(--fg); }
+.pagination-select option { background: var(--surface-input); color: var(--fg); }
+.pagination-caret {
+  position: absolute; right: 8px; width: 14px; height: 14px;
+  color: var(--fg-tertiary); pointer-events: none;
+}
+
+/* 跳至 __ 页 */
+.pagination-jump { display: inline-flex; align-items: center; gap: 6px; }
+.pagination-jump-label { font-size: var(--font-sm); color: var(--fg-tertiary); }
+.pagination-jump-input {
+  width: 52px; height: 30px; padding: 0 8px; text-align: center;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-input); color: var(--fg); font-size: var(--font-sm);
+}
+.pagination-jump-input:focus { outline: none; border-color: var(--accent); }
+

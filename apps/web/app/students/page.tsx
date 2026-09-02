@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { api, type Page, type StudentRecord } from '../../lib/api';
 import { useTranslations } from 'next-intl';
 import { StudentForm } from '../../components/StudentForm';
+import Pagination from '../../components/Pagination';
 
 const COLS = [
   { key: '学生姓名', label: 'colStudent', width: '' },
@@ -163,7 +164,10 @@ export default function StudentsPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const tokenStack = useRef<(string | undefined)[]>([]); // tokenStack[i] = 拉取第 i+1 页所需的 pageToken
-  const PAGE_SIZE = 5;
+  // 每页条数可在分页条上切换；切换后 buildParams → fetchPage 重建，
+  // 下方 [q, filters, fetchPage] 的 effect 会重置游标并回到第 1 页。
+  const [size, setSize] = useState(5);
+  const PAGE_SIZE = size;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -485,7 +489,7 @@ export default function StudentsPage() {
           multi
         />
         <FilterSelect
-          label={t('colSource')}
+          label={t('fldSource')}
           value={filters['来源渠道'] as string}
           onChange={(v) => setFilter('来源渠道', v)}
           options={dicts['来源渠道'] ?? ['官网', '转介绍', '展会', '社交媒体', '代理', '其他']}
@@ -620,34 +624,15 @@ export default function StudentsPage() {
             </table>
           </div>
 
-          {/* Footer：分页（每页 5 条，按学籍号升序） */}
-          {(() => {
-            const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-            const startP = Math.max(1, page - 2);
-            const endP = Math.min(totalPages, page + 2);
-            const pageNumbers: number[] = [];
-            for (let i = startP; i <= endP; i++) pageNumbers.push(i);
-            return (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
-                <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{cr('total', { total })}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <button className="btn btn-outline btn-sm" disabled={page <= 1 || loading} onClick={() => goToPage(page - 1)}>{cr('prevPage')}</button>
-                  {pageNumbers.map((p) => (
-                    <button
-                      key={p}
-                      className={`btn btn-sm ${p === page ? 'btn-primary' : 'btn-outline'}`}
-                      disabled={loading}
-                      onClick={() => goToPage(p)}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                  <button className="btn btn-outline btn-sm" disabled={page >= totalPages || loading} onClick={() => goToPage(page + 1)}>{cr('nextPage')}</button>
-                  <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginLeft: 8 }}>{cr('pageOf', { page, pages: totalPages })}</span>
-                </div>
-              </div>
-            );
-          })()}
+          {/* Footer：分页（默认每页 5 条，可切换条数 / 跳页；按学籍号升序） */}
+          <Pagination
+            total={total}
+            page={page}
+            pageSize={PAGE_SIZE}
+            loading={loading}
+            onPageChange={goToPage}
+            onPageSizeChange={setSize}
+          />
         </>
       ) : null}
     </div>

@@ -9,6 +9,7 @@ import MarkdownField from './MarkdownField';
 import TagInput from './TagInput';
 import MapPicker from './MapPicker';
 import Combobox from './Combobox';
+import Pagination from './Pagination';
 
 export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'attachment' | 'markdown' | 'map' | 'tags';
 
@@ -196,7 +197,10 @@ const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: '
 export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate, selection, onSelectionChange, backHref }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
-  const PAGE_SIZE = pageSize ?? 5;
+  // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 5）。
+  // 切换后 buildParams → fetchPage → reload 链路自动重建，reload 的 effect 会重置游标并回到第 1 页。
+  const [size, setSize] = useState(pageSize ?? 5);
+  const PAGE_SIZE = size;
   const [page, setPage] = useState(1);
   const tokenStack = useRef<(string | undefined)[]>([]); // tokenStack[i] = 拉取第 i+1 页所需的 pageToken
   const fallbackRef = useRef<Record<string, unknown>[] | null>(null); // 后端一次性返回全部时的前端切片兜底
@@ -923,24 +927,14 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         {loading && <div className="empty-state"><div className="empty-state-text">{t('crud.loading')}</div></div>}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
-        <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{t('crud.total', { total })}</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <button className="btn btn-outline btn-sm" disabled={page <= 1 || loading} onClick={() => goToPage(page - 1)}>{t('crud.prevPage')}</button>
-          {(() => {
-            const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-            const startP = Math.max(1, page - 2);
-            const endP = Math.min(totalPages, page + 2);
-            const pageNumbers: number[] = [];
-            for (let i = startP; i <= endP; i++) pageNumbers.push(i);
-            return pageNumbers.map((p) => (
-              <button key={p} className={`btn btn-sm ${p === page ? 'btn-primary' : 'btn-outline'}`} disabled={loading} onClick={() => goToPage(p)}>{p}</button>
-            ));
-          })()}
-          <button className="btn btn-outline btn-sm" disabled={page >= Math.ceil(total / PAGE_SIZE) || loading} onClick={() => goToPage(page + 1)}>{t('crud.nextPage')}</button>
-          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginLeft: 8 }}>{t('crud.pageOf', { page, pages: Math.max(1, Math.ceil(total / PAGE_SIZE)) })}</span>
-        </div>
-      </div>
+      <Pagination
+        total={total}
+        page={page}
+        pageSize={PAGE_SIZE}
+        loading={loading}
+        onPageChange={goToPage}
+        onPageSizeChange={setSize}
+      />
       </>)}
 
       {!inlineEdit && editing && (

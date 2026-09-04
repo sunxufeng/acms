@@ -1,4 +1,4 @@
-import { useTranslations } from 'next-intl';
+import { useMessages } from 'next-intl';
 
 /**
  * 全站统一的「中文原文 → 目标语言」翻译器（labels 命名空间）。
@@ -10,15 +10,17 @@ import { useTranslations } from 'next-intl';
  * 中文环境下 labels 中该 key 的译文就是原文，查不到也回退原文，因此中文显示永远不变。
  * 英文环境下返回对应英译。
  *
- * 回退规则：next-intl 查不到 key 时返回 key 本身，或返回 `labels.xxx` 形式的完整路径，
- * 这两种情况都视为「无译文」，直接返回原文。
+ * ⚠️ 必须直接查表，不能用 useTranslations('labels') 的 t(key)：
+ * next-intl 会把 key 里的「.」当嵌套路径分隔符、「{}」当 ICU 占位符，而 labels 的 key
+ * 是含标点的整句（如 "如 imap.qq.com / imap.gmail.com"、"可选，如 {"fromDomain":...}"），
+ * 走路径解析必然查不到，还会刷 MISSING_MESSAGE。
+ * 改为取到 labels 对象后按原样 key 直接取值，不经过路径解析与 ICU 解析。
+ *
+ * 回退规则：查不到时返回原文，中文环境因此永远显示不变。
  */
 export type TlFn = (k: string, v?: any) => string;
 
 export function useTl(): TlFn {
-  const __t = useTranslations('labels');
-  return ((k: string, v?: any) => {
-    const r = __t(k as any, v) as unknown as string;
-    return r === k || r.startsWith('labels.') ? k : r;
-  }) as TlFn;
+  const labels = ((useMessages() as Record<string, unknown> | undefined)?.labels ?? {}) as Record<string, string>;
+  return ((k: string) => labels[k] ?? k) as TlFn;
 }

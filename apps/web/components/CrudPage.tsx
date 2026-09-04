@@ -125,6 +125,17 @@ function str(v: unknown): string {
   return String(v);
 }
 
+/**
+ * 字典列的单元格显示文本：逐项翻译后用「、」连接（分隔符与 str() 保持一致）。
+ * 只对候选项来自字典/枚举的列（dictKey 或 options）翻译；自由文本列（姓名、校名等）
+ * 直出原文，避免误命中 labels 里的同名词条。
+ */
+function cellText(v: unknown, c: CrudColumn, tl: (k: string) => string): string {
+  if (!c.dictKey && !c.options) return str(v);
+  if (Array.isArray(v)) return v.map((x) => tl(str(x))).join('、');
+  return tl(str(v));
+}
+
 /** 将存储值（"YYYY-MM-DD" 或 "YYYY-MM-DD HH:mm"）转为 <input type="datetime-local"> 所需的 "YYYY-MM-DDTHH:mm" */
 function toDateTimeLocal(v: unknown): string {
   const s = str(v).trim();
@@ -162,6 +173,7 @@ function FilterSelect({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const t = useTranslations();
+  const tl = useTl();
   useEffect(() => {
     const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
     document.addEventListener('mousedown', h);
@@ -177,7 +189,7 @@ function FilterSelect({
         <div className="filter-select-dropdown">
           <div className={`filter-select-opt${!value ? ' active' : ''}`} onClick={() => { onChange(''); setOpen(false); }}>{t('crud.all')}</div>
           {options.map((o) => (
-            <div key={o} className={`filter-select-opt${o === value ? ' active' : ''}`} onClick={() => { onChange(o); setOpen(false); }}>{o}</div>
+            <div key={o} className={`filter-select-opt${o === value ? ' active' : ''}`} onClick={() => { onChange(o); setOpen(false); }}>{tl(o)}</div>
           ))}
         </div>
       )}
@@ -682,7 +694,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           ) : (
             <input className="form-input" type="text" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
           )}
-          {c.hint && <p className="form-hint">{c.hint}</p>}
+          {c.hint && <p className="form-hint">{tl(c.hint)}</p>}
         </div>
       ))}
     </div>
@@ -859,7 +871,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                       style={c.openRecord ? { cursor: 'pointer' } : undefined}
                     >
                       {statusField === c.key && st
-                        ? <span className={`status-dot ${statusClass ? statusClass(st) : ''}`}>{st}</span>
+                        ? <span className={`status-dot ${statusClass ? statusClass(st) : ''}`}>{tl(st)}</span>
                         : c.type === 'attachment'
                           ? (() => {
                             const files = attachmentFiles(row[c.key]);
@@ -874,7 +886,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                           })()
                           : (c.type === 'studentLink' && studentDetailHref
                             ? <Link href={studentDetailHref(row)} style={{ color: 'var(--accent)', fontWeight: 600 }}>{str(row[c.key])}</Link>
-                            : (c.render ? c.render(row[c.key],  row) : str(row[c.key])))}
+                            : (c.render ? c.render(row[c.key],  row) : cellText(row[c.key], c, tl)))}
                     </td>
                   ))}
                   <td>
@@ -893,7 +905,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                                 <div key={to} onClick={() => doTransition(row, to)}
                                   style={{ padding: '7px 10px', borderRadius: 7, cursor: 'pointer', fontSize: 'var(--font-sm)' }}
                                   onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
-                                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>{to}</div>
+                                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>{tl(to)}</div>
                               ))}
                             </div>
                           )}

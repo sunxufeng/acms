@@ -1779,9 +1779,7 @@
     "标签": "标签",
     "正文": "正文",
     "语义搜索": "语义搜索",
-    "多个标签用逗号分隔；保存后会整体替换原有标签": "多个标签用逗号分隔；保存后会整体替换原有标签",
-    "尚未配置得到大脑（Get笔记）的 API Key。": "尚未配置得到大脑（Get笔记）的 API Key。",
-    "请在服务器 /opt/acms/.env 中配置 GETNOTE_API_KEY 与 GETNOTE_CLIENT_ID，然后重启 acms-api 服务。": "请在服务器 /opt/acms/.env 中配置 GETNOTE_API_KEY 与 GETNOTE_CLIENT_ID，然后重启 acms-api 服务。"
+    "多个标签用逗号分隔；保存后会整体替换原有标签": "多个标签用逗号分隔；保存后会整体替换原有标签"
   },
   "idp": {
     "idpPlanNotFound": "未找到该 IDP 方案",
@@ -1931,6 +1929,24 @@
     "opFailed": "操作失败：{msg}",
     "saveAsNote": "存为笔记",
     "savedAsNote": "已存为笔记并关联到本条沟通记录",
-    "saving": "保存中…"
+    "saving": "保存中…",
+    "myApiKey": "我的 API Key",
+    "keyIntro": "得到大脑的 API Key 是每人一份的，配置后你看到的是自己的笔记库。",
+    "keyHowTo": "在得到大脑 App「设置 → 开放平台」创建应用即可获取，形如 gk_live_xxx。",
+    "keyNotSet": "尚未配置你的 API Key",
+    "keySet": "当前 Key：{masked}",
+    "setKey": "配置",
+    "removeKey": "删除",
+    "confirmRemoveKey": "确定删除已保存的 API Key 吗？删除后将无法访问笔记库。",
+    "keySaving": "验证并保存中…",
+    "keySaved": "已验证并保存",
+    "keyVerifyFailed": "验证失败 —— 请确认 Key 正确，且该账号为得到大脑 PRO 会员。",
+    "keyFormatError": "Key 格式不正确，应以 gk_ 开头。",
+    "clientIdMissing": "服务器尚未配置 Client ID，请联系管理员后再试。",
+    "serverNotReady": "服务暂未就绪",
+    "keyRequired": "请先在知识库页配置你自己的 API Key",
+    "goToKnowledgeBase": "前往知识库",
+    "linkedByLabel": "{name} 关联",
+    "searchOwnOnly": "只能搜索你自己账号下的笔记"
   }
 }

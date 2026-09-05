@@ -2,8 +2,16 @@ import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/c
 import type { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { toText } from '@acms/base-adapter';
+import type { SessionUser } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { buildFilter } from '../shared/record.util.js';
+import {
+  getCredentialStatus,
+  getApiKey,
+  setCredential,
+  deleteCredential,
+  type CredentialStatus,
+} from './credential.js';
 
 /** 得到大脑（Get笔记）开放平台。所有凭证只发往此地址，不接受任何其他 API 地址。 */
 const BASE = 'https://openapi.biji.com';
@@ -131,21 +139,82 @@ export class GetnoteService {
 
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
-  /** 凭证是否已配置（前端据此提示「尚未授权」而不是报一堆错） */
-  isConfigured(): boolean {
-    return Boolean(process.env.GETNOTE_API_KEY && process.env.GETNOTE_CLIENT_ID);
-  }
-
-  private headers(): Record<string, string> {
-    const key = process.env.GETNOTE_API_KEY;
-    const clientId = process.env.GETNOTE_CLIENT_ID;
-    if (!key || !clientId) {
+  /**
+   * 取出当前用户的凭证对。
+   *
+   * 区分两种「没配好」，前端提示完全不同，不能混为一谈：
+   * - **Client ID 没配** → 503。这是运维问题（应用级，全局一份），用户自己解决不了
+   * - **用户自己没填 Key** → 412。前置条件未满足，引导他去设置区填自己的 Key
+   */
+  private credFor(user: SessionUser): { key: string; clientId: string } {
+    const clientId = process.env.GETNOTE_CLIENT_ID ?? '';
+    if (!clientId)
       throw new HttpException(
-        'GETNOTE_NOT_CONFIGURED: 尚未配置 GETNOTE_API_KEY / GETNOTE_CLIENT_ID',
+        'GETNOTE_CLIENT_ID_NOT_CONFIGURED: 服务器未配置 GETNOTE_CLIENT_ID',
         HttpStatus.SERVICE_UNAVAILABLE,
       );
-    }
-    return { Authorization: key, 'X-Client-ID': clientId, 'Content-Type': 'application/json' };
+    const key = getApiKey(user.openId);
+    if (!key)
+      throw new HttpException(
+        'GETNOTE_KEY_NOT_SET: 当前用户尚未配置自己的 API Key',
+        HttpStatus.PRECONDITION_FAILED,
+      );
+    return { key, clientId };
+  }
+
+  private headers(cred: { key: string; clientId: string }): Record<string, string> {
+    return {
+      Authorization: cred.key,
+      'X-Client-ID': cred.clientId,
+      'Content-Type': 'application/json',
+    };
+  }
+
+  // ── 用户凭证管理（API Key 是用户级的，一人一份） ──────────────────────
+
+  /** 当前用户的凭证状态 + 服务器 Client ID 是否已配。不返回任何明文。 */
+  credentialStatus(user: SessionUser): CredentialStatus & { clientIdConfigured: boolean } {
+    return {
+      ...getCredentialStatus(user.openId),
+      clientIdConfigured: Boolean(process.env.GETNOTE_CLIENT_ID),
+    };
+  }
+
+  /**
+   * 保存用户的 API Key —— **存之前先打一次真实请求验活**，验不过就不落库。
+   *
+   * 官方限制接口仅对 PRO 会员开放，非会员的 Key 调什么都是空，
+   * 所以这一步必须拦在前面，否则用户会存一个废 Key 进来，然后对着空白页面报故障。
+   */
+  async saveCredential(
+    user: SessionUser,
+    apiKey: string,
+  ): Promise<CredentialStatus & { verified: boolean }> {
+    const key = String(apiKey ?? '').trim();
+    if (!key) throw new HttpException('BAD_REQUEST:apiKey required', HttpStatus.BAD_REQUEST);
+    if (!key.startsWith('gk_'))
+      throw new HttpException(
+        'BAD_REQUEST:apiKey 格式不正确，应以 gk_ 开头',
+        HttpStatus.BAD_REQUEST,
+      );
+
+    const clientId = process.env.GETNOTE_CLIENT_ID ?? '';
+    if (!clientId)
+      throw new HttpException(
+        'GETNOTE_CLIENT_ID_NOT_CONFIGURED: 服务器未配置 GETNOTE_CLIENT_ID',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+
+    // 验活：拉一页笔记，能通就说明 Key 有效且账号是会员
+    await this.request({ key, clientId }, '/open/api/v1/resource/note/list', {
+      query: { cursor: '' },
+    });
+
+    return { ...setCredential(user.openId, key, { displayName: user.name }), verified: true };
+  }
+
+  clearCredential(user: SessionUser): { ok: boolean } {
+    return { ok: deleteCredential(user.openId) };
   }
 
   /**
@@ -154,6 +223,7 @@ export class GetnoteService {
    * 10004 未授权 → 401；其余业务错误 → 502（上游问题，不是本服务的问题）。
    */
   private async request<T>(
+    cred: { key: string; clientId: string },
     path: string,
     opts: { method?: string; body?: unknown; query?: Record<string, string | undefined> } = {},
   ): Promise<T> {
@@ -166,7 +236,7 @@ export class GetnoteService {
     try {
       res = await fetch(url, {
         method: opts.method ?? 'GET',
-        headers: this.headers(),
+        headers: this.headers(cred),
         body: opts.body ? JSON.stringify(opts.body) : undefined,
       });
     } catch (e) {
@@ -204,10 +274,11 @@ export class GetnoteService {
    * ⚠️ 语义搜索返回的是**内容片段**不是全文，且上限 10 条（top_k 最大值），
    * 因此这里固定不分页（has_more=false、无 cursor），交给 CrudPage 的前端切片兜底。
    */
-  async list(cursor?: string, q?: string): Promise<GetnoteListResult> {
+  async list(user: SessionUser, cursor?: string, q?: string): Promise<GetnoteListResult> {
+    const cred = this.credFor(user);
     const key = q?.trim();
     if (key) {
-      const items = await this.recall(key, 10);
+      const items = await this.recall(user, key, 10);
       return {
         notes: items.map((r) => ({
           note_id: r.note_id,
@@ -221,30 +292,38 @@ export class GetnoteService {
         total: items.length,
       };
     }
-    return this.request<GetnoteListResult>('/open/api/v1/resource/note/list', { query: { cursor } });
+    return this.request<GetnoteListResult>(cred, '/open/api/v1/resource/note/list', {
+      query: { cursor },
+    });
   }
 
   /** 笔记详情。⚠️ 数据在 data.note 下，不是 data 直接取。 */
-  async detail(id: string, imageQuality?: string): Promise<GetnoteNote> {
-    const data = await this.request<{ note: GetnoteNote }>('/open/api/v1/resource/note/detail', {
-      query: { id, image_quality: imageQuality },
-    });
+  async detail(user: SessionUser, id: string, imageQuality?: string): Promise<GetnoteNote> {
+    const data = await this.request<{ note: GetnoteNote }>(
+      this.credFor(user),
+      '/open/api/v1/resource/note/detail',
+      { query: { id, image_quality: imageQuality } },
+    );
     return data?.note ?? {};
   }
 
   /** 新建文本笔记（同步返回 note_id）。链接/图片笔记是异步任务，本模块暂不支持。 */
-  create(body: {
-    title?: string;
-    content?: string;
-    tags?: string[];
-    topic_id?: string;
-    parent_id?: string;
-    client_request_id?: string;
-  }): Promise<{ note_id?: string; title?: string }> {
-    return this.request<{ note_id?: string; title?: string }>('/open/api/v1/resource/note/save', {
-      method: 'POST',
-      body: { note_type: 'plain_text', ...body },
-    });
+  create(
+    user: SessionUser,
+    body: {
+      title?: string;
+      content?: string;
+      tags?: string[];
+      topic_id?: string;
+      parent_id?: string;
+      client_request_id?: string;
+    },
+  ): Promise<{ note_id?: string; title?: string }> {
+    return this.request<{ note_id?: string; title?: string }>(
+      this.credFor(user),
+      '/open/api/v1/resource/note/save',
+      { method: 'POST', body: { note_type: 'plain_text', ...body } },
+    );
   }
 
   /**
@@ -252,19 +331,29 @@ export class GetnoteService {
    * ⚠️ title/content/tags 至少要传一个，且仅支持 plain_text 类型。
    * ⚠️ tags 是**替换**语义（不传则保持原样，传了就整体覆盖）。
    */
-  update(body: { note_id: string; title?: string; content?: string; tags?: string[] }): Promise<unknown> {
-    return this.request('/open/api/v1/resource/note/update', { method: 'POST', body });
+  update(
+    user: SessionUser,
+    body: { note_id: string; title?: string; content?: string; tags?: string[] },
+  ): Promise<unknown> {
+    return this.request(this.credFor(user), '/open/api/v1/resource/note/update', {
+      method: 'POST',
+      body,
+    });
   }
 
   /** 删除笔记（移入回收站）。调用方必须先向用户二次确认。 */
-  remove(noteId: string): Promise<unknown> {
-    return this.request('/open/api/v1/resource/note/delete', { method: 'POST', body: { note_id: noteId } });
+  remove(user: SessionUser, noteId: string): Promise<unknown> {
+    return this.request(this.credFor(user), '/open/api/v1/resource/note/delete', {
+      method: 'POST',
+      body: { note_id: noteId },
+    });
   }
 
   /** 全局语义搜索。结果在 data.results 下，取不到再回退到顶层 results。 */
-  async recall(query: string, topK = 5): Promise<GetnoteRecallItem[]> {
+  async recall(user: SessionUser, query: string, topK = 5): Promise<GetnoteRecallItem[]> {
     const k = Math.min(Math.max(Number(topK) || 5, 1), 10);
     const data = await this.request<{ results?: GetnoteRecallItem[] } & GetnoteRecallItem[]>(
+      this.credFor(user),
       '/open/api/v1/resource/recall',
       { method: 'POST', body: { query, top_k: k } },
     );
@@ -272,8 +361,12 @@ export class GetnoteService {
   }
 
   /** 添加标签。返回该笔记的完整标签列表（含 tag id，删标签时要用到）。 */
-  addTags(noteId: string, tags: string[]): Promise<{ note_id?: string; tags?: GetnoteTag[] }> {
-    return this.request('/open/api/v1/resource/note/tags/add', {
+  addTags(
+    user: SessionUser,
+    noteId: string,
+    tags: string[],
+  ): Promise<{ note_id?: string; tags?: GetnoteTag[] }> {
+    return this.request(this.credFor(user), '/open/api/v1/resource/note/tags/add', {
       method: 'POST',
       body: { note_id: noteId, tags },
     });
@@ -284,8 +377,8 @@ export class GetnoteService {
    * ⚠️ 传的是 tag_id（不是标签名），来自 addTags 返回值或 detail 的 tags[].id。
    * ⚠️ system 类型标签不允许删除，调了会报错。
    */
-  removeTag(noteId: string, tagId: string): Promise<unknown> {
-    return this.request('/open/api/v1/resource/note/tags/delete', {
+  removeTag(user: SessionUser, noteId: string, tagId: string): Promise<unknown> {
+    return this.request(this.credFor(user), '/open/api/v1/resource/note/tags/delete', {
       method: 'POST',
       body: { note_id: noteId, tag_id: tagId },
     });
@@ -321,11 +414,11 @@ export class GetnoteService {
    * 标签是写在**远端笔记**上的外部数据，失败只记日志、不阻断关联本身。
    */
   async replaceLinks(
+    user: SessionUser,
     entityType: string,
     entityId: string,
     entityName: string,
     links: { noteId: string; title?: string }[],
-    userName: string,
   ) {
     const tableId = TABLES.noteLink.tableId;
     const cur = await this.base.search(tableId, {
@@ -346,7 +439,7 @@ export class GetnoteService {
     for (const [noteId, recId] of before) {
       if (after.has(noteId)) continue;
       await this.base.delete(tableId, recId);
-      await this.removeLinkTag(noteId, entityType, entityId);
+      await this.removeLinkTag(user, noteId, entityType, entityId);
     }
 
     // 2) 新增：写映射 + 打标签
@@ -359,26 +452,28 @@ export class GetnoteService {
         实体类型: entityType,
         实体ID: entityId,
         实体名称: entityName ?? '',
-        关联人: userName ?? '',
+        关联人: user.name ?? '',
         关联时间: Date.now(),
       });
-      await this.addLinkTag(noteId, entityType, entityId);
+      await this.addLinkTag(user, noteId, entityType, entityId);
     }
 
     return { linked: links.length };
   }
 
   /** 新建笔记并立刻关联到业务实体：创建时带上关联标签，再写一条映射记录 */
-  async createAndLink(body: {
-    title?: string;
-    content?: string;
-    tags?: string[];
-    entityType: string;
-    entityId: string;
-    entityName?: string;
-    userName?: string;
-  }) {
-    const created = await this.create({
+  async createAndLink(
+    user: SessionUser,
+    body: {
+      title?: string;
+      content?: string;
+      tags?: string[];
+      entityType: string;
+      entityId: string;
+      entityName?: string;
+    },
+  ) {
+    const created = await this.create(user, {
       title: body.title,
       content: body.content,
       tags: [...(body.tags ?? []), linkTag(body.entityType, body.entityId)],
@@ -391,28 +486,38 @@ export class GetnoteService {
         实体类型: body.entityType,
         实体ID: body.entityId,
         实体名称: body.entityName ?? '',
-        关联人: body.userName ?? '',
+        关联人: user.name ?? '',
         关联时间: Date.now(),
       });
     }
     return { ...created, noteId };
   }
 
-  private async addLinkTag(noteId: string, entityType: string, entityId: string): Promise<void> {
+  private async addLinkTag(
+    user: SessionUser,
+    noteId: string,
+    entityType: string,
+    entityId: string,
+  ): Promise<void> {
     try {
-      await this.addTags(noteId, [linkTag(entityType, entityId)]);
+      await this.addTags(user, noteId, [linkTag(entityType, entityId)]);
     } catch (e) {
       this.logger.warn(`给笔记 ${noteId} 打关联标签失败（不影响关联本身）: ${(e as Error).message}`);
     }
   }
 
   /** 去标签必须先查到 tag_id（删除接口按 id 删，不认标签名） */
-  private async removeLinkTag(noteId: string, entityType: string, entityId: string): Promise<void> {
+  private async removeLinkTag(
+    user: SessionUser,
+    noteId: string,
+    entityType: string,
+    entityId: string,
+  ): Promise<void> {
     try {
       const want = linkTag(entityType, entityId);
-      const note = await this.detail(noteId);
+      const note = await this.detail(user, noteId);
       const hit = (note.tags ?? []).find((t) => t.name === want);
-      if (hit?.id) await this.removeTag(noteId, hit.id);
+      if (hit?.id) await this.removeTag(user, noteId, hit.id);
     } catch (e) {
       this.logger.warn(`移除笔记 ${noteId} 关联标签失败（不影响关联本身）: ${(e as Error).message}`);
     }

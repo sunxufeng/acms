@@ -1779,9 +1779,7 @@
     "标签": "Tags",
     "正文": "Content",
     "语义搜索": "Semantic search",
-    "多个标签用逗号分隔；保存后会整体替换原有标签": "Separate multiple tags with commas; saving replaces all existing tags",
-    "尚未配置得到大脑（Get笔记）的 API Key。": "The Getnote API key is not configured yet.",
-    "请在服务器 /opt/acms/.env 中配置 GETNOTE_API_KEY 与 GETNOTE_CLIENT_ID，然后重启 acms-api 服务。": "Configure GETNOTE_API_KEY and GETNOTE_CLIENT_ID in /opt/acms/.env on the server, then restart the acms-api service."
+    "多个标签用逗号分隔；保存后会整体替换原有标签": "Separate multiple tags with commas; saving replaces all existing tags"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",
@@ -1931,6 +1929,24 @@
     "opFailed": "Operation failed: {msg}",
     "saveAsNote": "Save as note",
     "savedAsNote": "Saved as a note and linked to this record",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "myApiKey": "My API Key",
+    "keyIntro": "Each person has their own Dedao Brain API Key. Once set, you will see your own note library.",
+    "keyHowTo": "Create an app in the Dedao Brain app under Settings → Open Platform to get it. It looks like gk_live_xxx.",
+    "keyNotSet": "Your API Key is not set yet",
+    "keySet": "Current key: {masked}",
+    "setKey": "Set",
+    "removeKey": "Remove",
+    "confirmRemoveKey": "Remove the saved API Key? You will lose access to the note library.",
+    "keySaving": "Verifying and saving…",
+    "keySaved": "Verified and saved",
+    "keyVerifyFailed": "Verification failed — check that the key is correct and the account is a Dedao Brain PRO member.",
+    "keyFormatError": "Invalid key format. It should start with gk_.",
+    "clientIdMissing": "Client ID is not configured on the server. Contact your administrator.",
+    "serverNotReady": "Service is not ready",
+    "keyRequired": "Set your own API Key on the Knowledge Base page first",
+    "goToKnowledgeBase": "Go to Knowledge Base",
+    "linkedByLabel": "linked by {name}",
+    "searchOwnOnly": "Only notes in your own account can be searched"
   }
 }

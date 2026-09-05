@@ -779,9 +779,28 @@ export const api = {
     request<{ url: string }>(`/mail-archive/${id}/attachment-url?file_token=${encodeURIComponent(fileToken)}`),
 
   // ── 得到大脑（Get笔记）知识库 ──────────────────────────────────────────
-  // 全局单账号：一份 API Key 供全员使用，所有人看到的是同一份笔记库。
+  // ⚠️ 凭证模型（2026-09-05 修正）：Client ID 是**应用级**的（服务器配一份），
+  //    API Key 是**用户级**的 —— 每人配自己的，看到的是自己的笔记库。
+  //    官方限流按 Key 算（QPS 2 / 每天 5000 次），全员共用一份会直接撞墙。
   // ⚠️ 笔记 ID 是字符串形态的 int64，全程不要转 Number（会丢精度）。
-  getnoteStatus: () => request<{ configured: boolean }>('/getnote/status'),
+  getGetnoteCredential: () =>
+    request<{
+      configured: boolean;
+      masked: string;
+      updatedAt: string;
+      verifiedAt: string;
+      clientIdConfigured: boolean;
+    }>('/getnote/credential'),
+  /** 保存前后端会先打一次真实请求验活，验不过不落库（非会员的 Key 会在这里被拦下） */
+  saveGetnoteCredential: (apiKey: string) =>
+    request<{
+      configured: boolean;
+      masked: string;
+      updatedAt: string;
+      verifiedAt: string;
+      verified: boolean;
+    }>('/getnote/credential', { method: 'PUT', body: JSON.stringify({ apiKey }) }),
+  clearGetnoteCredential: () => request<{ ok: boolean }>('/getnote/credential', { method: 'DELETE' }),
   listGetnote: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);

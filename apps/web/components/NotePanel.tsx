@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api, type GetnoteLink } from '../lib/api';
 import { useTranslations } from 'next-intl';
 
@@ -88,6 +89,20 @@ export function NotePanel({
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState(seedTitle);
   const [content, setContent] = useState(seedContent);
+
+  /**
+   * 当前用户是否配好了自己的 API Key。
+   * 关联记录本身走飞书（全员可见），但「搜索笔记」和「新建笔记」必须打 Get笔记 API，
+   * 没 Key 就一定失败 —— 所以这里提前拦住并引导，而不是让用户撞 412。
+   */
+  const [credOk, setCredOk] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api
+      .getGetnoteCredential()
+      .then((c) => setCredOk(Boolean(c?.configured && c?.clientIdConfigured)))
+      .catch(() => setCredOk(false));
+  }, []);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -182,7 +197,7 @@ export function NotePanel({
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={saving}
+            disabled={saving || !credOk}
             onClick={() => {
               setCreating(false);
               setPicking((v) => !v);
@@ -193,7 +208,7 @@ export function NotePanel({
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={saving}
+            disabled={saving || !credOk}
             onClick={() => {
               closePicker();
               setTitle(seedTitle);
@@ -209,6 +224,16 @@ export function NotePanel({
       {error && (
         <p className="muted" style={{ color: 'var(--fg-error)', marginTop: 0 }}>
           {error}
+        </p>
+      )}
+
+      {credOk === false && (
+        <p className="muted" style={{ marginTop: 0 }}>
+          {t('keyRequired')}
+          {' · '}
+          <Link href="/getnote" style={{ color: 'var(--accent)' }}>
+            {t('goToKnowledgeBase')}
+          </Link>
         </p>
       )}
 
@@ -233,6 +258,11 @@ export function NotePanel({
               }}
             >
               {l.title || l.noteId}
+              {l.linkedBy && (
+                <span style={{ fontSize: 11, opacity: 0.65, whiteSpace: 'nowrap' }}>
+                  {t('linkedByLabel', { name: l.linkedBy })}
+                </span>
+              )}
               <button
                 type="button"
                 title={t('unlink')}
@@ -266,7 +296,9 @@ export function NotePanel({
           />
           {searching && <span className="muted" style={{ fontSize: 12 }}>{t('searching')}</span>}
           {!searching && kw.trim() && cands.length === 0 && (
-            <span className="muted" style={{ fontSize: 12 }}>{t('noMatch')}</span>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {t('noMatch')} · {t('searchOwnOnly')}
+            </span>
           )}
           {cands.length > 0 && (
             <div

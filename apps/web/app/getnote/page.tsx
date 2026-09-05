@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
+import { useTranslations } from 'next-intl';
 
 /**
  * 把 Get笔记 的 note 对象适配成 CrudPage 的行数据。
@@ -62,51 +63,183 @@ const COLUMNS: CrudColumn[] = [
  */
 const PAGE_SIZE = 20;
 
+interface Cred {
+  configured: boolean;
+  masked: string;
+  updatedAt: string;
+  verifiedAt: string;
+  clientIdConfigured: boolean;
+}
+
 export default function GetnotePage() {
   const tl = useTl();
-  const [configured, setConfigured] = useState<boolean | null>(null);
+  const t = useTranslations('getnote');
 
-  useEffect(() => {
+  const [cred, setCred] = useState<Cred | null>(null); // null = 加载中
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [ok, setOk] = useState('');
+
+  const load = useCallback(() => {
     api
-      .getnoteStatus()
-      .then((r) => setConfigured(Boolean(r?.configured)))
-      .catch(() => setConfigured(false));
+      .getGetnoteCredential()
+      .then(setCred)
+      .catch(() => setCred(null));
   }, []);
 
-  // 未配置凭证时给明确引导，而不是让用户在列表页撞一堆 502
-  if (configured === false) {
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const save = async () => {
+    setBusy(true);
+    setErr('');
+    setOk('');
+    try {
+      await api.saveGetnoteCredential(input.trim());
+      setInput('');
+      setOk(t('keySaved'));
+      load();
+    } catch (e) {
+      const m = (e as Error).message ?? '';
+      setErr(m.includes('gk_') ? t('keyFormatError') : t('keyVerifyFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!window.confirm(t('confirmRemoveKey'))) return;
+    setBusy(true);
+    setErr('');
+    setOk('');
+    try {
+      await api.clearGetnoteCredential();
+      setOk('');
+      load();
+    } catch (e) {
+      setErr((e as Error).message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Key 输入表单。三种场景共用：未配置引导、折叠区展开、服务器未就绪时不渲染。 */
+  const form = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+      <input
+        type="password"
+        value={input}
+        placeholder="gk_live_xxx"
+        onChange={(e) => setInput(e.target.value)}
+        style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }}
+      />
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={busy || !input.trim()}
+          onClick={save}
+        >
+          {busy ? t('keySaving') : t('save')}
+        </button>
+        {cred?.configured && (
+          <button type="button" className="btn btn-sm" disabled={busy} onClick={remove}>
+            {t('removeKey')}
+          </button>
+        )}
+      </div>
+      {err && <span style={{ color: 'var(--fg-error)', fontSize: 12 }}>{err}</span>}
+      {ok && (
+        <span className="muted" style={{ fontSize: 12 }}>
+          {ok}
+        </span>
+      )}
+    </div>
+  );
+
+  if (cred === null) {
     return (
       <div className="card" style={{ padding: 24, margin: 24 }}>
         <h1 className="page-title">{tl('知识库')}</h1>
         <p className="muted" style={{ marginTop: 12 }}>
-          {tl('尚未配置得到大脑（Get笔记）的 API Key。')}
-        </p>
-        <p className="muted">
-          {tl('请在服务器 /opt/acms/.env 中配置 GETNOTE_API_KEY 与 GETNOTE_CLIENT_ID，然后重启 acms-api 服务。')}
+          {t('loading')}
         </p>
       </div>
     );
   }
 
+  // Client ID 是应用级的，服务器配一份。没配属于运维问题，用户自己解决不了。
+  if (!cred.clientIdConfigured) {
+    return (
+      <div className="card" style={{ padding: 24, margin: 24 }}>
+        <h1 className="page-title">{tl('知识库')}</h1>
+        <p className="muted" style={{ marginTop: 12 }}>
+          {t('clientIdMissing')}
+        </p>
+      </div>
+    );
+  }
+
+  // 用户还没配自己的 Key：整页引导，不进列表
+  if (!cred.configured) {
+    return (
+      <div className="card" style={{ padding: 24, margin: 24 }}>
+        <h1 className="page-title">{tl('知识库')}</h1>
+        <p className="muted" style={{ marginTop: 12 }}>
+          {t('keyIntro')}
+        </p>
+        <p className="muted" style={{ fontSize: 12 }}>
+          {t('keyHowTo')}
+        </p>
+        {form}
+      </div>
+    );
+  }
+
   return (
-    <CrudPage
-      title="知识库"
-      subtitle="得到大脑笔记"
-      columns={COLUMNS}
-      pageSize={PAGE_SIZE}
-      inlineEdit
-      standaloneForm
-      search={{ placeholder: '语义搜索' }}
-      api={{
-        list: async (p) => {
-          const res = await api.listGetnote(p);
-          return { ...res, items: res.items.map(toRow) };
-        },
-        create: (d) => api.createGetnote(withTags(d)),
-        update: (id, d) => api.updateGetnote(id, withTags(d)),
-        // 删除 = 移入回收站，可恢复
-        archive: (id) => api.deleteGetnote(id),
-      }}
-    />
+    <>
+      <div className="card" style={{ padding: '10px 16px', margin: '24px 24px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span className="muted" style={{ fontSize: 13 }}>
+            {t('keySet', { masked: cred.masked })}
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => {
+              setOpen((v) => !v);
+              setErr('');
+              setOk('');
+            }}
+          >
+            {open ? t('cancel') : t('setKey')}
+          </button>
+        </div>
+        {open && form}
+      </div>
+
+      <CrudPage
+        title="知识库"
+        subtitle="得到大脑笔记"
+        columns={COLUMNS}
+        pageSize={PAGE_SIZE}
+        inlineEdit
+        standaloneForm
+        search={{ placeholder: t('searchPlaceholder') }}
+        api={{
+          list: async (p) => {
+            const res = await api.listGetnote(p);
+            return { ...res, items: res.items.map(toRow) };
+          },
+          create: (d) => api.createGetnote(withTags(d)),
+          update: (id, d) => api.updateGetnote(id, withTags(d)),
+          // 删除 = 移入回收站，可恢复
+          archive: (id) => api.deleteGetnote(id),
+        }}
+      />
+    </>
   );
 }

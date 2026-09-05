@@ -10,8 +10,13 @@ import { GetnoteService } from './getnote.service.js';
 /**
  * 得到大脑（Get笔记）代理控制器。
  *
- * 本服务是**全局单账号**：一份 API Key 供全员使用，所有登录用户看到的是同一份笔记库。
- * 因此这里只做「有没有 getnote 权限」的校验，不做 per-user 数据隔离。
+ * ⚠️ 凭证模型（2026-09-05 修正）：
+ * - **Client ID 是应用级的**（官方文档：在「应用管理」创建应用拿到），全局一份，存 .env
+ * - **API Key 是用户级的**，一人一份，存服务端加密文件（见 credential.ts）
+ *
+ * 所以每个请求都必须带上当前用户，service 侧按 openId 取他自己的 Key。
+ * 早期版本把两份都塞进 .env 全员共用，不只归属不对 —— 官方限流是**按 Key 算**的
+ * （QPS 2 / 每天 5000 次），一份 Key 给全校用会直接撞墙。
  *
  * ⚠️ 路由顺序：带后缀的子路由必须先声明，否则会被 `:id` 通配吃掉。
  */
@@ -25,14 +30,34 @@ export class GetnoteController {
       throw new HttpException(`FORBIDDEN:${perm}`, HttpStatus.FORBIDDEN);
   }
 
-  /** 凭证是否已配置。前端据此显示「尚未授权」引导，而不是弹一堆 502。 */
-  @Get('status')
-  status(@Req() req: Request) {
-    this.assert((req as Request & { user: SessionUser }).user, 'getnote:read');
-    return { configured: this.svc.isConfigured() };
+  // ── 用户凭证（API Key 一人一份） ────────────────────────────────────
+
+  /** 当前用户的凭证状态 + 服务器 Client ID 是否已配。不返回任何明文。 */
+  @Get('credential')
+  credential(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:read');
+    return this.svc.credentialStatus(user);
   }
 
-  /** 某业务实体（如某个学生）当前关联的笔记 */
+  /** 保存自己的 API Key。存之前会先打一次真实请求验活，验不过不落库。 */
+  @Put('credential')
+  saveCredential(@Req() req: Request, @Body() body: { apiKey?: string }) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    return this.svc.saveCredential(user, String(body?.apiKey ?? ''));
+  }
+
+  @Delete('credential')
+  clearCredential(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    return this.svc.clearCredential(user);
+  }
+
+  // ── 笔记 ↔ 业务实体 关联 ────────────────────────────────────────────
+
+  /** 某业务实体（如某个学生）当前关联的笔记。关联记录全员可见，chip 上标注归属人。 */
   @Get('links')
   listLinks(@Req() req: Request, @Query('entityType') entityType?: string, @Query('entityId') entityId?: string) {
     this.assert((req as Request & { user: SessionUser }).user, 'getnote:read');
@@ -52,34 +77,39 @@ export class GetnoteController {
       throw new HttpException('BAD_REQUEST:entityType/entityId required', HttpStatus.BAD_REQUEST);
     const links = Array.isArray(body?.links) ? (body.links as { noteId: string; title?: string }[]) : [];
     return this.svc.replaceLinks(
+      user,
       entityType,
       entityId,
       String(body?.entityName ?? ''),
       links,
-      user.name ?? '',
     );
   }
+
+  // ── 笔记 ────────────────────────────────────────────────────────────
 
   /** 笔记列表。cursor 透传；带 q 时改走语义搜索（见 service.list 注释）。 */
   @Get('notes')
   list(@Req() req: Request, @Query('cursor') cursor?: string, @Query('q') q?: string) {
-    this.assert((req as Request & { user: SessionUser }).user, 'getnote:read');
-    return this.svc.list(cursor, q);
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:read');
+    return this.svc.list(user, cursor, q);
   }
 
   /** ⚠️ 必须声明在 @Post('notes/:id/tags') 与 @Get('notes/:id') 之前 */
   @Post('notes/search')
   search(@Req() req: Request, @Body() body: { query?: string; top_k?: number }) {
-    this.assert((req as Request & { user: SessionUser }).user, 'getnote:read');
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:read');
     const q = String(body?.query ?? '').trim();
     if (!q) throw new HttpException('BAD_REQUEST:query required', HttpStatus.BAD_REQUEST);
-    return this.svc.recall(q, body?.top_k);
+    return this.svc.recall(user, q, body?.top_k);
   }
 
   @Post('notes')
   create(@Req() req: Request, @Body() body: Record<string, unknown>) {
-    this.assert((req as Request & { user: SessionUser }).user, 'getnote:write');
-    return this.svc.create({
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    return this.svc.create(user, {
       title: body?.title as string | undefined,
       content: body?.content as string | undefined,
       tags: Array.isArray(body?.tags) ? (body.tags as string[]) : undefined,
@@ -90,14 +120,16 @@ export class GetnoteController {
 
   @Get('notes/:id')
   detail(@Req() req: Request, @Param('id') id: string) {
-    this.assert((req as Request & { user: SessionUser }).user, 'getnote:read');
-    return this.svc.detail(id);
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:read');
+    return this.svc.detail(user, id);
   }
 
   @Put('notes/:id')
   update(@Req() req: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
-    this.assert((req as Request & { user: SessionUser }).user, 'getnote:write');
-    return this.svc.update({
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    return this.svc.update(user, {
       note_id: id,
       title: body?.title as string | undefined,
       content: body?.content as string | undefined,
@@ -108,8 +140,9 @@ export class GetnoteController {
   /** 删除 = 移入回收站。前端必须先让用户二次确认笔记标题。 */
   @Delete('notes/:id')
   remove(@Req() req: Request, @Param('id') id: string) {
-    this.assert((req as Request & { user: SessionUser }).user, 'getnote:write');
-    return this.svc.remove(id);
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    return this.svc.remove(user, id);
   }
 
   /** ⚠️ 必须声明在 @Post('notes/:id/tags') 之前 —— 否则 'link' 会被当成 :id */
@@ -121,29 +154,30 @@ export class GetnoteController {
     const entityId = String(body?.entityId ?? '');
     if (!entityType || !entityId)
       throw new HttpException('BAD_REQUEST:entityType/entityId required', HttpStatus.BAD_REQUEST);
-    return this.svc.createAndLink({
+    return this.svc.createAndLink(user, {
       title: body?.title as string | undefined,
       content: body?.content as string | undefined,
       tags: Array.isArray(body?.tags) ? (body.tags as string[]) : undefined,
       entityType,
       entityId,
       entityName: String(body?.entityName ?? ''),
-      userName: user.name ?? '',
     });
   }
 
   @Post('notes/:id/tags')
   addTags(@Req() req: Request, @Param('id') id: string, @Body() body: { tags?: string[] }) {
-    this.assert((req as Request & { user: SessionUser }).user, 'getnote:write');
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
     const tags = Array.isArray(body?.tags) ? body.tags.filter((t) => String(t).trim()) : [];
     if (!tags.length) throw new HttpException('BAD_REQUEST:tags required', HttpStatus.BAD_REQUEST);
-    return this.svc.addTags(id, tags);
+    return this.svc.addTags(user, id, tags);
   }
 
   /** ⚠️ 删的是 tag_id 不是标签名；system 类型标签删不掉。 */
   @Delete('notes/:id/tags/:tagId')
   removeTag(@Req() req: Request, @Param('id') id: string, @Param('tagId') tagId: string) {
-    this.assert((req as Request & { user: SessionUser }).user, 'getnote:write');
-    return this.svc.removeTag(id, tagId);
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    return this.svc.removeTag(user, id, tagId);
   }
 }

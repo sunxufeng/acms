@@ -120,12 +120,40 @@ export class GetnoteController {
 
   // ── 笔记 ────────────────────────────────────────────────────────────
 
-  /** 笔记列表。cursor 透传；带 q 时改走语义搜索（见 service.list 注释）。 */
+  /**
+   * 笔记列表。
+   *
+   * ⚠️ 出站必须转成全站统一的 `Page<T>`（`items/total/hasMore/pageToken`）。
+   * service 返回的是 Get笔记 原生结构（`notes/has_more/cursor`），直接透出去的话
+   * 前端按 `res.items` 取会拿到 undefined，`res.items.map(...)` 当场抛
+   * 「Cannot read properties of undefined (reading 'map')」—— 保存凭证后第一次渲染
+   * 列表必炸（未连凭证时页面停在引导页，从没走到这一步，所以藏了很久）。
+   *
+   * 请求侧同理：CrudPage 翻页传的是 `pageToken`，这里映射成上游的 `cursor`。
+   *
+   * `total` 的估算：上游不保证返回总数，而 CrudPage 用 `total / pageSize` 推算页数，
+   * 只给当前页条数会算出「只有 1 页」，用户永远翻不到下一页。所以 has_more 为真时
+   * 按「已拿到的 + 一页」估，翻到下一页后 total 又会被刷新成更大的值（渐进式）。
+   */
   @Get('notes')
-  list(@Req() req: Request, @Query('cursor') cursor?: string, @Query('q') q?: string) {
+  async list(
+    @Req() req: Request,
+    @Query('pageToken') pageToken?: string,
+    @Query('q') q?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
     const user = (req as Request & { user: SessionUser }).user;
     this.assert(user, 'getnote:read');
-    return this.svc.list(user, cursor, q);
+    const r = await this.svc.list(user, pageToken, q);
+    const items = r.notes ?? [];
+    const hasMore = Boolean(r.has_more);
+    const size = Math.min(Math.max(Number(pageSize) || 20, 1), 100);
+    return {
+      items,
+      hasMore,
+      pageToken: r.cursor,
+      total: r.total ?? (hasMore ? items.length + size : items.length),
+    };
   }
 
   /** ⚠️ 必须声明在 @Post('notes/:id/tags') 与 @Get('notes/:id') 之前 */

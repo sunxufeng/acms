@@ -602,7 +602,8 @@ export default function GetnotePage() {
         api={{
           list: async (p) => {
             const res = await api.listGetnote(p);
-            return { ...res, items: res.items.map(toRow) };
+            // ?? [] 是防御：上游偶发不返回数组时，CrudPage 内部 res.items.length 也会崩
+            return { ...res, items: (res.items ?? []).map(toRow) };
           },
           create: (d) => api.createGetnote(withTags(d)),
           update: (id, d) => api.updateGetnote(id, withTags(d)),

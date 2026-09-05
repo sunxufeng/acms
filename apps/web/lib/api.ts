@@ -869,7 +869,41 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  // ── 知识库配置（笔记来源 × 收取频率）────────────────────────────
+  // 走独立的 getnote-sources 路由，落库在飞书「知识库配置」表（tblmKQtZ5IOgyhv6）。
+  // 凭证字段后端永不下发明文，列表/详情里是空串；编辑时留空表示保留原值。
+  listGetnoteSources: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/getnote-sources${q ? `?${q}` : ''}`);
+  },
+  createGetnoteSource: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/getnote-sources', { method: 'POST', body: JSON.stringify(data) }),
+  updateGetnoteSource: (id: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/getnote-sources/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveGetnoteSource: (id: string) => request<{ ok: boolean }>(`/getnote-sources/${id}`, { method: 'DELETE' }),
+  /** 测试连通性。非「得到大脑」的源返回 ok:false + note 提示未接入，不是异常。 */
+  testGetnoteSource: (id: string) =>
+    request<{ ok: boolean; sourceType: string; note: string }>(`/getnote-sources/${id}/test`, { method: 'POST' }),
+  /** 立即收取：异步触发，立刻返回当前进度；之后轮询 sync-status */
+  syncGetnoteSource: (id: string) => request<SourceSyncProgress>(`/getnote-sources/${id}/sync`, { method: 'POST' }),
+  getGetnoteSourceSyncStatus: (id: string) => request<SourceSyncProgress>(`/getnote-sources/${id}/sync-status`),
 };
+
+/** 知识库配置「立即收取」的实时进度（与 MailSyncProgress 同范式） */
+export interface SourceSyncProgress {
+  running: boolean;
+  startedAt: number;
+  finishedAt?: number;
+  fetched: number;
+  stored: number;
+  created: number;
+  sourceName: string;
+  error?: string;
+  result?: string;
+}
 
 /** 当前用户的得到大脑凭证状态。只有掩码，永不含明文。 */
 export interface GetnoteCredential {

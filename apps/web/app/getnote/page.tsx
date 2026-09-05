@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api, type GetnoteCredential, type GetnoteOAuthStart, type ApiRequestError } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
@@ -12,54 +12,114 @@ const OPENAPI_URL = 'https://www.biji.com/openapi';
 const CHECKOUT_URL = 'https://www.biji.com/checkout?product_alias=9Ab36BB3ZD';
 
 /**
+ * 笔记来源的候选项 = 字典「笔记类型」。
+ *
+ * ⚠️ 存储位置：Get笔记 的 note 对象没有自定义字段，所以「来源」复用 **tags** 承载 ——
+ *    命中这份字典的那个标签就是来源，其余标签才是普通标签。这样来源随笔记走、
+ *    换浏览器也在，且不需要在 ACMS 侧再建映射表。
+ *    toRow() 负责拆（来源 / 标签），toPayload() 负责合（提交时拼回 tags）。
+ */
+const NOTE_TYPES = ['得到大脑', '飞书秒记', '钉钉助记', '元宝录音', '腾讯会议'];
+
+function tagNames(n: Record<string, unknown>): string[] {
+  const tags = Array.isArray(n.tags) ? (n.tags as { name?: string }[]) : [];
+  return tags.map((t) => String(t?.name ?? '')).filter(Boolean);
+}
+
+/**
  * 把 Get笔记 的 note 对象适配成 CrudPage 的行数据。
  *
  * ⚠️ 两条硬约束：
  * 1. **CrudPage 用 `row.id` 作行键**（取值、编辑、删除全走它），而 Get笔记 的 ID 字段叫
  *    `note_id`，且是 int64 的字符串形态 —— 映射过去，**绝不能转 Number**（会丢精度，
  *    末几位变 0，导致编辑/删除命中错误的笔记）。
- * 2. `tags` 是对象数组 `[{id,name,type}]`，列表里渲染成「、」连接的名称串。
+ * 2. `tags` 是对象数组 `[{id,name,type}]`，列表里渲染成可点击的标签；其中命中
+ *    NOTE_TYPES 的那一个单独提成「来源」列，不再重复出现在标签列。
  */
 function toRow(n: Record<string, unknown>): Record<string, unknown> {
-  const tags = Array.isArray(n.tags) ? (n.tags as { name?: string }[]) : [];
+  const names = tagNames(n);
   return {
     ...n,
     id: String(n.note_id ?? n.id ?? ''),
-    标签: tags.map((t) => t?.name).filter(Boolean).join('、'),
+    来源: names.find((x) => NOTE_TYPES.includes(x)) ?? '',
+    标签: names.filter((x) => !NOTE_TYPES.includes(x)).join('、'),
   };
 }
 
-/**
- * 表单提交前的转换：把「标签」文本拆成数组。
- * Get笔记 的 tags 是**替换语义**（传了就整体覆盖原标签），所以要显式拆成数组再提交。
- */
-function withTags(d: Record<string, unknown>): Record<string, unknown> {
-  const raw = d.标签;
+/** 提交前把「来源 + 标签」合并回 tags（Get笔记 的 tags 是替换语义，必须整体传） */
+function toPayload(d: Record<string, unknown>): Record<string, unknown> {
+  const { 标签, 来源, ...rest } = d;
   const list =
-    typeof raw === 'string'
-      ? raw.split(/[,，]/).map((s) => s.trim()).filter(Boolean)
-      : Array.isArray(raw)
-        ? (raw as string[])
-        : undefined;
-  const { 标签, ...rest } = d;
-  return { ...rest, ...(list ? { tags: list } : {}) };
+    typeof 标签 === 'string'
+      ? 标签.split(/[,，、]/).map((s) => s.trim()).filter(Boolean)
+      : Array.isArray(标签)
+        ? (标签 as string[]).map((s) => String(s).trim()).filter(Boolean)
+        : [];
+  const src = typeof 来源 === 'string' ? 来源.trim() : '';
+  return { ...rest, tags: src ? [...list, src] : list };
 }
 
-const COLUMNS: CrudColumn[] = [
-  { key: 'title', label: '标题', form: true, type: 'text', required: true, width: '280px', listOrder: 1 },
-  { key: 'note_type', label: '类型', width: '100px', listOrder: 2 },
-  {
-    key: '标签',
-    label: '标签',
-    form: true,
-    type: 'text',
-    width: '180px',
-    listOrder: 3,
-    hint: '多个标签用逗号分隔；保存后会整体替换原有标签',
-  },
-  { key: 'updated_at', label: '更新时间', width: '170px', listOrder: 4 },
-  { key: 'content', label: '正文', form: true, type: 'textarea', list: false, listOrder: 5 },
-];
+/**
+ * 列定义做成工厂函数：标签列要渲染成可点击的 chip，点击后把标签名作为语义检索词
+ * 传回列表（点击回调需要闭包捕获，模块级常量做不到，所以用 useMemo 包一层）。
+ */
+function makeColumns(onTagClick: (tag: string) => void): CrudColumn[] {
+  return [
+    { key: 'title', label: '标题', form: true, type: 'text', required: true, width: '280px', listOrder: 1 },
+    { key: 'note_type', label: '类型', width: '100px', listOrder: 2 },
+    {
+      key: '来源',
+      label: '来源',
+      form: true,
+      type: 'select',
+      dictKey: '笔记类型',
+      options: NOTE_TYPES,
+      width: '120px',
+      listOrder: 3,
+      filter: true,
+      filterType: 'select',
+      hint: '这条笔记来自哪个渠道；存在 Get笔记 的标签里，随笔记走',
+    },
+    {
+      key: '标签',
+      label: '标签',
+      form: true,
+      type: 'text',
+      width: '200px',
+      listOrder: 4,
+      hint: '多个标签用逗号分隔；保存后会整体替换原有标签',
+      render: (v) => {
+        const parts = String(v ?? '').split('、').map((s) => s.trim()).filter(Boolean);
+        if (parts.length === 0) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+        return (
+          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
+            {parts.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className="btn btn-sm"
+                title={`按「${p}」检索`}
+                style={{ padding: '2px 10px', fontSize: 12, borderRadius: 999, lineHeight: 1.6 }}
+                onClick={(e) => {
+                  e.stopPropagation(); // 行上还有「点击编辑」，别一起触发
+                  onTagClick(p);
+                }}
+              >
+                {p}
+              </button>
+            ))}
+          </span>
+        );
+      },
+    },
+    { key: 'updated_at', label: '更新时间', width: '170px', listOrder: 5 },
+    // 正文用 markdown 编辑器：带「MD / 浏览」切换，高度 420（原来 3 行 textarea 太矮）
+    { key: 'content', label: '正文', form: true, type: 'markdown', fieldHeight: 420, list: false, listOrder: 6 },
+  ];
+}
+
+/** 来源筛选时最多翻多少页（防止笔记极多时把请求打满） */
+const SOURCE_FILTER_MAX_PAGES = 10;
 
 /**
  * ⚠️ 每页条数必须与 Get笔记 服务端返回的单页条数一致。
@@ -90,6 +150,14 @@ export default function GetnotePage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
+
+  /**
+   * 点击标签 → 用标签名做语义检索。与搜索框共用后端同一个 `q` 通道，
+   * 二者互斥（点标签会覆盖搜索框）。这里单独存一份是为了在列表上方显示
+   * 「按标签 X 检索」的提示条 —— 否则用户看到结果变了却不知道为什么。
+   */
+  const [tagQuery, setTagQuery] = useState('');
+  const columns = useMemo(() => makeColumns(setTagQuery), []);
 
   // OAuth 设备授权
   const [oauth, setOauth] = useState<GetnoteOAuthStart | null>(null);
@@ -591,22 +659,57 @@ export default function GetnotePage() {
         )}
       </div>
 
+      {tagQuery && (
+        <div
+          className="card"
+          style={{ padding: '8px 16px', margin: '16px 24px 0', display: 'flex', alignItems: 'center', gap: 10 }}
+        >
+          <span className="muted" style={{ fontSize: 13 }}>
+            {t('tagFiltered', { tag: tagQuery })}
+          </span>
+          <button type="button" className="btn btn-sm" onClick={() => setTagQuery('')}>
+            {t('clearTagFilter')}
+          </button>
+        </div>
+      )}
+
       <CrudPage
+        // 检索词变化时整体重挂：强制回到第 1 页重新拉取（否则翻页游标还停在第 N 页）
+        key={tagQuery || 'all'}
         title="知识库"
         subtitle="得到大脑笔记"
-        columns={COLUMNS}
+        columns={columns}
         pageSize={PAGE_SIZE}
         inlineEdit
         standaloneForm
         search={{ placeholder: t('searchPlaceholder') }}
         api={{
           list: async (p) => {
-            const res = await api.listGetnote(p);
+            const src = String(p['来源'] ?? '').trim();
+            const q = tagQuery || p.q;
+            /**
+             * 来源筛选：上游接口没有「按来源过滤」的参数，只能翻页收集后在内存里筛。
+             * 所以筛选后一次性返回全部命中项（hasMore=false），不再走游标分页 ——
+             * 与语义搜索（q）的返回形态一致，CrudPage 都能正常渲染。
+             */
+            if (src) {
+              let cursor = '';
+              const all: Record<string, unknown>[] = [];
+              for (let i = 0; i < SOURCE_FILTER_MAX_PAGES; i++) {
+                const r = await api.listGetnote(cursor ? { pageToken: cursor } : {});
+                all.push(...(r.items ?? []));
+                if (!r.hasMore || !r.pageToken) break;
+                cursor = r.pageToken;
+              }
+              const items = all.map(toRow).filter((r) => r['来源'] === src);
+              return { items, total: items.length, hasMore: false };
+            }
+            const res = await api.listGetnote({ ...p, ...(q ? { q } : {}) });
             // ?? [] 是防御：上游偶发不返回数组时，CrudPage 内部 res.items.length 也会崩
             return { ...res, items: (res.items ?? []).map(toRow) };
           },
-          create: (d) => api.createGetnote(withTags(d)),
-          update: (id, d) => api.updateGetnote(id, withTags(d)),
+          create: (d) => api.createGetnote(toPayload(d)),
+          update: (id, d) => api.updateGetnote(id, toPayload(d)),
           // 删除 = 移入回收站，可恢复
           archive: (id) => api.deleteGetnote(id),
         }}

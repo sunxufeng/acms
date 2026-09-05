@@ -1979,6 +1979,21 @@
     "errNotMember": "该账号不是得到大脑 PRO 会员，接口不会返回数据",
     "errAuthFailed": "Client ID 或 API Key 不正确，请回开放平台重新复制",
     "errRateLimited": "请求过于频繁，请稍后再试",
-    "errGeneric": "操作失败，请稍后重试"
+    "errGeneric": "操作失败，请稍后重试",
+    "clearTagFilter": "清除",
+    "tagFiltered": "按标签「{tag}」检索",
+    "source": "来源"
+  },
+  "getnoteSources": {
+    "title": "知识库配置",
+    "subtitle": "笔记来源与自动收取",
+    "searchPlaceholder": "搜索配置名称…",
+    "syncNow": "立即收取",
+    "testConnect": "测试连接",
+    "syncing": "正在收取「{name}」…",
+    "syncDone": "「{name}」收取完成",
+    "failed": "失败",
+    "testOk": "连接正常",
+    "testFailed": "连接失败"
   }
 }

@@ -553,6 +553,39 @@ export class GetnoteService {
     });
   }
 
+  // ── 给 SourcesService 调用的「凭证对」入口 ────────────────────────────
+  // 知识库配置表里的凭证是**配置项自己的**（不是当前会话用户的），
+  // 所以这里直接接受 cred，不走 credFor()。
+
+  /**
+   * 验证一对凭证是否有效（打一次真实的 list 接口）。
+   * 失败会抛出结构化 HttpException（带 code / upstreamCode），调用方据此判断原因。
+   * 给 SourcesService.testSource() 用：用户点"测试配置"时立刻验活。
+   */
+  async probeCredentials(apiKey: string, clientId: string): Promise<unknown> {
+    return this.request(
+      { key: String(apiKey ?? '').trim(), clientId: String(clientId ?? '').trim() },
+      '/open/api/v1/resource/note/list',
+      { query: { cursor: '' } },
+    );
+  }
+
+  /**
+   * 用指定凭证拉一页笔记（给 SourcesService.syncOne() 同步用）。
+   * pageSize 默认 50，避免单次拉太多；上限 100。
+   */
+  listWithCred(
+    cred: { key: string; clientId: string },
+    cursor: string,
+    q?: string,
+    pageSize?: number,
+  ): Promise<GetnoteListResult> {
+    const size = Math.min(Math.max(Number(pageSize) || 50, 1), 100);
+    return this.request<GetnoteListResult>(cred, '/open/api/v1/resource/note/list', {
+      query: { cursor, q, page_size: String(size) },
+    });
+  }
+
   /** 全局语义搜索。结果在 data.results 下，取不到再回退到顶层 results。 */
   async recall(user: SessionUser, query: string, topK = 5): Promise<GetnoteRecallItem[]> {
     const k = Math.min(Math.max(Number(topK) || 5, 1), 10);

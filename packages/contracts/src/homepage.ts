@@ -226,6 +226,7 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'aiAdmin', label: 'AI 用量', enLabel: 'AI Usage', href: '/ai/admin', icon: 'chart', section: '智能助手', order: 60, perm: 'ai:admin' },
 
     { key: 'getnote', label: '知识库', enLabel: 'Knowledge Base', href: '/getnote', icon: 'dictionary', section: '知识库', order: 10, perm: 'getnote:read' },
+    { key: 'getnoteSources', label: '知识库配置', enLabel: 'Knowledge Sources', href: '/getnote/sources', icon: 'config', section: '知识库', order: 20, perm: 'getnote:write' },
 
     { key: 'dictionary', label: '字典数据', enLabel: 'Dictionaries', href: '/dictionaries', icon: 'dictionary', section: '后台管理', order: 10 },
     { key: 'export', label: '数据导出', enLabel: 'Export', href: '/export', icon: 'reports', section: '后台管理', order: 20 },

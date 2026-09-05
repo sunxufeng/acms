@@ -1979,6 +1979,21 @@
     "errNotMember": "This account is not a Dedao Brain PRO member, so the API returns no data",
     "errAuthFailed": "Client ID or API Key is incorrect. Copy them again from the platform",
     "errRateLimited": "Too many requests. Please try again later",
-    "errGeneric": "Something went wrong. Please try again later"
+    "errGeneric": "Something went wrong. Please try again later",
+    "clearTagFilter": "Clear",
+    "tagFiltered": "Filtered by tag \"{tag}\"",
+    "source": "Source"
+  },
+  "getnoteSources": {
+    "title": "Knowledge Sources",
+    "subtitle": "Note sources & auto fetch",
+    "searchPlaceholder": "Search config name…",
+    "syncNow": "Fetch now",
+    "testConnect": "Test connection",
+    "syncing": "Fetching \"{name}\"…",
+    "syncDone": "\"{name}\" finished",
+    "failed": "Failed",
+    "testOk": "Connection OK",
+    "testFailed": "Connection failed"
   }
 }

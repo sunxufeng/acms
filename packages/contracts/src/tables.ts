@@ -49,6 +49,9 @@ export const TABLES = {
   // ⚠️ 这张表只在生产 Base 存在，没有 DEV 版本，所以代码内直接登记生产表 ID ——
   //    TABLE_ID_MAP 未配置该 key 时原样返回，无需额外映射。
   noteLink: { tableId: 'tblwLvYxzXl0UFIM', name: '笔记关联' },
+  // 知识库配置：笔记来源 × 收取频率 × 凭证 的全局配置表（2026-09-05 生产建表）
+  // ⚠️ 只在生产 Base 存在，无 DEV 版本；建表脚本 scripts/setup_getnote_source_table.mjs（幂等）。
+  getnoteSource: { tableId: 'tblmKQtZ5IOgyhv6', name: '知识库配置' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

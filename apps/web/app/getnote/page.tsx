@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
+import Markdown from '../../components/Markdown';
 import { api, type GetnoteCredential, type GetnoteOAuthStart, type ApiRequestError } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
 import { useTranslations } from 'next-intl';
@@ -65,9 +66,41 @@ function toPayload(d: Record<string, unknown>): Record<string, unknown> {
  * 列定义做成工厂函数：标签列要渲染成可点击的 chip，点击后把标签名作为语义检索词
  * 传回列表（点击回调需要闭包捕获，模块级常量做不到，所以用 useMemo 包一层）。
  */
-function makeColumns(onTagClick: (tag: string) => void): CrudColumn[] {
+function makeColumns(onTagClick: (tag: string) => void, onTitleClick: (id: string) => void): CrudColumn[] {
   return [
-    { key: 'title', label: '标题', form: true, type: 'text', required: true, width: '280px', listOrder: 1 },
+    {
+      key: 'title',
+      label: '标题',
+      form: true,
+      type: 'text',
+      required: true,
+      width: '280px',
+      listOrder: 1,
+      // 标题可点击：点开笔记详情弹窗（不触发行上的「点击编辑」）
+      render: (v, row) => (
+        <button
+          type="button"
+          title="查看笔记详情"
+          onClick={(e) => {
+            e.stopPropagation();
+            onTitleClick(String(row.id));
+          }}
+          style={{
+            padding: 0,
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            textAlign: 'left',
+            fontWeight: 600,
+            color: 'var(--accent)',
+            textDecoration: 'underline',
+            fontSize: 'inherit',
+          }}
+        >
+          {String(v ?? '') || '（无标题）'}
+        </button>
+      ),
+    },
     { key: 'note_type', label: '类型', width: '100px', listOrder: 2 },
     {
       key: '来源',
@@ -120,6 +153,27 @@ function makeColumns(onTagClick: (tag: string) => void): CrudColumn[] {
   ];
 }
 
+/** 笔记详情弹窗：遮罩 + 容器样式（复用 CrudPage 的 --bg-elevated / --shadow-modal 变量） */
+const detailOverlay: Record<string, unknown> = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(0,0,0,0.45)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1000,
+  padding: 24,
+};
+const detailModal: Record<string, unknown> = {
+  background: 'var(--bg-elevated)',
+  borderRadius: 12,
+  padding: 20,
+  width: 'min(880px, 100%)',
+  maxHeight: '90vh',
+  overflow: 'auto',
+  boxShadow: 'var(--shadow-modal)',
+};
+
 /** 来源筛选时最多翻多少页（防止笔记极多时把请求打满） */
 const SOURCE_FILTER_MAX_PAGES = 10;
 
@@ -159,7 +213,29 @@ export default function GetnotePage() {
    * 「按标签 X 检索」的提示条 —— 否则用户看到结果变了却不知道为什么。
    */
   const [tagQuery, setTagQuery] = useState('');
-  const columns = useMemo(() => makeColumns(setTagQuery), []);
+
+  // 笔记详情弹窗：点击列表标题拉取完整笔记内容（点标签检索互不影响）
+  const [detailId, setDetailId] = useState('');
+  const [detailNote, setDetailNote] = useState<Record<string, unknown> | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailErr, setDetailErr] = useState('');
+
+  const openDetail = useCallback(async (id: string) => {
+    setDetailId(id);
+    setDetailNote(null);
+    setDetailErr('');
+    setDetailLoading(true);
+    try {
+      const n = await api.getGetnote(id);
+      setDetailNote(n);
+    } catch (e) {
+      setDetailErr(errorText(e, t));
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [t]);
+
+  const columns = useMemo(() => makeColumns(setTagQuery, openDetail), [openDetail]);
 
   // OAuth 设备授权
   const [oauth, setOauth] = useState<GetnoteOAuthStart | null>(null);
@@ -648,6 +724,65 @@ export default function GetnotePage() {
           archive: (id) => api.deleteGetnote(id),
         }}
       />
+
+      {detailId && (
+        <div style={detailOverlay} onClick={() => setDetailId('')}>
+          <div style={detailModal} onClick={(e) => e.stopPropagation()}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 12,
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: 16 }}>{t('noteDetail')}</h3>
+              <button type="button" className="btn btn-sm" onClick={() => setDetailId('')}>
+                {t('cancel')}
+              </button>
+            </div>
+            {detailErr && (
+              <p style={{ color: 'var(--fg-error)', fontSize: 13, marginTop: 0, marginBottom: 8 }}>
+                {detailErr}
+              </p>
+            )}
+            {detailLoading && <p className="muted" style={{ fontSize: 13 }}>{t('loading')}</p>}
+            {detailNote && (
+              <div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 16,
+                    fontSize: 12,
+                    color: 'var(--fg-tertiary)',
+                    marginBottom: 12,
+                  }}
+                >
+                  <span>来源：{tagNames(detailNote).find((x) => NOTE_TYPES.includes(x)) ?? '得到大脑'}</span>
+                  <span>
+                    标签：{tagNames(detailNote).filter((x) => !NOTE_TYPES.includes(x)).join('、') || '—'}
+                  </span>
+                  <span>更新时间：{String(detailNote.updated_at ?? '')}</span>
+                </div>
+                <div
+                  className="md"
+                  style={{
+                    maxHeight: '60vh',
+                    overflow: 'auto',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    padding: '12px 16px',
+                    background: 'var(--bg-subtle)',
+                  }}
+                >
+                  <Markdown>{String((detailNote.content as string) ?? '')}</Markdown>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

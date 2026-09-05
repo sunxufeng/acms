@@ -1982,7 +1982,8 @@
     "errGeneric": "Something went wrong. Please try again later",
     "clearTagFilter": "Clear",
     "tagFiltered": "Filtered by tag \"{tag}\"",
-    "source": "Source"
+    "source": "Source",
+    "noteDetail": "Note detail"
   },
   "getnoteSources": {
     "title": "Knowledge Sources",

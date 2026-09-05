@@ -1982,7 +1982,8 @@
     "errGeneric": "操作失败，请稍后重试",
     "clearTagFilter": "清除",
     "tagFiltered": "按标签「{tag}」检索",
-    "source": "来源"
+    "source": "来源",
+    "noteDetail": "笔记详情"
   },
   "getnoteSources": {
     "title": "知识库配置",

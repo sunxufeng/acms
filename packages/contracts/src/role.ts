@@ -104,6 +104,9 @@ export const PERMISSIONS = [
   // 邮件自动归档（招生与国外学校沟通留存）
   'mail:read',
   'mail:write',
+  // 得到大脑（Get笔记）知识库：全局单账号，鉴权只控制「能不能用」，不隔离数据
+  'getnote:read',
+  'getnote:write',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -134,6 +137,7 @@ export const DOMAIN_LABELS: Record<string, string> = {
   config: '系统配置',
   ai: 'AI 助手',
   mail: '邮件归档',
+  getnote: '知识库',
 };
 
 const ACTION_LABELS: Record<string, string> = {

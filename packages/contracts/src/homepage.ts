@@ -183,6 +183,7 @@ export const SECTION_EN_LABELS: Record<string, string> = {
   智能助手: 'AI Assistant',
   后台管理: 'Administration',
   邮件归档: 'Mail Archive',
+  知识库: 'Knowledge Base',
 };
 
 /** 默认导航菜单（与当前 AppShell 硬编码菜单保持一致，用于回退） */
@@ -223,6 +224,8 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'aiSkills', label: '技能管理', enLabel: 'Skills', href: '/ai/skills', icon: 'skill', section: '智能助手', order: 40, perm: 'ai:admin' },
     { key: 'aiAutomations', label: '定时任务', enLabel: 'Scheduled Tasks', href: '/ai/automations', icon: 'clock', section: '智能助手', order: 50, perm: 'ai:automation' },
     { key: 'aiAdmin', label: 'AI 用量', enLabel: 'AI Usage', href: '/ai/admin', icon: 'chart', section: '智能助手', order: 60, perm: 'ai:admin' },
+
+    { key: 'getnote', label: '知识库', enLabel: 'Knowledge Base', href: '/getnote', icon: 'dictionary', section: '知识库', order: 10, perm: 'getnote:read' },
 
     { key: 'dictionary', label: '字典数据', enLabel: 'Dictionaries', href: '/dictionaries', icon: 'dictionary', section: '后台管理', order: 10 },
     { key: 'export', label: '数据导出', enLabel: 'Export', href: '/export', icon: 'reports', section: '后台管理', order: 20 },

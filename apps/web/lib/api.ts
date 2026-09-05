@@ -777,6 +777,37 @@ export const api = {
   syncAllMail: () => request<{ synced: number; results: Record<string, unknown> }>('/mail-archive/sync-all', { method: 'POST' }),
   getMailAttachmentUrl: (id: string, fileToken: string) =>
     request<{ url: string }>(`/mail-archive/${id}/attachment-url?file_token=${encodeURIComponent(fileToken)}`),
+
+  // ── 得到大脑（Get笔记）知识库 ──────────────────────────────────────────
+  // 全局单账号：一份 API Key 供全员使用，所有人看到的是同一份笔记库。
+  // ⚠️ 笔记 ID 是字符串形态的 int64，全程不要转 Number（会丢精度）。
+  getnoteStatus: () => request<{ configured: boolean }>('/getnote/status'),
+  listGetnote: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/getnote/notes${q ? `?${q}` : ''}`);
+  },
+  getGetnote: (id: string) => request<Record<string, unknown>>(`/getnote/notes/${id}`),
+  createGetnote: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/getnote/notes', { method: 'POST', body: JSON.stringify(data) }),
+  updateGetnote: (id: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/getnote/notes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteGetnote: (id: string) => request<{ ok: boolean }>(`/getnote/notes/${id}`, { method: 'DELETE' }),
+  /** 语义搜索（不是关键字匹配）。返回的是相关片段，不是完整笔记。 */
+  searchGetnote: (query: string, topK?: number) =>
+    request<Record<string, unknown>[]>('/getnote/notes/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, top_k: topK }),
+    }),
+  addGetnoteTags: (id: string, tags: string[]) =>
+    request<Record<string, unknown>>(`/getnote/notes/${id}/tags`, {
+      method: 'POST',
+      body: JSON.stringify({ tags }),
+    }),
+  /** ⚠️ 删的是标签 ID（tags[].id），不是标签名 */
+  removeGetnoteTag: (id: string, tagId: string) =>
+    request<{ ok: boolean }>(`/getnote/notes/${id}/tags/${encodeURIComponent(tagId)}`, { method: 'DELETE' }),
 };
 
 export interface PermissionsPayload {

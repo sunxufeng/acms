@@ -1773,7 +1773,15 @@
     "2026秋": "2026秋",
     "2027春": "2027春",
     "2027秋": "2027秋",
-    "IDP方案": "IDP方案"
+    "IDP方案": "IDP方案",
+    "知识库": "知识库",
+    "得到大脑笔记": "得到大脑笔记",
+    "标签": "标签",
+    "正文": "正文",
+    "语义搜索": "语义搜索",
+    "多个标签用逗号分隔；保存后会整体替换原有标签": "多个标签用逗号分隔；保存后会整体替换原有标签",
+    "尚未配置得到大脑（Get笔记）的 API Key。": "尚未配置得到大脑（Get笔记）的 API Key。",
+    "请在服务器 /opt/acms/.env 中配置 GETNOTE_API_KEY 与 GETNOTE_CLIENT_ID，然后重启 acms-api 服务。": "请在服务器 /opt/acms/.env 中配置 GETNOTE_API_KEY 与 GETNOTE_CLIENT_ID，然后重启 acms-api 服务。"
   },
   "idp": {
     "idpPlanNotFound": "未找到该 IDP 方案",

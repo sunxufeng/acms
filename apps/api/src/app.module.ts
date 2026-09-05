@@ -32,6 +32,7 @@ import { HomepageConfigModule } from './homepage-config/homepage-config.module.j
 import { StudentAuthModule } from './student-auth/student-auth.module.js';
 import { RoleManagementModule } from './role-management/role-management.module.js';
 import { MailArchiveModule } from './mail-archive/mail-archive.module.js';
+import { GetnoteModule } from './getnote/getnote.module.js';
 import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.meta.js';
 
 @Module({
@@ -71,6 +72,7 @@ import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.m
     StudentAuthModule,
     RoleManagementModule,
     MailArchiveModule,
+    GetnoteModule,
   ],
 })
 export class AppModule {}

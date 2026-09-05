@@ -32,6 +32,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'ai:chat', 'ai:config', 'ai:automation', 'ai:admin',
     // 邮件自动归档
     'mail:read', 'mail:write',
+    // 得到大脑（Get笔记）知识库
+    'getnote:read', 'getnote:write',
   ],
   院级管理: [
     'student:read', 'student:write', 'student:archive',
@@ -54,6 +56,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'ai:chat',
     // 邮件自动归档（院级管理可配置账户并查看归档）
     'mail:read', 'mail:write',
+    // 得到大脑（Get笔记）知识库
+    'getnote:read', 'getnote:write',
   ],
   教务: [
     'student:read', 'student:write', 'student:archive',
@@ -71,6 +75,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'ai:chat',
     // 邮件自动归档：教务可查看归档
     'mail:read',
+    // 得到大脑（Get笔记）知识库
+    'getnote:read', 'getnote:write',
   ],
   财务: [
     'student:read', 'export:run',
@@ -87,6 +93,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'activity:read', 'activity:write',
     'evaluation:read', 'evaluation:write',
     'ai:chat',
+    // 得到大脑（Get笔记）知识库
+    'getnote:read', 'getnote:write',
   ],
   学生事务: [
     'student:read',
@@ -99,12 +107,16 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'ai:chat',
     // 邮件自动归档：学生事务可查看归档
     'mail:read',
+    // 得到大脑（Get笔记）知识库
+    'getnote:read', 'getnote:write',
   ],
   招生: [
     'student:read', 'student:write', 'followup:read', 'followup:write',
     'ai:chat',
     // 招生人员：配置本人邮箱账户并查看归档
     'mail:read', 'mail:write',
+    // 得到大脑（Get笔记）知识库
+    'getnote:read', 'getnote:write',
   ],
   HR行政: [
     'student:read',
@@ -116,6 +128,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'alumni:read', 'alumni:write',
     'config:read', 'config:write',
     'ai:chat',
+    // 得到大脑（Get笔记）：只读
+    'getnote:read',
   ],
   审计: [
     'student:read', 'followup:read', 'attendance:read', 'billing:read',
@@ -125,6 +139,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'course:read', 'venue:read', 'schedule:read',
     'export:run', 'admin:audit', 'config:read',
     'ai:chat',
+    // 得到大脑（Get笔记）：只读
+    'getnote:read',
   ],
   // 微信小程序学生端：仅本人数据（门户只读 + 打卡写）。不授予 student:write/archive，
   // 避免越权修改其他学生档案；打卡写仅校验 attendance:write。

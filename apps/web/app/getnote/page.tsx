@@ -38,10 +38,12 @@ function tagNames(n: Record<string, unknown>): string[] {
  */
 function toRow(n: Record<string, unknown>): Record<string, unknown> {
   const names = tagNames(n);
+  // 历史笔记没有来源标签（标签功能后加的），默认全部来自「得到大脑」
+  const src = names.find((x) => NOTE_TYPES.includes(x)) || '得到大脑';
   return {
     ...n,
     id: String(n.note_id ?? n.id ?? ''),
-    来源: names.find((x) => NOTE_TYPES.includes(x)) ?? '',
+    来源: src,
     标签: names.filter((x) => !NOTE_TYPES.includes(x)).join('、'),
   };
 }
@@ -592,73 +594,6 @@ export default function GetnotePage() {
 
   return (
     <>
-      <div className="card" style={{ padding: '10px 16px', margin: '24px 24px 0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <span className="muted" style={{ fontSize: 13 }}>
-            <span
-              style={{
-                display: 'inline-block',
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: 'var(--success)',
-                marginRight: 6,
-                verticalAlign: 'middle',
-              }}
-            />
-            {t('connected')}
-            {'　'}
-            {cred.masked}
-            {'　'}
-            {cred.clientIdMasked && (
-              <span style={{ color: 'var(--fg-tertiary)' }}>{cred.clientIdMasked}</span>
-            )}
-            {cred.verifiedAt && (
-              <span style={{ color: 'var(--fg-tertiary)', marginLeft: 8 }}>
-                {t('lastVerified', { time: new Date(cred.verifiedAt).toLocaleString() })}
-              </span>
-            )}
-          </span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => {
-              setOpen((v) => !v);
-              setErr('');
-              setOk('');
-            }}
-          >
-            {open ? t('cancel') : t('setKey')}
-          </button>
-        </div>
-        {open && (
-          <>
-            {cred.oauthEnabled && (
-              <div style={{ marginTop: 10 }}>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  disabled={busy}
-                  onClick={() => void startOauth()}
-                >
-                  {busy && !oauth ? t('oauthStarting') : t('oauthTitle')}
-                </button>
-              </div>
-            )}
-            {oauthPanel}
-            {!oauth && manualForm}
-            {err && (
-              <p style={{ color: 'var(--fg-error)', fontSize: 12, marginTop: 8, marginBottom: 0 }}>{err}</p>
-            )}
-            {ok && (
-              <p className="muted" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-                {ok}
-              </p>
-            )}
-          </>
-        )}
-      </div>
-
       {tagQuery && (
         <div
           className="card"
@@ -676,8 +611,7 @@ export default function GetnotePage() {
       <CrudPage
         // 检索词变化时整体重挂：强制回到第 1 页重新拉取（否则翻页游标还停在第 N 页）
         key={tagQuery || 'all'}
-        title="知识库"
-        subtitle="得到大脑笔记"
+        title="我的笔记"
         columns={columns}
         pageSize={PAGE_SIZE}
         inlineEdit

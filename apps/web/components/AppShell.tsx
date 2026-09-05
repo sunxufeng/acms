@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
@@ -298,12 +298,28 @@ export default function AppShell({
     window.location.href = '/login';
   }
 
+  /**
+   * 精确匹配菜单高亮：只高亮「最具体」的那一项。
+   *
+   * 问题：/getnote 用 startsWith 会同时匹配 /getnote/sources，导致两个菜单都亮。
+   * 解法：收集所有菜单项的 href，如果当前 pathname 有一个**更长**的 href 也匹配，
+   * 则短的那个不算 active（让位给更具体的子页面）。
+   */
+  const allHrefs = useMemo(
+    () => menuConfig.items.map((it) => it.href).filter(Boolean),
+    [menuConfig.items],
+  );
+
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
-    // Boundary match: exact path or a nested path (href + '/').
-    // Without the '/' boundary, '/attendance-zones' would wrongly match
-    // the '/attendance' (教师履约) menu because it is a prefix.
-    return pathname === href || pathname.startsWith(href + '/');
+    const exact = pathname === href;
+    const prefix = pathname.startsWith(href + '/');
+    if (!exact && !prefix) return false;
+    // 如果存在另一个更长的菜单 href 也匹配当前路径，则当前这个不让位
+    const hasMoreSpecific = allHrefs.some(
+      (h) => h.length > href.length && (pathname === h || pathname.startsWith(h + '/')),
+    );
+    return !hasMoreSpecific;
   };
 
   const isAdmin = !!me?.roles?.includes('系统管理员');

@@ -56,6 +56,7 @@ export const COLUMNS: CrudColumn[] = [
     form: true,
     type: 'text',
     list: false,
+    width: '100%',
     hint: '得到大脑开放平台创建应用后拿到的 API Key（形如 gk_live_xxx）。编辑时留空表示不修改',
   },
   {
@@ -64,6 +65,7 @@ export const COLUMNS: CrudColumn[] = [
     form: true,
     type: 'text',
     list: false,
+    width: '100%',
     hint: '形如 cli_xxx，与 API Key 成对拿到的。编辑时留空表示不修改',
   },
   { key: '备注', label: '备注', form: true, type: 'textarea', list: false },

@@ -884,9 +884,15 @@ export const api = {
   updateGetnoteSource: (id: string, data: Record<string, unknown>) =>
     request<Record<string, unknown>>(`/getnote-sources/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveGetnoteSource: (id: string) => request<{ ok: boolean }>(`/getnote-sources/${id}`, { method: 'DELETE' }),
-  /** 测试连通性。非「得到大脑」的源返回 ok:false + note 提示未接入，不是异常。 */
+  /** 测试连通性（按已保存记录 id）。非「得到大脑」的源返回 ok:false + note 提示未接入，不是异常。 */
   testGetnoteSource: (id: string) =>
     request<{ ok: boolean; sourceType: string; note: string }>(`/getnote-sources/${id}/test`, { method: 'POST' }),
+  /** 免 id 测试连通性：新建/编辑表单里还没保存即可用填的凭证直接验活 */
+  testGetnoteSourceCred: (data: { apiKey?: string; clientId?: string; 笔记类型?: string }) =>
+    request<{ ok: boolean; sourceType: string; note: string }>('/getnote-sources/test', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   /** 立即收取：异步触发，立刻返回当前进度；之后轮询 sync-status */
   syncGetnoteSource: (id: string) => request<SourceSyncProgress>(`/getnote-sources/${id}/sync`, { method: 'POST' }),
   getGetnoteSourceSyncStatus: (id: string) => request<SourceSyncProgress>(`/getnote-sources/${id}/sync-status`),

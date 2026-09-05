@@ -105,6 +105,19 @@ export default function GetnoteSourcesPage() {
         columns={COLUMNS}
         inlineEdit
         standaloneForm
+        formExtraActions={[
+          {
+            label: t('testConnect'),
+            run: async (values) => {
+              const r = await api.testGetnoteSourceCred({
+                apiKey: String(values.apiKey ?? ''),
+                clientId: String(values.clientId ?? ''),
+                笔记类型: String(values.笔记类型 ?? ''),
+              });
+              return { ok: r.ok, text: r.note || (r.ok ? t('testOk') : t('testFailed')) };
+            },
+          },
+        ]}
         rowExtraActions={[
           {
             label: t('syncNow'),

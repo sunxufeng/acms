@@ -34,6 +34,17 @@ export class GetnoteSourceController {
     return this.svc.create((req as Request & { user: SessionUser }).user, body);
   }
 
+  /** 免 id 测试连通性：新建/编辑表单里还没保存即可用填的凭证直接验活。
+   *  必须在 @Post(':id') 之前声明，否则 'test' 会被 :id 通配吃掉。 */
+  @Post('test')
+  testCred(@Req() req: Request, @Body() body: Record<string, unknown>) {
+    return this.svc.testCredInput({
+      apiKey: body.apiKey as string | undefined,
+      clientId: body.clientId as string | undefined,
+      笔记类型: body.笔记类型 as string | undefined,
+    });
+  }
+
   @Put(':id')
   update(
     @Req() req: Request,

@@ -91,7 +91,8 @@ export class BaseClient {
     return map;
   }
 
-  /** 写入前：datetime 字段的日期字符串("YYYY-MM-DD")转毫秒时间戳（飞书要求数值） */
+  /** 写入前：datetime 字段的日期字符串("YYYY-MM-DD")转毫秒时间戳（飞书要求数值）。
+   *  单选(type=3)/多选(type=4)按飞书规范就是纯字符串/字符串数组，无需包裹，原样写入。 */
   private async toWriteFields(
     tableId: string,
     fields: Record<string, unknown>,

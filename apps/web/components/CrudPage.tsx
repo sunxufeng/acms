@@ -112,6 +112,15 @@ export interface CrudPageProps {
   studentDetailHref?: (row: Record<string, unknown>) => string;
   /** 行级自定义操作按钮（如「AI 总结」）。run(row, reload) 执行后刷新列表；前端仅在非只读模式渲染 */
   rowExtraActions?: { label: string; run: (row: Record<string, unknown>, reload: () => void) => void | Promise<void> }[];
+  /** 表单（standalone / inline 弹窗）底部自定义操作按钮：run(values, close) 执行，
+   *  需要当前表单字段值时用（如「测试连接」）。run 返回 { ok, text } 时 CrudPage 会在表单内展示结果 banner。 */
+  formExtraActions?: {
+    label: string;
+    run: (
+      values: Record<string, unknown>,
+      close: () => void,
+    ) => void | Promise<{ ok: boolean; text?: string } | void>;
+  }[];
   /** 选择模式：列表每行前显示复选框，支持跨页保留已选；变化时通过 onSelectionChange 回传已选行 */
   selection?: boolean;
   /** 已选行变化回调（跨页合并后的全部已选记录） */
@@ -209,7 +218,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, hideCreate, selection, onSelectionChange, backHref }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -231,6 +240,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const [rowActionBusy, setRowActionBusy] = useState<string | null>(null);
   /** 一键读取本机 WiFi 的加载态 */
   const [wifiBusy, setWifiBusy] = useState(false);
+  /** 表单内自定义动作（formExtraActions）的加载态与结果 banner */
+  const [formActionBusy, setFormActionBusy] = useState<string | null>(null);
+  const [formActionMsg, setFormActionMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   /** 选择模式：已选行（跨页保留，以 row.id 为键） */
   const [selectedRows, setSelectedRows] = useState<Map<string, Record<string, unknown>>>(new Map());
@@ -466,6 +478,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     setForm(init);
     setEditing({ mode: 'create' });
     setError(null);
+    setFormActionMsg(null);
   }
 
   function openEdit(row: Record<string, unknown>) {
@@ -488,6 +501,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     setForm(init);
     setEditing({ mode: 'edit', row });
     setError(null);
+    setFormActionMsg(null);
   }
 
   /** 自定义表单（renderForm）保存成功后的收尾：关闭表单并刷新列表 */
@@ -556,6 +570,26 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       setError(e instanceof Error ? e.message : t('common.operationFailed'));
     } finally {
       setRowActionBusy(null);
+    }
+  }
+
+  /** 表单内自定义动作（formExtraActions）：拿到当前表单字段快照，执行后若返回 {ok,text} 则在表单内展示结果 banner */
+  async function runFormAction(action: {
+    label: string;
+    run: (values: Record<string, unknown>, close: () => void) => void | Promise<{ ok: boolean; text?: string } | void>;
+  }) {
+    if (formActionBusy) return;
+    setFormActionMsg(null);
+    setFormActionBusy(action.label);
+    try {
+      const r = await action.run(form, () => setEditing(null));
+      if (r && typeof r === 'object' && 'ok' in r) {
+        setFormActionMsg({ ok: r.ok, text: r.text ?? (r.ok ? t('common.ok') : t('common.failed')) });
+      }
+    } catch (e: unknown) {
+      setFormActionMsg({ ok: false, text: e instanceof Error ? e.message : t('common.operationFailed') });
+    } finally {
+      setFormActionBusy(null);
     }
   }
 
@@ -817,9 +851,22 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 {formFields}
               </fieldset>
               <div className="crud-inline-form-actions">
+                {formExtraActions?.map((a) => (
+                  <button
+                    key={a.label}
+                    className="btn btn-outline"
+                    disabled={Boolean(formActionBusy) || submitting}
+                    onClick={() => void runFormAction(a)}
+                  >
+                    {formActionBusy === a.label ? `${a.label}…` : a.label}
+                  </button>
+                ))}
                 <button className="btn btn-ghost" onClick={() => setEditing(null)}>{t('common.cancel')}</button>
                 <button className="btn btn-primary" onClick={submit} disabled={submitting}>{submitting ? t('common.saving') : t('common.save')}</button>
               </div>
+              {formActionMsg && (
+                <p className={formActionMsg.ok ? 'msg-ok' : 'msg-error'}>{formActionMsg.text}</p>
+              )}
             </>
           )}
         </div>
@@ -965,8 +1012,21 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 <legend className="form-legend">{tl(title)} {t('crud.info')}</legend>
                 {formFields}
               </fieldset>
+              {formActionMsg && (
+                <p className={formActionMsg.ok ? 'msg-ok' : 'msg-error'} style={{ marginTop: 12 }}>{formActionMsg.text}</p>
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '16px 22px', borderTop: '1px solid var(--border)' }}>
+              {formExtraActions?.map((a) => (
+                <button
+                  key={a.label}
+                  className="btn btn-outline"
+                  disabled={Boolean(formActionBusy) || submitting}
+                  onClick={() => void runFormAction(a)}
+                >
+                  {formActionBusy === a.label ? `${a.label}…` : a.label}
+                </button>
+              ))}
               <button className="btn btn-ghost" onClick={() => setEditing(null)}>{t('common.cancel')}</button>
               <button className="btn btn-primary" onClick={submit} disabled={submitting}>{submitting ? t('common.saving') : t('common.save')}</button>
             </div>

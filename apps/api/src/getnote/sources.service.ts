@@ -46,11 +46,14 @@ function plainText(v: unknown): string {
   return toText(v) ?? '';
 }
 
-/** 解析凭证字段为 JSON。解密失败时返回空对象，前端会暴露「凭证无效」 */
+/** 解析凭证字段为 JSON。解密失败时返回空对象，前端会暴露「凭证无效」。
+ *  注意：飞书文本字段只能存字符串，所以密文以 JSON 字符串形式落库；
+ *  读回时先 parse 成信封对象再 decryptSecret（同时也兼容历史直接存对象的情况）。 */
 function decodeCred(enc: unknown): Record<string, string> {
   if (!enc) return {};
   try {
-    const plain = String(decryptSecret(enc) ?? '');
+    const env = typeof enc === 'string' ? JSON.parse(enc) : enc;
+    const plain = String(decryptSecret(env) ?? '');
     if (!plain) return {};
     const obj = JSON.parse(plain);
     return typeof obj === 'object' && obj ? (obj as Record<string, string>) : {};
@@ -59,9 +62,10 @@ function decodeCred(enc: unknown): Record<string, string> {
   }
 }
 
-/** 把凭证对象加密成信封，存入飞书文本字段 */
+/** 把凭证对象加密成信封，再 JSON.stringify 成字符串存入飞书文本字段
+ *  （飞书文本字段不能存对象，直接存对象会 1254060 TextFieldConvFail）。 */
 function encodeCred(cred: Record<string, string>): unknown {
-  return encryptSecret(JSON.stringify(cred));
+  return JSON.stringify(encryptSecret(JSON.stringify(cred)));
 }
 
 /** 后台同步的实时进度（与 mail-archive 同范式：HTTP 立即返回，后台轮询） */
@@ -201,6 +205,35 @@ export class GetnoteSourceService extends BaseRecordService {
    * 得到大脑：解出 apiKey/clientId 打一次真实的 list 接口，能通就 ok；
    * 其他笔记类型：暂未实现，返回 501 引导用户先选「得到大脑」。
    */
+  /**
+   * 免 id 测试连通性：前端在「新建/编辑表单」里还没保存就能直接验活凭证。
+   * 接收明文 { apiKey, clientId, 笔记类型 }，对接 Get笔记 真实接口探活。
+   * 不落库、不加密，仅做连通校验。
+   */
+  async testCredInput(input: {
+    apiKey?: string;
+    clientId?: string;
+    笔记类型?: string;
+  }): Promise<{ ok: boolean; sourceType: string; note: string }> {
+    const sourceType = String(input.笔记类型 ?? '').trim();
+    if (!sourceType) return { ok: false, sourceType: '', note: '请先选择笔记类型' };
+    if (sourceType !== '得到大脑') {
+      return { ok: false, sourceType, note: '该笔记类型暂未接入，可先选「得到大脑」' };
+    }
+    const apiKey = String(input.apiKey ?? '').trim();
+    const clientId = String(input.clientId ?? '').trim();
+    if (!apiKey || !clientId) {
+      return { ok: false, sourceType, note: '请填写 API Key 与 Client ID' };
+    }
+    try {
+      await this.getnote.probeCredentials(apiKey, clientId);
+      return { ok: true, sourceType, note: '连通成功' };
+    } catch (e) {
+      return { ok: false, sourceType, note: (e as Error).message };
+    }
+  }
+
+  /** 按已保存记录测试连通性（POST /:id/test）。复用免 id 的探活逻辑 */
   async testSource(user: SessionUser, recordId: string): Promise<{
     ok: boolean;
     sourceType: string;
@@ -209,19 +242,11 @@ export class GetnoteSourceService extends BaseRecordService {
     await this.detail(user, recordId); // 顺手校验权限
     const got = await this.getCredForSync(recordId);
     if (!got) throw new HttpException('SOURCE_NOT_FOUND', HttpStatus.NOT_FOUND);
-    if (got.sourceType !== '得到大脑') {
-      return { ok: false, sourceType: got.sourceType, note: '该笔记类型暂未接入，可先选「得到大脑」' };
-    }
-    const { apiKey, clientId } = got.cred;
-    if (!apiKey || !clientId) {
-      return { ok: false, sourceType: got.sourceType, note: '凭证缺失 apiKey 或 clientId' };
-    }
-    try {
-      await this.getnote.probeCredentials(apiKey, clientId);
-      return { ok: true, sourceType: got.sourceType, note: '连通成功' };
-    } catch (e) {
-      return { ok: false, sourceType: got.sourceType, note: (e as Error).message };
-    }
+    return this.testCredInput({
+      apiKey: got.cred.apiKey,
+      clientId: got.cred.clientId,
+      笔记类型: got.sourceType,
+    });
   }
 
   // ── 同步：startSync + getSyncStatus（与 mail-archive 同范式） ────────

@@ -6,7 +6,19 @@ const API_BASE = '/api/v1';
 export interface ApiError {
   error?: { code: string; message: string; requestId: string };
   message?: string | string[];
+  /** 业务错误码。后端以对象形式抛 HttpException 时直接落在响应体顶层。 */
+  code?: string;
 }
+
+/**
+ * 带上结构化错误码的 Error。
+ *
+ * 后端把上游错误码翻成了 `GETNOTE_NOT_MEMBER` / `GETNOTE_AUTH_FAILED` /
+ * `GETNOTE_RATE_LIMITED` 这类可识别的码，前端需要据此给出完全不同的提示
+ * （非会员要引导开通，Key 无效要引导重填），光看 message 文案区分不了。
+ * 只额外挂属性、不改 message，所有既有 catch 逻辑不受影响。
+ */
+export type ApiRequestError = Error & { apiCode?: string };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // multipart 上传（FormData）不能带 Content-Type，必须由浏览器自动填充 boundary，
@@ -35,11 +47,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   if (!res.ok) {
     let message: string | undefined;
+    let parsed: ApiError | undefined;
     try {
       const text = await res.text();
       if (text) {
         try {
           const body = JSON.parse(text) as ApiError;
+          parsed = body;
           message = Array.isArray(body?.message)
             ? body.message.join('; ')
             : body?.message;
@@ -51,7 +65,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       /* ignore */
     }
-    throw new Error(message ?? `HTTP ${res.status}`);
+    const err: ApiRequestError = new Error(message ?? `HTTP ${res.status}`);
+    err.apiCode = parsed?.code ?? parsed?.error?.code;
+    throw err;
   }
   // 读取文本一次：空 body（如 200 无内容 / 204）视为 null，
   // 避免 res.json() 抛 “Unexpected end of JSON input”。
@@ -779,28 +795,24 @@ export const api = {
     request<{ url: string }>(`/mail-archive/${id}/attachment-url?file_token=${encodeURIComponent(fileToken)}`),
 
   // ── 得到大脑（Get笔记）知识库 ──────────────────────────────────────────
-  // ⚠️ 凭证模型（2026-09-05 修正）：Client ID 是**应用级**的（服务器配一份），
-  //    API Key 是**用户级**的 —— 每人配自己的，看到的是自己的笔记库。
-  //    官方限流按 Key 算（QPS 2 / 每天 5000 次），全员共用一份会直接撞墙。
+  // ⚠️ 凭证模型（2026-09-05 二次修正）：Client ID 与 API Key **都是每人一份**。
+  //    官方「创建应用 → 获取 Client ID 和 API Key」是成对拿到的，所以用户能完全
+  //    自助，服务器不需要配任何东西（早期版本要管理员配 Client ID，已废弃）。
+  //    官方限流按 Key 算（QPS 2 / 每天 5000 次），共用一份会直接撞墙。
   // ⚠️ 笔记 ID 是字符串形态的 int64，全程不要转 Number（会丢精度）。
-  getGetnoteCredential: () =>
-    request<{
-      configured: boolean;
-      masked: string;
-      updatedAt: string;
-      verifiedAt: string;
-      clientIdConfigured: boolean;
-    }>('/getnote/credential'),
-  /** 保存前后端会先打一次真实请求验活，验不过不落库（非会员的 Key 会在这里被拦下） */
-  saveGetnoteCredential: (apiKey: string) =>
-    request<{
-      configured: boolean;
-      masked: string;
-      updatedAt: string;
-      verifiedAt: string;
-      verified: boolean;
-    }>('/getnote/credential', { method: 'PUT', body: JSON.stringify({ apiKey }) }),
+  getGetnoteCredential: () => request<GetnoteCredential>('/getnote/credential'),
+  /** 保存前服务端会先打一次真实请求验活，验不过不落库（非会员会在这里被拦下） */
+  saveGetnoteCredential: (apiKey: string, clientId: string) =>
+    request<GetnoteCredential & { verified: boolean }>('/getnote/credential', {
+      method: 'PUT',
+      body: JSON.stringify({ apiKey, clientId }),
+    }),
   clearGetnoteCredential: () => request<{ ok: boolean }>('/getnote/credential', { method: 'DELETE' }),
+  /** OAuth 设备授权第 1 步：换设备码。未开启一键授权时返回 503。 */
+  startGetnoteOAuth: () => request<GetnoteOAuthStart>('/getnote/oauth/start', { method: 'POST' }),
+  /** OAuth 第 2 步：按服务端给的 interval 定时轮询，不要自己改快 */
+  pollGetnoteOAuth: () => request<GetnoteOAuthPoll>('/getnote/oauth/poll'),
+  cancelGetnoteOAuth: () => request<{ ok: boolean }>('/getnote/oauth', { method: 'DELETE' }),
   listGetnote: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
@@ -858,6 +870,32 @@ export const api = {
       body: JSON.stringify(data),
     }),
 };
+
+/** 当前用户的得到大脑凭证状态。只有掩码，永不含明文。 */
+export interface GetnoteCredential {
+  configured: boolean;
+  masked: string;
+  clientIdMasked: string;
+  updatedAt: string;
+  verifiedAt: string;
+  source: 'manual' | 'oauth' | '';
+  /** 服务器是否开启了一键授权；false 时前端隐藏该入口，不误导用户点了报错 */
+  oauthEnabled: boolean;
+}
+
+/** OAuth 第 1 步结果。qrcode 是 data URI 形态的 PNG，可直接塞进 <img src>。 */
+export interface GetnoteOAuthStart {
+  userCode: string;
+  verificationUri: string;
+  qrcode: string;
+  expiresIn: number;
+  interval: number;
+}
+
+export interface GetnoteOAuthPoll {
+  status: 'pending' | 'success' | 'expired' | 'rejected';
+  credential?: GetnoteCredential;
+}
 
 /** 笔记 ↔ 业务实体的关联记录（飞书「笔记关联」映射表一行） */
 export interface GetnoteLink {

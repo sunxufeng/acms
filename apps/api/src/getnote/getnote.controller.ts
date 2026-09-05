@@ -10,13 +10,18 @@ import { GetnoteService } from './getnote.service.js';
 /**
  * 得到大脑（Get笔记）代理控制器。
  *
- * ⚠️ 凭证模型（2026-09-05 修正）：
- * - **Client ID 是应用级的**（官方文档：在「应用管理」创建应用拿到），全局一份，存 .env
- * - **API Key 是用户级的**，一人一份，存服务端加密文件（见 credential.ts）
+ * ⚠️ 凭证模型（2026-09-05 二次修正）：**Client ID 与 API Key 都是每人一份**。
+ * 官方「5 分钟快速上手」写明「创建应用 → 获取 Client ID 和 API Key」，两者是用户建
+ * 应用时成对拿到的，所以不存在「应用级全局一份」的强约束。早期版本把 Client ID 塞进
+ * .env，结果不配就整页阻塞在「请联系管理员」，用户什么也做不了 —— 已废弃。
  *
- * 所以每个请求都必须带上当前用户，service 侧按 openId 取他自己的 Key。
- * 早期版本把两份都塞进 .env 全员共用，不只归属不对 —— 官方限流是**按 Key 算**的
- * （QPS 2 / 每天 5000 次），一份 Key 给全校用会直接撞墙。
+ * 每个请求都带当前用户，service 按 openId 取他自己的凭证对。一人一份还顺带解决了
+ * 限流问题：官方限流是**按 Key 算**的（QPS 2 / 每天 5000 次），共用必然撞墙。
+ *
+ * 两条配置路径，互不依赖：
+ * - **手动填入** —— 用户自己建应用，两个值都自己填。不依赖任何服务端配置
+ * - **一键授权（OAuth 设备授权）** —— 需要 .env 配 GETNOTE_OAUTH_CLIENT_ID，
+ *   这是 OAuth 的固有模型（设备授权需要一个应用身份）。没配时前端自动隐藏该入口
  *
  * ⚠️ 路由顺序：带后缀的子路由必须先声明，否则会被 `:id` 通配吃掉。
  */
@@ -40,12 +45,15 @@ export class GetnoteController {
     return this.svc.credentialStatus(user);
   }
 
-  /** 保存自己的 API Key。存之前会先打一次真实请求验活，验不过不落库。 */
+  /**
+   * 保存自己的凭证（Client ID + API Key 都要）。
+   * 存之前会先打一次真实请求验活，验不过不落库。
+   */
   @Put('credential')
-  saveCredential(@Req() req: Request, @Body() body: { apiKey?: string }) {
+  saveCredential(@Req() req: Request, @Body() body: { apiKey?: string; clientId?: string }) {
     const user = (req as Request & { user: SessionUser }).user;
     this.assert(user, 'getnote:write');
-    return this.svc.saveCredential(user, String(body?.apiKey ?? ''));
+    return this.svc.saveCredential(user, String(body?.apiKey ?? ''), String(body?.clientId ?? ''));
   }
 
   @Delete('credential')
@@ -53,6 +61,31 @@ export class GetnoteController {
     const user = (req as Request & { user: SessionUser }).user;
     this.assert(user, 'getnote:write');
     return this.svc.clearCredential(user);
+  }
+
+  // ── OAuth 设备授权（可选；未开启时 start 返回 503，前端据此隐藏入口） ──
+
+  /** 第 1 步：换设备码。返回二维码与 user_code，一次性 code 不下发前端。 */
+  @Post('oauth/start')
+  startOAuth(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    return this.svc.startOAuth(user);
+  }
+
+  /** 第 2 步：前端按 interval 定时轮询，直到 success / expired / rejected。 */
+  @Get('oauth/poll')
+  pollOAuth(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:read');
+    return this.svc.pollOAuth(user);
+  }
+
+  @Delete('oauth')
+  cancelOAuth(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    return this.svc.cancelOAuth(user);
   }
 
   // ── 笔记 ↔ 业务实体 关联 ────────────────────────────────────────────

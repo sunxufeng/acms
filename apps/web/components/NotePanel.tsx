@@ -91,16 +91,16 @@ export function NotePanel({
   const [content, setContent] = useState(seedContent);
 
   /**
-   * 当前用户是否配好了自己的 API Key。
+   * 当前用户是否连好了自己的得到大脑账号。
    * 关联记录本身走飞书（全员可见），但「搜索笔记」和「新建笔记」必须打 Get笔记 API，
-   * 没 Key 就一定失败 —— 所以这里提前拦住并引导，而不是让用户撞 412。
+   * 没凭证就一定失败 —— 所以这里提前拦住并引导，而不是让用户撞 412。
    */
   const [credOk, setCredOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     api
       .getGetnoteCredential()
-      .then((c) => setCredOk(Boolean(c?.configured && c?.clientIdConfigured)))
+      .then((c) => setCredOk(Boolean(c?.configured)))
       .catch(() => setCredOk(false));
   }, []);
 

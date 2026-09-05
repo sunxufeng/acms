@@ -148,8 +148,10 @@ function makeColumns(onTagClick: (tag: string) => void, onTitleClick: (id: strin
       },
     },
     { key: 'updated_at', label: '更新时间', width: '170px', listOrder: 5 },
-    // 正文用 markdown 编辑器：带「MD / 浏览」切换，高度 420（原来 3 行 textarea 太矮）
-    { key: 'content', label: '正文', form: true, type: 'markdown', fieldHeight: 420, list: false, listOrder: 6 },
+    // 总结（content）= Get笔记 的 AI 智能总结，用 markdown 编辑器：带「MD / 浏览」切换，高度 420
+    { key: 'content', label: '总结', form: true, type: 'markdown', fieldHeight: 420, list: false, listOrder: 6 },
+    // 原始记录（rawRecord）= 录音类笔记的说话人带时间戳转写全文，仅详情接口返回，只读展示
+    { key: 'rawRecord', label: '原始记录', form: true, type: 'textarea', readonly: true, list: false, listOrder: 7 },
   ];
 }
 
@@ -219,11 +221,14 @@ export default function GetnotePage() {
   const [detailNote, setDetailNote] = useState<Record<string, unknown> | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailErr, setDetailErr] = useState('');
+  // 详情弹窗的 Tab：总结 / 原始记录
+  const [detailTab, setDetailTab] = useState<'summary' | 'raw'>('summary');
 
   const openDetail = useCallback(async (id: string) => {
     setDetailId(id);
     setDetailNote(null);
     setDetailErr('');
+    setDetailTab('summary');
     setDetailLoading(true);
     try {
       const n = await api.getGetnote(id);
@@ -693,6 +698,11 @@ export default function GetnotePage() {
         inlineEdit
         standaloneForm
         search={{ placeholder: t('searchPlaceholder') }}
+        enrichEditRow={async (row) => {
+          // 列表行只含摘要，rawRecord 仅详情接口返回；编辑前预拉详情回填原始记录
+          const n = await api.getGetnote(String(row.id));
+          return toRow(n as Record<string, unknown>);
+        }}
         api={{
           list: async (p) => {
             const src = String(p['来源'] ?? '').trim();
@@ -765,19 +775,77 @@ export default function GetnotePage() {
                   </span>
                   <span>更新时间：{String(detailNote.updated_at ?? '')}</span>
                 </div>
+
+                {/* 总结 / 原始记录 两个 Tab */}
                 <div
-                  className="md"
                   style={{
-                    maxHeight: '60vh',
-                    overflow: 'auto',
-                    border: '1px solid var(--border)',
-                    borderRadius: 8,
-                    padding: '12px 16px',
-                    background: 'var(--bg-subtle)',
+                    display: 'flex',
+                    gap: 8,
+                    marginBottom: 12,
+                    borderBottom: '1px solid var(--border)',
+                    paddingBottom: 8,
                   }}
                 >
-                  <Markdown>{String((detailNote.content as string) ?? '')}</Markdown>
+                  <button
+                    type="button"
+                    className={detailTab === 'summary' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                    onClick={() => setDetailTab('summary')}
+                  >
+                    {t('summary')}
+                  </button>
+                  <button
+                    type="button"
+                    className={detailTab === 'raw' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                    onClick={() => setDetailTab('raw')}
+                  >
+                    {t('rawRecord')}
+                  </button>
                 </div>
+
+                {detailTab === 'summary' ? (
+                  <div
+                    className="md"
+                    style={{
+                      maxHeight: '60vh',
+                      overflow: 'auto',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      padding: '12px 16px',
+                      background: 'var(--bg-subtle)',
+                    }}
+                  >
+                    <Markdown>{String((detailNote.content as string) ?? '')}</Markdown>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      maxHeight: '60vh',
+                      overflow: 'auto',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      padding: '12px 16px',
+                      background: 'var(--bg-subtle)',
+                    }}
+                  >
+                    {String((detailNote.rawRecord as string) ?? '').trim() ? (
+                      <pre
+                        style={{
+                          margin: 0,
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          fontSize: 13,
+                          lineHeight: 1.7,
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                          color: 'var(--fg)',
+                        }}
+                      >
+                        {String(detailNote.rawRecord as string)}
+                      </pre>
+                    ) : (
+                      <p className="muted" style={{ fontSize: 13, margin: 0 }}>{t('noRawRecord')}</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -97,6 +97,20 @@ export interface GetnoteNote {
   parent_id?: string;
   created_at?: string;
   updated_at?: string;
+  /**
+   * 原始记录（录音类笔记的说话人带时间戳转写全文）。
+   * 由后端从 detail 接口的 audio.original / audio.transcript 提取，列表接口不返回 audio，
+   * 所以列表行里 rawRecord 恒为空，只有详情/编辑时才填充。content 才是「总结」。
+   */
+  rawRecord?: string;
+  /** 原始接口返回的音频信息（仅 detail 接口返回，列表不返回）。 */
+  audio?: {
+    original?: string;
+    transcript?: string;
+    play_url?: string;
+    duration?: number;
+    [k: string]: unknown;
+  };
 }
 
 export interface GetnoteListResult {
@@ -508,7 +522,15 @@ export class GetnoteService {
       '/open/api/v1/resource/note/detail',
       { query: { id, image_quality: imageQuality } },
     );
-    return data?.note ?? {};
+    const note = data?.note ?? {};
+    const audio = note.audio;
+    // 原始记录：录音类笔记在 audio.original（实测录音笔为原始转写全文）；
+    // transcript 在实测中为空，作为兜底保留。两者都无则空字符串。
+    const rawRecord =
+      (typeof audio?.original === 'string' && audio.original.trim()) ||
+      (typeof audio?.transcript === 'string' && audio.transcript.trim()) ||
+      '';
+    return { ...note, rawRecord };
   }
 
   /** 新建文本笔记（同步返回 note_id）。链接/图片笔记是异步任务，本模块暂不支持。 */

@@ -53,6 +53,8 @@ export interface CrudColumn {
   tagQuickAdd?: React.ReactNode;
   /** tags 类型：内置快捷填充动作；'wifi' = 一键读取本机当前连接的 WiFi（需运行 scripts/wifi-helper.mjs） */
   quickFill?: 'wifi';
+  /** 表单字段只读（渲染为 disabled）。用于「展示但不可编辑」的派生字段，如从详情接口回填的原始记录 */
+  readonly?: boolean;
 }
 
 /** 时间范围筛选（如审计日志按操作时间区间过滤） */
@@ -127,6 +129,12 @@ export interface CrudPageProps {
   onSelectionChange?: (rows: Record<string, unknown>[]) => void;
   /** 列表页头部返回箭头：设置后渲染一个返回链接（用于非一级导航的深层子页，如邮件账户） */
   backHref?: string;
+  /**
+   * 编辑/详情打开前，用当前行预拉取完整记录并合并字段（异步）。
+   * 用于列表行只含摘要、需要详情接口回填额外字段的场景（如 Get笔记 原始记录仅详情返回）。
+   * 不提供则维持默认行为：直接用列表行初始化表单。
+   */
+  enrichEditRow?: (row: Record<string, unknown>) => Promise<Record<string, unknown>>;
 }
 
 function str(v: unknown): string {
@@ -218,7 +226,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -502,6 +510,23 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     setEditing({ mode: 'edit', row });
     setError(null);
     setFormActionMsg(null);
+    // 预拉取详情合并额外字段（如 Get笔记 原始记录仅 detail 返回）。失败则保留列表行初始值。
+    if (enrichEditRow) {
+      enrichEditRow(row)
+        .then((full) => {
+          if (!full) return;
+          setForm((f) => {
+            const merged = { ...f };
+            for (const c of formCols) {
+              if (full[c.key] !== undefined) merged[c.key] = full[c.key];
+            }
+            return merged;
+          });
+        })
+        .catch(() => {
+          /* 保持列表行初始值，不影响编辑 */
+        });
+    }
   }
 
   /** 自定义表单（renderForm）保存成功后的收尾：关闭表单并刷新列表 */
@@ -655,9 +680,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               )}
             </div>
           ) : c.type === 'textarea' ? (
-            <textarea className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} rows={3} />
+            <textarea className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} rows={3} disabled={c.readonly} readOnly={c.readonly} />
           ) : c.type === 'markdown' ? (
-            <MarkdownField value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} height={c.fieldHeight ?? 300} />
+            <MarkdownField value={str(form[c.key])} onChange={c.readonly ? undefined : (v) => setForm((f) => ({ ...f, [c.key]: v }))} height={c.fieldHeight ?? 300} />
           ) : c.type === 'select' ? (
             <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
               <option value="">{t('common.notFilled')}</option>

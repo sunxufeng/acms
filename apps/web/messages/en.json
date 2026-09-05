@@ -1913,5 +1913,24 @@
     "aiSubjectNone": "(No records selected)",
     "notFound": "Not Found",
     "subtitleViewOnly": "View only, cannot be edited"
+  },
+  "getnote": {
+    "linkedNotes": "Linked Notes",
+    "linkNote": "Link an existing note",
+    "newNote": "New note",
+    "notLinked": "No linked notes yet",
+    "unlink": "Unlink",
+    "loading": "Loading…",
+    "searchPlaceholder": "Semantic search for notes…",
+    "searching": "Searching…",
+    "noMatch": "No matching notes",
+    "cancel": "Cancel",
+    "titleLabel": "Title",
+    "contentLabel": "Content",
+    "save": "Save",
+    "opFailed": "Operation failed: {msg}",
+    "saveAsNote": "Save as note",
+    "savedAsNote": "Saved as a note and linked to this record",
+    "saving": "Saving…"
   }
 }

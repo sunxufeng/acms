@@ -1,7 +1,35 @@
-import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import type { BaseClient } from '@acms/base-adapter';
+import { TABLES } from '@acms/contracts';
+import { toText } from '@acms/base-adapter';
+import { BASE_CLIENT } from '../base.provider.js';
+import { buildFilter } from '../shared/record.util.js';
 
 /** 得到大脑（Get笔记）开放平台。所有凭证只发往此地址，不接受任何其他 API 地址。 */
 const BASE = 'https://openapi.biji.com';
+
+/**
+ * 业务实体类型 → 标签里的英文标识。
+ * 打在笔记上的标签形如 `acms:student:recXXX`，出了 ACMS 也能看出这篇笔记属于谁。
+ */
+const ENTITY_TAG: Record<string, string> = {
+  学生档案: 'student',
+  家校沟通: 'homeSchoolComm',
+  招生跟进: 'sourceFollowup',
+  日常跟进: 'dailyFollowup',
+  IDP计划: 'idp',
+  学业成绩: 'grade',
+  学生考勤: 'attendance',
+  实践活动: 'activity',
+  阶段评价: 'evaluation',
+  校友跟进: 'alumni',
+  邮件归档: 'mail',
+};
+
+/** 生成关联标签：acms:<英文标识>:<实体ID> */
+function linkTag(entityType: string, entityId: string): string {
+  return `acms:${ENTITY_TAG[entityType] ?? entityType}:${entityId}`;
+}
 
 export interface GetnoteTag {
   id?: string;
@@ -100,6 +128,8 @@ function safeParse(text: string): unknown {
 @Injectable()
 export class GetnoteService {
   private readonly logger = new Logger(GetnoteService.name);
+
+  constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
   /** 凭证是否已配置（前端据此提示「尚未授权」而不是报一堆错） */
   isConfigured(): boolean {
@@ -259,5 +289,132 @@ export class GetnoteService {
       method: 'POST',
       body: { note_id: noteId, tag_id: tagId },
     });
+  }
+
+  // ── 笔记 ↔ 业务实体 关联（标签 + 映射表双写） ──────────────────────────
+
+  /** 某个业务实体当前关联的笔记。buildFilter 多条件为 AND，查询前会先做服务端过滤。 */
+  async listLinks(entityType: string, entityId: string) {
+    const res = await this.base.search(TABLES.noteLink.tableId, {
+      pageSize: 200,
+      filter: buildFilter([
+        { field: '实体类型', value: [entityType] },
+        { field: '实体ID', value: [entityId] },
+      ]),
+    });
+    // ⚠️ 飞书文本字段返回的是富文本数组 [{text,...}]，直接 String() 会得到 "[object Object]"
+    return res.items.map((r) => ({
+      id: r.recordId,
+      noteId: toText(r.fields['笔记ID']) ?? '',
+      title: toText(r.fields['笔记标题']) ?? '',
+      linkedBy: toText(r.fields['关联人']) ?? '',
+    }));
+  }
+
+  /**
+   * 全量覆盖式写入关联（传空数组即清空）。
+   * 与邮件归档「手动关联学生」同一范式：UI 上是 chip 增删，后端只认最终名单。
+   *
+   * ⚠️ 同时维护两侧：
+   *   - 飞书映射表 —— 便于 ACMS 内查询、统计、跨实体检索
+   *   - 笔记标签   —— 便于在 Get笔记 App 里直接看出这篇笔记属于谁
+   * 标签是写在**远端笔记**上的外部数据，失败只记日志、不阻断关联本身。
+   */
+  async replaceLinks(
+    entityType: string,
+    entityId: string,
+    entityName: string,
+    links: { noteId: string; title?: string }[],
+    userName: string,
+  ) {
+    const tableId = TABLES.noteLink.tableId;
+    const cur = await this.base.search(tableId, {
+      pageSize: 200,
+      filter: buildFilter([
+        { field: '实体类型', value: [entityType] },
+        { field: '实体ID', value: [entityId] },
+      ]),
+    });
+
+    const before = new Map<string, string>(); // noteId → 映射表 recordId
+    // ⚠️ 这里同样必须用 toText：key 若是 "[object Object]"，去重会失效
+    //    —— 表现为反复保存产生重复记录，且删不掉旧记录。
+    for (const r of cur.items) before.set(toText(r.fields['笔记ID']) ?? '', r.recordId);
+    const after = new Set(links.map((l) => String(l.noteId)));
+
+    // 1) 解除：删映射 + 去标签
+    for (const [noteId, recId] of before) {
+      if (after.has(noteId)) continue;
+      await this.base.delete(tableId, recId);
+      await this.removeLinkTag(noteId, entityType, entityId);
+    }
+
+    // 2) 新增：写映射 + 打标签
+    for (const l of links) {
+      const noteId = String(l.noteId);
+      if (before.has(noteId)) continue;
+      await this.base.create(tableId, {
+        笔记ID: noteId,
+        笔记标题: l.title ?? '',
+        实体类型: entityType,
+        实体ID: entityId,
+        实体名称: entityName ?? '',
+        关联人: userName ?? '',
+        关联时间: Date.now(),
+      });
+      await this.addLinkTag(noteId, entityType, entityId);
+    }
+
+    return { linked: links.length };
+  }
+
+  /** 新建笔记并立刻关联到业务实体：创建时带上关联标签，再写一条映射记录 */
+  async createAndLink(body: {
+    title?: string;
+    content?: string;
+    tags?: string[];
+    entityType: string;
+    entityId: string;
+    entityName?: string;
+    userName?: string;
+  }) {
+    const created = await this.create({
+      title: body.title,
+      content: body.content,
+      tags: [...(body.tags ?? []), linkTag(body.entityType, body.entityId)],
+    });
+    const noteId = String(created?.note_id ?? '');
+    if (noteId) {
+      await this.base.create(TABLES.noteLink.tableId, {
+        笔记ID: noteId,
+        笔记标题: body.title ?? '',
+        实体类型: body.entityType,
+        实体ID: body.entityId,
+        实体名称: body.entityName ?? '',
+        关联人: body.userName ?? '',
+        关联时间: Date.now(),
+      });
+    }
+    return { ...created, noteId };
+  }
+
+  private async addLinkTag(noteId: string, entityType: string, entityId: string): Promise<void> {
+    try {
+      await this.addTags(noteId, [linkTag(entityType, entityId)]);
+    } catch (e) {
+      this.logger.warn(`给笔记 ${noteId} 打关联标签失败（不影响关联本身）: ${(e as Error).message}`);
+    }
+  }
+
+  /** 去标签必须先查到 tag_id（删除接口按 id 删，不认标签名） */
+  private async removeLinkTag(noteId: string, entityType: string, entityId: string): Promise<void> {
+    try {
+      const want = linkTag(entityType, entityId);
+      const note = await this.detail(noteId);
+      const hit = (note.tags ?? []).find((t) => t.name === want);
+      if (hit?.id) await this.removeTag(noteId, hit.id);
+    } catch (e) {
+      this.logger.warn(`移除笔记 ${noteId} 关联标签失败（不影响关联本身）: ${(e as Error).message}`);
+    }
   }
 }

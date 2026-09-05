@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
 import { buildGradeColumns } from '../columns';
 import CrudView from '../../../components/CrudView';
+import { NotePanel } from '../../../components/NotePanel';
 
 export default function GradeDetailPage() {
   const params = useParams();
@@ -62,6 +63,9 @@ export default function GradeDetailPage() {
 
       {/* ── Read-only fields ──────── */}
       <CrudView columns={COLUMNS} record={record} />
+
+      {/* ── 关联笔记（得到大脑） ─────────── */}
+      <NotePanel entityType="学业成绩" entityId={id} entityName={studentName} />
     </div>
   );
 }

@@ -808,7 +808,46 @@ export const api = {
   /** ⚠️ 删的是标签 ID（tags[].id），不是标签名 */
   removeGetnoteTag: (id: string, tagId: string) =>
     request<{ ok: boolean }>(`/getnote/notes/${id}/tags/${encodeURIComponent(tagId)}`, { method: 'DELETE' }),
+
+  // ── 笔记 ↔ 业务实体 关联（标签 + 映射表双写） ────────────────────────
+  listGetnoteLinks: (entityType: string, entityId: string) =>
+    request<GetnoteLink[]>(
+      `/getnote/links?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`,
+    ),
+  /** 全量覆盖式写入：传空数组即清空，与邮件归档「手动关联学生」同范式 */
+  replaceGetnoteLinks: (
+    entityType: string,
+    entityId: string,
+    entityName: string,
+    links: { noteId: string; title?: string }[],
+  ) =>
+    request<{ linked: number }>('/getnote/links', {
+      method: 'PUT',
+      body: JSON.stringify({ entityType, entityId, entityName, links }),
+    }),
+  /** 新建笔记并立刻关联到当前实体 */
+  createAndLinkGetnote: (data: {
+    title?: string;
+    content?: string;
+    tags?: string[];
+    entityType: string;
+    entityId: string;
+    entityName?: string;
+  }) =>
+    request<Record<string, unknown> & { noteId?: string }>('/getnote/notes/link', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };
+
+/** 笔记 ↔ 业务实体的关联记录（飞书「笔记关联」映射表一行） */
+export interface GetnoteLink {
+  /** 映射表 recordId，前端用作 React key */
+  id: string;
+  noteId: string;
+  title: string;
+  linkedBy: string;
+}
 
 export interface PermissionsPayload {
   roles: string[];

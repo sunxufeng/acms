@@ -32,6 +32,34 @@ export class GetnoteController {
     return { configured: this.svc.isConfigured() };
   }
 
+  /** 某业务实体（如某个学生）当前关联的笔记 */
+  @Get('links')
+  listLinks(@Req() req: Request, @Query('entityType') entityType?: string, @Query('entityId') entityId?: string) {
+    this.assert((req as Request & { user: SessionUser }).user, 'getnote:read');
+    if (!entityType || !entityId)
+      throw new HttpException('BAD_REQUEST:entityType/entityId required', HttpStatus.BAD_REQUEST);
+    return this.svc.listLinks(entityType, entityId);
+  }
+
+  /** 全量覆盖式写入关联（传空数组即清空）。与邮件归档「手动关联学生」同一范式。 */
+  @Put('links')
+  replaceLinks(@Req() req: Request, @Body() body: Record<string, unknown>) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    const entityType = String(body?.entityType ?? '');
+    const entityId = String(body?.entityId ?? '');
+    if (!entityType || !entityId)
+      throw new HttpException('BAD_REQUEST:entityType/entityId required', HttpStatus.BAD_REQUEST);
+    const links = Array.isArray(body?.links) ? (body.links as { noteId: string; title?: string }[]) : [];
+    return this.svc.replaceLinks(
+      entityType,
+      entityId,
+      String(body?.entityName ?? ''),
+      links,
+      user.name ?? '',
+    );
+  }
+
   /** 笔记列表。cursor 透传；带 q 时改走语义搜索（见 service.list 注释）。 */
   @Get('notes')
   list(@Req() req: Request, @Query('cursor') cursor?: string, @Query('q') q?: string) {
@@ -82,6 +110,26 @@ export class GetnoteController {
   remove(@Req() req: Request, @Param('id') id: string) {
     this.assert((req as Request & { user: SessionUser }).user, 'getnote:write');
     return this.svc.remove(id);
+  }
+
+  /** ⚠️ 必须声明在 @Post('notes/:id/tags') 之前 —— 否则 'link' 会被当成 :id */
+  @Post('notes/link')
+  createAndLink(@Req() req: Request, @Body() body: Record<string, unknown>) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    const entityType = String(body?.entityType ?? '');
+    const entityId = String(body?.entityId ?? '');
+    if (!entityType || !entityId)
+      throw new HttpException('BAD_REQUEST:entityType/entityId required', HttpStatus.BAD_REQUEST);
+    return this.svc.createAndLink({
+      title: body?.title as string | undefined,
+      content: body?.content as string | undefined,
+      tags: Array.isArray(body?.tags) ? (body.tags as string[]) : undefined,
+      entityType,
+      entityId,
+      entityName: String(body?.entityName ?? ''),
+      userName: user.name ?? '',
+    });
   }
 
   @Post('notes/:id/tags')

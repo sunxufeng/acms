@@ -7,6 +7,7 @@ import { api } from '../../../lib/api';
 import BalanceWheel, { type WheelDim } from '../../../components/idp/BalanceWheel';
 import CommunicationManager from '../../../components/idp/CommunicationManager';
 import { useTl } from '../../../lib/useTl';
+import { NotePanel } from '../../../components/NotePanel';
 import { useTranslations } from 'next-intl';
 
 interface Goal { title: string; areas: string[]; importance: number; urgency: number; meaning: number; measures: string[]; note: string }
@@ -167,6 +168,9 @@ export default function IdpPlanDetailPage() {
       <section id="communications" style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', borderRadius: 12, padding: 18 }}>
         <CommunicationManager planId={params.id} />
       </section>
+
+      {/* ── 关联笔记（得到大脑） ─────────── */}
+      <NotePanel entityType="IDP计划" entityId={String(params.id)} entityName={str(plan['关联学生'])} />
     </div>
   );
 }

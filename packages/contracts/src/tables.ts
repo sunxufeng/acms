@@ -45,6 +45,10 @@ export const TABLES = {
   courseLink: { tableId: 'tblfDfwVKsPEFQcn', name: '学科课程表' },
   authorization: { tableId: 'tblUiDLO215YeT8C', name: '授权事项表' },
   guardian: { tableId: 'tbl0snrN3h2XXlZg', name: '监护人表' },
+  // 得到大脑（Get笔记）笔记 ↔ 业务实体 关联映射（2026-09-04 生产新建）
+  // ⚠️ 这张表只在生产 Base 存在，没有 DEV 版本，所以代码内直接登记生产表 ID ——
+  //    TABLE_ID_MAP 未配置该 key 时原样返回，无需额外映射。
+  noteLink: { tableId: 'tblwLvYxzXl0UFIM', name: '笔记关联' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
 import { buildStageColumns } from '../columns';
 import CrudView from '../../../components/CrudView';
+import { NotePanel, linkText } from '../../../components/NotePanel';
 
 export default function StageEvaluationDetailPage() {
   const params = useParams();
@@ -62,6 +63,9 @@ export default function StageEvaluationDetailPage() {
 
       {/* ── Read-only fields ──────── */}
       <CrudView columns={COLUMNS} record={record} />
+
+      {/* ── 关联笔记（得到大脑） ─────────── */}
+      <NotePanel entityType="阶段评价" entityId={id} entityName={linkText(record['关联学生编号'])} />
     </div>
   );
 }

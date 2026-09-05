@@ -7,16 +7,21 @@ import { api } from '../../../lib/api';
 import { COLUMNS } from '../columns';
 import CrudView from '../../../components/CrudView';
 import { useTranslations } from 'next-intl';
+import { NotePanel, linkText, fieldText } from '../../../components/NotePanel';
 
 export default function HomeSchoolCommDetailPage() {
   const t = useTranslations('common');
   const th = useTranslations('homeSchool');
+  const tg = useTranslations('getnote');
   const params = useParams();
   const router = useRouter();
   const id = String(params.id);
   const [record, setRecord] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  /** 反向归档后递增，触发 NotePanel 重新拉取关联列表 */
+  const [noteKey, setNoteKey] = useState(0);
+  const [savingNote, setSavingNote] = useState(false);
 
   useEffect(() => {
     setLoading(true); setError('');
@@ -38,6 +43,32 @@ export default function HomeSchoolCommDetailPage() {
     return String(v ?? '—');
   })();
 
+  /**
+   * 反向归档：把这条沟通记录整体存为一篇 Get笔记 并关联回本条记录。
+   * 正文按列表列定义逐行拼 Markdown，附件列跳过（存进去是一坨 JSON，没有可读性）。
+   */
+  const saveAsNote = async () => {
+    setSavingNote(true);
+    try {
+      const lines = COLUMNS.filter((c) => c.type !== 'attachment').map(
+        (c) => `- **${c.label}**：${fieldText(record[c.key])}`,
+      );
+      await api.createAndLinkGetnote({
+        title: `家校沟通 · ${studentName} · ${fieldText(record['沟通时间'])}`,
+        content: lines.join('\n'),
+        entityType: '家校沟通',
+        entityId: id,
+        entityName: studentName,
+      });
+      setNoteKey((k) => k + 1);
+      alert(tg('savedAsNote'));
+    } catch (e) {
+      alert(tg('opFailed', { msg: (e as Error).message ?? String(e) }));
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
   return (
     <div>
       {/* ── Header ───────────────── */}
@@ -54,6 +85,9 @@ export default function HomeSchoolCommDetailPage() {
             </div>
           </div>
           <div className="page-actions">
+            <button className="btn btn-primary btn-sm" disabled={savingNote} onClick={saveAsNote}>
+              {savingNote ? tg('saving') : tg('saveAsNote')}
+            </button>
             <button className="btn btn-outline btn-sm" onClick={() => router.push('/home-school-comms')}>{t('backToList')}</button>
           </div>
         </div>
@@ -61,6 +95,14 @@ export default function HomeSchoolCommDetailPage() {
 
       {/* ── Read-only fields ──────── */}
       <CrudView columns={COLUMNS} record={record} />
+
+      {/* ── 关联笔记（得到大脑） ─────────── */}
+      <NotePanel
+        entityType="家校沟通"
+        entityId={id}
+        entityName={linkText(record['关联学生'])}
+        reloadKey={noteKey}
+      />
     </div>
   );
 }

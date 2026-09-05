@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, type StudentRecord } from '../../../lib/api';
 import { StudentForm } from '../../../components/StudentForm';
+import { NotePanel } from '../../../components/NotePanel';
 import { useTranslations } from 'next-intl';
 
 export default function StudentDetailPage() {
@@ -94,6 +95,9 @@ export default function StudentDetailPage() {
           </div>
         )}
       </section>
+
+      {/* ── 关联笔记（得到大脑） ─────────── */}
+      <NotePanel entityType="学生档案" entityId={id} entityName={name} />
     </div>
   );
 }

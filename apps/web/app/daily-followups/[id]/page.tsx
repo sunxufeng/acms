@@ -7,6 +7,7 @@ import { api } from '../../../lib/api';
 import { COLUMNS } from '../columns';
 import CrudView from '../../../components/CrudView';
 import { useTranslations } from 'next-intl';
+import { NotePanel, linkText } from '../../../components/NotePanel';
 
 export default function DailyFollowupDetailPage() {
   const t = useTranslations('common');
@@ -61,6 +62,9 @@ export default function DailyFollowupDetailPage() {
 
       {/* ── Read-only fields ──────── */}
       <CrudView columns={COLUMNS} record={record} />
+
+      {/* ── 关联笔记（得到大脑） ─────────── */}
+      <NotePanel entityType="日常跟进" entityId={id} entityName={linkText(record['关联学生'])} />
     </div>
   );
 }

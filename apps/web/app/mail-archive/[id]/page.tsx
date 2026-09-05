@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '../../../lib/api';
 import { useTl } from '../../../lib/useTl';
+import { NotePanel } from '../../../components/NotePanel';
 import { useTranslations } from 'next-intl';
 
 interface AttachmentMeta {
@@ -255,6 +256,15 @@ export default function MailArchiveDetailPage() {
       >
         {body}
       </div>
+
+      {/* ── 关联笔记（得到大脑） ─────────── */}
+      <NotePanel
+        entityType="邮件归档"
+        entityId={id}
+        entityName={String(rec['主题'] ?? '')}
+        seedTitle={String(rec['主题'] ?? '')}
+        seedContent={body}
+      />
     </div>
   );
 }

@@ -1913,5 +1913,24 @@
     "aiSubjectNone": "（未选择记录）",
     "notFound": "未找到",
     "subtitleViewOnly": "仅查看，不可修改"
+  },
+  "getnote": {
+    "linkedNotes": "关联笔记",
+    "linkNote": "关联已有笔记",
+    "newNote": "新建笔记",
+    "notLinked": "尚未关联笔记",
+    "unlink": "解除关联",
+    "loading": "加载中…",
+    "searchPlaceholder": "语义搜索笔记…",
+    "searching": "搜索中…",
+    "noMatch": "无匹配笔记",
+    "cancel": "取消",
+    "titleLabel": "标题",
+    "contentLabel": "正文",
+    "save": "保存",
+    "opFailed": "操作失败：{msg}",
+    "saveAsNote": "存为笔记",
+    "savedAsNote": "已存为笔记并关联到本条沟通记录",
+    "saving": "保存中…"
   }
 }

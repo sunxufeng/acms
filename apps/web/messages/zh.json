@@ -177,6 +177,7 @@
     "homepage-management": "工作台主题",
     "homepage-settings": "登录页配置",
     "menu-settings": "菜单管理",
+    "note-convert": "转换配置",
     "soon": "敬请期待",
     "collapseSidebar": "收起侧边栏",
     "expandSidebar": "展开侧边栏",
@@ -226,7 +227,8 @@
     "fillWifi": "一键填入本机 WiFi",
     "wifiError": "未能读取本机 WiFi：请先在本机运行 `node scripts/wifi-helper.mjs`（保持运行），并用本地 dev 地址 http://localhost:3000 打开本页；或手动填写。",
     "tagPlaceholder": "输入或选择，回车添加",
-    "remove": "移除"
+    "remove": "移除",
+    "fillRequired": "请先填写必填项：{fields}"
   },
   "ai": {
     "config": {
@@ -1782,7 +1784,10 @@
     "多个标签用逗号分隔；保存后会整体替换原有标签": "多个标签用逗号分隔；保存后会整体替换原有标签",
     "总结": "总结",
     "原始记录": "原始记录",
-    "来源": "来源"
+    "来源": "来源",
+    "转换配置": "转换配置",
+    "菜单名": "菜单名",
+    "菜单路径": "菜单路径"
   },
   "idp": {
     "idpPlanNotFound": "未找到该 IDP 方案",
@@ -1989,7 +1994,13 @@
     "noteDetail": "笔记详情",
     "summary": "总结",
     "rawRecord": "原始记录",
-    "noRawRecord": "该笔记无原始记录"
+    "noRawRecord": "该笔记无原始记录",
+    "convert": "转换",
+    "convertTitle": "转换为业务记录",
+    "convertTip": "将「{title}」的总结与原始记录带入目标模块的新建表单，跳转后只需补充必填项即可保存。转换后会给该笔记打上留痕标签。",
+    "convertNoTarget": "还没有启用任何转换目标。请到「后台管理 › 转换配置」勾选需要转换的模块并配置字段。",
+    "convertFieldMap": "总结 → {summary}　原始记录 → {raw}",
+    "convertLoadFailed": "读取转换配置失败，请稍后重试"
   },
   "getnoteSources": {
     "title": "知识库配置",
@@ -2002,5 +2013,21 @@
     "failed": "失败",
     "testOk": "连接正常",
     "testFailed": "连接失败"
+  },
+  "noteConvert": {
+    "subtitle": "勾选允许接收笔记内容的模块，并指定「总结 / 原始记录」写入该模块的哪个字段。启用的模块会出现在「我的笔记」列表的「转换」按钮里。系统新开发的功能会自动出现在此列表。",
+    "addTarget": "添加功能",
+    "searchPlaceholder": "搜索菜单名 / 路径 / 字段…",
+    "onlyEnabled": "仅看已转换",
+    "countHint": "已启用 {enabled} / 共 {total}",
+    "enabled": "是否转换",
+    "summaryField": "总结写入字段",
+    "rawField": "原始记录写入字段",
+    "notSet": "未设置",
+    "confirmDelete": "确定删除这条转换配置吗？",
+    "saveSuccess": "已保存，笔记列表的「转换」按钮即时生效",
+    "saveFailed": "保存失败：{msg}",
+    "noMatch": "没有符合条件的记录",
+    "empty": "暂无可配置的模块"
   }
 }

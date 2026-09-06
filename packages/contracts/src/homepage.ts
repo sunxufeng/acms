@@ -74,6 +74,59 @@ export interface NavMenuConfig {
   items: NavMenuItem[];
 }
 
+/**
+ * 笔记转换目标：一条「笔记 → 业务记录」的映射配置。
+ *
+ * 与菜单配置同源，存在系统配置表（配置键 `note_convert_config`），
+ * 避免为一项配置单独建飞书表。
+ *
+ * `key` 关联菜单 key：系统里新开发的菜单由后端读取时自愈补充（enabled 默认 false），
+ * 所以配置页会自动出现新功能；「新增」按钮用于登记尚未进菜单的功能。
+ */
+export interface NoteConvertTarget {
+  /** 关联菜单 key（与 NavMenuItem.key 一致）；手工新增时为 note_conv_ 前缀 */
+  key: string;
+  /** 菜单中文名 */
+  label: string;
+  /** 菜单英文名 */
+  enLabel?: string;
+  /** 菜单路径：转换时跳到该路径并自动进入新建态 */
+  href: string;
+  /** 是否转换：只有 true 的菜单才会出现在笔记列表的「转换」候选里 */
+  enabled: boolean;
+  /** 笔记「总结」写入目标模块的哪个字段（如家校沟通的 沟通总结） */
+  summaryField: string;
+  /** 笔记「原始记录」写入目标模块的哪个字段（如家校沟通的 沟通明细） */
+  rawField: string;
+  /** 排序，越小越靠前 */
+  order: number;
+  /** 是否手工新增（非菜单自动带出） */
+  custom?: boolean;
+}
+
+export interface NoteConvertConfig {
+  items: NoteConvertTarget[];
+}
+
+/**
+ * 笔记转换的智能默认字段映射：菜单 key → 目标模块的「总结字段 / 原始记录字段」。
+ *
+ * 只登记已核对过字段名的常用模块（家校沟通 / 日常跟进 / 招生跟进 三者的
+ * 「沟通总结」「沟通明细」key 完全一致）。未登记的菜单在配置页降级为手工填写。
+ * 新增模块映射时在此登记即可，前后端共用这一份。
+ */
+export const DEFAULT_CONVERT_FIELDS: Record<string, { summaryField: string; rawField: string }> = {
+  homeSchoolComms: { summaryField: '沟通总结', rawField: '沟通明细' },
+  dailyFollowups: { summaryField: '沟通总结', rawField: '沟通明细' },
+  sourceFollowups: { summaryField: '沟通总结', rawField: '沟通明细' },
+  alumniFollowups: { summaryField: '跟进事项', rawField: '跟进备注' },
+  idpPlans: { summaryField: '展示内容', rawField: '原始文档' },
+  practiceActivities: { summaryField: '活动内容', rawField: '活动表现' },
+  stageEvaluations: { summaryField: '评价内容', rawField: '改进计划' },
+  grades: { summaryField: '课堂表现', rawField: '教师评语' },
+  studentAttendances: { summaryField: '异常描述', rawField: '处理结果' },
+};
+
 /** 图标名称（与 AppShell 中 ICONS 映射一一对应）。新增图标时同步更新 AppShell 的组件与 ICON_NAMES。 */
 export type IconName =
   | 'dashboard' | 'students' | 'admissions' | 'courses' | 'schedule' | 'teachers'
@@ -243,6 +296,7 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'homepage-settings', label: '登录页配置', enLabel: 'Login Page Config', href: '/homepage-settings', icon: 'settings', section: '后台管理', order: 110, adminOnly: true },
     { key: 'menu-settings', label: '菜单管理', enLabel: 'Menu Management', href: '/menu-settings', icon: 'dictionary', section: '后台管理', order: 120, adminOnly: true },
     { key: 'menu-groups-settings', label: '菜单分组', enLabel: 'Menu Groups', href: '/menu-groups-settings', icon: 'list', section: '后台管理', order: 122, adminOnly: true },
+    { key: 'note-convert', label: '转换配置', enLabel: 'Note Convert', href: '/note-convert', icon: 'settings', section: '后台管理', order: 124, adminOnly: true },
     { key: 'student-users', label: '学生账号', enLabel: 'Student Accounts', href: '/student-users', icon: 'user', section: '后台管理', order: 130, adminOnly: true, perm: 'admin:studentUser' },
   ],
 };

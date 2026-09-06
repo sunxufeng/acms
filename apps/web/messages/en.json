@@ -177,6 +177,7 @@
     "homepage-management": "Dashboard Theme",
     "homepage-settings": "Login Page Config",
     "menu-settings": "Menu Management",
+    "note-convert": "Note Convert",
     "soon": "Coming soon",
     "collapseSidebar": "Collapse sidebar",
     "expandSidebar": "Expand sidebar",
@@ -226,7 +227,8 @@
     "fillWifi": "Auto-fill this device's WiFi",
     "wifiError": "Could not read this device's WiFi: please run `node scripts/wifi-helper.mjs` on this machine (keep it running) and open this page via the local dev address http://localhost:3000; or fill it in manually.",
     "tagPlaceholder": "Type or select, press Enter to add",
-    "remove": "Remove"
+    "remove": "Remove",
+    "fillRequired": "Please fill in required fields: {fields}"
   },
   "ai": {
     "config": {
@@ -1782,7 +1784,10 @@
     "多个标签用逗号分隔；保存后会整体替换原有标签": "Separate multiple tags with commas; saving replaces all existing tags",
     "总结": "Summary",
     "原始记录": "Raw Record",
-    "来源": "Source"
+    "来源": "Source",
+    "转换配置": "Note Convert",
+    "菜单名": "Menu Name",
+    "菜单路径": "Menu Path"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",
@@ -1989,7 +1994,13 @@
     "noteDetail": "Note detail",
     "summary": "Summary",
     "rawRecord": "Raw Record",
-    "noRawRecord": "This note has no raw transcript"
+    "noRawRecord": "This note has no raw transcript",
+    "convert": "Convert",
+    "convertTitle": "Convert to a business record",
+    "convertTip": "Carry the summary and raw transcript of \"{title}\" into the target module's create form. After the jump you only need to fill in the required fields. The note will be tagged to record the conversion.",
+    "convertNoTarget": "No conversion target is enabled yet. Go to Administration › Note Convert to enable a module and map its fields.",
+    "convertFieldMap": "Summary → {summary}　Raw record → {raw}",
+    "convertLoadFailed": "Failed to load conversion config. Please try again later"
   },
   "getnoteSources": {
     "title": "Knowledge Sources",
@@ -2002,5 +2013,21 @@
     "failed": "Failed",
     "testOk": "Connection OK",
     "testFailed": "Connection failed"
+  },
+  "noteConvert": {
+    "subtitle": "Select which modules may receive note content, and map which field the Summary / Raw Record goes into. Enabled modules appear in the Convert button on the My Notes list. Newly developed modules show up here automatically.",
+    "addTarget": "Add module",
+    "searchPlaceholder": "Search menu name / path / field…",
+    "onlyEnabled": "Enabled only",
+    "countHint": "{enabled} enabled / {total} total",
+    "enabled": "Convert",
+    "summaryField": "Summary field",
+    "rawField": "Raw record field",
+    "notSet": "Not set",
+    "confirmDelete": "Delete this conversion config?",
+    "saveSuccess": "Saved. The Convert button on My Notes takes effect immediately.",
+    "saveFailed": "Save failed: {msg}",
+    "noMatch": "No matching records",
+    "empty": "No configurable module"
   }
 }

@@ -17,7 +17,7 @@ import { SessionGuard } from '../auth/session.guard.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
 import { HomepageConfigService } from './homepage-config.service.js';
 import type { HomepageConfigDto } from './homepage-config.dto.js';
-import type { NavMenuConfig, NavMenuGroupConfig } from '@acms/contracts';
+import type { NavMenuConfig, NavMenuGroupConfig, NoteConvertConfig } from '@acms/contracts';
 import { TABLES } from '@acms/contracts';
 
 @Controller('homepage-config')
@@ -106,6 +106,23 @@ export class HomepageConfigController {
       throw new ForbiddenException('ADMIN_ONLY');
     }
     return this.service.saveMenuGroups(dto);
+  }
+
+  /** 读取笔记转换配置（笔记列表的「转换」按钮需要知道哪些模块启用了） */
+  @Get('note-convert')
+  async getNoteConvert() {
+    return this.service.getNoteConvert();
+  }
+
+  /** 保存笔记转换配置：仅系统管理员 */
+  @Put('note-convert')
+  @UseGuards(SessionGuard)
+  async saveNoteConvert(@Body() dto: NoteConvertConfig, @Req() req: Request) {
+    const user = (req as Request & { user?: { roles?: string[] } }).user;
+    if (!user?.roles?.includes('系统管理员')) {
+      throw new ForbiddenException('ADMIN_ONLY');
+    }
+    return this.service.saveNoteConvert(dto);
   }
 
   /** 公开图片代理：登录页需展示上传的 logo / 背景图

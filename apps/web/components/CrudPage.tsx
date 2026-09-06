@@ -11,6 +11,7 @@ import TagInput from './TagInput';
 import MapPicker from './MapPicker';
 import Combobox from './Combobox';
 import Pagination from './Pagination';
+import { takeConvertPayload, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../lib/noteConvert';
 
 export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'attachment' | 'markdown' | 'map' | 'tags';
 
@@ -246,6 +247,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const [dicts, setDicts] = useState<Record<string, string[]>>({});
   /** 行级自定义操作的加载态：key = `${rowId}:${label}` */
   const [rowActionBusy, setRowActionBusy] = useState<string | null>(null);
+  /**
+   * 是否校验必填：**只有笔记转换进入的新建态才校验**。
+   * 转换的诉求就是「用户补完必填即可保存」，缺了校验会静默存进孤儿记录
+   * （家校沟通缺「关联学生」在飞书侧并不报错）。
+   * 普通新建不改行为 —— required 历史上只渲染红色星号，全站 30+ 模块都依赖这个宽松行为。
+   */
+  const strictRequiredRef = useRef(false);
   /** 一键读取本机 WiFi 的加载态 */
   const [wifiBusy, setWifiBusy] = useState(false);
   /** 表单内自定义动作（formExtraActions）的加载态与结果 banner */
@@ -473,7 +481,12 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const optionsFor = (c: CrudColumn): string[] =>
     c.dictKey ? (dicts[c.dictKey] ?? c.options ?? []) : (c.options ?? []);
 
-  function openCreate() {
+  /**
+   * @param prefill 预填值（笔记转换用）。只覆盖表单里真实存在的字段，
+   *   未知字段一律丢弃 —— 否则会把笔记的 title/content 之类写进飞书表导致报错。
+   */
+  function openCreate(prefill?: Record<string, unknown>) {
+    strictRequiredRef.current = false;
     const init: Record<string, unknown> = {};
     for (const c of formCols) {
       if (c.type === 'map') {
@@ -483,11 +496,44 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         init[c.key] = c.type === 'multiselect' || c.type === 'attachment' || c.type === 'tags' ? [] : '';
       }
     }
+    if (prefill) {
+      for (const c of formCols) {
+        if (prefill[c.key] !== undefined && prefill[c.key] !== null) init[c.key] = prefill[c.key];
+      }
+    }
     setForm(init);
     setEditing({ mode: 'create' });
     setError(null);
     setFormActionMsg(null);
   }
+
+  /**
+   * 笔记转换落地：URL 带 `?acmsConvert=1` 时消费一次 sessionStorage 里的预填值，
+   * 直接进入新建态并填好字段。
+   *
+   * 做在 CrudPage 里而不是各个业务页里，是为了让**所有用 CrudPage 的模块自动具备
+   * 预填能力** —— 未来新开发的模块只要在转换配置里登记字段映射即可，不用改代码。
+   *
+   * ⚠️ 用 window.location.search 而非 useSearchParams：后者在 App Router 下要求
+   * 整页包 Suspense，会把所有列表页都卷进去，代价不值得。
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (readonly || hideCreate) return;
+    const flag = new URLSearchParams(window.location.search).get(CONVERT_QUERY_FLAG);
+    if (flag !== CONVERT_QUERY_VALUE) return;
+    const payload = takeConvertPayload();
+    // 清掉 URL 标记：payload 已经读走，留着标记会让刷新/分享链接时行为诡异
+    try {
+      window.history.replaceState({}, '', window.location.pathname);
+    } catch { /* ignore */ }
+    if (!payload) return;
+    openCreate(payload.values ?? {});
+    // 必须在 openCreate 之后设：openCreate 会把它重置为 false
+    strictRequiredRef.current = true;
+    // 仅在挂载时执行一次：openCreate 每次渲染都是新函数，进依赖数组会反复触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function openEdit(row: Record<string, unknown>) {
     const init: Record<string, unknown> = {};
@@ -538,6 +584,22 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   async function submit() {
     setSubmitting(true);
     setError(null);
+    // 笔记转换进入的新建态才校验必填，普通新建维持历史行为（不校验）
+    if (strictRequiredRef.current) {
+      const missing = formCols
+        .filter((c) => {
+          if (!c.required) return false;
+          const v = form[c.key];
+          if (Array.isArray(v)) return v.length === 0;
+          return v === '' || v == null;
+        })
+        .map((c) => tl(c.label));
+      if (missing.length) {
+        setError(t('crud.fillRequired', { fields: missing.join('、') }));
+        setSubmitting(false);
+        return;
+      }
+    }
     try {
       const payload: Record<string, unknown> = {};
       for (const c of formCols) {
@@ -806,7 +868,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             {!hideCreate && (createHref ? (
               <Link href={createHref} className="btn btn-primary">+ {t('crud.create')}</Link>
             ) : (
-              <button className="btn btn-primary" onClick={openCreate} disabled={loading || readonly}>+ {t('crud.create')}</button>
+              <button className="btn btn-primary" onClick={() => openCreate()} disabled={loading || readonly}>+ {t('crud.create')}</button>
             ))}
           </div>
         </div>

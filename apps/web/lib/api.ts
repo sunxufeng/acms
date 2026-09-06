@@ -1,4 +1,10 @@
-import type { HomepageConfig, NavMenuConfig, NavMenuGroupConfig, RoleDef } from '@acms/contracts';
+import type {
+  HomepageConfig,
+  NavMenuConfig,
+  NavMenuGroupConfig,
+  NoteConvertConfig,
+  RoleDef,
+} from '@acms/contracts';
 
 /** 前端 API 客户端：统一 fetch 封装，自动带 cookie、统一错误处理、401 跳登录 */
 const API_BASE = '/api/v1';
@@ -603,6 +609,10 @@ export const api = {
   getMenuGroups: () => request<NavMenuGroupConfig>('/homepage-config/menu-groups'),
   updateMenuGroups: (data: NavMenuGroupConfig) =>
     request<{ ok: boolean }>('/homepage-config/menu-groups', { method: 'PUT', body: JSON.stringify(data) }),
+
+  getNoteConvert: () => request<NoteConvertConfig>('/homepage-config/note-convert'),
+  updateNoteConvert: (data: NoteConvertConfig) =>
+    request<{ ok: boolean }>('/homepage-config/note-convert', { method: 'PUT', body: JSON.stringify(data) }),
 
   // ── 系统配置（通用 CRUD） ───────────────────
   listSettings: (params: Record<string, string | undefined> = {}) => {

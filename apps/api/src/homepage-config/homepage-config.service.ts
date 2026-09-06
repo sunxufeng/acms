@@ -4,11 +4,14 @@ import {
   TABLES,
   DEFAULT_HOMEPAGE_CONFIG,
   DEFAULT_NAV_MENU_CONFIG,
+  DEFAULT_CONVERT_FIELDS,
   SECTION_EN_LABELS,
   type HomepageConfig,
   type NavMenuConfig,
   type NavMenuGroupConfig,
   type NavMenuGroup,
+  type NoteConvertConfig,
+  type NoteConvertTarget,
 } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { buildFilter } from '../shared/record.util.js';
@@ -18,6 +21,7 @@ const TABLE_ID = TABLES.systemConfig.tableId;
 const CONFIG_KEY = 'homepage_config';
 const MENU_CONFIG_KEY = 'nav_menu_config';
 const MENU_GROUPS_KEY = 'nav_menu_groups';
+const NOTE_CONVERT_KEY = 'note_convert_config';
 
 @Injectable()
 export class HomepageConfigService implements OnModuleInit {
@@ -199,6 +203,82 @@ export class HomepageConfigService implements OnModuleInit {
         '配置值': value,
         '分组': '界面配置',
         '说明': '导航菜单分组配置（JSON）',
+        '状态': '启用',
+      } as Record<string, unknown>);
+    }
+    return { ok: true };
+  }
+
+  /**
+   * 读取「笔记 → 业务记录」转换配置。
+   *
+   * 自愈策略（与菜单配置同款）：默认导航菜单里出现的新功能会**自动补进列表**
+   * （enabled 默认 false、字段取 DEFAULT_CONVERT_FIELDS 的智能默认），
+   * 所以系统新开发的模块无需手工登记就会出现在配置页；
+   * 已存储项的路径/英文名若与菜单不一致，以菜单为准同步刷新。
+   */
+  async getNoteConvert(): Promise<NoteConvertConfig> {
+    const rec = await this.findRecord(NOTE_CONVERT_KEY);
+    let stored: NoteConvertConfig = { items: [] };
+    if (rec) {
+      const raw = toText(rec.fields['配置值']);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as Partial<NoteConvertConfig>;
+          if (Array.isArray(parsed.items)) stored = parsed as NoteConvertConfig;
+        } catch { /* ignore */ }
+      }
+    }
+
+    const menuByKey = new Map(DEFAULT_NAV_MENU_CONFIG.items.map((it) => [it.key, it]));
+    const storedKeys = new Set(stored.items.map((i) => i.key));
+
+    // 已存储项：同步菜单上已改动的中文名/英文名/路径（用户可改的 enabled 与字段不动）
+    const kept: NoteConvertTarget[] = stored.items.map((it) => {
+      const m = menuByKey.get(it.key);
+      if (!m) return it; // 手工新增项，没有对应菜单
+      return {
+        ...it,
+        label: m.label,
+        enLabel: m.enLabel ?? it.enLabel,
+        href: m.href,
+        summaryField: it.summaryField || DEFAULT_CONVERT_FIELDS[it.key]?.summaryField || '',
+        rawField: it.rawField || DEFAULT_CONVERT_FIELDS[it.key]?.rawField || '',
+      };
+    });
+
+    // 自愈补充：菜单里有、配置里没有的新功能（disabled 的「敬请期待」项跳过）
+    const added: NoteConvertTarget[] = DEFAULT_NAV_MENU_CONFIG.items
+      .filter((m) => !storedKeys.has(m.key) && !m.disabled)
+      .map((m, idx) => ({
+        key: m.key,
+        label: m.label,
+        enLabel: m.enLabel,
+        href: m.href,
+        enabled: false,
+        summaryField: DEFAULT_CONVERT_FIELDS[m.key]?.summaryField ?? '',
+        rawField: DEFAULT_CONVERT_FIELDS[m.key]?.rawField ?? '',
+        order: 1000 + idx,
+      }));
+
+    return { items: [...kept, ...added] };
+  }
+
+  /** 保存笔记转换配置 */
+  async saveNoteConvert(dto: NoteConvertConfig): Promise<{ ok: boolean }> {
+    const value = JSON.stringify(dto);
+    const rec = await this.findRecord(NOTE_CONVERT_KEY);
+    if (rec) {
+      await this.base.update(TABLE_ID, rec.recordId, {
+        '配置值': value,
+        '状态': '启用',
+      } as Record<string, unknown>);
+    } else {
+      await this.base.create(TABLE_ID, {
+        '配置键': NOTE_CONVERT_KEY,
+        '配置值': value,
+        '分组': '界面配置',
+        '说明': '笔记转换配置（JSON）',
         '状态': '启用',
       } as Record<string, unknown>);
     }

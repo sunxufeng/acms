@@ -52,6 +52,12 @@ export const TABLES = {
   // 知识库配置：笔记来源 × 收取频率 × 凭证 的全局配置表（2026-09-05 生产建表）
   // ⚠️ 只在生产 Base 存在，无 DEV 版本；建表脚本 scripts/setup_getnote_source_table.mjs（幂等）。
   getnoteSource: { tableId: 'tblmKQtZ5IOgyhv6', name: '知识库配置' },
+  // 笔记转换记录：「我的笔记 → 业务模块」的留痕表（2026-09-06 生产建表）
+  // 为什么不用 Get笔记 标签留痕：上游硬限制「单篇笔记最多 5 个标签」，而 system + ai
+  // 标签往往已占掉 4 个 —— 一篇笔记只能成功留痕一个模块，之后转换全部静默失败。
+  // 所以留痕落在 ACMS 自己这张表里，顺带能记录「转成了哪条业务记录」。
+  // ⚠️ 只在生产 Base 存在，无 DEV 版本；建表脚本 scripts/setup_note_convert_log_table.mjs（幂等）。
+  noteConvertLog: { tableId: 'tblMy5LrwR3YbLxf', name: '笔记转换记录' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

@@ -3,6 +3,7 @@ import type {
   NavMenuConfig,
   NavMenuGroupConfig,
   NoteConvertConfig,
+  NoteConvertLogItem,
   RoleDef,
 } from '@acms/contracts';
 
@@ -849,6 +850,31 @@ export const api = {
   /** ⚠️ 删的是标签 ID（tags[].id），不是标签名 */
   removeGetnoteTag: (id: string, tagId: string) =>
     request<{ ok: boolean }>(`/getnote/notes/${id}/tags/${encodeURIComponent(tagId)}`, { method: 'DELETE' }),
+
+  // ── 笔记转换留痕（存在 ACMS 自己的「笔记转换记录」表，不写 Get笔记 标签） ──
+  // 为什么不用标签留痕：Get笔记 上游限制单篇笔记最多 5 个标签，system + ai 标签
+  // 常已占掉 4 个，留痕挤不进去（上游报 tags length must be less than 5）。
+  logNoteConvert: (data: {
+    noteId: string;
+    noteTitle?: string;
+    moduleKey: string;
+    moduleLabel: string;
+  }) =>
+    request<{ logId: string; count: number }>('/getnote/convert-log', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  /** 批量查留痕：列表页一次拿全，避免逐行请求 */
+  listNoteConverts: (noteIds: string[]) =>
+    request<Record<string, NoteConvertLogItem[]>>(
+      `/getnote/convert-log?noteIds=${encodeURIComponent(noteIds.join(','))}`,
+    ),
+  /** 回填「转成了哪条业务记录」，目标页保存成功后调用 */
+  linkNoteConvert: (logId: string, targetRecordId: string) =>
+    request<{ ok: boolean }>(`/getnote/convert-log/${encodeURIComponent(logId)}/target`, {
+      method: 'PUT',
+      body: JSON.stringify({ targetRecordId }),
+    }),
 
   // ── 笔记 ↔ 业务实体 关联（标签 + 映射表双写） ────────────────────────
   listGetnoteLinks: (entityType: string, entityId: string) =>

@@ -1787,7 +1787,8 @@
     "来源": "来源",
     "转换配置": "转换配置",
     "菜单名": "菜单名",
-    "菜单路径": "菜单路径"
+    "菜单路径": "菜单路径",
+    "已转": "已转"
   },
   "idp": {
     "idpPlanNotFound": "未找到该 IDP 方案",
@@ -1997,7 +1998,10 @@
     "noRawRecord": "该笔记无原始记录",
     "convert": "转换",
     "convertTitle": "转换为业务记录",
-    "convertTip": "将「{title}」的总结与原始记录带入目标模块的新建表单，跳转后只需补充必填项即可保存。转换后会给该笔记打上留痕标签。",
+    "convertTip": "将「{title}」的总结与原始记录带入目标模块的新建表单，跳转后只需补充必填项即可保存。每次转换都会记一条留痕，可在列表「已转」列查看。",
+    "convertLogFailed": "留痕写入失败（本次转换不受影响）：{msg}",
+    "convertedTimes": "已转 {count} 次",
+    "convertedTimesTip": "这篇笔记已转成「{label}」{count} 次",
     "convertNoTarget": "还没有启用任何转换目标。请到「后台管理 › 转换配置」勾选需要转换的模块并配置字段。",
     "convertFieldMap": "总结 → {summary}　原始记录 → {raw}",
     "convertLoadFailed": "读取转换配置失败，请稍后重试"

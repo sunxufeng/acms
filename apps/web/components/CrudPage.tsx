@@ -12,6 +12,9 @@ import MapPicker from './MapPicker';
 import Combobox from './Combobox';
 import Pagination from './Pagination';
 import { takeConvertPayload, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../lib/noteConvert';
+// 仅用于转换场景的留痕回填（把新建出的业务记录 id 写回「笔记转换记录」）。
+// 注意组件内已有名为 api 的 prop，所以全局 api 必须起别名，否则会遮蔽。
+import { api as globalApi } from '../lib/api';
 
 export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'attachment' | 'markdown' | 'map' | 'tags';
 
@@ -136,6 +139,13 @@ export interface CrudPageProps {
    * 不提供则维持默认行为：直接用列表行初始化表单。
    */
   enrichEditRow?: (row: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  /**
+   * 行数据每次变化后的回调（供调用方做一次批量二次查询）。
+   * 典型用途：笔记列表要显示「已转 N 次」，但留痕在另一张表 —— 用这个钩子
+   * 拿到当前页全部行后一次性批量查，避免逐行发请求把接口打爆。
+   * ⚠️ 传内联函数不会导致重复触发（内部用 ref 持有，只依赖 items 变化）。
+   */
+  onRowsLoaded?: (rows: Record<string, unknown>[]) => void;
 }
 
 function str(v: unknown): string {
@@ -227,7 +237,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -254,6 +264,17 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
    * 普通新建不改行为 —— required 历史上只渲染红色星号，全站 30+ 模块都依赖这个宽松行为。
    */
   const strictRequiredRef = useRef(false);
+  /**
+   * 当前转换的留痕记录 id。非空表示「这次新建是从笔记转换进来的」，
+   * 保存成功后要把生成的业务记录 id 回填过去。
+   */
+  const convertLogIdRef = useRef('');
+  /** 用 ref 持有 onRowsLoaded：调用方常传内联函数，直接进依赖数组会每次渲染都触发 */
+  const onRowsLoadedRef = useRef(onRowsLoaded);
+  onRowsLoadedRef.current = onRowsLoaded;
+  useEffect(() => {
+    onRowsLoadedRef.current?.(items);
+  }, [items]);
   /** 一键读取本机 WiFi 的加载态 */
   const [wifiBusy, setWifiBusy] = useState(false);
   /** 表单内自定义动作（formExtraActions）的加载态与结果 banner */
@@ -528,6 +549,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       window.history.replaceState({}, '', window.location.pathname);
     } catch { /* ignore */ }
     if (!payload) return;
+    convertLogIdRef.current = payload.logId ?? '';
     openCreate(payload.values ?? {});
     // 必须在 openCreate 之后设：openCreate 会把它重置为 false
     strictRequiredRef.current = true;
@@ -614,8 +636,21 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         else if (c.type === 'number') payload[c.key] = v === '' || v == null ? undefined : Number(v);
         else payload[c.key] = v === '' ? undefined : v;
       }
-      if (editing?.mode === 'create') await api.create(payload);
-      else if (editing?.row) await api.update(String(editing.row.id), payload);
+      if (editing?.mode === 'create') {
+        const created = (await api.create(payload)) as Record<string, unknown> | undefined;
+        // 转换场景：把生成的业务记录 id 回填留痕，日后能直接跳到「转成的那条记录」。
+        // 回填失败不影响业务记录本身 —— 它已经存下来了，所以这里静默降级。
+        const logId = convertLogIdRef.current;
+        if (logId && created) {
+          const newId = String(created.id ?? created.recordId ?? '');
+          if (newId) {
+            try {
+              await globalApi.linkNoteConvert(logId, newId);
+            } catch { /* 留痕回填失败不阻断业务 */ }
+            convertLogIdRef.current = '';
+          }
+        }
+      } else if (editing?.row) await api.update(String(editing.row.id), payload);
       setEditing(null);
       await reload();
     } catch (e: unknown) {

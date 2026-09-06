@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import Markdown from '../../components/Markdown';
 import { api, type GetnoteCredential, type GetnoteOAuthStart, type ApiRequestError } from '../../lib/api';
-import type { NoteConvertTarget } from '@acms/contracts';
-import { putConvertPayload, tagNamesOf, nextConvertTag, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../../lib/noteConvert';
+import type { NoteConvertTarget, NoteConvertLogItem } from '@acms/contracts';
+import { putConvertPayload, formatConvertLogs, totalConvertCount, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../../lib/noteConvert';
 import { useTl } from '../../lib/useTl';
 import { useTranslations } from 'next-intl';
 
@@ -69,7 +69,12 @@ function toPayload(d: Record<string, unknown>): Record<string, unknown> {
  * 列定义做成工厂函数：标签列要渲染成可点击的 chip，点击后把标签名作为语义检索词
  * 传回列表（点击回调需要闭包捕获，模块级常量做不到，所以用 useMemo 包一层）。
  */
-function makeColumns(onTagClick: (tag: string) => void, onTitleClick: (id: string) => void): CrudColumn[] {
+function makeColumns(
+  onTagClick: (tag: string) => void,
+  onTitleClick: (id: string) => void,
+  /** 笔记 id → 转换留痕列表（外部批量查好后传入，「已转」列据此渲染） */
+  convertLogs: Record<string, NoteConvertLogItem[]> = {},
+): CrudColumn[] {
   return [
     {
       key: 'title',
@@ -146,6 +151,36 @@ function makeColumns(onTagClick: (tag: string) => void, onTitleClick: (id: strin
                 {p}
               </button>
             ))}
+          </span>
+        );
+      },
+    },
+    // 已转次数：留痕记在 ACMS 的「笔记转换记录」表，由 convertLogs 批量查出来后渲染。
+    // listOrder 取 4.5 是为了夹在「标签(4)」与「更新时间(5)」之间，不必重排已有列序号。
+    {
+      key: '_converted',
+      label: '已转',
+      width: '110px',
+      listOrder: 4.5,
+      render: (_v, row) => {
+        const logs = convertLogs[String(row.id ?? '')];
+        const n = totalConvertCount(logs);
+        if (!n) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+        return (
+          <span
+            title={formatConvertLogs(logs)}
+            style={{
+              display: 'inline-block',
+              padding: '2px 10px',
+              fontSize: 12,
+              borderRadius: 999,
+              lineHeight: 1.6,
+              background: 'var(--bg-subtle)',
+              border: '1px solid var(--border)',
+              cursor: 'default',
+            }}
+          >
+            已转 {n} 次
           </span>
         );
       },
@@ -244,6 +279,44 @@ export default function GetnotePage() {
   const [convertRow, setConvertRow] = useState<Record<string, unknown> | null>(null);
   const [convertBusy, setConvertBusy] = useState(false);
   const [convertErr, setConvertErr] = useState('');
+  /** 留痕写不进去时的黄色提示（不阻断转换，只是让用户知情） */
+  const [convertWarn, setConvertWarn] = useState('');
+  /**
+   * 当前页笔记的转换留痕：noteId → 留痕列表。
+   * 留痕存在 ACMS 自己的表（不写 Get笔记 标签，因为上游单篇笔记最多 5 个标签），
+   * 所以列表行要显示「已转 N 次」必须额外批量查一次。
+   */
+  const [convertLogs, setConvertLogs] = useState<Record<string, NoteConvertLogItem[]>>({});
+  /** 正在查询中的笔记 id 集合，避免翻页时重复并发请求 */
+  const convertLogsBusy = useRef<Set<string>>(new Set());
+
+  /** 列表行变化后批量拉一次留痕（一次请求拿全，不逐行打接口） */
+  const onRowsLoaded = useCallback((rows: Record<string, unknown>[]) => {
+    const ids = rows.map((r) => String(r.id ?? '')).filter(Boolean);
+    if (!ids.length) {
+      setConvertLogs({});
+      return;
+    }
+    const need = ids.filter((id) => !convertLogsBusy.current.has(id));
+    if (!need.length) return;
+    for (const id of need) convertLogsBusy.current.add(id);
+    api
+      .listNoteConverts(need)
+      .then((map) => {
+        setConvertLogs((prev) => {
+          const next = { ...prev };
+          for (const id of need) {
+            if (map[id]?.length) next[id] = map[id];
+            else delete next[id];
+          }
+          return next;
+        });
+      })
+      .catch(() => { /* 留痕查不到不影响列表本身 */ })
+      .finally(() => {
+        for (const id of need) convertLogsBusy.current.delete(id);
+      });
+  }, []);
 
   const openDetail = useCallback(async (id: string) => {
     setDetailId(id);
@@ -261,12 +334,16 @@ export default function GetnotePage() {
     }
   }, [t]);
 
-  const columns = useMemo(() => makeColumns(setTagQuery, openDetail), [openDetail]);
+  const columns = useMemo(
+    () => makeColumns(setTagQuery, openDetail, convertLogs),
+    [openDetail, convertLogs],
+  );
 
   /** 打开「转换」候选弹窗：只列转换配置里 enabled 的模块 */
   const openConvert = useCallback(
     async (row: Record<string, unknown>) => {
       setConvertErr('');
+      setConvertWarn('');
       setConvertRow(row);
       setConvertTargets([]);
       try {
@@ -280,11 +357,15 @@ export default function GetnotePage() {
   );
 
   /**
-   * 执行转换：拉详情取「总结 + 原始记录」→ 打留痕标签 → 暂存预填 → 跳目标模块。
+   * 执行转换：拉详情取「总结 + 原始记录」→ 写留痕 → 暂存预填 → 跳目标模块。
    *
    * 顺序说明：留痕必须在跳转前做（跳走后就拿不到这篇笔记的上下文了），
-   * 所以标签语义是「已发起转换」，重复转同一模块会累加成 ×2 / ×3。
-   * 留痕失败不阻断转换本身。
+   * 所以留痕语义是「已发起转换」，重复转同一模块会累加成 ×2 / ×3。
+   *
+   * ⚠️ 留痕不写 Get笔记 标签：上游硬限制单篇笔记最多 5 个标签，system + ai
+   *    标签常已占掉 4 个，一加就报 `tags length must be less than 5`。
+   *    改为记在 ACMS 自己的「笔记转换记录」表，次数可无限累加。
+   *    留痕失败只出黄色提示，不阻断转换。
    */
   const doConvert = useCallback(
     async (target: NoteConvertTarget) => {
@@ -294,6 +375,7 @@ export default function GetnotePage() {
       if (!noteId) return;
       setConvertBusy(true);
       setConvertErr('');
+      setConvertWarn('');
       try {
         const note = (await api.getGetnote(noteId)) as Record<string, unknown>;
         const summary = String(note?.content ?? '');
@@ -304,13 +386,29 @@ export default function GetnotePage() {
         if (target.summaryField) values[target.summaryField] = summary;
         if (target.rawField) values[target.rawField] = raw;
 
-        // 留痕：整份 tags 替换（Get笔记 的 tags 是替换语义，不能只做追加，
-        // 否则会同时留下「已转家校沟通」和「已转家校沟通×2」两个标签）
+        // 留痕：记一条转换记录（同一笔记 + 同一模块累加次数），拿到 logId
+        // 供目标页保存成功后回填「转成了哪条记录」。
+        let logId = '';
         try {
-          const { tags } = nextConvertTag(tagNamesOf(note), target.label);
-          await api.updateGetnote(noteId, { title: note?.title, tags });
-        } catch {
-          /* 留痕失败不阻断转换 */
+          const r = await api.logNoteConvert({
+            noteId,
+            noteTitle: String(note?.title ?? row.title ?? ''),
+            moduleKey: target.key,
+            moduleLabel: target.label,
+          });
+          logId = r?.logId ?? '';
+          if (r?.count) {
+            setConvertLogs((prev) => ({
+              ...prev,
+              [noteId]: [
+                ...(prev[noteId] ?? []).filter((i) => i.moduleKey !== target.key),
+                { logId, moduleKey: target.key, moduleLabel: target.label, count: r.count },
+              ],
+            }));
+          }
+        } catch (e) {
+          // 留痕失败不阻断转换，但要让用户看见（之前静默吞掉，用户以为成功了）
+          setConvertWarn(t('convertLogFailed', { msg: errorText(e, t) }));
         }
 
         putConvertPayload({
@@ -320,6 +418,7 @@ export default function GetnotePage() {
           values,
           noteId,
           noteTitle: String(note?.title ?? row.title ?? ''),
+          logId,
         });
         router.push(`${target.href}?${CONVERT_QUERY_FLAG}=${CONVERT_QUERY_VALUE}`);
       } catch (e) {
@@ -792,6 +891,8 @@ export default function GetnotePage() {
           const n = await api.getGetnote(String(row.id));
           return toRow(n as Record<string, unknown>);
         }}
+        // 当前页行变化后批量拉一次留痕，供「已转」列与转换弹窗显示
+        onRowsLoaded={onRowsLoaded}
         api={{
           list: async (p) => {
             const src = String(p['来源'] ?? '').trim();
@@ -951,7 +1052,7 @@ export default function GetnotePage() {
       {convertRow && (
         <div
           style={detailOverlay as React.CSSProperties}
-          onClick={() => { if (!convertBusy) { setConvertRow(null); setConvertErr(''); } }}
+          onClick={() => { if (!convertBusy) { setConvertRow(null); setConvertErr(''); setConvertWarn(''); } }}
         >
           <div style={convertModal as React.CSSProperties} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
@@ -967,7 +1068,7 @@ export default function GetnotePage() {
                 type="button"
                 className="btn btn-ghost btn-sm"
                 disabled={convertBusy}
-                onClick={() => { setConvertRow(null); setConvertErr(''); }}
+                onClick={() => { setConvertRow(null); setConvertErr(''); setConvertWarn(''); }}
               >
                 ×
               </button>
@@ -975,47 +1076,89 @@ export default function GetnotePage() {
 
             {convertErr && <p className="msg-error" style={{ marginTop: 0 }}>{convertErr}</p>}
 
+            {/* 留痕写不进去时的黄色提示：转换照常继续，但必须让用户看见 */}
+            {convertWarn && (
+              <p
+                style={{
+                  marginTop: 0,
+                  marginBottom: 10,
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  lineHeight: 1.6,
+                  background: '#FAEEDA',
+                  border: '1px solid #EF9F27',
+                  color: '#854F0B',
+                }}
+              >
+                {convertWarn}
+              </p>
+            )}
+
             {convertTargets.length === 0 ? (
               <p className="muted" style={{ fontSize: 13, margin: '4px 0 0', lineHeight: 1.7 }}>
                 {t('convertNoTarget')}
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {convertTargets.map((tg) => (
-                  <button
-                    key={tg.key}
-                    type="button"
-                    disabled={convertBusy}
-                    onClick={() => void doConvert(tg)}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      gap: 4,
-                      padding: '10px 12px',
-                      borderRadius: 8,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-subtle)',
-                      cursor: convertBusy ? 'default' : 'pointer',
-                      textAlign: 'left',
-                    }}
-                  >
-                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg)' }}>
-                      {tg.label}
-                      {tg.enLabel ? (
-                        <span style={{ fontWeight: 400, color: 'var(--fg-tertiary)', marginLeft: 6 }}>
-                          {tg.enLabel}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span style={{ fontSize: 12, color: 'var(--fg-tertiary)' }}>
-                      {t('convertFieldMap', {
-                        summary: tg.summaryField || '—',
-                        raw: tg.rawField || '—',
-                      })}
-                    </span>
-                  </button>
-                ))}
+                {convertTargets.map((tg) => {
+                  // 这篇笔记转过该模块几次（留痕来自 ACMS 转换记录表，不是 Get笔记 标签）
+                  const done = (convertLogs[String(convertRow?.id ?? '')] ?? []).find(
+                    (i) => i.moduleKey === tg.key,
+                  );
+                  return (
+                    <button
+                      key={tg.key}
+                      type="button"
+                      disabled={convertBusy}
+                      onClick={() => void doConvert(tg)}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        gap: 4,
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg-subtle)',
+                        cursor: convertBusy ? 'default' : 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg)' }}>
+                        {tg.label}
+                        {tg.enLabel ? (
+                          <span style={{ fontWeight: 400, color: 'var(--fg-tertiary)', marginLeft: 6 }}>
+                            {tg.enLabel}
+                          </span>
+                        ) : null}
+                        {done?.count ? (
+                          <span
+                            title={t('convertedTimesTip', { label: tg.label, count: done.count })}
+                            style={{
+                              fontWeight: 400,
+                              fontSize: 11,
+                              marginLeft: 8,
+                              padding: '1px 8px',
+                              borderRadius: 999,
+                              background: 'var(--bg-elevated)',
+                              border: '1px solid var(--border)',
+                              color: 'var(--fg-tertiary)',
+                            }}
+                          >
+                            {t('convertedTimes', { count: done.count })}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span style={{ fontSize: 12, color: 'var(--fg-tertiary)' }}>
+                        {t('convertFieldMap', {
+                          summary: tg.summaryField || '—',
+                          raw: tg.rawField || '—',
+                        })}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             )}
 
@@ -1024,7 +1167,7 @@ export default function GetnotePage() {
                 type="button"
                 className="btn btn-sm"
                 disabled={convertBusy}
-                onClick={() => { setConvertRow(null); setConvertErr(''); }}
+                onClick={() => { setConvertRow(null); setConvertErr(''); setConvertWarn(''); }}
               >
                 {t('cancel')}
               </button>

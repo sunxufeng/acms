@@ -109,6 +109,31 @@ export interface NoteConvertConfig {
 }
 
 /**
+ * 笔记转换留痕记录。
+ *
+ * ⚠️ 为什么不在 Get笔记 上打标签留痕：上游硬限制**单篇笔记最多 5 个标签**
+ * （报错 `tags length must be less than 5`），而 system + ai 标签往往已占掉 4 个，
+ * 留痕只剩 1 个位 —— 结果是一篇笔记只能成功留痕一个模块，之后转其他模块全部失败。
+ * 所以留痕落在 ACMS 自己的「笔记转换记录」表里，顺带能记住转成了哪条业务记录。
+ */
+export interface NoteConvertLogItem {
+  /** 留痕记录 id（回填目标记录 ID 时要用） */
+  logId: string;
+  /** 目标模块 key，如 homeSchoolComms */
+  moduleKey: string;
+  /** 目标模块中文名，如 家校沟通 */
+  moduleLabel: string;
+  /** 该笔记转成该模块的累计次数 */
+  count: number;
+  /** 最近一次转换时间（datetime 字段，毫秒时间戳或 ISO） */
+  at?: string | number;
+  /** 转换人姓名 */
+  by?: string;
+  /** 目标模块里生成的业务记录 id（目标页保存成功后回填） */
+  targetRecordId?: string;
+}
+
+/**
  * 笔记转换的智能默认字段映射：菜单 key → 目标模块的「总结字段 / 原始记录字段」。
  *
  * 只登记已核对过字段名的常用模块（家校沟通 / 日常跟进 / 招生跟进 三者的

@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/c
 import type { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { toText } from '@acms/base-adapter';
-import type { SessionUser } from '@acms/contracts';
+import type { SessionUser, NoteConvertLogItem } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { buildFilter } from '../shared/record.util.js';
 import {
@@ -780,5 +780,127 @@ export class GetnoteService {
     } catch (e) {
       this.logger.warn(`移除笔记 ${noteId} 关联标签失败（不影响关联本身）: ${(e as Error).message}`);
     }
+  }
+
+  // ── 笔记转换留痕 ──────────────────────────────────────────────────
+  //
+  // ⚠️ 留痕**不写在 Get笔记 标签上**：上游硬限制单篇笔记最多 5 个标签
+  //   （报错 `tags length must be less than 5`），而 system + ai 标签常已占掉 4 个，
+  //   留痕只剩 1 个位 —— 一篇笔记只能成功留痕一个模块，之后转其他模块全部静默失败。
+  //   所以留痕落在 ACMS 自己的「笔记转换记录」表：次数可无限累加，还能记住
+  //   「转成了哪条业务记录」。
+
+  /**
+   * 记一次转换。同一笔记 + 同一模块累加次数，返回最新次数。
+   *
+   * 返回的 `logId` 要给目标页保存成功后回填「转成了哪条记录」用。
+   */
+  async logConvert(
+    user: SessionUser,
+    input: { noteId: string; noteTitle?: string; moduleKey: string; moduleLabel: string },
+  ): Promise<{ logId: string; count: number }> {
+    const tableId = TABLES.noteConvertLog.tableId;
+    const noteId = String(input?.noteId ?? '');
+    const moduleKey = String(input?.moduleKey ?? '');
+    if (!noteId || !moduleKey)
+      throw new HttpException('BAD_REQUEST:noteId/moduleKey required', HttpStatus.BAD_REQUEST);
+
+    const res = await this.base.search(tableId, {
+      pageSize: 20,
+      filter: buildFilter([
+        { field: '笔记ID', value: [noteId] },
+        { field: '模块KEY', value: [moduleKey] },
+      ]),
+    });
+    // ⚠️ 文本字段读回来是富文本数组，必须 toText；直接 String() 会得到 "[object Object]"
+    const hit = res.items.find(
+      (r) => toText(r.fields['笔记ID']) === noteId && toText(r.fields['模块KEY']) === moduleKey,
+    );
+
+    const now = Date.now();
+    if (hit) {
+      const prev = Number(hit.fields['转换次数'] ?? 0) || 0;
+      const count = prev + 1;
+      await this.base.update(tableId, hit.recordId, {
+        转换次数: count,
+        转换时间: now,
+        转换人: user?.name ?? '',
+        笔记标题: input.noteTitle || toText(hit.fields['笔记标题']) || '',
+      });
+      return { logId: hit.recordId, count };
+    }
+
+    const logId = await this.base.create(tableId, {
+      笔记标题: input.noteTitle ?? '',
+      笔记ID: noteId,
+      目标模块: input.moduleLabel ?? '',
+      模块KEY: moduleKey,
+      转换次数: 1,
+      转换时间: now,
+      转换人: user?.name ?? '',
+      目标记录ID: '',
+    });
+    return { logId, count: 1 };
+  }
+
+  /**
+   * 批量查若干笔记的转换留痕，返回 noteId → 留痕列表。
+   *
+   * 一次拉全表再内存过滤：飞书服务端过滤只支持单值，逐笔记查会把请求数放大成 N 倍；
+   * 而转换记录表增长缓慢（每篇笔记 × 每个模块才一行），全表拉取更划算。
+   */
+  async listConverts(
+    user: SessionUser,
+    noteIds: string[],
+  ): Promise<Record<string, NoteConvertLogItem[]>> {
+    void user; // 留痕是全局可见的，不按人过滤
+    const tableId = TABLES.noteConvertLog.tableId;
+    const want = new Set((noteIds ?? []).map((v) => String(v)).filter(Boolean));
+    const out: Record<string, NoteConvertLogItem[]> = {};
+    if (!want.size) return out;
+
+    let pageToken: string | undefined;
+    for (let i = 0; i < 5; i++) {
+      const res = await this.base.search(tableId, { pageSize: 200, pageToken });
+      for (const r of res.items) {
+        const noteId = toText(r.fields['笔记ID']) ?? '';
+        if (!want.has(noteId)) continue;
+        if (!out[noteId]) out[noteId] = [];
+        out[noteId].push({
+          logId: r.recordId,
+          moduleKey: toText(r.fields['模块KEY']) ?? '',
+          moduleLabel: toText(r.fields['目标模块']) ?? '',
+          count: Number(r.fields['转换次数'] ?? 1) || 1,
+          at: r.fields['转换时间'] as string | number | undefined,
+          by: toText(r.fields['转换人']) ?? '',
+          targetRecordId: toText(r.fields['目标记录ID']) ?? '',
+        });
+      }
+      if (!res.hasMore || !res.pageToken) break;
+      pageToken = res.pageToken;
+    }
+    return out;
+  }
+
+  /**
+   * 回填「转成了哪条业务记录」—— 转换流程的最后一步。
+   * 目标页保存成功后才拿得到记录 id，所以只能事后回写。
+   * 回填失败不影响业务记录本身（它已经存下来了）。
+   */
+  async linkConvert(
+    user: SessionUser,
+    logId: string,
+    targetRecordId: string,
+  ): Promise<{ ok: boolean }> {
+    void user;
+    const id = String(logId ?? '');
+    const recId = String(targetRecordId ?? '');
+    if (!id || !recId)
+      throw new HttpException(
+        'BAD_REQUEST:logId/targetRecordId required',
+        HttpStatus.BAD_REQUEST,
+      );
+    await this.base.update(TABLES.noteConvertLog.tableId, id, { 目标记录ID: recId });
+    return { ok: true };
   }
 }

@@ -241,4 +241,53 @@ export class GetnoteController {
     this.assert(user, 'getnote:write');
     return this.svc.removeTag(user, id, tagId);
   }
+
+  // ── 笔记转换留痕 ──────────────────────────────────────────────────
+  //
+  // 留痕不落在 Get笔记 标签上（上游单篇笔记最多 5 个标签，位置根本不够），
+  // 而是记在 ACMS 自己的「笔记转换记录」表，所以这里全是本地读写，不碰外部 API。
+
+  /** 记一次转换：同一笔记 + 同一模块累加次数。返回 logId 供后续回填。 */
+  @Post('convert-log')
+  logConvert(
+    @Req() req: Request,
+    @Body() body: { noteId?: string; noteTitle?: string; moduleKey?: string; moduleLabel?: string },
+  ) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    return this.svc.logConvert(user, {
+      noteId: String(body?.noteId ?? ''),
+      noteTitle: body?.noteTitle,
+      moduleKey: String(body?.moduleKey ?? ''),
+      moduleLabel: String(body?.moduleLabel ?? ''),
+    });
+  }
+
+  /**
+   * 批量查留痕。?noteIds=a,b,c —— 列表页一次拿全，避免 N 次请求。
+   * 留痕是全局的（谁都能看出这篇笔记转过几次），不做按人过滤。
+   */
+  @Get('convert-log')
+  listConverts(@Req() req: Request, @Query('noteIds') noteIds?: string) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:read');
+    const ids = String(noteIds ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 100);
+    return this.svc.listConverts(user, ids);
+  }
+
+  /** 回填「转成了哪条业务记录」。目标页保存成功后调用，失败不影响已存的业务记录。 */
+  @Put('convert-log/:id/target')
+  linkConvert(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { targetRecordId?: string },
+  ) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    return this.svc.linkConvert(user, id, String(body?.targetRecordId ?? ''));
+  }
 }

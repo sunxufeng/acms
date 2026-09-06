@@ -4,6 +4,14 @@
  * 之所以走 sessionStorage 而不是 URL 参数：预填内容是一整篇笔记的总结 +
  * 原始记录（动辄几千字），塞进 URL 会被截断、也会污染历史记录。
  * 用 sessionStorage 的另一个好处是多标签页互不干扰，关掉标签页自动失效。
+ *
+ * ── 留痕为什么不在 Get笔记 上打标签 ──────────────────────────────
+ * Get笔记 上游硬限制**单篇笔记最多 5 个标签**（越界报
+ * `invalid_request: tags length must be less than 5`），而 system 标签 + AI
+ * 自动标签往往已经占掉 4 个，留痕只剩 1 个位 —— 实际表现是一篇笔记只能成功
+ * 留痕第一个模块，之后转成其他模块全部静默失败（错误还被 try/catch 吞掉）。
+ * 所以留痕改记在 ACMS 自己的「笔记转换记录」表里：次数可无限累加，
+ * 还能额外记住「转成了哪条业务记录」。
  */
 
 /** 目标页面靠这个 URL 标记判断「需要消费一次预填」，只读一次即清 */
@@ -14,21 +22,20 @@ export const CONVERT_QUERY_VALUE = '1';
 const TTL_MS = 10 * 60 * 1000;
 const STORAGE_KEY = 'acms:note-convert-payload';
 
-/** 留痕标签前缀：最终形如「已转家校沟通」「已转家校沟通×2」 */
-export const CONVERT_TAG_PREFIX = '已转';
-
 export interface ConvertPayload {
   /** 目标模块菜单 key */
   key: string;
-  /** 目标模块中文名（留痕标签用） */
+  /** 目标模块中文名 */
   label: string;
   /** 目标页路径 */
   href: string;
   /** 预填到目标新建表单的字段值：目标模块字段名 → 值 */
   values: Record<string, unknown>;
-  /** 来源笔记 id（留痕用） */
+  /** 来源笔记 id */
   noteId: string;
   noteTitle: string;
+  /** 留痕记录 id：目标页保存成功后要回填「转成了哪条记录」 */
+  logId?: string;
   /** 写入时间戳，用于过期判断 */
   ts: number;
 }
@@ -58,26 +65,27 @@ export function takeConvertPayload(): ConvertPayload | null {
   }
 }
 
-/** Get笔记 的 tags 是 [{ id, name, type }] 对象数组，取纯名字列表 */
-export function tagNamesOf(note: Record<string, unknown>): string[] {
-  const tags = Array.isArray(note.tags) ? (note.tags as { name?: string }[]) : [];
-  return tags.map((t) => String(t?.name ?? '').trim()).filter(Boolean);
+/** 把留痕列表格式化成人话：「家校沟通×2、日常跟进」 */
+export function formatConvertLogs(
+  items: { moduleLabel?: string; count?: number }[] | undefined,
+): string {
+  if (!items?.length) return '';
+  return items
+    .map((i) => {
+      const label = String(i.moduleLabel ?? '').trim();
+      // 模块名为空的脏数据直接跳过，否则会渲染成孤零零的「×2」
+      if (!label) return '';
+      const count = Number(i.count ?? 1) || 1;
+      return count > 1 ? `${label}×${count}` : label;
+    })
+    .filter(Boolean)
+    .join('、');
 }
 
-/**
- * 计算下一次转换的留痕标签，并返回替换后的完整标签列表。
- *
- * Get笔记 的 tags 是**整体替换**语义（编辑笔记时就是这么提交的），
- * 所以这里不能只做追加 —— 否则会同时留下「已转家校沟通」和「已转家校沟通×2」两个标签。
- * 做法是找出旧的同前缀标签、解析出次数 +1 后原地替换。
- */
-export function nextConvertTag(
-  existing: string[],
-  moduleLabel: string,
-): { tag: string; tags: string[] } {
-  const prefix = `${CONVERT_TAG_PREFIX}${moduleLabel}`;
-  const hit = existing.find((t) => t === prefix || t.startsWith(`${prefix}×`));
-  const count = hit ? (parseInt(hit.slice(prefix.length).replace('×', ''), 10) || 1) + 1 : 1;
-  const tag = count === 1 ? prefix : `${prefix}×${count}`;
-  return { tag, tags: [...existing.filter((t) => t !== hit), tag] };
+/** 留痕总次数（列表行显示「已转 N 次」用） */
+export function totalConvertCount(
+  items: { count?: number }[] | undefined,
+): number {
+  if (!items?.length) return 0;
+  return items.reduce((sum, i) => sum + (Number(i.count ?? 1) || 1), 0);
 }

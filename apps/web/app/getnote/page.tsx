@@ -942,9 +942,15 @@ export default function GetnotePage() {
                 marginBottom: 12,
               }}
             >
-              <h3 style={{ margin: 0, fontSize: 16 }}>{t('noteDetail')}</h3>
-              <button type="button" className="btn btn-sm" onClick={() => setDetailId('')}>
-                {t('cancel')}
+              <h3 style={{ margin: 0, fontSize: 'var(--font-lg)', fontWeight: 700 }}>{t('noteDetail')}</h3>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setDetailId('')}
+                title={tl('关闭')}
+                aria-label={tl('关闭')}
+              >
+                ×
               </button>
             </div>
             {detailErr && (

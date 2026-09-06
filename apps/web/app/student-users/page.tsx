@@ -281,12 +281,23 @@ export default function StudentUsersPage() {
               gap: 14,
             }}
           >
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--fg)' }}>
-              {t('setPasswordForTitle', {
-                name: modal.name,
-                studentNo: modal.studentNo,
-                action: modal.studentNo ? t('setOrResetPwd') : '',
-              })}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--fg)' }}>
+                {t('setPasswordForTitle', {
+                  name: modal.name,
+                  studentNo: modal.studentNo,
+                  action: modal.studentNo ? t('setOrResetPwd') : '',
+                })}
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setModal(null)}
+                title={tl('关闭')}
+                aria-label={tl('关闭')}
+              >
+                ×
+              </button>
             </div>
             <input
               className="input"

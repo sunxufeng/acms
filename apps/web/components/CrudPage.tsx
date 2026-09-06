@@ -41,7 +41,7 @@ export interface CrudColumn {
   openRecord?: boolean;
   /** 表单字段下方的辅助提示文字 */
   hint?: string;
-  /** markdown 类型：编辑器高度（px），不传则用默认 300 */
+  /** markdown / textarea 类型：编辑器高度（px）。markdown 不传用默认 300；textarea 不传用默认 3 行 */
   fieldHeight?: number;
   /** map 类型：写入纬度的目标字段 key */
   latKey?: string;
@@ -680,7 +680,22 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               )}
             </div>
           ) : c.type === 'textarea' ? (
-            <textarea className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} rows={3} disabled={c.readonly} readOnly={c.readonly} />
+            <textarea
+              className="form-input"
+              value={str(form[c.key])}
+              onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}
+              rows={c.fieldHeight ? undefined : 3}
+              readOnly={c.readonly}
+              style={{
+                height: c.fieldHeight ? `${c.fieldHeight}px` : undefined,
+                resize: 'vertical',
+                overflowY: 'auto',
+                lineHeight: 1.6,
+                ...(c.readonly
+                  ? { background: 'var(--bg-subtle)', borderColor: 'var(--border)', color: 'var(--fg)', opacity: 1 }
+                  : null),
+              }}
+            />
           ) : c.type === 'markdown' ? (
             <MarkdownField value={str(form[c.key])} onChange={c.readonly ? undefined : (v) => setForm((f) => ({ ...f, [c.key]: v }))} height={c.fieldHeight ?? 300} />
           ) : c.type === 'select' ? (

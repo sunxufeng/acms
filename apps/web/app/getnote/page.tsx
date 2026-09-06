@@ -151,7 +151,7 @@ function makeColumns(onTagClick: (tag: string) => void, onTitleClick: (id: strin
     // 总结（content）= Get笔记 的 AI 智能总结，用 markdown 编辑器：带「MD / 浏览」切换，高度 420
     { key: 'content', label: '总结', form: true, type: 'markdown', fieldHeight: 420, list: false, listOrder: 6 },
     // 原始记录（rawRecord）= 录音类笔记的说话人带时间戳转写全文，仅详情接口返回，只读展示
-    { key: 'rawRecord', label: '原始记录', form: true, type: 'textarea', readonly: true, list: false, listOrder: 7 },
+    { key: 'rawRecord', label: '原始记录', form: true, type: 'textarea', readonly: true, fieldHeight: 360, list: false, listOrder: 7 },
   ];
 }
 

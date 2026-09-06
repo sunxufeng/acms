@@ -143,6 +143,8 @@ export interface NoteConvertLogItem {
 export const DEFAULT_CONVERT_FIELDS: Record<string, { summaryField: string; rawField: string }> = {
   homeSchoolComms: { summaryField: '沟通总结', rawField: '沟通明细' },
   dailyFollowups: { summaryField: '沟通总结', rawField: '沟通明细' },
+  // 学生观察：字段结构照搬日常跟进，总结/明细 key 完全一致（2026-09-06）
+  studentObservations: { summaryField: '沟通总结', rawField: '沟通明细' },
   sourceFollowups: { summaryField: '沟通总结', rawField: '沟通明细' },
   alumniFollowups: { summaryField: '跟进事项', rawField: '跟进备注' },
   idpPlans: { summaryField: '展示内容', rawField: '原始文档' },
@@ -282,6 +284,7 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'practiceActivities', label: '实践活动', enLabel: 'Activities', href: '/practice-activities', icon: 'students', section: '学生闭环', order: 50 },
     { key: 'homeSchoolComms', label: '家校沟通', enLabel: 'Home-School Comms', href: '/home-school-comms', icon: 'notifications', section: '学生闭环', order: 60 },
     { key: 'dailyFollowups', label: '日常跟进', enLabel: 'Daily Follow-ups', href: '/daily-followups', icon: 'notifications', section: '学生闭环', order: 70 },
+    { key: 'studentObservations', label: '学生观察', enLabel: 'Student Observations', href: '/student-observations', icon: 'students', section: '学生闭环', order: 72 },
     { key: 'idpPlans', label: 'IDP管理', enLabel: 'IDP Plans', href: '/idp-plans', icon: 'target', section: '学生闭环', order: 75 },
     { key: 'stageEvaluations', label: '阶段评价', enLabel: 'Stage Evaluations', href: '/stage-evaluations', icon: 'students', section: '学生闭环', order: 80 },
     { key: 'alumniFollowups', label: '校友跟进', enLabel: 'Alumni Follow-ups', href: '/alumni-followups', icon: 'students', section: '学生闭环', order: 90 },

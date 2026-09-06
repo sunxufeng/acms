@@ -47,6 +47,23 @@ export const DAILY_FOLLOWUP_CONFIG: AiSummarizeTableConfig = {
   ],
 };
 
+// 学生观察（2026-09-06 新增）：字段结构照搬日常跟进，另加「观察类型」作为提示词基本信息
+export const STUDENT_OBSERVATION_CONFIG: AiSummarizeTableConfig = {
+  prefix: 'student-observations-ai',
+  tableId: TABLES.studentObservation.tableId,
+  fieldAttach: '沟通附件清单',
+  fieldDetail: '沟通明细',
+  fieldSummary: '沟通总结',
+  fieldContent: '沟通人备注',
+  metaFields: [
+    { label: '关联学生', key: '关联学生' },
+    { label: '观察人', key: '沟通人' },
+    { label: '观察类型', key: '观察类型' },
+    { label: '观察主题', key: '沟通主题' },
+    { label: '观察时间', key: '沟通时间' },
+  ],
+};
+
 export const SOURCE_FOLLOWUP_CONFIG: AiSummarizeTableConfig = {
   prefix: 'source-followups-ai',
   tableId: TABLES.sourceFollowup.tableId,

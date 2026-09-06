@@ -114,6 +114,22 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     searchField: '关联学生',
     sortField: '沟通时间',
   },
+  // 学生观察（2026-09-06 新增）：字段结构照搬日常跟进，新增「观察类型」单选字段。
+  // 界面统一把「沟通X」显示为「观察X」，但飞书字段名保持「沟通X」，以便复用字典同步逻辑。
+  {
+    path: 'student-observations',
+    tableId: TABLES.studentObservation.tableId,
+    studentMatch: { field: '关联学生', by: 'name' },
+    readPerm: PERM_R,
+    writePerm: PERM_W,
+    numbers: ['沟通时长(分钟)'],
+    dateFields: ['沟通时间', '跟进截止日期', '闭环日期'],
+    readonly: ['待办负责人', '沟通附件'],
+    statusField: '闭环状态',
+    defaultStatus: '无需跟进',
+    searchField: '关联学生',
+    sortField: '沟通时间',
+  },
   {
     path: 'stage-evaluations',
     tableId: TABLES.stageEvaluation.tableId,

@@ -4,6 +4,35 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '../../lib/api';
 
+/** AI 摘要支持的数据来源表（2026-09-06 新增 student-observations） */
+export type AiSummarizeKind = 'home-school-comms' | 'daily-followups' | 'student-observations';
+
+/** 按 kind 选择对应后端接口：三张表的 prepare / sync-attachment / merge-all 签名完全一致 */
+const AI_APIS: Record<
+  AiSummarizeKind,
+  {
+    prepare: typeof api.aiSummarizePrepare;
+    syncAttachment: typeof api.aiSummarizeSyncAttachment;
+    mergeAll: typeof api.aiSummarizeMergeAll;
+  }
+> = {
+  'home-school-comms': {
+    prepare: api.aiSummarizePrepare,
+    syncAttachment: api.aiSummarizeSyncAttachment,
+    mergeAll: api.aiSummarizeMergeAll,
+  },
+  'daily-followups': {
+    prepare: api.dailyFollowupAiPrepare,
+    syncAttachment: api.dailyFollowupAiSyncAttachment,
+    mergeAll: api.dailyFollowupAiMergeAll,
+  },
+  'student-observations': {
+    prepare: api.studentObservationAiPrepare,
+    syncAttachment: api.studentObservationAiSyncAttachment,
+    mergeAll: api.studentObservationAiMergeAll,
+  },
+};
+
 interface Attachment {
   file_token: string;
   name: string;
@@ -12,8 +41,8 @@ interface Attachment {
 interface AiSummarizeModalProps {
   recordId: string;
   recordName?: string;
-  /** 区分数据来源表：家校沟通 / 日常跟进 */
-  kind?: 'home-school-comms' | 'daily-followups';
+  /** 区分数据来源表：家校沟通 / 日常跟进 / 学生观察 */
+  kind?: AiSummarizeKind;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -55,9 +84,7 @@ export default function AiSummarizeModal({ recordId, recordName, kind = 'home-sc
   const [overwriteDetail, setOverwriteDetail] = useState(false);
   const [overwriteSummary, setOverwriteSummary] = useState(false);
 
-  const prepare = kind === 'daily-followups' ? api.dailyFollowupAiPrepare : api.aiSummarizePrepare;
-  const syncAttachment = kind === 'daily-followups' ? api.dailyFollowupAiSyncAttachment : api.aiSummarizeSyncAttachment;
-  const mergeAllApi = kind === 'daily-followups' ? api.dailyFollowupAiMergeAll : api.aiSummarizeMergeAll;
+  const { prepare, syncAttachment, mergeAll: mergeAllApi } = AI_APIS[kind];
 
   useEffect(() => {
     let alive = true;

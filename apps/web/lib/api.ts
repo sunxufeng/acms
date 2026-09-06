@@ -562,6 +562,38 @@ export const api = {
   updateDailyFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/daily-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveDailyFollowup: (id: string) => request<{ ok: boolean }>(`/daily-followups/${id}`, { method: 'DELETE' }),
 
+  /** 学生观察 AI 总结：准备数据（附件、当前明细/总结/观察人备注） */
+  studentObservationAiPrepare: (id: string) =>
+    request<{ attachments: { file_token: string; name: string }[]; currentDetail: string; currentSummary: string; content: string }>(
+      `/student-observations-ai/${id}/prepare`,
+    ),
+
+  /** 学生观察 AI 总结：同步单个附件到观察明细 */
+  studentObservationAiSyncAttachment: (id: string, fileToken: string, overwriteDetail = false) =>
+    request<{ ok: boolean; synced: string; overwritten: boolean; 沟通明细: string }>(
+      `/student-observations-ai/${id}/sync-attachment`,
+      { method: 'POST', body: JSON.stringify({ fileToken, overwriteDetail }) },
+    ),
+
+  /** 学生观察 AI 总结：合并所有附件生成观察明细与总结 */
+  studentObservationAiMergeAll: (id: string, overwriteDetail = false, overwriteSummary = false) =>
+    request<{ ok: boolean; 沟通明细: string; 沟通总结: string; parsedAttachments: number; totalAttachments: number }>(
+      `/student-observations-ai/${id}/merge-all`,
+      { method: 'POST', body: JSON.stringify({ overwriteDetail, overwriteSummary }) },
+    ),
+
+  listStudentObservations: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/student-observations${q ? `?${q}` : ''}`);
+  },
+  /** 学生观察单条记录（详情只读页用） */
+  getStudentObservation: (id: string) => request<Record<string, unknown>>(`/student-observations/${id}`),
+  createStudentObservation: (data: Record<string, unknown>) => request<Record<string, unknown>>('/student-observations', { method: 'POST', body: JSON.stringify(data) }),
+  updateStudentObservation: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/student-observations/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveStudentObservation: (id: string) => request<{ ok: boolean }>(`/student-observations/${id}`, { method: 'DELETE' }),
+
   listStageEvaluations: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);

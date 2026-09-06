@@ -116,6 +116,9 @@ export class DictService {
     // 日常跟进表：确保「沟通方式/闭环状态/信息敏感级别」单选字段与字典一致；
     // 补齐文本字段（关联学生/沟通人/沟通人备注/沟通明细/沟通总结/沟通附件清单/待办事项/责任人/待办负责人）。
     results.push(await this.ensureDailyFollowupFields());
+    // 学生观察表（2026-09-06 新增）：确保「观察类型/沟通方式/闭环状态/信息敏感级别」
+    // 单选字段与字典一致。表不存在时（尚未建表）会被 catch 记录进 errors，不影响启动。
+    results.push(await this.ensureStudentObservationFields());
     return results;
   }
 
@@ -616,6 +619,63 @@ export class DictService {
       }
     } catch (e) {
       result.errors.push(`ensureDailyFollowupFields: ${(e as Error).message}`);
+    }
+    return result;
+  }
+
+  /**
+   * 幂等确保「学生观察表」的字典下拉字段存在且选项与字典一致（2026-09-06 新增）。
+   *
+   * 字段结构照搬日常跟进表，故这里只负责 4 个单选字段：
+   *   观察类型（本表独有）/ 沟通方式 / 闭环状态 / 信息敏感级别。
+   * 其余字段由建表脚本 scripts/setup_student_observation_table.mjs 一次性建好，
+   * 这里做幂等兜底，避免建表遗漏、或后续字典新增选项时下拉不同步。
+   *
+   * ⚠️ 与既有实现一致：更新选项时只传 name（飞书会重建 option id）。
+   * 本表当前 0 条记录，无数据风险；一旦有数据后又要新增选项，需先改成带 id 全量覆盖。
+   */
+  private async ensureStudentObservationFields(): Promise<SyncResult> {
+    const tableId = TABLES.studentObservation.tableId;
+    const result: SyncResult = { table: tableId, synced: [], skipped: [], errors: [] };
+    const opt = (key: string) => (this.store[key] ?? []).map((name) => ({ name }));
+    try {
+      const fields = await this.base.listFields(tableId);
+      const byName = new Map(fields.map((f) => [f.name, f]));
+
+      const singles: { name: string; dictKey: string }[] = [
+        { name: '观察类型', dictKey: '观察类型' },
+        { name: '沟通方式', dictKey: '沟通方式' },
+        { name: '闭环状态', dictKey: '家校闭环状态' },
+        { name: '信息敏感级别', dictKey: '信息敏感级别' },
+      ];
+      for (const { name, dictKey } of singles) {
+        const options = opt(dictKey);
+        const def = byName.get(name);
+        if (!def) {
+          await this.base.createField(tableId, { field_name: name, type: SINGLE_SELECT, property: { options } });
+          result.synced.push(`${name}（已创建单选）`);
+          continue;
+        }
+        if (def.type !== SINGLE_SELECT) {
+          result.skipped.push(`${name}（已存在但非单选 type=${def.type}，跳过以免丢数据）`);
+          continue;
+        }
+        const existing = new Set((def.property.options ?? []).map((o) => o.name));
+        const toAdd = options.filter((o) => !existing.has(o.name));
+        if (toAdd.length) {
+          const merged = [...(def.property.options ?? []).map((o) => ({ name: o.name })), ...toAdd];
+          await this.base.updateField(tableId, def.id, {
+            field_name: def.name,
+            type: SINGLE_SELECT,
+            property: { options: merged },
+          });
+          result.synced.push(`${name}（+${toAdd.length}）`);
+        } else {
+          result.skipped.push(`${name}（已是最新）`);
+        }
+      }
+    } catch (e) {
+      result.errors.push(`ensureStudentObservationFields: ${(e as Error).message}`);
     }
     return result;
   }

@@ -7,6 +7,10 @@ export const TABLES = {
   practiceActivity: { tableId: 'tblSydXiQcpUdZ6i', name: '实践活动表' },
   homeSchoolComm: { tableId: 'tbl9eA6kF1DFQkI1', name: '家校沟通表' },
   dailyFollowup: { tableId: 'tblFVUnzdEWLvPeh', name: '日常跟进表' },
+  // 学生观察（2026-09-06 新增）：字段结构照搬「日常跟进表」18 字段 + 新增「观察类型」单选。
+  // ⚠️ 只在生产 Base 存在，无 DEV 版本；建表脚本 scripts/setup_student_observation_table.mjs（幂等）。
+  // 界面上统一把「沟通X」显示为「观察X」，但飞书字段名保持「沟通X」，以便复用字典同步逻辑。
+  studentObservation: { tableId: 'tblDtqXu3yXLp56l', name: '学生观察表' },
   stageEvaluation: { tableId: 'tblNa4YeCzQiKXxy', name: '阶段评价表' },
   alumniFollowup: { tableId: 'tblXiV5eN9Qr07jU', name: '校友长期跟进表' },
   // M2 教学域

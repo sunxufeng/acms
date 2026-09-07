@@ -1,11 +1,33 @@
 import { TokenManager, type FeishuConfig } from './token.js';
+import type {
+  BaseRecord,
+  CreateFieldBody,
+  CreateTableField,
+  CreatedField,
+  DataStore,
+  FieldMeta,
+  FilterCondition,
+  FilterGroup,
+  ListOptions,
+  ListResult,
+  TableRef,
+  UpdateFieldBody,
+} from './types.js';
 
-export interface BaseRecord {
-  recordId: string;
-  fields: Record<string, unknown>;
-  /** 飞书记录创建时间（已转 ISO 字符串）；部分接口不返回则为 undefined */
-  createdAt?: string;
-}
+export type {
+  BaseRecord,
+  CreateFieldBody,
+  CreateTableField,
+  CreatedField,
+  DataStore,
+  FieldMeta,
+  FilterCondition,
+  FilterGroup,
+  ListOptions,
+  ListResult,
+  TableRef,
+  UpdateFieldBody,
+} from './types.js';
 
 /** 飞书时间戳（毫秒数字或字符串）转 ISO 字符串；无法解析则原样返回 */
 function toIso(v: unknown): string | undefined {
@@ -13,27 +35,6 @@ function toIso(v: unknown): string | undefined {
   const n = typeof v === 'number' ? v : Number(String(v).trim());
   if (!Number.isNaN(n) && n > 0) return new Date(n).toISOString();
   return typeof v === 'string' ? v : undefined;
-}
-
-export interface FilterCondition {
-  field: string;
-  /** 默认 is */
-  op?: string;
-  value: string[];
-}
-
-/** 嵌套过滤组（飞书 API 支持 conjunction + conditions 嵌套） */
-export interface FilterGroup {
-  conjunction: 'and' | 'or';
-  conditions: (FilterCondition | FilterGroup)[];
-}
-
-export interface ListOptions {
-  pageSize?: number;
-  pageToken?: string;
-  /** 服务端过滤（records/search filter，支持嵌套 OR/AND 组） */
-  filter?: FilterGroup;
-  sort?: { field: string; desc: boolean }[];
 }
 
 interface FeishuResp<T> {
@@ -62,7 +63,8 @@ function flattenFilter(conditions: (FilterCondition | FilterGroup)[]): Record<st
 }
 
 /** 飞书 Base 记录读写客户端（search 为主读路径，写入走 create/update） */
-export class BaseClient {
+/** 飞书 Base 实现 —— DataStore 的参考实现，其它存储实现的语义以此为准 */
+export class BaseClient implements DataStore {
   private readonly tokens: TokenManager;
 
   constructor(
@@ -174,12 +176,7 @@ export class BaseClient {
   }
 
   /** 检索记录（服务端过滤） */
-  async search(tableId: string, opts: ListOptions = {}): Promise<{
-    items: BaseRecord[];
-    total: number;
-    hasMore: boolean;
-    pageToken?: string;
-  }> {
+  async search(tableId: string, opts: ListOptions = {}): Promise<ListResult> {
     const payload = () => ({
       field_names: [],
       filter: opts.filter
@@ -264,10 +261,8 @@ export class BaseClient {
   /** 表结构（Schema Drift 检测用），含 property（单选/多选的 options 用于合并字典）。
    *  注意：飞书 fields 列表接口分页（每页最多 100），必须翻页，否则表字段数 >100 时
    *  只能看到前 100 个字段，导致「已存在字段被误判为缺失 → FieldNameDuplicated」。 */
-  async listFields(
-    tableId: string,
-  ): Promise<{ id: string; name: string; type: number; property: { options?: { name: string; id?: string }[]; date_formatter?: string } }[]> {
-    const out: { id: string; name: string; type: number; property: { options?: { name: string; id?: string }[]; date_formatter?: string } }[] = [];
+  async listFields(tableId: string): Promise<FieldMeta[]> {
+    const out: FieldMeta[] = [];
     let pageToken: string | undefined;
     do {
       const path = `${this.url(tableId)}/fields?page_size=100${pageToken ? `&page_token=${pageToken}` : ''}`;
@@ -287,19 +282,12 @@ export class BaseClient {
   }
 
   /** 更新字段（合并单选/多选选项、重命名、启用日期时间等用）。飞书要求 PUT + 完整 property */
-  async updateField(
-    tableId: string,
-    fieldId: string,
-    body: { field_name: string; type: number; property?: Record<string, unknown> },
-  ): Promise<void> {
+  async updateField(tableId: string, fieldId: string, body: UpdateFieldBody): Promise<void> {
     await this.req('PUT', `${this.url(tableId)}/fields/${fieldId}`, body);
   }
 
   /** 新建字段（幂等迁移用）。type: 1=文本, 3=单选, 4=多选。已存在则跳过（由调用方先 listFields 判定） */
-  async createField(
-    tableId: string,
-    body: { field_name: string; type: number; property?: Record<string, unknown> },
-  ): Promise<{ field_id: string; field_name: string; type: number }> {
+  async createField(tableId: string, body: CreateFieldBody): Promise<CreatedField> {
     const d = await this.req<{
       field_id: string;
       field_name: string;
@@ -336,7 +324,7 @@ export class BaseClient {
     });
   }
 
-  async listTables(): Promise<{ tableId: string; name: string }[]> {
+  async listTables(): Promise<TableRef[]> {
     const d = await this.req<{ items?: { table_id: string; name: string }[] }>(
       'GET',
       `/open-apis/bitable/v1/apps/${this.appToken}/tables?page_size=100`,
@@ -345,10 +333,7 @@ export class BaseClient {
   }
 
   /** 创建数据表（建表用，M2 教学域等）。fields 中 type: 1=文本, 3=单选, 4=多选 */
-  async createTable(
-    tableName: string,
-    fields: { field_name: string; type: number; options?: string[] }[],
-  ): Promise<{ tableId: string; name: string }> {
+  async createTable(tableName: string, fields: CreateTableField[]): Promise<TableRef> {
     const d = await this.req<{
       table_id: string;
       name?: string;

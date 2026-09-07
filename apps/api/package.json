@@ -20,12 +20,14 @@
     "imapflow": "^1.0.164",
     "ioredis": "^5.4.0",
     "mailparser": "^3.7.1",
+    "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }

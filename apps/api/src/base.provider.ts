@@ -1,5 +1,7 @@
 import { Provider } from '@nestjs/common';
-import { BaseClient } from '@acms/base-adapter';
+import { BaseClient, type DataStore } from '@acms/base-adapter';
+import { SqlStore } from './sql-store/sql-store.js';
+import { RoutingStore } from './sql-store/routing-store.js';
 
 export const BASE_CLIENT = Symbol('BASE_CLIENT');
 
@@ -8,7 +10,11 @@ export const BASE_CLIENT = Symbol('BASE_CLIENT');
  * 通过环境变量 TABLE_ID_MAP（JSON：代码表ID → 实际表ID）透明转换。
  * 未配置时原样返回，DEV 环境零影响。
  */
-function withTableMap(client: BaseClient): BaseClient {
+/**
+ * 泛型化：飞书与 SQL 两条链路都要经过同一张映射表，
+ * 否则 SQL 侧拿到的是代码内登记的 ID，与迁移脚本写入的生产 ID 对不上。
+ */
+function withTableMap<T extends DataStore>(client: T): T {
   const raw = process.env.TABLE_ID_MAP;
   if (!raw?.trim()) return client;
   let map: Record<string, string>;
@@ -33,10 +39,23 @@ function withTableMap(client: BaseClient): BaseClient {
   });
 }
 
+/** 进程内共享的 SQL 实例（供迁移脚本 / 校验脚本取用） */
+let sqlStore: SqlStore | null = null;
+export function getSqlStore(): SqlStore | null {
+  return sqlStore;
+}
+
+/**
+ * 数据访问入口。
+ *
+ * - 未配置 `DATABASE_URL` → 纯飞书，行为与改造前完全一致
+ * - 配置了 `DATABASE_URL` → 按 `SQL_TABLES` 逐表路由到 PostgreSQL
+ *   （`SQL_TABLES='*'` 全量；`'tblA,tblB'` 逐表灰度；留空则仍全走飞书）
+ */
 export const baseClientProvider: Provider = {
   provide: BASE_CLIENT,
-  useFactory: (): BaseClient =>
-    withTableMap(
+  useFactory: (): DataStore => {
+    const feishu = withTableMap(
       new BaseClient(
         {
           appId: process.env.FEISHU_APP_ID ?? '',
@@ -44,5 +63,17 @@ export const baseClientProvider: Provider = {
         },
         process.env.FEISHU_BASE_TOKEN ?? '',
       ),
-    ),
+    );
+    const url = process.env.DATABASE_URL?.trim();
+    if (!url) return feishu;
+    const tables = new Set(
+      (process.env.SQL_TABLES ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
+    sqlStore ??= withTableMap(new SqlStore(url));
+    const shadowWrite = (process.env.SQL_SHADOW_WRITE ?? '').trim() === '1';
+    return new RoutingStore(feishu, sqlStore, tables, shadowWrite);
+  },
 };

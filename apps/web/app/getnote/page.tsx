@@ -83,6 +83,12 @@ function makeColumns(
    * 显示时优先用它，改了名列表自动跟着变；查不到才退回映射表里存的名称快照。
    */
   configNameById: Record<string, string> = {},
+  /**
+   * 当前用户是不是系统管理员。
+   * 只有管理员看得到「归属人」列 —— 管理员的列表是跨所有启用配置聚合出来的，
+   * 必须能分辨每条笔记是谁的；普通用户看到的本来全是自己的，这列纯属噪音。
+   */
+  isAdmin = false,
 ): CrudColumn[] {
   return [
     {
@@ -176,6 +182,37 @@ function makeColumns(
         );
       },
     },
+    // 归属人（仅管理员）。值来自后端聚合时打的 `_owner` 标记 ——
+    // Get笔记 的 note 对象本身不带归属，只能由服务端在合并多源时补上。
+    // listOrder 3.6：紧跟「配置名称(3.5)」，仍在「标签(4)」之前。
+    ...(isAdmin
+      ? [
+          {
+            key: '_owner',
+            label: '归属人',
+            width: '120px',
+            listOrder: 3.6,
+            render: (v: unknown) => {
+              const name = String(v ?? '').trim();
+              if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+              return (
+                <span
+                  style={{
+                    display: 'inline-block',
+                    maxWidth: 108,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    verticalAlign: 'middle',
+                  }}
+                >
+                  {name}
+                </span>
+              );
+            },
+          } as CrudColumn,
+        ]
+      : []),
     {
       key: '标签',
       label: '标签',
@@ -375,6 +412,20 @@ export default function GetnotePage() {
   const [configSources, setConfigSources] = useState<Record<string, unknown>[]>([]);
   /** 笔记 id → 归属配置。翻页时做**合并**而非替换，避免上一页的映射被清掉。 */
   const [configMap, setConfigMap] = useState<Record<string, NoteConfigMapItem>>({});
+  /**
+   * 系统管理员标记。决定「归属人」列是否出现 —— 管理员的列表是跨所有启用配置
+   * 聚合出来的，混着多个人的笔记，必须能看出来每条是谁的。
+   */
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    api
+      .me()
+      .then((u) => setIsAdmin(Boolean((u as { roles?: string[] })?.roles?.includes('系统管理员'))))
+      .catch(() => {
+        /* 拿不到就按普通用户渲染，不加「归属人」列即可 */
+      });
+  }, []);
 
   useEffect(() => {
     api
@@ -456,8 +507,17 @@ export default function GetnotePage() {
   }, [t]);
 
   const columns = useMemo(
-    () => makeColumns(setTagQuery, openDetail, convertLogs, configMap, configOptions, configNameById),
-    [openDetail, convertLogs, configMap, configOptions, configNameById],
+    () =>
+      makeColumns(
+        setTagQuery,
+        openDetail,
+        convertLogs,
+        configMap,
+        configOptions,
+        configNameById,
+        isAdmin,
+      ),
+    [openDetail, convertLogs, configMap, configOptions, configNameById, isAdmin],
   );
 
 

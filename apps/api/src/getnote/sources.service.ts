@@ -1,14 +1,22 @@
-import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Inject, Injectable, Logger, HttpException, HttpStatus, ForbiddenException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
 import { TABLES } from '@acms/contracts';
-import { BaseClient, toText } from '@acms/base-adapter';
+import { BaseClient } from '@acms/base-adapter';
 import { BASE_CLIENT } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
-import { encryptSecret, decryptSecret } from '../ai/lib/crypto/kms.js';
+import { encryptSecret } from '../ai/lib/crypto/kms.js';
 import { BaseRecordService } from '../shared/generic-crud.module.js';
 import { buildFilter } from '../shared/record.util.js';
 import { GETNOTE_SOURCE_META } from './sources.meta.js';
 import { GetnoteService } from './getnote.service.js';
+// 凭证解码 / 启用判定 / 取纯文本 三个能力下沉到 source-cred.ts：
+// GetnoteService 做管理员聚合时也要用，但反向 import SourcesService 会循环依赖。
+// 这里以别名引回来，保持本文件内调用点零改动，同时消除两份实现（密钥算法漂移风险）。
+import {
+  decodeSourceCred as decodeCred,
+  isEnabledStatus as isEnabled,
+  plainText,
+} from './source-cred.js';
 
 /**
  * 笔记来源类型 → 凭证字段名（飞书 Base 里都存在「凭证」文本字段，存的是密文 JSON）。
@@ -46,32 +54,6 @@ function freqToCron(v: unknown): string {
  * 超出部分本次跳过，下次同步会自然补上（那时它们仍在"未映射"里）。
  */
 const CONFIG_MAP_MAX_CREATE = 200;
-
-/** 「启用状态」 → 是否启用。停用状态被定时任务跳过。 */
-function isEnabled(v: unknown): boolean {
-  return String(v ?? '').trim() !== '停用';
-}
-
-/** 飞书文本字段可能返回 string 或 [{text}] 数组，统一取纯文本 */
-function plainText(v: unknown): string {
-  return toText(v) ?? '';
-}
-
-/** 解析凭证字段为 JSON。解密失败时返回空对象，前端会暴露「凭证无效」。
- *  注意：飞书文本字段只能存字符串，所以密文以 JSON 字符串形式落库；
- *  读回时先 parse 成信封对象再 decryptSecret（同时也兼容历史直接存对象的情况）。 */
-function decodeCred(enc: unknown): Record<string, string> {
-  if (!enc) return {};
-  try {
-    const env = typeof enc === 'string' ? JSON.parse(enc) : enc;
-    const plain = String(decryptSecret(env) ?? '');
-    if (!plain) return {};
-    const obj = JSON.parse(plain);
-    return typeof obj === 'object' && obj ? (obj as Record<string, string>) : {};
-  } catch {
-    return {};
-  }
-}
 
 /** 把凭证对象加密成信封，再 JSON.stringify 成字符串存入飞书文本字段
  *  （飞书文本字段不能存对象，直接存对象会 1254060 TextFieldConvFail）。 */
@@ -116,6 +98,38 @@ export class GetnoteSourceService extends BaseRecordService {
     super(GETNOTE_SOURCE_META, base, audit);
   }
 
+  // ── 归属：行级隔离 ────────────────────────────────────────────────
+  //
+  // 「知识库配置」原本没有任何归属概念 —— GETNOTE_SOURCE_META 没有 ownerField，
+  // 通用 CRUD 的 list 只校验 getnote:read 权限点、**不做行级过滤**，
+  // 于是任何有权限的人都能看到所有人的配置行（凭证虽置空，配置名却全裸）。
+  // 2026-09-07 加了「归属人/归属人ID」两个字段修掉它。
+
+  /** 是否系统管理员（与 homepage-config / user 等模块同一写法） */
+  private isAdmin(user: SessionUser): boolean {
+    return Boolean(user?.roles?.includes('系统管理员'));
+  }
+
+  /**
+   * 行级过滤：非管理员只看自己归属的配置。
+   *
+   * ⚠️ 为什么在这里 override 而不是给 RecordMeta 加通用 ownerField：
+   * 通用 CRUD 被十几个模块共用，改它等于全站回归。而这里的现实规模是
+   * 「每个用户几条配置」，局部 override 风险可控得多。
+   */
+  private onlyVisible<T extends Record<string, unknown>>(rows: T[], user: SessionUser): T[] {
+    if (this.isAdmin(user)) return rows;
+    const me = user?.openId ?? '';
+    return rows.filter((r) => plainText(r['归属人ID']) === me);
+  }
+
+  /** 非管理员读写他人配置 → 403。配置不存在时不抛（交给上层处理 404）。 */
+  private assertOwn(user: SessionUser, rec: Record<string, unknown> | null | undefined): void {
+    if (!rec || this.isAdmin(user)) return;
+    if (plainText(rec['归属人ID']) !== (user?.openId ?? ''))
+      throw new ForbiddenException('FORBIDDEN:not_owner');
+  }
+
   // ── CRUD：覆盖父类以做凭证加密 + 默认值填充 ───────────────────────
 
   /**
@@ -127,11 +141,16 @@ export class GetnoteSourceService extends BaseRecordService {
     if (!next['启用状态']) next['启用状态'] = '启用';
     if (!next['收取频率']) next['收取频率'] = '每小时';
     this.encryptCredInPlace(next);
+    // 新建的配置永远归属创建者 —— 管理员也不能「替别人建」，建出来就是自己的
+    next['归属人'] = user?.name ?? '';
+    next['归属人ID'] = user?.openId ?? '';
     return super.create(user, next);
   }
 
   /** 编辑：明文凭证字段重新加密；如果是空串/掩码则保留原密文 */
   async update(user: SessionUser, id: string, dto: Record<string, unknown>) {
+    // 先校验归属再动数据，避免「越权者已经改完才被发现」
+    this.assertOwn(user, await super.detail(user, id));
     const next: Record<string, unknown> = { ...dto };
     if ('凭证' in next) {
       const v = String(next['凭证'] ?? '').trim();
@@ -152,17 +171,22 @@ export class GetnoteSourceService extends BaseRecordService {
     return super.update(user, id, next);
   }
 
-  /** 列表/详情：用空串占位「凭证」字段，避免密文外泄 */
+  /** 列表：先做行级过滤，再用空串占位「凭证」字段，避免密文外泄 */
   async list(user: SessionUser, query: Record<string, string | undefined>) {
     const res = await super.list(user, query);
-    for (const it of res.items) {
+    const rows = this.onlyVisible(res.items, user);
+    for (const it of rows) {
       it['凭证'] = '';
     }
-    return res;
+    // ⚠️ 过滤发生在分页**之后**，所以这里直接把结果收敛成单页：
+    // 配置表的现实量级是「每人几条」，一页装得下；若将来真到了几百条
+    // 需要服务端分页级过滤的规模，应该在 BaseRecordService 里做通用的 opt-in ownerField。
+    return { ...res, items: rows, total: rows.length, hasMore: false, pageToken: undefined };
   }
 
   async detail(user: SessionUser, id: string) {
     const rec = await super.detail(user, id);
+    this.assertOwn(user, rec);
     rec['凭证'] = '';
     return rec;
   }
@@ -385,7 +409,17 @@ export class GetnoteSourceService extends BaseRecordService {
         if (!noteId) continue;
         try {
           // 注入点：把这条新笔记「处理」一遍（写入 笔记 ↔ 配置 归属）。
-          await this.processNote(note, sourceName, sourceType, recordId, mapped, mapCounter);
+          // 归属跟随配置行 —— 配置是谁的，它同步来的笔记就是谁的。
+          await this.processNote({
+            note,
+            sourceName,
+            sourceType,
+            configId: recordId,
+            ownerName: plainText(fields['归属人']),
+            ownerOpenId: plainText(fields['归属人ID']),
+            mapped,
+            counter: mapCounter,
+          });
           processed++;
         } catch (e) {
           errors.push(`noteId=${noteId}: ${(e as Error).message.slice(0, 80)}`);
@@ -442,31 +476,35 @@ export class GetnoteSourceService extends BaseRecordService {
    * ⚠️ 写入失败只记日志、不往上抛：归属是"锦上添花"的元数据，
    * 不该把整次同步拖垮（笔记本身已经在 Get笔记 那儿，不依赖这张表）。
    */
-  private async processNote(
-    note: { note_id?: string; id?: string; title?: string },
-    sourceName: string,
-    sourceType: string,
-    configId: string,
-    mapped: Set<string>,
-    counter: { created: number },
-  ): Promise<void> {
-    const noteId = String(note?.note_id ?? note?.id ?? '').trim();
-    if (!noteId || mapped.has(noteId)) return; // 已映射：稳态下绝大多数走这条
-    if (counter.created >= CONFIG_MAP_MAX_CREATE) return; // 单批封顶，防限流
+  private async processNote(opts: {
+    note: { note_id?: string; id?: string; title?: string };
+    sourceName: string;
+    sourceType: string;
+    configId: string;
+    ownerName: string;
+    ownerOpenId: string;
+    mapped: Set<string>;
+    counter: { created: number };
+  }): Promise<void> {
+    const noteId = String(opts.note?.note_id ?? opts.note?.id ?? '').trim();
+    if (!noteId || opts.mapped.has(noteId)) return; // 已映射：稳态下绝大多数走这条
+    if (opts.counter.created >= CONFIG_MAP_MAX_CREATE) return; // 单批封顶，防限流
 
     const now = Date.now();
     try {
       await this.base.create(TABLES.noteConfigMap.tableId, {
         笔记ID: noteId,
-        笔记标题: String(note?.title ?? '').slice(0, 200),
-        配置ID: configId,
-        配置名称: sourceName,
-        笔记类型: sourceType,
+        笔记标题: String(opts.note?.title ?? '').slice(0, 200),
+        配置ID: opts.configId,
+        配置名称: opts.sourceName,
+        笔记类型: opts.sourceType,
+        归属人: opts.ownerName,
+        归属人ID: opts.ownerOpenId,
         首次同步时间: now,
         更新时间: now,
       });
-      mapped.add(noteId); // 同批次内不会再重复写
-      counter.created += 1;
+      opts.mapped.add(noteId); // 同批次内不会再重复写
+      opts.counter.created += 1;
     } catch (e) {
       this.logger.warn(`写笔记配置映射失败 noteId=${noteId}: ${(e as Error).message}`);
     }

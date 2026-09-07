@@ -144,10 +144,11 @@ export class GetnoteController {
   ) {
     const user = (req as Request & { user: SessionUser }).user;
     this.assert(user, 'getnote:read');
-    const r = await this.svc.list(user, pageToken, q);
+    const size = Math.min(Math.max(Number(pageSize) || 20, 1), 100);
+    // size 要传进 service：管理员走的是服务端快照分页，得知道每页切多少
+    const r = await this.svc.list(user, pageToken, q, size);
     const items = r.notes ?? [];
     const hasMore = Boolean(r.has_more);
-    const size = Math.min(Math.max(Number(pageSize) || 20, 1), 100);
     return {
       items,
       hasMore,

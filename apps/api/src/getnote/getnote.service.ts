@@ -12,6 +12,7 @@ import {
   deleteCredential,
   type CredentialStatus,
 } from './credential.js';
+import { listEnabledSourceCreds } from './source-cred.js';
 
 /** 得到大脑（Get笔记）开放平台。所有凭证只发往此地址，不接受任何其他 API 地址。 */
 const BASE = 'https://openapi.biji.com';
@@ -111,6 +112,19 @@ export interface GetnoteNote {
     duration?: number;
     [k: string]: unknown;
   };
+  /**
+   * 归属人姓名。**只有管理员**跨人聚合笔记时才会带；普通用户恒为空
+   *（他看到的本来全是自己的，不需要标注）。
+   */
+  _owner?: string;
+  /** 这条笔记来自哪个知识库配置。同样是管理员视角才有的标注。 */
+  _sourceName?: string;
+  /**
+   * 来源配置的 recordId。详情/详情类操作要靠它反查**正确的那套凭证** ——
+   * 管理员跨人聚合能看到别人的笔记，但 detail/tags 这些接口默认走自己的凭证，
+   * 拿别人的笔记必然失败。所以必须在列表阶段就把「这篇该用谁的 Key」记下来。
+   */
+  _sourceRecordId?: string;
 }
 
 export interface GetnoteListResult {
@@ -184,6 +198,16 @@ function safeParse(text: string): unknown {
   return JSON.parse(cleaned);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 解析管理员快照分页游标 `snap:<offset>`；空值或非法值一律当作从头开始 */
+function parseSnapOffset(cursor: string): number {
+  const m = String(cursor ?? '').match(/^snap:(\d+)$/);
+  return m ? Number(m[1]) : 0;
+}
+
 /** 进行中的设备授权。只存内存 —— 重启即失效，用户重新点一次即可，不做持久化。 */
 interface PendingAuth {
   code: string;
@@ -198,6 +222,9 @@ export class GetnoteService {
 
   /** openId → 设备授权进度 */
   private readonly pending = new Map<string, PendingAuth>();
+
+  /** openId → 管理员聚合快照。见 listAllForAdmin 里的说明 */
+  private readonly adminSnapshots = new Map<string, { at: number; items: GetnoteNote[] }>();
 
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
@@ -492,7 +519,188 @@ export class GetnoteService {
    * ⚠️ 语义搜索返回的是**内容片段**不是全文，且上限 10 条（top_k 最大值），
    * 因此这里固定不分页（has_more=false、无 cursor），交给 CrudPage 的前端切片兜底。
    */
-  async list(user: SessionUser, cursor?: string, q?: string): Promise<GetnoteListResult> {
+  /** 全站统一的「系统管理员」判定（与 homepage-config / user 等模块同一写法） */
+  private isAdmin(user: SessionUser): boolean {
+    return Boolean(user?.roles?.includes('系统管理员'));
+  }
+
+  // ── 管理员视角：跨所有「启用的知识库配置」聚合笔记 ────────────────────
+  //
+  // 为什么不能简单 foreach 上游 cursor：
+  //   每个配置一套凭证，上游 cursor 是** per-key **的 —— 多源各拉一页后游标互不相认，
+  //   合并结果根本没法用一个 cursor 继续翻。所以这里改成「全量拉齐 → 服务端快照 →
+  //   偏移量分页」，pageToken 形如 `snap:<offset>`。
+  //
+  // ⚠️ 为什么必须有快照(TTL 60 秒)：
+  //   Get笔记 限流是**按 API Key 算**的（QPS 2 / 每天 5000）。不缓存的话，
+  //   管理员每翻一页就要把 N 个配置全打一遍 → 翻 10 页就是 10N 次请求，
+  //   配置一多必撞限流。缓存后只有首次（与过期后）才打上游。
+  //   代价：新笔记最多延迟 60 秒出现在管理员列表里 —— 这是明确的取舍。
+
+  /** 管理员聚合快照有效期 */
+  private static readonly ADMIN_SNAPSHOT_TTL = 60_000;
+  /** 单个配置最多拉多少页（每页 100 条），防止某个源数据巨量拖垮整次聚合 */
+  private static readonly ADMIN_MAX_PAGES_PER_SOURCE = 10;
+  /** 源之间的节流间隔。Get笔记 QPS 2，串行 + 250ms 留足余量 */
+  private static readonly ADMIN_SOURCE_INTERVAL = 250;
+
+  /**
+   * 拉齐管理员能看到的所有笔记：自己的凭证 + 所有启用配置的凭证。
+   *
+   * 去重规则：按 note_id 去重，**自己的凭证优先** —— 管理员看到自己那篇时，
+   * 归属应该显示他自己，而不是恰好重复同步过它的某个配置。
+   */
+  private async collectAllNotes(user: SessionUser): Promise<GetnoteNote[]> {
+    const entries = await listEnabledSourceCreds(this.base, TABLES.getnoteSource.tableId, {
+      maxPages: 5,
+    });
+
+    // 组装「数据源」列表：自己的凭证放第一个（去重时优先保留）
+    const sources: Array<{
+      cred: { key: string; clientId: string };
+      ownerName: string;
+      ownerOpenId: string;
+      sourceName: string;
+      /** 自己的那份凭证没有对应配置，记空串 */
+      recordId: string;
+    }> = [];
+    const seenKey = new Set<string>();
+
+    const own = getCredentialPair(user.openId);
+    if (own?.key && own.clientId) {
+      sources.push({
+        cred: own,
+        ownerName: user.name ?? '',
+        ownerOpenId: user.openId,
+        sourceName: '',
+        recordId: '',
+      });
+      seenKey.add(own.key);
+    }
+
+    for (const e of entries) {
+      if (!e.cred) continue;
+      // 同一个 Key 可能对应多个配置（或多配置共用一份凭证）—— 只拉一次，避免白白消耗限流额度
+      if (seenKey.has(e.cred.key)) continue;
+      seenKey.add(e.cred.key);
+      sources.push({
+        cred: e.cred,
+        ownerName: e.ownerName,
+        ownerOpenId: e.ownerOpenId,
+        sourceName: e.sourceName,
+        recordId: e.recordId,
+      });
+    }
+
+    const merged: GetnoteNote[] = [];
+    const seenNote = new Set<string>();
+
+    for (let i = 0; i < sources.length; i++) {
+      const s = sources[i];
+      if (!s) continue;
+      if (i > 0) await sleep(GetnoteService.ADMIN_SOURCE_INTERVAL);
+      try {
+        let cursor = '';
+        for (let p = 0; p < GetnoteService.ADMIN_MAX_PAGES_PER_SOURCE; p++) {
+          const r = await this.request<GetnoteListResult>(
+            s.cred,
+            '/open/api/v1/resource/note/list',
+            { query: { cursor, page_size: '100' } },
+          );
+          for (const n of r.notes ?? []) {
+            const id = String(n.note_id ?? n.id ?? '').trim();
+            if (!id || seenNote.has(id)) continue;
+            seenNote.add(id);
+            merged.push({
+              ...n,
+              _owner: s.ownerName,
+              _sourceName: s.sourceName,
+              _sourceRecordId: s.recordId,
+            });
+          }
+          cursor = String(r.cursor ?? '');
+          if (!r.has_more || !cursor) break;
+        }
+      } catch (err) {
+        // ⚠️ 单个源失败（Key 失效、限流、网络）绝不能拖垮整次聚合 ——
+        // 记日志后继续下一个源，管理员仍能看到其余人的笔记。
+        this.logger.warn(
+          `管理员聚合：跳过源 ${s.sourceName || s.ownerName || s.ownerOpenId}（${(err as Error).message.slice(0, 80)}）`,
+        );
+      }
+    }
+
+    merged.sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
+    return merged;
+  }
+
+  /**
+   * 管理员的列表实现：快照式分页。
+   *
+   * ⚠️ 带 q 时与非管理员走的是**不同机制**：非管理员用上游语义搜索（recall，只看自己的
+   * Key）；管理员在已拉齐的快照里做标题/内容包含匹配 —— 这样他才能搜到所有人的笔记，
+   * 而不用为每个源都额外打一次语义搜索接口（那会把限流额度瞬间打光）。
+   */
+  private async listAllForAdmin(
+    user: SessionUser,
+    cursor: string,
+    q: string,
+    size: number,
+  ): Promise<GetnoteListResult> {
+    const key = user.openId;
+    const now = Date.now();
+    let snap = this.adminSnapshots.get(key);
+    if (!snap || now - snap.at > GetnoteService.ADMIN_SNAPSHOT_TTL) {
+      snap = { at: now, items: await this.collectAllNotes(user) };
+      this.adminSnapshots.set(key, snap);
+      // 顺手回收过期快照：只按 openId 存，管理员多了不清理会一直占内存
+      // （单份快照是完整笔记列表，N 个人就是 N 份全量）。
+      for (const [k, v] of this.adminSnapshots) {
+        if (k !== key && now - v.at > GetnoteService.ADMIN_SNAPSHOT_TTL) {
+          this.adminSnapshots.delete(k);
+        }
+      }
+    }
+
+    const keyword = q?.trim().toLowerCase();
+    const pool = keyword
+      ? snap.items.filter(
+          (n) =>
+            String(n.title ?? '').toLowerCase().includes(keyword) ||
+            String(n.content ?? '').toLowerCase().includes(keyword),
+        )
+      : snap.items;
+
+    // ⚠️ 快照过期后翻页的处理：
+    // 上面那段在过期时会**重新拉取**一次，重建出来的列表可能已经变了（有人新增/删除笔记）。
+    // 这时还拿着上一次的 snap:<offset> 去切片，offset 可能越过新列表末尾 → 返回空数组。
+    // 用户会看到「明明有数据却是空的」，且不知道该刷新，体验上等同于系统坏了。
+    // 所以越界（且列表非空）时回退到第一页，宁可让他觉得「跳回开头」也好过白屏。
+    const requested = parseSnapOffset(cursor);
+    const offset = requested > 0 && requested >= pool.length ? 0 : requested;
+    const slice = pool.slice(offset, offset + size);
+    const nextOffset = offset + slice.length;
+    const hasMore = nextOffset < pool.length;
+
+    return {
+      notes: slice,
+      has_more: hasMore,
+      cursor: hasMore ? `snap:${nextOffset}` : undefined,
+      total: pool.length,
+    };
+  }
+
+  async list(
+    user: SessionUser,
+    cursor?: string,
+    q?: string,
+    size = 20,
+  ): Promise<GetnoteListResult> {
+    // 管理员：跨所有启用配置聚合（走快照分页，不用上游 cursor）
+    if (this.isAdmin(user)) return this.listAllForAdmin(user, cursor ?? '', q ?? '', size);
+
+    // 非管理员只用自己的 Key 直接翻上游游标，size 由上游决定（这里用不到）
+    void size;
     const cred = this.credFor(user);
     const key = q?.trim();
     if (key) {
@@ -515,10 +723,26 @@ export class GetnoteService {
     });
   }
 
-  /** 笔记详情。⚠️ 数据在 data.note 下，不是 data 直接取。 */
+  /**
+   * 笔记详情。⚠️ 数据在 data.note 下，不是 data 直接取。
+   *
+   * 管理员分支：先用列表快照里记下的 `_sourceRecordId` 反查出**那条配置自己的凭证**，
+   * 再去拉详情 —— 否则管理员点开别人的笔记必然失败（自己的 Key 下没有那条笔记）。
+   */
   async detail(user: SessionUser, id: string, imageQuality?: string): Promise<GetnoteNote> {
+    let cred = this.credFor(user);
+    let owner: { name: string; sourceName: string } | null = null;
+
+    if (this.isAdmin(user)) {
+      const found = await this.adminCredForNote(user, id);
+      if (found) {
+        cred = found.cred;
+        owner = { name: found.ownerName, sourceName: found.sourceName };
+      }
+    }
+
     const data = await this.request<{ note: GetnoteNote }>(
-      this.credFor(user),
+      cred,
       '/open/api/v1/resource/note/detail',
       { query: { id, image_quality: imageQuality } },
     );
@@ -530,7 +754,35 @@ export class GetnoteService {
       (typeof audio?.original === 'string' && audio.original.trim()) ||
       (typeof audio?.transcript === 'string' && audio.transcript.trim()) ||
       '';
-    return { ...note, rawRecord };
+    return {
+      ...note,
+      rawRecord,
+      ...(owner ? { _owner: owner.name, _sourceName: owner.sourceName } : {}),
+    };
+  }
+
+  /**
+   * 找出某篇笔记该用哪套凭证打开（仅管理员）。
+   *
+   * 依据是列表快照里的 `_sourceRecordId`：不用逐个 Key 去试（那会把限流额度打光），
+   * 而是直接从配置表里取出那条配置自己的凭证。
+   * 返回 null 表示这篇不在任何配置下 —— 那就是管理员自己的笔记，用自己的 Key 即可。
+   */
+  private async adminCredForNote(
+    user: SessionUser,
+    noteId: string,
+  ): Promise<{ cred: { key: string; clientId: string }; ownerName: string; sourceName: string } | null> {
+    const snap = this.adminSnapshots.get(user.openId);
+    const meta = snap?.items.find((n) => String(n.note_id ?? n.id ?? '') === String(noteId));
+    const recordId = meta?._sourceRecordId;
+    if (!recordId) return null; // 管理员自己的笔记（列表里 sourceName 为空）
+
+    const entries = await listEnabledSourceCreds(this.base, TABLES.getnoteSource.tableId, {
+      maxPages: 5,
+    });
+    const hit = entries.find((e) => e.recordId === recordId);
+    if (!hit?.cred) return null;
+    return { cred: hit.cred, ownerName: hit.ownerName, sourceName: hit.sourceName };
   }
 
   /** 新建文本笔记（同步返回 note_id）。链接/图片笔记是异步任务，本模块暂不支持。 */
@@ -919,11 +1171,18 @@ export class GetnoteService {
     user: SessionUser,
     noteIds: string[],
   ): Promise<Record<string, NoteConfigMapItem>> {
-    void user; // 归属是全局的，不按人过滤
+    const isAdmin = this.isAdmin(user);
+    const myOpenId = user?.openId ?? '';
     const tableId = TABLES.noteConfigMap.tableId;
     const want = new Set((noteIds ?? []).map((v) => String(v)).filter(Boolean));
     const out: Record<string, NoteConfigMapItem> = {};
     if (!want.size) return out;
+
+    // 同一 noteId 可能有多条映射（两个配置用了同一份 API Key 时就会这样）。
+    // 裁决优先级：① 归属是自己的优先；② 其次更新时间新的胜。
+    // 不裁决的话后读到的直接覆盖先读到的，配置名称会随机串。
+    const ownerOf = new Map<string, string>();
+    const updatedOf = new Map<string, number>();
 
     let pageToken: string | undefined;
     for (let i = 0; i < 5; i++) {
@@ -931,10 +1190,26 @@ export class GetnoteService {
       for (const r of res.items) {
         const noteId = toText(r.fields['笔记ID']) ?? '';
         if (!noteId || !want.has(noteId)) continue;
+
+        const ownerOpenId = toText(r.fields['归属人ID']) ?? '';
+        // 行级隔离：非管理员看不到别人归属的映射（管理员例外）
+        if (!isAdmin && ownerOpenId !== myOpenId) continue;
+
+        const ts = Number(r.fields['更新时间'] ?? 0) || 0;
+        const prevOwner = ownerOf.get(noteId);
+        if (prevOwner !== undefined) {
+          const prevIsMine = prevOwner === myOpenId;
+          const curIsMine = ownerOpenId === myOpenId;
+          if (prevIsMine && !curIsMine) continue;
+          if (prevIsMine === curIsMine && ts <= (updatedOf.get(noteId) ?? 0)) continue;
+        }
+
         out[noteId] = {
           configId: toText(r.fields['配置ID']) ?? '',
           configName: toText(r.fields['配置名称']) ?? '',
         };
+        ownerOf.set(noteId, ownerOpenId);
+        updatedOf.set(noteId, ts);
       }
       if (!res.hasMore || !res.pageToken) break;
       pageToken = res.pageToken;

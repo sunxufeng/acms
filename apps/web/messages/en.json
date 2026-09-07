@@ -1790,7 +1790,8 @@
     "菜单名": "Menu Name",
     "菜单路径": "Menu Path",
     "已转": "Converted",
-    "配置名称": "Config name"
+    "配置名称": "Config name",
+    "归属人": "Owner"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

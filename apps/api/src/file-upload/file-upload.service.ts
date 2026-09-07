@@ -88,9 +88,18 @@ export class FileUploadService {
    * @param buffer 文件内容
    * @param filename 原始文件名
    * @param mimeType MIME 类型
+   * @param timeoutMs 可选超时（ms）。⚠️ **Node 的 fetch 默认没有超时** ——
+   *   飞书网关挂起时请求会一直挂着不返回，批量场景（如邮件附件归档）会被这种
+   *   悬挂请求整体拖死。传了就用 AbortSignal.timeout 强制中断，让调用方快速失败。
+   *   不传保持原有行为（不超时），因此其他调用方不受影响。
    * @returns file_token
    */
-  async uploadFile(buffer: Buffer, filename: string, mimeType: string): Promise<{ file_token: string }> {
+  async uploadFile(
+    buffer: Buffer,
+    filename: string,
+    mimeType: string,
+    timeoutMs?: number,
+  ): Promise<{ file_token: string }> {
     const token = await this.getToken();
     if (!token) throw new Error('FEISHU_TOKEN_FAILED');
 
@@ -105,13 +114,24 @@ export class FileUploadService {
     form.append('parent_node', parentNode);
     form.append('size', String(buffer.length));
 
-    const r = await fetch('https://open.feishu.cn/open-apis/drive/v1/medias/upload_all', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + token,
-      } as Record<string, string>,
-      body: form as unknown as Blob,
-    });
+    let r: Response;
+    try {
+      r = await fetch('https://open.feishu.cn/open-apis/drive/v1/medias/upload_all', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + token,
+        } as Record<string, string>,
+        body: form as unknown as Blob,
+        signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
+      });
+    } catch (e) {
+      // 超时或其他网络异常。超时时 e.name === 'TimeoutError'，包成统一前缀方便调用方识别
+      const msg = (e as Error)?.name === 'TimeoutError'
+        ? `UPLOAD_TIMEOUT:${timeoutMs}ms`
+        : `UPLOAD_NETWORK:${(e as Error).message}`;
+      this.logger.error(`上传请求失败 (${filename}): ${msg}`);
+      throw new Error(msg);
+    }
 
     // 防御：飞书可能返回非 JSON 错误（如网关错误文本），先检查 HTTP 状态
     const text = await r.text();

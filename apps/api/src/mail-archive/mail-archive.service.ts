@@ -54,12 +54,97 @@ function parseFreqMinutes(raw: unknown): number {
   return Number.isFinite(n) && n > 0 ? n : 60;
 }
 
+/** 附件上传的并发上限。太高会撞飞书上传接口限流（表现为大量 502），
+ *  太低则大附件邮件仍然很慢。3 是实测下来既不超时也不触发限流的档位。 */
+const ATTACHMENT_CONCURRENCY = 3;
+
+/** 单个附件上传的超时（ms）。
+ *  ⚠️ Node 的 fetch **默认没有超时** —— 飞书网关挂起时请求会一直挂着不返回，
+ *  此前整轮同步就被这样的悬挂请求拖死（表现为日志里 UPLOAD_BAD_RESPONSE:502
+ *  与 fetch failed 交替出现）。加了超时后是「快速失败」，下一轮再试即可。 */
+const ATTACHMENT_UPLOAD_TIMEOUT_MS = 30_000;
+
+/**
+ * 有界并发执行：最多同时跑 limit 个任务，返回数组顺序与输入一致。
+ * 单个任务抛错不会中断其他任务，也不会让 worker 提前退出导致剩余任务无人执行。
+ */
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      // 上面已保证 i < items.length；这里断言是 noUncheckedIndexedAccess 下的必要收窄
+      const item = items[i] as T;
+      try {
+        out[i] = await fn(item, i);
+      } catch {
+        // 调用方应自行 catch；这里的兜底只是防止一个任务炸掉整个 worker
+        // 从而让后面还没认领的任务永远没人执行。
+        out[i] = undefined as unknown as R;
+      }
+    }
+  };
+  const n = Math.max(1, Math.min(limit, items.length || 1));
+  await Promise.all(Array.from({ length: n }, worker));
+  return out;
+}
+
+/**
+ * 把「最后收取时间」这类 datetime 字段值解析成毫秒时间戳。
+ *
+ * ⚠️ 全站通用坑：`BaseClient.fromReadFields` 会把 datetime 字段的毫秒时间戳
+ * 转成 **字符串** —— "YYYY-MM-DD HH:mm"（带时间）或 "YYYY-MM-DD"（不带时间）。
+ * 因此 `typeof v === 'number'` 判断日期字段**恒为 false**。
+ *
+ * 曾经的写法 `const last = typeof lastRaw === 'number' ? lastRaw : 0` 使 last 恒为 0，
+ * 再配合 `if (last && ...)` 的 falsy 兜底，把「读不到时间」当成了「从没收过，赶紧同步」。
+ * 结果：账户配置的「每天」实际退化成「每 15 分钟全量跑一轮」，放大 96 倍。
+ *
+ * 教训：**判断日期字段有没有值，绝不能靠 typeof === 'number'**；
+ * 而且用 falsy 兜底会把「读不到」误解为「从未做过」——方向完全相反。
+ */
+function parseDateTimeValue(raw: unknown): number {
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw;
+  const s = String(raw ?? '').trim();
+  if (!s) return 0;
+  // "2026-09-07 12:31" / "2026-09-07" 都能被 Date.parse 按本地时区解析
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** 一次同步的各阶段耗时累加（ms），用于定位「慢在哪一段」 */
+export interface SyncTiming {
+  /** IMAP 连接 + 登录 */
+  connect: number;
+  /** 预加载已归档 UID（飞书 search 翻页） */
+  existing: number;
+  /** IMAP FETCH 下载原始 MIME */
+  fetch: number;
+  /** simpleParser 解析 MIME */
+  parse: number;
+  /** 附件上传到飞书 */
+  upload: number;
+  /** 归档记录写入飞书 */
+  write: number;
+  /** 整轮总耗时 */
+  total: number;
+}
+
 /** 单个文件夹的收取结果 */
 export interface FolderStat {
   folder: string;
   isSent: boolean;
+  /** 实际从 IMAP 下载并解析的封数（不含已归档被跳过的） */
   fetched: number;
   stored: number;
+  /** 因已归档而在下载前就跳过的封数 —— 增量同步的稳态下这里应该是绝大多数 */
+  skipped?: number;
   error?: string;
 }
 
@@ -127,6 +212,12 @@ export class MailArchiveService extends BaseRecordService {
     let lastErr = '';
     const folderStats: FolderStat[] = [];
     const notes: string[] = [];
+    const syncStart = Date.now();
+    // 各阶段耗时累加（ms）。此前完全埋点，同步慢时只能靠猜；现在日志里能直接看出
+    // 时间花在查重预加载 / IMAP 下载 / MIME 解析 / 附件上传 / 飞书写入 的哪一段。
+    const timing: SyncTiming = {
+      connect: 0, existing: 0, fetch: 0, parse: 0, upload: 0, write: 0, total: 0,
+    };
 
     try {
       const { ImapFlow } = await import('imapflow');
@@ -137,7 +228,9 @@ export class MailArchiveService extends BaseRecordService {
         auth: { user: a.user, pass: a.pass },
         logger: false,
       });
+      const tConn = Date.now();
       await client.connect();
+      timing.connect = Date.now() - tConn;
       try {
         // 发件箱：账户显式配置优先，未配置才走自动探测
         let sentFolder = a.sentFolder;
@@ -154,8 +247,12 @@ export class MailArchiveService extends BaseRecordService {
 
         // 批量预加载该账户已归档的 UID（一次翻页扫完，替代此前「每封一次飞书查询」）。
         // 邮件量从数十封涨到数百封后，逐封查重意味着数百次 API 调用，是同步变慢的主因。
+        const tExisting = Date.now();
         const existing = await this.loadExistingUids(a.name);
-        this.logger.log(`账户 ${a.name} 已归档 ${existing.size} 封，开始增量收取`);
+        timing.existing = Date.now() - tExisting;
+        this.logger.log(
+          `账户 ${a.name} 已归档 ${existing.size} 封，开始增量收取（查重预加载耗时 ${timing.existing}ms）`,
+        );
 
         for (const { path: folder, isSent } of folders) {
           let lock;
@@ -178,30 +275,47 @@ export class MailArchiveService extends BaseRecordService {
             // 不再截断（此前 .slice(-500) 会静默丢弃单文件夹超过 500 封的较早邮件）。
             // 依赖邮件UID去重避免重复入库；超大邮箱的逐封解析开销由「收取频率」节流控制。
             const uids = Array.isArray(searchRes) ? searchRes : [];
+            let fSkipped = 0;
             for (const uid of uids) {
+              // ⚠️ 查重必须在下载**之前**。
+              // 此前是「先 fetchOne + simpleParser，再进 archiveOne 查重」，而 existing
+              // 明明已经预加载好了 —— 于是每轮都要把整个邮箱的邮件重新下载并解析一遍
+              // （数百封 × 每封完整 MIME），所谓「增量同步」实际上等于「全量同步」。
+              // 移到下载前之后，稳态下每轮只有真正的新邮件才会产生 IMAP 流量。
+              if (existing.has(this.uidKey(folder, String(uid)))) {
+                fSkipped++;
+                continue;
+              }
               fFetched++;
               if (progress) progress.fetched++;
               // uid 要放在第三个参数 options 里才会走 `UID FETCH`；
               // 放在第二个参数 query 里只是「顺便取回 UID 属性」，并不会改变按序号取的模式。
+              const t0 = Date.now();
               const msg = await client.fetchOne(String(uid), { source: true }, { uid: true });
+              timing.fetch += Date.now() - t0;
               if (!msg || !msg.source) continue;
               const { simpleParser } = await import('mailparser');
+              const t1 = Date.now();
               const parsed = await simpleParser(msg.source);
+              timing.parse += Date.now() - t1;
               if (!this.matchFilter(a.filters, parsed, isSent)) continue;
               // 以服务端返回的 UID 为准（imapflow 的 FETCH 响应总是带 uid）
               const mailUid = msg.uid != null ? String(msg.uid) : String(uid);
-              const saved = await this.archiveOne(a, folder, mailUid, parsed, isSent, existing);
+              const saved = await this.archiveOne(a, folder, mailUid, parsed, isSent, existing, timing);
               if (saved) {
                 fStored++;
                 if (progress) progress.stored++;
               }
             }
-            folderStats.push({ folder, isSent, fetched: fFetched, stored: fStored });
+            folderStats.push({ folder, isSent, fetched: fFetched, stored: fStored, skipped: fSkipped });
             if (progress) {
               // 进度里保留每个文件夹的实时计数，便于前端展示「收件箱 x/y」
               const cur = progress.folders.find((f) => f.folder === folder);
-              if (cur) Object.assign(cur, { fetched: fFetched, stored: fStored });
-              else progress.folders.push({ folder, isSent, fetched: fFetched, stored: fStored });
+              if (cur) Object.assign(cur, { fetched: fFetched, stored: fStored, skipped: fSkipped });
+              else
+                progress.folders.push({
+                  folder, isSent, fetched: fFetched, stored: fStored, skipped: fSkipped,
+                });
             }
           } finally {
             lock.release();
@@ -217,6 +331,14 @@ export class MailArchiveService extends BaseRecordService {
 
     const fetched = folderStats.reduce((s, f) => s + f.fetched, 0);
     const stored = folderStats.reduce((s, f) => s + f.stored, 0);
+    const skipped = folderStats.reduce((s, f) => s + (f.skipped ?? 0), 0);
+    timing.total = Date.now() - syncStart;
+    this.logger.log(
+      `账户 ${a.name} 同步耗时 ${timing.total}ms ` +
+        `[连接 ${timing.connect} / 查重预加载 ${timing.existing} / 下载 ${timing.fetch} / ` +
+        `解析 ${timing.parse} / 附件上传 ${timing.upload} / 写库 ${timing.write}] ` +
+        `下载 ${fetched} 封、新增 ${stored} 封、跳过已归档 ${skipped} 封`,
+    );
 
     // 结果信息带收发件箱维度，便于确认发件箱是否真的被扫到
     const detail = folderStats
@@ -294,8 +416,10 @@ export class MailArchiveService extends BaseRecordService {
     let pageToken: string | undefined;
     let guard = 0;
     do {
+      // pageSize 用飞书单页上限 500（此前是 100，Sally 2287 条要串行翻 23 次）。
+      // ⚠️ 别再往上调：search 直接把 pageSize 拼进 URL，超过 500 飞书会报错。
       const res = await this.base.search(this.meta.tableId, {
-        pageSize: 100,
+        pageSize: 500,
         pageToken,
         filter: buildFilter([{ field: '归属账户', value: [accountName] }]),
       });
@@ -375,19 +499,28 @@ export class MailArchiveService extends BaseRecordService {
     });
     const results: Record<string, unknown> = {};
     let synced = 0;
+    let throttled = 0;
     for (const row of res.items) {
       const id = row.recordId;
       const fields = row.fields as Record<string, unknown>;
-      const lastRaw = fields['最后收取时间'];
-      const last = typeof lastRaw === 'number' ? lastRaw : 0;
+      const name = String(fields['账户名称'] ?? id);
+      // ⚠️ 「最后收取时间」读回来是 **字符串** "YYYY-MM-DD HH:mm"：base-adapter 的
+      // fromReadFields 会把 datetime 的毫秒时间戳转成本地时间字符串。
+      // 所以 `typeof lastRaw === 'number'` 恒为 false —— 必须走 parseDateTimeValue。
+      const last = parseDateTimeValue(fields['最后收取时间']);
       // 收取频率存的是中文（如「每15分钟」），必须用 parseFreqMinutes 映射；
       // 直接用 Number() 会得到 NaN 从而恒回落成 60 分钟，导致配置失效。
       const intervalMs = parseFreqMinutes(fields['收取频率'] ?? '每小时') * 60 * 1000;
-      if (last && Date.now() - last < intervalMs) continue; // 未到收取频率，跳过
+      if (last && Date.now() - last < intervalMs) {
+        throttled++; // 未到收取频率，跳过
+        continue;
+      }
       const r = await this.syncAccount(id);
-      results[String(fields['账户名称'] ?? id)] = r;
+      results[name] = r;
       synced++;
     }
+    // 此前这里因为 last 恒为 0 而永不跳过，日志打出来就能立刻看出节流是否真的生效
+    this.logger.log(`syncAll：启用账户 ${res.items.length} 个，实际同步 ${synced} 个，按频率跳过 ${throttled} 个`);
     return { synced, results };
   }
 
@@ -523,6 +656,7 @@ export class MailArchiveService extends BaseRecordService {
     parsed: { from?: { text?: string }; to?: { text?: string }; cc?: { text?: string }; subject?: string; date?: Date; text?: string; html?: string; attachments?: Array<{ filename?: string; contentType?: string; content?: Buffer }> },
     isSent = false,
     existing?: Set<string>,
+    timing?: SyncTiming,
   ): Promise<boolean> {
     // 去重：同账户 + 同文件夹 + 同 UID 已存在则跳过。
     // ⚠️ IMAP 的 UID 是按文件夹独立编号的，收件箱与发件箱会有相同 UID，
@@ -543,22 +677,42 @@ export class MailArchiveService extends BaseRecordService {
       if (dup.items.length > 0) return false;
     }
 
-    const attachments = parsed.attachments ?? [];
+    // 先过滤掉没有内容的附件，避免把无效项算进并发槽位
+    const attachments = (parsed.attachments ?? []).filter(
+      (att): att is { filename?: string; contentType?: string; content: Buffer } =>
+        Boolean(att?.content) && Buffer.isBuffer(att.content),
+    );
     const meta: { name: string; size: number; type: string; file_token: string }[] = [];
     // 上传失败的附件不再静默丢弃：记录到「附件失败原因」，页面上可看到
     const failed: string[] = [];
-    for (const att of attachments) {
-      const buf = att.content;
-      if (!buf || !Buffer.isBuffer(buf)) continue;
-      const name = att.filename || 'attachment';
-      const mime = att.contentType || 'application/octet-stream';
-      try {
-        const { file_token } = await this.fileUpload.uploadFile(buf, name, mime);
-        meta.push({ name, size: buf.length, type: mime, file_token });
-      } catch (e) {
-        const reason = (e as Error).message;
-        this.logger.warn(`附件上传失败 (${name}): ${reason}`);
-        failed.push(`${name}：${reason.slice(0, 80)}`);
+    if (attachments.length > 0) {
+      const tUp = Date.now();
+      // 有界并发上传：此前是严格串行，一个附件卡住就阻塞整封邮件、进而阻塞整轮。
+      // 配合 uploadFile 的超时参数，失败快速返回，不会把整轮同步拖死。
+      const results = await runWithConcurrency(
+        attachments,
+        ATTACHMENT_CONCURRENCY,
+        async (att) => {
+          const buf = att.content;
+          const name = att.filename || 'attachment';
+          const mime = att.contentType || 'application/octet-stream';
+          try {
+            const { file_token } = await this.fileUpload.uploadFile(
+              buf, name, mime, ATTACHMENT_UPLOAD_TIMEOUT_MS,
+            );
+            return { ok: true as const, name, size: buf.length, type: mime, file_token };
+          } catch (e) {
+            const reason = (e as Error).message;
+            this.logger.warn(`附件上传失败 (${name}): ${reason}`);
+            return { ok: false as const, name, reason };
+          }
+        },
+      );
+      if (timing) timing.upload += Date.now() - tUp;
+      for (const r of results) {
+        if (!r) continue;
+        if (r.ok) meta.push({ name: r.name, size: r.size, type: r.type, file_token: r.file_token });
+        else failed.push(`${r.name}：${r.reason.slice(0, 80)}`);
       }
     }
 
@@ -591,7 +745,9 @@ export class MailArchiveService extends BaseRecordService {
       fields['附件失败原因'] = failed.join('；').slice(0, 500);
     }
 
+    const tWrite = Date.now();
     await this.base.create(this.meta.tableId, fields);
+    if (timing) timing.write += Date.now() - tWrite;
     // 同一批次内再次遇到相同 key 时直接跳过，避免重复入库
     existing?.add(key);
 

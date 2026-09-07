@@ -134,6 +134,20 @@ export interface NoteConvertLogItem {
 }
 
 /**
+ * 笔记 ↔ 知识库配置 的归属关系（「我的笔记」列表的「配置名称」列用）。
+ *
+ * 数据来源：飞书「笔记配置映射」表。自动同步时由 SourcesService.processNote 写入，
+ * 历史笔记由 scripts/backfill_note_config_map.mjs 补。
+ * 没有映射记录的笔记（如手工在 Get笔记 建的、或还没同步过）查不到，列表显示「—」。
+ */
+export interface NoteConfigMapItem {
+  /** 知识库配置表的记录 id */
+  configId: string;
+  /** 配置名称（快照；显示时优先用配置表当前名称，改名能自动生效） */
+  configName: string;
+}
+
+/**
  * 笔记转换的智能默认字段映射：菜单 key → 目标模块的「总结字段 / 原始记录字段」。
  *
  * 只登记已核对过字段名的常用模块（家校沟通 / 日常跟进 / 招生跟进 三者的

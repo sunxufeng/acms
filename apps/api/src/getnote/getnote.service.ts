@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/c
 import type { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { toText } from '@acms/base-adapter';
-import type { SessionUser, NoteConvertLogItem } from '@acms/contracts';
+import type { SessionUser, NoteConvertLogItem, NoteConfigMapItem } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { buildFilter } from '../shared/record.util.js';
 import {
@@ -902,5 +902,43 @@ export class GetnoteService {
       );
     await this.base.update(TABLES.noteConvertLog.tableId, id, { 目标记录ID: recId });
     return { ok: true };
+  }
+
+  /**
+   * 批量查若干笔记「属于哪个知识库配置」，返回 noteId → 配置信息。
+   *
+   * 为什么需要这张表：Get笔记 的 note 对象里**没有任何字段**能标识归属 ——
+   * 实测 source 全是 "app"（平台自己的来源标识，指手机 App 录音）、note_type 全是
+   * recorder_audio、tags 里也没有配置名。归属只能由 ACMS 侧记录：
+   * 自动同步时 SourcesService.processNote 写入，历史笔记用回填脚本补。
+   *
+   * 一次拉全表再内存过滤（同 listConverts）：飞书服务端过滤只支持单值，
+   * 逐笔记查会把请求数放大 N 倍，而映射表每篇笔记才一行，全表更划算。
+   */
+  async listConfigMap(
+    user: SessionUser,
+    noteIds: string[],
+  ): Promise<Record<string, NoteConfigMapItem>> {
+    void user; // 归属是全局的，不按人过滤
+    const tableId = TABLES.noteConfigMap.tableId;
+    const want = new Set((noteIds ?? []).map((v) => String(v)).filter(Boolean));
+    const out: Record<string, NoteConfigMapItem> = {};
+    if (!want.size) return out;
+
+    let pageToken: string | undefined;
+    for (let i = 0; i < 5; i++) {
+      const res = await this.base.search(tableId, { pageSize: 200, pageToken });
+      for (const r of res.items) {
+        const noteId = toText(r.fields['笔记ID']) ?? '';
+        if (!noteId || !want.has(noteId)) continue;
+        out[noteId] = {
+          configId: toText(r.fields['配置ID']) ?? '',
+          configName: toText(r.fields['配置名称']) ?? '',
+        };
+      }
+      if (!res.hasMore || !res.pageToken) break;
+      pageToken = res.pageToken;
+    }
+    return out;
   }
 }

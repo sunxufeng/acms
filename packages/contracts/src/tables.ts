@@ -62,6 +62,14 @@ export const TABLES = {
   // 所以留痕落在 ACMS 自己这张表里，顺带能记录「转成了哪条业务记录」。
   // ⚠️ 只在生产 Base 存在，无 DEV 版本；建表脚本 scripts/setup_note_convert_log_table.mjs（幂等）。
   noteConvertLog: { tableId: 'tblMy5LrwR3YbLxf', name: '笔记转换记录' },
+  // 笔记配置映射：笔记 ↔ 知识库配置 的归属表（2026-09-07 生产建表）
+  // 为什么需要：Get笔记 的 note 对象里**没有任何字段**能标识它属于哪个配置 ——
+  // 实测 14 条笔记的 source 全是 "app"（平台自己的来源标识，指手机 App 录音），
+  // note_type 全是 recorder_audio，tags 里也没有配置名。归属只能由 ACMS 侧建立：
+  // 自动同步时（SourcesService.processNote）写入，历史笔记用
+  // scripts/backfill_note_config_map.mjs 补。
+  // ⚠️ 只在生产 Base 存在，无 DEV 版本；建表脚本 scripts/setup_note_config_map_table.mjs（幂等）。
+  noteConfigMap: { tableId: 'tbleFsIxXwZckVB8', name: '笔记配置映射' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

@@ -4,6 +4,7 @@ import type {
   NavMenuGroupConfig,
   NoteConvertConfig,
   NoteConvertLogItem,
+  NoteConfigMapItem,
   RoleDef,
 } from '@acms/contracts';
 
@@ -907,6 +908,14 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ targetRecordId }),
     }),
+  /**
+   * 批量查笔记归属（属于哪个知识库配置）：列表页一次拿全，避免逐行请求。
+   * ⚠️ 后端单次最多接 100 个 id，超了要分批（见 getnote 页面的 fetchConfigMap）。
+   */
+  listNoteConfigMap: (noteIds: string[]) =>
+    request<Record<string, NoteConfigMapItem>>(
+      `/getnote/config-map?noteIds=${encodeURIComponent(noteIds.join(','))}`,
+    ),
 
   // ── 笔记 ↔ 业务实体 关联（标签 + 映射表双写） ────────────────────────
   listGetnoteLinks: (entityType: string, entityId: string) =>

@@ -1789,7 +1789,8 @@
     "转换配置": "Note Convert",
     "菜单名": "Menu Name",
     "菜单路径": "Menu Path",
-    "已转": "Converted"
+    "已转": "Converted",
+    "配置名称": "Config name"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

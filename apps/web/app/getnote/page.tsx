@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import Markdown from '../../components/Markdown';
 import { api, type GetnoteCredential, type GetnoteOAuthStart, type ApiRequestError } from '../../lib/api';
-import type { NoteConvertTarget, NoteConvertLogItem } from '@acms/contracts';
+import type { NoteConvertTarget, NoteConvertLogItem, NoteConfigMapItem } from '@acms/contracts';
 import { putConvertPayload, formatConvertLogs, totalConvertCount, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../../lib/noteConvert';
 import { useTl } from '../../lib/useTl';
 import { useTranslations } from 'next-intl';
@@ -74,6 +74,15 @@ function makeColumns(
   onTitleClick: (id: string) => void,
   /** 笔记 id → 转换留痕列表（外部批量查好后传入，「已转」列据此渲染） */
   convertLogs: Record<string, NoteConvertLogItem[]> = {},
+  /** 笔记 id → 归属配置（「配置名称」列据此渲染） */
+  configMap: Record<string, NoteConfigMapItem> = {},
+  /** 知识库配置名列表：「配置名称」列的筛选项 */
+  configOptions: string[] = [],
+  /**
+   * 配置 id → 配置表里的**当前**名称。
+   * 显示时优先用它，改了名列表自动跟着变；查不到才退回映射表里存的名称快照。
+   */
+  configNameById: Record<string, string> = {},
 ): CrudColumn[] {
   return [
     {
@@ -122,6 +131,50 @@ function makeColumns(
       filter: true,
       filterType: 'select',
       hint: '这条笔记来自哪个渠道；存在 Get笔记 的标签里，随笔记走',
+    },
+    // 配置名称：这篇笔记属于哪个「知识库配置」。
+    // ⚠️ 关联为什么记在 ACMS 侧：Get笔记 的 note 对象里**没有任何字段**能标识归属 ——
+    //    source 恒为 "app"（平台自己的来源标识，指手机 App 录音）、note_type 是录音类型、
+    //    tags 里也没有配置名。所以归属记在飞书「笔记配置映射」表：自动同步时写入，
+    //    历史笔记用 scripts/backfill_note_config_map.mjs 补。没有记录的显示「—」。
+    //    listOrder 取 3.5 是为了夹在「来源(3)」与「标签(4)」之间，不必重排已有列序号。
+    {
+      key: '配置名称',
+      label: '配置名称',
+      width: '180px',
+      listOrder: 3.5,
+      filter: true,
+      filterType: 'select',
+      options: configOptions,
+      render: (_v, row) => {
+        const name = configDisplayName(configMap[String(row.id ?? '')], configNameById);
+        if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+        return (
+          <span
+            title={`配置：${name}`}
+            style={{
+              display: 'inline-block',
+              maxWidth: 168,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              padding: '2px 10px',
+              fontSize: 12,
+              borderRadius: 999,
+              lineHeight: 1.6,
+              // ⚠️ 只用确定存在的变量：--bg-info / --fg-info / --border-info 全站没有，
+              //    写了会静默失效（chip 变透明裸字）。沿用「已转」列的配色，靠 --accent 区分。
+              background: 'var(--bg-subtle)',
+              border: '1px solid var(--border)',
+              color: 'var(--accent)',
+              cursor: 'default',
+              verticalAlign: 'middle',
+            }}
+          >
+            {name}
+          </span>
+        );
+      },
     },
     {
       key: '标签',
@@ -229,6 +282,31 @@ const convertModal: Record<string, unknown> = {
 const SOURCE_FILTER_MAX_PAGES = 10;
 
 /**
+ * 批量查「笔记属于哪个知识库配置」。
+ * 后端单次最多接 100 个 id（防 URL 过长），超了分批再合并。
+ */
+async function fetchConfigMap(ids: string[]): Promise<Record<string, NoteConfigMapItem>> {
+  const out: Record<string, NoteConfigMapItem> = {};
+  for (let i = 0; i < ids.length; i += 100) {
+    const part = await api.listNoteConfigMap(ids.slice(i, i + 100));
+    Object.assign(out, part);
+  }
+  return out;
+}
+
+/**
+ * 归属记录 → 要显示的配置名。
+ * 优先用配置表里的**当前**名称（改了名列表自动跟着变），查不到才退回映射表存的名称快照。
+ */
+function configDisplayName(
+  hit: NoteConfigMapItem | undefined,
+  configNameById: Record<string, string>,
+): string {
+  if (!hit) return '';
+  return configNameById[hit.configId] || hit.configName || '';
+}
+
+/**
  * ⚠️ 每页条数必须与 Get笔记 服务端返回的单页条数一致。
  * Get笔记 的列表接口**不支持自定义 pageSize**，而 CrudPage 用 `total / pageSize` 推算总页数，
  * 两边不一致会让分页条显示的页数不对。拿到真实凭证后校准这个常量。
@@ -290,16 +368,59 @@ export default function GetnotePage() {
   /** 正在查询中的笔记 id 集合，避免翻页时重复并发请求 */
   const convertLogsBusy = useRef<Set<string>>(new Set());
 
+  /**
+   * 知识库配置列表：给「配置名称」列当筛选项，同时提供 配置id → 当前名称 的查表
+   * （改名后列表自动跟着变，不必重新同步）。
+   */
+  const [configSources, setConfigSources] = useState<Record<string, unknown>[]>([]);
+  /** 笔记 id → 归属配置。翻页时做**合并**而非替换，避免上一页的映射被清掉。 */
+  const [configMap, setConfigMap] = useState<Record<string, NoteConfigMapItem>>({});
+
+  useEffect(() => {
+    api
+      .listGetnoteSources({ pageSize: '100' })
+      .then((r) => setConfigSources(r.items ?? []))
+      .catch(() => {
+        /* 配置列表拿不到不影响笔记列表本身，只是「配置名称」列显示不出来 */
+      });
+  }, []);
+
+  const configOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(configSources.map((s) => String(s['配置名称'] ?? '').trim()).filter(Boolean)),
+      ),
+    [configSources],
+  );
+
+  const configNameById = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const s of configSources) {
+      const id = String(s.id ?? s.recordId ?? '');
+      if (id) out[id] = String(s['配置名称'] ?? '');
+    }
+    return out;
+  }, [configSources]);
+
   /** 列表行变化后批量拉一次留痕（一次请求拿全，不逐行打接口） */
   const onRowsLoaded = useCallback((rows: Record<string, unknown>[]) => {
     const ids = rows.map((r) => String(r.id ?? '')).filter(Boolean);
     if (!ids.length) {
       setConvertLogs({});
+      setConfigMap({});
       return;
     }
     const need = ids.filter((id) => !convertLogsBusy.current.has(id));
     if (!need.length) return;
     for (const id of need) convertLogsBusy.current.add(id);
+
+    // 归属映射：与留痕并列查一次（同一批 id），结果**合并**进已有，翻页不丢
+    void fetchConfigMap(need)
+      .then((map) => setConfigMap((prev) => ({ ...prev, ...map })))
+      .catch(() => {
+        /* 归属查不到只是「配置名称」列显示「—」，不影响列表本身 */
+      });
+
     api
       .listNoteConverts(need)
       .then((map) => {
@@ -335,9 +456,10 @@ export default function GetnotePage() {
   }, [t]);
 
   const columns = useMemo(
-    () => makeColumns(setTagQuery, openDetail, convertLogs),
-    [openDetail, convertLogs],
+    () => makeColumns(setTagQuery, openDetail, convertLogs, configMap, configOptions, configNameById),
+    [openDetail, convertLogs, configMap, configOptions, configNameById],
   );
+
 
   /** 打开「转换」候选弹窗：只列转换配置里 enabled 的模块 */
   const openConvert = useCallback(
@@ -896,13 +1018,16 @@ export default function GetnotePage() {
         api={{
           list: async (p) => {
             const src = String(p['来源'] ?? '').trim();
+            const cfg = String(p['配置名称'] ?? '').trim();
             const q = tagQuery || p.q;
             /**
-             * 来源筛选：上游接口没有「按来源过滤」的参数，只能翻页收集后在内存里筛。
+             * 来源 / 配置名称 筛选：上游接口没有对应的过滤参数，只能翻页收集后在内存里筛。
              * 所以筛选后一次性返回全部命中项（hasMore=false），不再走游标分页 ——
              * 与语义搜索（q）的返回形态一致，CrudPage 都能正常渲染。
+             *
+             * ⚠️ 配置名称不在笔记对象里（Get笔记 没有这个字段），要先拿归属映射才能筛。
              */
-            if (src) {
+            if (src || cfg) {
               let cursor = '';
               const all: Record<string, unknown>[] = [];
               for (let i = 0; i < SOURCE_FILTER_MAX_PAGES; i++) {
@@ -911,7 +1036,22 @@ export default function GetnotePage() {
                 if (!r.hasMore || !r.pageToken) break;
                 cursor = r.pageToken;
               }
-              const items = all.map(toRow).filter((r) => r['来源'] === src);
+              const rows = all.map(toRow);
+              // 用到配置名称筛选时才查归属：一次拿全（内部分批），顺带存起来供列渲染
+              let map: Record<string, NoteConfigMapItem> = configMap;
+              if (cfg) {
+                map = await fetchConfigMap(
+                  rows.map((r) => String(r.id ?? '')).filter(Boolean),
+                );
+                setConfigMap(map); // 筛选结果是全量，整体替换即可
+              }
+              const items = rows.filter((r) => {
+                if (src && r['来源'] !== src) return false;
+                if (cfg && configDisplayName(map[String(r.id ?? '')], configNameById) !== cfg) {
+                  return false;
+                }
+                return true;
+              });
               return { items, total: items.length, hasMore: false };
             }
             const res = await api.listGetnote({ ...p, ...(q ? { q } : {}) });

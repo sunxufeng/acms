@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
+import { TABLES } from '@acms/contracts';
 import { BaseClient, toText } from '@acms/base-adapter';
 import { BASE_CLIENT } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -35,6 +36,16 @@ function freqToCron(v: unknown): string {
   const s = String(v ?? '').trim();
   return FREQ_TO_CRON[s] ?? '0 * * * *';
 }
+
+/**
+ * 单次同步最多新建多少条「笔记配置映射」。
+ *
+ * ⚠️ 为什么要有上限：BaseClient **没有 batch 写入**（飞书 Base 只能一条条 create），
+ * 而同步是"全量翻页 + 内存去重"，第一次跑可能几百上千条都是新的。
+ * 不限流会把飞书写入 QPS 打满（进而让整张表的读写都变慢），所以单批封顶 200；
+ * 超出部分本次跳过，下次同步会自然补上（那时它们仍在"未映射"里）。
+ */
+const CONFIG_MAP_MAX_CREATE = 200;
 
 /** 「启用状态」 → 是否启用。停用状态被定时任务跳过。 */
 function isEnabled(v: unknown): boolean {
@@ -362,6 +373,9 @@ export class GetnoteSourceService extends BaseRecordService {
     let processed = 0;
     const errors: string[] = [];
     const cred = { key: apiKey, clientId };
+    // 预加载该配置已映射的 noteId：本次只给**新笔记**补归属，稳态下零写入
+    const mapped = await this.loadMappedNoteIds(recordId);
+    const mapCounter = { created: 0 };
 
     do {
       const r = await this.getnote.listWithCred(cred, cursor, undefined, 50);
@@ -370,8 +384,8 @@ export class GetnoteSourceService extends BaseRecordService {
         const noteId = String(note.note_id ?? note.id ?? '').trim();
         if (!noteId) continue;
         try {
-          // 注入点：把这条新笔记「处理」一遍。默认实现只做去重计数，不落库。
-          await this.processNote(note, sourceName, sourceType);
+          // 注入点：把这条新笔记「处理」一遍（写入 笔记 ↔ 配置 归属）。
+          await this.processNote(note, sourceName, sourceType, recordId, mapped, mapCounter);
           processed++;
         } catch (e) {
           errors.push(`noteId=${noteId}: ${(e as Error).message.slice(0, 80)}`);
@@ -388,21 +402,74 @@ export class GetnoteSourceService extends BaseRecordService {
   }
 
   /**
-   * 单条笔记处理钩子。默认实现只做去重计数，不写飞书表。
-   * 业务含义：把"已被该配置扫过"的 noteId 计入内存缓存，
-   * 下次 syncOne 的 syncStates 里能看到「本次共处理 N 条」。
-   * 如果将来要做"缓存拉过的笔记 ID 加速下次启动"，扩展此方法即可。
+   * 同步开始前把该配置**已映射**的 noteId 全量拉进内存。
+   *
+   * ⚠️ 为什么必须预加载：飞书没有批量写入，逐条 create 已经够慢了；
+   * 若每条笔记再查一次「是否已映射」，请求数直接翻倍（N 次读 + N 次写）。
+   * 预加载后**只有新笔记才写**，稳态下几乎零写入。
+   */
+  private async loadMappedNoteIds(configId: string): Promise<Set<string>> {
+    const out = new Set<string>();
+    try {
+      let pageToken: string | undefined;
+      for (let i = 0; i < 10; i++) {
+        const res = await this.base.search(TABLES.noteConfigMap.tableId, {
+          pageSize: 200,
+          pageToken,
+          filter: buildFilter([{ field: '配置ID', value: [configId] }]),
+        });
+        for (const r of res.items) {
+          const id = plainText((r.fields as Record<string, unknown>)['笔记ID']);
+          if (id) out.add(id);
+        }
+        if (!res.hasMore || !res.pageToken) break;
+        pageToken = res.pageToken;
+      }
+    } catch (e) {
+      // 预加载失败不阻断同步：退化成"全部当新笔记"，靠 CONFIG_MAP_MAX_CREATE 兜底
+      this.logger.warn(`预加载笔记配置映射失败 ${configId}: ${(e as Error).message}`);
+    }
+    return out;
+  }
+
+  /**
+   * 单条笔记处理钩子：把「这篇笔记属于哪个配置」写进「笔记配置映射」表。
+   *
+   * 为什么需要：Get笔记 的 note 对象里**没有任何字段**能标识归属 —— 实测 source
+   * 恒为 "app"（平台自己的来源标识，指手机 App 录音）、note_type 是录音类型、
+   * tags 里也没有配置名。而列表要展示「配置名称」列，归属只能由 ACMS 侧记录。
+   *
+   * ⚠️ 写入失败只记日志、不往上抛：归属是"锦上添花"的元数据，
+   * 不该把整次同步拖垮（笔记本身已经在 Get笔记 那儿，不依赖这张表）。
    */
   private async processNote(
     note: { note_id?: string; id?: string; title?: string },
     sourceName: string,
     sourceType: string,
+    configId: string,
+    mapped: Set<string>,
+    counter: { created: number },
   ): Promise<void> {
-    // 当前实现：什么都不做。fetched 与 processed 都已经在 syncOne 里计数。
-    // 笔记本身走 Get笔记 原 API 拉；不双写。
-    void note;
-    void sourceName;
-    void sourceType;
+    const noteId = String(note?.note_id ?? note?.id ?? '').trim();
+    if (!noteId || mapped.has(noteId)) return; // 已映射：稳态下绝大多数走这条
+    if (counter.created >= CONFIG_MAP_MAX_CREATE) return; // 单批封顶，防限流
+
+    const now = Date.now();
+    try {
+      await this.base.create(TABLES.noteConfigMap.tableId, {
+        笔记ID: noteId,
+        笔记标题: String(note?.title ?? '').slice(0, 200),
+        配置ID: configId,
+        配置名称: sourceName,
+        笔记类型: sourceType,
+        首次同步时间: now,
+        更新时间: now,
+      });
+      mapped.add(noteId); // 同批次内不会再重复写
+      counter.created += 1;
+    } catch (e) {
+      this.logger.warn(`写笔记配置映射失败 noteId=${noteId}: ${(e as Error).message}`);
+    }
   }
 
   /**

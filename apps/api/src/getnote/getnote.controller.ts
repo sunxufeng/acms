@@ -290,4 +290,26 @@ export class GetnoteController {
     this.assert(user, 'getnote:write');
     return this.svc.linkConvert(user, id, String(body?.targetRecordId ?? ''));
   }
+
+  // ── 笔记 ↔ 知识库配置 归属 ────────────────────────────────────────
+  //
+  // Get笔记 的 note 对象里没有任何字段能标识它属于哪个配置（source 只是平台自己的
+  // "app" 标识、note_type 是录音类型），所以归属记在 ACMS 的「笔记配置映射」表：
+  // 自动同步时由 SourcesService.processNote 写入，历史笔记由回填脚本补。
+
+  /**
+   * 批量查笔记归属。?noteIds=a,b,c —— 列表页一次拿全，避免 N 次请求。
+   * 归属是全局的（不随登录人变化），不做按人过滤。
+   */
+  @Get('config-map')
+  listConfigMap(@Req() req: Request, @Query('noteIds') noteIds?: string) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:read');
+    const ids = String(noteIds ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 100);
+    return this.svc.listConfigMap(user, ids);
+  }
 }

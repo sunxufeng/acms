@@ -35,11 +35,17 @@ export class HomepageConfigController {
           const tableId = TABLES.systemConfig.tableId;
           const records = await this.service.listRecords(tableId, 1);
           const fields = await this.service.listFields(tableId);
-          // listFields 返回的记录包含真实 recordId（来自飞书响应）
           const recId = records[0]?.recordId ?? '';
-          const fldId = fields[0]?.id ?? '';
-          // 真实 tableId：从 listRecords 的数据中无法直接拿到，
-          // 但可以通过 TABLE_ID_MAP 环境变量解析
+          // bitablePerm 鉴权要求用「附件类型(type=17)」字段作为素材归属上下文；
+          // 系统配置表已加「logo素材」附件字段（飞书 field_id 见下），优先按名匹配，
+          // 兜底：任意附件字段 → 已知 logo 附件字段 id，避免 SQL/飞书元数据不同步时失效。
+          const LOGO_ATTACH_FIELD_ID = 'fldhNMJqm2';
+          const logoField =
+            fields.find((f) => f.name === 'logo素材') ??
+            fields.find((f) => f.type === 17) ??
+            fields.find((f) => f.id === LOGO_ATTACH_FIELD_ID);
+          const fldId = logoField?.id ?? LOGO_ATTACH_FIELD_ID;
+          // 真实 tableId：通过 TABLE_ID_MAP 环境变量解析
           const realTableId = resolveRealTableId(tableId);
           this.logger.log(`bitableContext resolved: rec=${recId} field=${fldId} realTable=${realTableId}`);
           return { recordId: recId, fieldId: fldId, realTableId };

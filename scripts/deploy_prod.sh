@@ -12,7 +12,8 @@ if [ -z "${SSHPASS:-}" ]; then
   echo "错误：未设置 SSHPASS 环境变量（服务器密码）。用法：SSHPASS='<密码>' bash scripts/deploy_prod.sh" >&2
   exit 1
 fi
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10"
+# 必须强制密码认证：否则 ssh 会先耗尽 publickey 尝试并被服务器判定为密码错误
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o PreferredAuthentications=password -o PubkeyAuthentication=no"
 
 LOCAL_API_TAR=/tmp/api_dist.tar.gz
 LOCAL_PKGS_TAR=/tmp/pkgs_dist.tar.gz

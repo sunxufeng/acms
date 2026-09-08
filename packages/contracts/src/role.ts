@@ -107,6 +107,8 @@ export const PERMISSIONS = [
   // 得到大脑（Get笔记）知识库：全局单账号，鉴权只控制「能不能用」，不隔离数据
   'getnote:read',
   'getnote:write',
+  // 报表：独立权限点，与 student:read 解耦——可单独授予「只看报表、不看学生档案」
+  'report:read',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -137,7 +139,8 @@ export const DOMAIN_LABELS: Record<string, string> = {
   config: '系统配置',
   ai: 'AI 助手',
   mail: '邮件归档',
-  getnote: '知识库',
+  getnote: '我的笔记/知识库',
+  report: '报表',
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -161,6 +164,7 @@ const PERMISSION_LABEL_OVERRIDES: Record<string, string> = {
   'ai:config': 'AI 配置',
   'ai:automation': 'AI 自动化',
   'ai:admin': 'AI 管理',
+  'report:read': '报表查看',
 };
 
 /** 权限点 → 中文展示名 */
@@ -176,6 +180,41 @@ export const PERMISSION_LABELS: Record<Permission, string> = PERMISSIONS.reduce(
   },
   {} as Record<Permission, string>,
 );
+
+/**
+ * 权限域的展示顺序（仅用于排序）。
+ * 未在此列出的域会被 groupPermissions 自动追加到末尾，
+ * 因此新增权限域时前端无需同步修改——避免「域没登记 → 该域权限在界面上整体消失」。
+ */
+export const DOMAIN_ORDER = [
+  'student', 'followup', 'attendance', 'billing', 'partnership', 'finance',
+  'notification', 'grade', 'activity', 'communication', 'evaluation', 'alumni',
+  'teacher', 'course', 'venue', 'schedule', 'export', 'admin', 'config', 'ai',
+  'mail', 'getnote', 'report',
+] as const;
+
+/**
+ * 按权限域分组（角色管理、权限授权等页面共用）。
+ * 域集合由传入的权限点自动派生，而非取自白名单。
+ */
+export function groupPermissions(
+  perms: readonly string[],
+): { domain: string; label: string; perms: string[] }[] {
+  const m = new Map<string, string[]>();
+  for (const p of perms) {
+    const dom = p.split(':')[0] ?? p;
+    const list = m.get(dom);
+    if (list) list.push(p);
+    else m.set(dom, [p]);
+  }
+  const known = DOMAIN_ORDER.filter((d) => m.has(d));
+  const extra = [...m.keys()].filter((d) => !(DOMAIN_ORDER as readonly string[]).includes(d));
+  return [...known, ...extra].map((d) => ({
+    domain: d,
+    label: DOMAIN_LABELS[d] ?? d,
+    perms: m.get(d) ?? [],
+  }));
+}
 
 /** 单个角色的定义（角色管理功能的可编辑单元） */
 export interface RoleDef {

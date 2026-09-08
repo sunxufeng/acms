@@ -44,20 +44,13 @@ export default function ReportsPage() {
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [active, setActive] = useState<string | null>(null);
 
-  // 全量拉取学生（当前 82 条，一次足够；保留翻页以防增长）
+  // 报表专用接口（权限点 report:read）：后端完成翻页与脱敏投影，前端一次取全量
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const out: Row[] = [];
-        let token: string | undefined;
-        for (let i = 0; i < 20; i += 1) {
-          const page = await api.listStudents({ pageSize: '200', ...(token ? { pageToken: token } : {}) });
-          out.push(...((page.items ?? []) as Row[]));
-          if (!page.hasMore || !page.pageToken) break;
-          token = page.pageToken;
-        }
-        if (alive) setAll(out);
+        const res = await api.listReportStudents();
+        if (alive) setAll((res.items ?? []) as Row[]);
       } catch {
         if (alive) setAll([]);
       }

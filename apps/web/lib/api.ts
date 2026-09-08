@@ -131,6 +131,13 @@ export const api = {
     return request<Page<StudentRecord>>(`/students${q ? `?${q}` : ''}`);
   },
 
+  /**
+   * 报表专用学生数据（权限点 report:read，与 student:read 解耦）。
+   * 返回脱敏投影：维度字段为真值，其余字段为「有无」占位符，不含学生明细。
+   */
+  listReportStudents: () =>
+    request<{ items: Record<string, unknown>[]; total: number }>('/reports/students'),
+
   /** 学生详情 */
   getStudent: (id: string) => request<StudentRecord>(`/students/${id}`),
 

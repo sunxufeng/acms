@@ -2,46 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { groupPermissions } from '@acms/contracts';
 import { api, type PermissionsPayload } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
-
-const DOMAIN_LABELS: Record<string, string> = {
-  student: '学生',
-  followup: '招生跟进',
-  attendance: '考勤',
-  billing: '计费',
-  partnership: '聘用合作',
-  finance: '财务',
-  notification: '通知',
-  grade: '成绩',
-  activity: '实践活动',
-  communication: '家校沟通',
-  evaluation: '阶段评价',
-  alumni: '校友跟进',
-  teacher: '教师',
-  course: '课程',
-  venue: '场地',
-  schedule: '排课',
-  export: '数据导出',
-  admin: '系统管理',
-  config: '系统配置',
-};
-
-const DOMAIN_ORDER = [
-  'student', 'followup', 'attendance', 'billing', 'partnership', 'finance',
-  'notification', 'grade', 'activity', 'communication', 'evaluation', 'alumni',
-  'teacher', 'course', 'venue', 'schedule', 'export', 'admin', 'config',
-];
-
-function groupPerms(perms: string[]): { domain: string; label: string; perms: string[] }[] {
-  const m = new Map<string, string[]>();
-  for (const p of perms) {
-    const dom = p.split(':')[0];
-    if (!m.has(dom)) m.set(dom, []);
-    m.get(dom)!.push(p);
-  }
-  return DOMAIN_ORDER.filter((d) => m.has(d)).map((d) => ({ domain: d, label: DOMAIN_LABELS[d] ?? d, perms: m.get(d)! }));
-}
 
 export default function PermissionsPage() {
 
@@ -57,9 +20,9 @@ export default function PermissionsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const groups = useMemo(() => (data ? groupPerms(data.permissions) : []), [data]);
+  const groups = useMemo(() => (data ? groupPermissions(data.permissions) : []), [data]);
   const myGroups = useMemo(
-    () => (data ? groupPerms(data.myPermissions) : []),
+    () => (data ? groupPermissions(data.myPermissions) : []),
     [data],
   );
 

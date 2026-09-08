@@ -178,7 +178,11 @@ export class StudentService {
       const v = query.当前状态;
       return v ? String(v).split(',').filter(Boolean).length > 1 : false;
     })();
-    const hasMemoryFilter = hasQ || multiStatus;
+    // 非组织级角色（无系统管理员/院级管理）受 ABAC 校区/密级行级过滤约束：
+    // 服务端分页路径的 total 是未过滤的原始计数，行过滤后 total 与 items 会失真
+    // （表现为「共 82 条但列表为空」）。此类用户改走内存全量路径，保证 total 一致。
+    const orgWide = principal.roles.some((r) => r === '系统管理员' || r === '院级管理');
+    const hasMemoryFilter = hasQ || multiStatus || !orgWide;
     const filter = this.buildFilter(query);
     const sort = query.sortBy
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]

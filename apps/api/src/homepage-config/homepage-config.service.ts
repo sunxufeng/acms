@@ -105,11 +105,16 @@ export class HomepageConfigService implements OnModuleInit {
       ...stored.items,
       ...DEFAULT_NAV_MENU_CONFIG.items.filter((it) => !storedKeys.has(it.key)),
     ];
-    // 自愈：存储中缺失 enLabel 的菜单项，从默认配置兜底补齐（存储有则优先），
-    // 保证英文立即可见，且菜单管理表单回填英文。
-    const defaultEnByKey = new Map(DEFAULT_NAV_MENU_CONFIG.items.map((it) => [it.key, it.enLabel]));
+    // 自愈：存储中缺失 enLabel / perm / adminOnly 的菜单项，从默认配置兜底补齐（存储有则优先），
+    // 保证英文立即可见、且历史存量菜单项能被权限点/管理员开关正确管控
+    // （早期存储的菜单项没有 perm 字段，导致这些菜单对所有登录用户可见、无法按角色授权）。
+    const defaultByKey = new Map(DEFAULT_NAV_MENU_CONFIG.items.map((it) => [it.key, it]));
     for (const it of mergedItems) {
-      if (!it.enLabel && defaultEnByKey.get(it.key)) it.enLabel = defaultEnByKey.get(it.key);
+      const def = defaultByKey.get(it.key);
+      if (!def) continue;
+      if (!it.enLabel && def.enLabel) it.enLabel = def.enLabel;
+      if (!it.perm && def.perm) it.perm = def.perm;
+      if (!it.adminOnly && def.adminOnly) it.adminOnly = def.adminOnly;
     }
     return { items: mergedItems };
   }

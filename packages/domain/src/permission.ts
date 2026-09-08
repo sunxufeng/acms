@@ -283,11 +283,13 @@ export function authorize(
   // 组织级角色（系统/院级管理）视角不受单校区限制，可看全组织数据
   const isOrgWide = principal.roles.some((r) => r === '系统管理员' || r === '院级管理');
   if (!isOrgWide && resource?.campus) {
-    // 校区可能是多选字段（数组），统一按集合交集判断
+    // 校区可能是多选字段（数组），统一按集合交集判断；
+    // campuses 兜底空数组（旧会话可能缺该字段，避免 undefined.length 崩溃）
     const resCampuses = Array.isArray(resource.campus) ? resource.campus : [resource.campus];
+    const userCampuses = principal.campuses ?? [];
     if (
-      principal.campuses.length > 0 &&
-      !resCampuses.some((c) => principal.campuses.includes(c))
+      userCampuses.length > 0 &&
+      !resCampuses.some((c) => userCampuses.includes(c))
     ) {
       return { allowed: false, reason: 'campus-mismatch' };
     }

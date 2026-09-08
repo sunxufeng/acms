@@ -1,6 +1,7 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import type { Redis } from 'ioredis';
-import { ROLES, USER_LEVEL_TO_ENGINE, USER_TABLE, type DataLevel, type SessionUser } from '@acms/contracts';
+import { USER_LEVEL_TO_ENGINE, USER_TABLE, type DataLevel, type SessionUser } from '@acms/contracts';
+import { getRoleList } from '@acms/domain';
 import { toText, toStringArray, type BaseClient } from '@acms/base-adapter';
 import { SessionService } from './session.service.js';
 import { REDIS } from '../redis.provider.js';
@@ -182,9 +183,10 @@ export class AuthService {
     const status = toText(record.fields['账号状态']);
     if (status === '停用') throw new UnauthorizedException('USER_DISABLED');
 
-    const roles = toStringArray(record.fields['系统角色']).filter((r: string) =>
-      (ROLES as readonly string[]).includes(r),
-    );
+    // 角色白名单用「有效角色清单」（内置 + 角色管理里配置的自定义角色，启动时加载），
+    // 不能用静态 ROLES——否则自定义角色（如 Phase1）会被滤掉，用户会话 roles=[] 全部 403。
+    const validRoles = new Set(getRoleList());
+    const roles = toStringArray(record.fields['系统角色']).filter((r: string) => validRoles.has(r));
     const campuses = toStringArray(record.fields['默认校区']);
     const levelRaw = toText(record.fields['数据密级上限']) ?? 'L1';
     const maxDataLevel: DataLevel =

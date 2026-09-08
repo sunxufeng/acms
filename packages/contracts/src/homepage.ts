@@ -278,6 +278,7 @@ export const SECTION_EN_LABELS: Record<string, string> = {
   后台管理: 'Administration',
   邮件归档: 'Mail Archive',
   知识库: 'Knowledge Base',
+  报表管理: 'Reports',
 };
 
 /** 默认导航菜单（与当前 AppShell 硬编码菜单保持一致，用于回退） */
@@ -302,6 +303,8 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'idpPlans', label: 'IDP管理', enLabel: 'IDP Plans', href: '/idp-plans', icon: 'target', section: '学生闭环', order: 75 },
     { key: 'stageEvaluations', label: '阶段评价', enLabel: 'Stage Evaluations', href: '/stage-evaluations', icon: 'students', section: '学生闭环', order: 80 },
     { key: 'alumniFollowups', label: '校友跟进', enLabel: 'Alumni Follow-ups', href: '/alumni-followups', icon: 'students', section: '学生闭环', order: 90 },
+
+    { key: 'reports', label: '报表管理', enLabel: 'Reports', href: '/reports', icon: 'reports', section: '报表管理', order: 10, perm: 'student:read' },
 
     { key: 'mailAccounts', label: '邮件账户', enLabel: 'Mail Accounts', href: '/mail-accounts', icon: 'mail', section: '邮件归档', order: 10, perm: 'mail:write' },
     { key: 'mailArchive', label: '邮件归档', enLabel: 'Mail Archive', href: '/mail-archive', icon: 'folder', section: '邮件归档', order: 20, perm: 'mail:read' },

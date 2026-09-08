@@ -11,7 +11,7 @@ import {
 import { BaseClient, toText } from '@acms/base-adapter';
 import {
   DATA_LEVELS,
-  MENU_PERM_INHERIT,
+  ROLE_PERMISSION_VERSION,
   PERMISSIONS,
   ROLE_PERMISSION_CONFIG_KEY,
   TABLES,
@@ -25,6 +25,7 @@ import {
   ROLE_MAX_LEVEL,
   ROLE_PERMISSIONS,
   loadRolePermissionConfig,
+  inheritModulePermissions,
 } from '@acms/domain';
 import { BASE_CLIENT } from '../base.provider.js';
 import { buildFilter } from '../shared/record.util.js';
@@ -41,6 +42,8 @@ const EXTERNAL_ROLES = new Set(['student', 'parent']);
 const ROLE_FIELD_NAME = '系统角色';
 
 interface StoredRole {
+  /** 缺省/旧版本仅迁移一次；保存后的撤权不可在重启时恢复。 */
+  permissionVersion?: number;
   key: string;
   label?: string;
   permissions: string[];
@@ -82,6 +85,7 @@ export class RoleManagementService implements OnModuleInit {
       permissions: [...ROLE_PERMISSIONS[key]],
       maxDataLevel: ROLE_MAX_LEVEL[key],
       protected: PROTECTED_ROLES.has(key),
+      permissionVersion: ROLE_PERMISSION_VERSION,
     }));
   }
 
@@ -110,18 +114,10 @@ export class RoleManagementService implements OnModuleInit {
   private async ensureLoaded(): Promise<void> {
     const stored = await this.readStored();
     const roles = stored ?? this.defaultConfig();
-    // 存量自愈：按 MENU_PERM_INHERIT 补齐新增的菜单级权限点，
-    // 保证「新增/拆分权限点」不会让存量角色的菜单凭空消失（仅限补齐，绝不回收）。
-    if (stored && this.healMenuPerms(stored)) {
-      try {
-        await this.persist(stored); // persist 内部会 applyToEngine
-        this.logger.log('已自动为存量角色补齐新增的菜单级权限点');
-        this.applyToEngine(stored);
-        await this.syncRoleOptionsToFeishu(stored);
-        return;
-      } catch (e) {
-        this.logger.error(`菜单权限点自愈失败（不影响启动）：${(e as Error).message}`);
-      }
+    // 先持久化版本与权限，再加载引擎；失败即中止启动，避免未落盘的继承被反复执行。
+    if (stored && this.migratePermissions(stored)) {
+      await this.persist(stored);
+      this.logger.log(`已完成角色权限 v${ROLE_PERMISSION_VERSION} 一次性迁移`);
     }
     this.applyToEngine(roles);
     // 启动即把已配置角色回填为飞书字段选项（含历史新增角色），失败不影响启动
@@ -156,26 +152,14 @@ export class RoleManagementService implements OnModuleInit {
     }
   }
 
-  /**
-   * 为存量角色补齐新增的菜单级权限点（只增不减）。
-   * @returns 是否发生了变更
-   */
-  private healMenuPerms(roles: StoredRole[]): boolean {
+  /** 只迁移旧角色；绝不补回已撤销的旧菜单权限，也不触碰 v2 的显式授权。 */
+  private migratePermissions(roles: StoredRole[]): boolean {
     let changed = false;
-    for (const r of roles) {
-      const set = new Set(r.permissions);
-      let roleChanged = false;
-      for (const [menuPerm, prereqs] of Object.entries(MENU_PERM_INHERIT)) {
-        if (set.has(menuPerm)) continue;
-        if (prereqs.length === 0 || prereqs.some((p) => set.has(p))) {
-          set.add(menuPerm);
-          roleChanged = true;
-        }
-      }
-      if (roleChanged) {
-        r.permissions = [...set];
-        changed = true;
-      }
+    for (const role of roles) {
+      if ((role.permissionVersion ?? 0) >= ROLE_PERMISSION_VERSION) continue;
+      role.permissions = inheritModulePermissions(role);
+      role.permissionVersion = ROLE_PERMISSION_VERSION;
+      changed = true;
     }
     return changed;
   }
@@ -266,6 +250,7 @@ export class RoleManagementService implements OnModuleInit {
     const next: StoredRole = {
       key,
       label: (dto.label ?? '').trim() || key,
+      permissionVersion: ROLE_PERMISSION_VERSION,
       permissions: this.sanitizePerms(dto.permissions),
       maxDataLevel: this.normalizeLevel(dto.maxDataLevel),
       menus: this.sanitizeMenus(dto.menus),
@@ -300,6 +285,7 @@ export class RoleManagementService implements OnModuleInit {
       else delete role.menus;
     }
 
+    role.permissionVersion = ROLE_PERMISSION_VERSION;
     current[idx] = role;
     await this.persist(current);
     return this.getConfig();

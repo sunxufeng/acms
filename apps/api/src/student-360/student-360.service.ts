@@ -1,5 +1,6 @@
 import { Inject, Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
+import { moduleByPath, modulePermission } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
 import { BaseClient, toText } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
@@ -87,6 +88,9 @@ export class Student360Service {
       // 维度过滤：若传入 sections（中文维度名），只返回命中维度；空数组/未传表示全部
       const label = SECTION_LABELS[meta.path] ?? meta.path;
       if (sections && sections.length && !sections.includes(label)) continue;
+      // 区块级权限：无该模块 read 权限则不返回该区块（沿用已有权限点，零新增）
+      const mod = moduleByPath('/' + meta.path);
+      if (mod && !authorize(toPrincipal(user), modulePermission(mod.key, 'read')).allowed) continue;
       const studentLink = (meta.linkFields ?? []).find((l) => l.table === TABLES.studentProfile.tableId);
       const items = await this.fetchSection(meta, studentLink, studentId, String(student['学生姓名'] ?? ''), range);
       resultSections.push({ key: meta.path, label, items });

@@ -4,12 +4,13 @@
  * 控制器承载，避免 7×4 重复文件。每种表通过 RecordMeta 描述字段约束。
  */
 import {
-  Controller, Get, Post, Put, Delete, Param, Query, Body, Req, UseGuards,
+  Controller, Get, Post, Put, Delete, Param, Query, Body, Req, Res, UseGuards,
   Inject, Injectable, Module, type DynamicModule, type Type,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
+import { type Permission, type ModuleAction, moduleByPath, modulePermission } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
 import { toText, type FilterCondition, type FilterGroup } from '@acms/base-adapter';
@@ -102,12 +103,27 @@ export class BaseRecordService {
     return new Set((this.meta.linkFields ?? []).map((l) => l.field));
   }
 
+  /** 模块级权限映射：generic-crud 现在按 module:<key>:<action> 鉴权，做到「按钮隐藏＝接口也拦」。 */
+  private get mod() {
+    return moduleByPath(this.meta.path);
+  }
+  private modPerm(action: ModuleAction): Permission | null {
+    const m = this.mod;
+    return m ? (modulePermission(m.key, action) as Permission) : null;
+  }
+  /** 命中模块资源时用模块权限；否则回退 legacy meta 权限（前向兼容未登记模块）。 */
+  private require(user: SessionUser, action: ModuleAction): void {
+    const p =
+      this.modPerm(action) ??
+      ((action === 'read' || action === 'refresh' ? this.meta.readPerm : this.meta.writePerm) as Permission);
+    if (!authorize(toPrincipal(user), p).allowed) throw new ForbiddenException('FORBIDDEN:' + p);
+  }
+
   /** 审计等场景的扩展筛选参数（不走飞书服务端过滤，按需内存过滤） */
   private static readonly DEEP_PARAMS = ['from', 'to', 'actor', 'module', 'action'] as const;
 
   async list(user: SessionUser, query: Record<string, string | undefined>) {
-    if (!authorize(toPrincipal(user), this.meta.readPerm as Parameters<typeof authorize>[1]).allowed)
-      throw new ForbiddenException('FORBIDDEN:' + this.meta.readPerm);
+    this.require(user, 'read');
     // 审计日志：按操作人(模糊)/业务模块(模糊)/操作类型(精确)/时间范围 筛选，内存过滤
     if (BaseRecordService.DEEP_PARAMS.some((k) => query[k])) {
       return this.listDeep(query);
@@ -263,8 +279,7 @@ export class BaseRecordService {
   }
 
   async detail(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), this.meta.readPerm as Parameters<typeof authorize>[1]).allowed)
-      throw new ForbiddenException('FORBIDDEN:' + this.meta.readPerm);
+    this.require(user, 'read');
     const rec = await this.base.get(this.tableId, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     const flat = toFlatRecord(rec, this.readonlySet(), this.multiSet(), this.linkSet());
@@ -296,8 +311,7 @@ export class BaseRecordService {
   }
 
   async create(user: SessionUser, dto: Record<string, unknown>) {
-    if (!authorize(toPrincipal(user), this.meta.writePerm as Parameters<typeof authorize>[1]).allowed)
-      throw new ForbiddenException('FORBIDDEN:' + this.meta.writePerm);
+    this.require(user, 'create');
     const fields = this.writeFields(dto);
     if (this.meta.statusField && !fields[this.meta.statusField] && this.meta.defaultStatus) {
       fields[this.meta.statusField] = this.meta.defaultStatus;
@@ -308,8 +322,7 @@ export class BaseRecordService {
   }
 
   async update(user: SessionUser, id: string, dto: Record<string, unknown>) {
-    if (!authorize(toPrincipal(user), this.meta.writePerm as Parameters<typeof authorize>[1]).allowed)
-      throw new ForbiddenException('FORBIDDEN:' + this.meta.writePerm);
+    this.require(user, 'update');
     await this.detail(user, id);
     const fields = this.writeFields(dto);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
@@ -319,8 +332,7 @@ export class BaseRecordService {
   }
 
   async archive(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), this.meta.writePerm as Parameters<typeof authorize>[1]).allowed)
-      throw new ForbiddenException('FORBIDDEN:' + this.meta.writePerm);
+    this.require(user, 'delete');
     await this.detail(user, id);
     await this.base.delete(this.tableId, id);
     this.emitAudit(user, '删除', id);
@@ -328,12 +340,51 @@ export class BaseRecordService {
   }
 
   async transition(user: SessionUser, id: string, to: string) {
-    if (!authorize(toPrincipal(user), this.meta.writePerm as Parameters<typeof authorize>[1]).allowed)
-      throw new ForbiddenException('FORBIDDEN:' + this.meta.writePerm);
+    this.require(user, 'update');
     if (!this.meta.statusField) throw new BadRequestException('NO_STATUS_FIELD');
     await this.detail(user, id);
     await this.base.update(this.tableId, id, { [this.meta.statusField]: to });
     return this.detail(user, id);
+  }
+
+  /** 服务端导出 CSV：当前模块全量记录（上限 20000），UTF-8 BOM 防 Excel 乱码。 */
+  async exportCsv(user: SessionUser): Promise<{ csv: string; filename: string }> {
+    this.require(user, 'export');
+    const rows = await this.fetchAll();
+    if (!rows.length) return { csv: '﻿', filename: `${this.meta.path}.csv` };
+    const fields = Array.from(new Set(rows.flatMap((r) => Object.keys(r.fields)))).filter(
+      (k) => !k.endsWith('__link'),
+    );
+    const esc = (v: unknown): string => {
+      const s = Array.isArray(v) ? v.map((x) => (typeof x === 'object' ? toText((x as { text?: string })?.text ?? '') : String(x))).join('、') : v == null ? '' : String(toText(v));
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const header = fields.map(esc).join(',');
+    const body = rows
+      .map((r) => fields.map((f) => esc(r.fields[f])).join(','))
+      .join('\n');
+    return { csv: '﻿' + header + '\n' + body, filename: `${this.meta.path}.csv` };
+  }
+
+  /** 服务端批量导入：逐行 create（BaseClient 仅支持单条，串行 ≤200/批）。失败行计入 failed，不中断整体。 */
+  async importRows(user: SessionUser, rows: Record<string, unknown>[]): Promise<{ ok: number; failed: number }> {
+    this.require(user, 'import');
+    let ok = 0;
+    let failed = 0;
+    for (const row of rows) {
+      try {
+        const fields = this.writeFields(row);
+        if (Object.keys(fields).length === 0) {
+          failed++;
+          continue;
+        }
+        await this.base.create(this.tableId, fields);
+        ok++;
+      } catch {
+        failed++;
+      }
+    }
+    return { ok, failed };
   }
 }
 
@@ -357,6 +408,20 @@ function makeController(meta: RecordMeta, SvcClass: Type<BaseRecordService>) {
     constructor(@Inject(SvcClass) private readonly svc: BaseRecordService) {}
     @Get() list(@Req() req: Request, @Query() q: Record<string, string | undefined>) {
       return this.svc.list((req as Request & { user: SessionUser }).user, q);
+    }
+    // ⚠️ 静态路由（export/import）必须声明在 :id 参数路由之前，否则 /<path>/export 会被
+    // @Get(':id') 捕获为 id='export' 而误返回 404。Nest 按声明顺序匹配路由。
+    @Get('export') async exportCsv(
+      @Req() req: Request,
+      @Res({ passthrough: true }) res: import('express').Response,
+    ) {
+      const { csv, filename } = await this.svc.exportCsv((req as Request & { user: SessionUser }).user);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+      return csv;
+    }
+    @Post('import') importRows(@Req() req: Request, @Body() body: { rows?: Record<string, unknown>[] }) {
+      return this.svc.importRows((req as Request & { user: SessionUser }).user, body.rows ?? []);
     }
     @Get(':id') detail(@Req() req: Request, @Param('id') id: string) {
       return this.svc.detail((req as Request & { user: SessionUser }).user, id);

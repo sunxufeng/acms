@@ -2,9 +2,11 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import { usePermissions } from '../lib/permissions';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useTl } from '../lib/useTl';
+import { MODULE_RESOURCES } from '@acms/contracts';
 import { api as apiClient, type Page } from '../lib/api';
 import MarkdownField from './MarkdownField';
 import TagInput from './TagInput';
@@ -75,6 +77,8 @@ export interface CrudApi {
   update: (id: string, data: Record<string, unknown>) => Promise<unknown>;
   archive: (id: string) => Promise<unknown>;
   transition?: (id: string, to: string) => Promise<unknown>;
+  /** 服务端批量导入（generic-crud 提供）：逐行 create。提供后工具栏显示「导入」按钮。 */
+  importRows?: (rows: Record<string, unknown>[]) => Promise<{ ok: number; failed: number }>;
 }
 
 export interface CrudPageProps {
@@ -133,6 +137,12 @@ export interface CrudPageProps {
   onSelectionChange?: (rows: Record<string, unknown>[]) => void;
   /** 列表页头部返回箭头：设置后渲染一个返回链接（用于非一级导航的深层子页，如邮件账户） */
   backHref?: string;
+  /**
+   * 当前模块 key（DEFAULT_NAV_MENU_CONFIG 的 key，如 'students'/'grades'）。提供后，
+   * 新建/编辑/删除/导出/导入按钮按 module:<key>:<action> 做按钮级门控，实现「每个按钮都能单独控」。
+   * 不提供则沿用 readonly/hideCreate 的旧行为（向后兼容未迁移的页面）。
+   */
+  moduleKey?: string;
   /**
    * 编辑/详情打开前，用当前行预拉取完整记录并合并字段（异步）。
    * 用于列表行只含摘要、需要详情接口回填额外字段的场景（如 Get笔记 原始记录仅详情返回）。
@@ -237,7 +247,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -294,6 +304,27 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   // 业务文案（页面传入的 title/列名/字段名/按钮/占位符）以中文原文为 key，
   // 中文环境 fallback 回原文，英文环境返回 labels 命名空间映射的英文。
   const tl = useTl();
+
+  // 模块级按钮门控：module:<key>:<action>。提供 moduleKey 时按权限点控制；
+  // 未提供则沿用 readonly/hideCreate 的旧行为（向后兼容）。
+  const perms = usePermissions();
+  const modOk = (action: string) => (moduleKey ? perms.includes(`module:${moduleKey}:${action}`) : true);
+  const canCreate = !readonly && !hideCreate && modOk('create');
+  const canUpdate = !readonly && modOk('update');
+  const canDelete = !readonly && modOk('delete');
+  const canExport = !readonly && modOk('export');
+  /**
+   * 导入按钮：优先用页面显式提供的 api.importRows；否则若该模块由通用 CRUD 承载
+   * （MODULE_RESOURCES.genericCrud），自动接线到 POST /<path>/import，做到「导入」
+   * 不需要逐页手写、与导出/刷新统一风格。按钮可见性仍由 module:<key>:import 门控。
+   */
+  const modRes = moduleKey ? MODULE_RESOURCES.find((r) => r.key === moduleKey) : undefined;
+  const autoImportRows = modRes?.genericCrud
+    ? async (rows: Record<string, unknown>[]) =>
+        globalApi.post<{ ok: number; failed: number }>(`/${modRes.path}/import`, { rows })
+    : undefined;
+  const importRowsFn = api.importRows ?? autoImportRows;
+  const canImport = !readonly && !!importRowsFn && modOk('import');
 
   const filterCols = columns.filter((c) => c.filter);
   const formCols = columns.filter((c) => c.form);
@@ -715,6 +746,79 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     }
   }
 
+  /** 客户端导出当前列表为 CSV（UTF-8 BOM，避免 Excel 乱码） */
+  function downloadCsv() {
+    const cols = listCols;
+    const esc = (v: unknown): string => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = cols.map((c) => esc(tl(c.label))).join(',');
+    const body = items.map((row) =>
+      cols.map((c) => esc(cellText(row[c.key], c, tl))).join(','),
+    );
+    const csv = '﻿' + header + '\n' + body.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title || 'export'}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** 解析 CSV（支持双引号转义），首行为表头 */
+  function parseCsv(text: string): Record<string, string>[] {
+    const splitLine = (line: string): string[] => {
+      const out: string[] = [];
+      let cur = '';
+      let q = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (q) {
+          if (ch === '"') {
+            if (line[i + 1] === '"') { cur += '"'; i++; } else q = false;
+          } else cur += ch;
+        } else if (ch === '"') q = true;
+        else if (ch === ',') { out.push(cur); cur = ''; } else cur += ch;
+      }
+      out.push(cur);
+      return out;
+    };
+    const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim() !== '');
+    if (lines.length < 2) return [];
+    const headers = splitLine(lines[0]).map((h) => h.trim());
+    const labelToKey = new Map(listCols.map((c) => [tl(c.label).trim(), c.key]));
+    return lines.slice(1).map((l) => {
+      const vals = splitLine(l);
+      const o: Record<string, string> = {};
+      headers.forEach((h, i) => {
+        const key = labelToKey.get(h) ?? h;
+        o[key] = vals[i] ?? '';
+      });
+      return o;
+    });
+  }
+
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const text = await file.text();
+      const rows = parseCsv(text);
+      if (!importRowsFn) throw new Error(t('common.notSupported'));
+      const res = await importRowsFn(rows);
+      setError(t('crud.importDone', { ok: res.ok, failed: res.failed }));
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('crud.importFailed'));
+    } finally {
+      setImporting(false);
+      e.target.value = '';
+    }
+  }
+
   /** 一键读取本机当前连接的 WiFi（SSID + 最佳努力 BSSID），填入对应 tags 字段 */
   async function quickFillWifi(c: CrudColumn) {
     setWifiBusy(true);
@@ -900,7 +1004,23 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             {extraLinks?.map((l) => (
               <Link key={l.href} href={l.href} className="btn btn-outline">{tl(l.label)}</Link>
             ))}
-            {!hideCreate && (createHref ? (
+            {canImport && (
+              <>
+                <button className="btn btn-outline" disabled={loading || importing} onClick={() => fileInputRef.current?.click()}>
+                  {importing ? `${t('crud.importing')}…` : t('crud.import')}
+                </button>
+                <input ref={fileInputRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImportFile} />
+              </>
+            )}
+            {canExport && (
+              <button className="btn btn-outline" disabled={loading || items.length === 0} onClick={downloadCsv}>
+                {t('crud.export')}
+              </button>
+            )}
+            <button className="btn btn-ghost" disabled={loading} onClick={() => reload()} title={t('crud.refresh')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></svg>
+            </button>
+            {canCreate && (createHref ? (
               <Link href={createHref} className="btn btn-primary">+ {t('crud.create')}</Link>
             ) : (
               <button className="btn btn-primary" onClick={() => openCreate()} disabled={loading || readonly}>+ {t('crud.create')}</button>
@@ -1077,9 +1197,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   ))}
                   <td>
                     <div style={rowActions}>
-                      {!readonly && editHref ? (
+                      {canUpdate && editHref ? (
                         <Link href={editHref(String(row.id))} className="btn btn-ghost btn-sm">{t('crud.edit')}</Link>
-                      ) : !readonly && (
+                      ) : canUpdate && (
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(row)}>{t('crud.edit')}</button>
                       )}
                       {!readonly && api.transition && allowed.length > 0 && (
@@ -1110,7 +1230,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                           </button>
                         );
                       })}
-                      {!readonly && <button className="btn btn-danger btn-sm" onClick={() => remove(row)}>{t('crud.delete')}</button>}
+                      {canDelete && <button className="btn btn-danger btn-sm" onClick={() => remove(row)}>{t('crud.delete')}</button>}
                     </div>
                   </td>
                 </tr>

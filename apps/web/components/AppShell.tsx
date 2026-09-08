@@ -6,6 +6,8 @@ import { usePathname } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { api } from '../lib/api';
 import LocaleSwitcher from './LocaleSwitcher';
+import { modulePermission, MODULE_RESOURCES } from '@acms/contracts';
+import { loadPermissions } from '../lib/permissions';
 import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuGroup, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
 
 interface Me {
@@ -293,6 +295,8 @@ export default function AppShell({
         setMyMenus(!!p.myMenuRestricted ? (p.myMenus || []) : null);
       })
       .catch(() => null);
+    // 填充全局权限缓存（按钮级门控共享，避免每页重复拉取）
+    loadPermissions().catch(() => null);
   }, []);
 
   async function handleLogout() {
@@ -405,7 +409,11 @@ export default function AppShell({
             const renderItem = (item: NavMenuItem) => {
               const Icon = ICONS[item.icon] ?? (() => null);
               if (item.adminOnly && !isAdmin) return null;
-              if (item.perm && !(myPerms || []).includes(item.perm)) return null;
+              // 菜单入口优先用模块级 enter 权限（module:<key>:enter）；若该菜单无对应模块资源，回退 legacy item.perm。
+              // 这样「菜单可见性」在角色管理矩阵里可被单独控制，且撤销 enter 会真正隐藏菜单。
+              const modRes = MODULE_RESOURCES.find((r) => r.key === item.key);
+              const enterPerm = modRes ? modulePermission(item.key, 'enter') : item.perm;
+              if (enterPerm && !(myPerms || []).includes(enterPerm)) return null;
               // 角色级菜单白名单：仅作收敛，不会放大权限
               if (myMenus && !myMenus.includes(item.key)) return null;
               const label = locale === 'en' ? (item.enLabel || tn(item.key) || item.label) : item.label;

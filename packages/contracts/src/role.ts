@@ -1,3 +1,5 @@
+import { MODULE_ACTION_LABELS, MODULE_PERMISSIONS, MODULE_RESOURCES } from './module-permissions.js';
+
 /** 系统角色（与 Base 系统用户表「系统角色」多选字段选项完全一致）。
  *  注：student / parent 为外部用户（微信小程序 / 家长 H5）角色，不出现在飞书系统用户表，
  *  仅由后端在签发会话时写入。 */
@@ -125,6 +127,7 @@ export const PERMISSIONS = [
   'aiagent:read',
   'aiskill:read',
   'aiusage:read',
+  ...MODULE_PERMISSIONS,
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -171,10 +174,11 @@ export const DOMAIN_LABELS: Record<string, string> = {
   aiagent: '智能体管理',
   aiskill: '技能管理',
   aiusage: 'AI 用量',
+  ...Object.fromEntries(MODULE_RESOURCES.map((resource) => [`module:${resource.key}`, resource.label])),
 };
 
 const ACTION_LABELS: Record<string, string> = {
-  read: '查看',
+  ...MODULE_ACTION_LABELS,
   write: '编辑',
   archive: '归档',
   approve: '审批',
@@ -212,8 +216,8 @@ const PERMISSION_LABEL_OVERRIDES: Record<string, string> = {
 
 /**
  * 菜单级权限点的自动继承规则：新权限点 → 前置资源权限点。
- * 已拥有前置权限点的角色，在升级/自愈时自动获得对应菜单权限点，
- * 保证「拆权限点」这一动作不会让存量角色的菜单凭空消失。
+ * 仅用于内置默认角色初始化；存量角色不再启动自愈，避免撤权后恢复。
+ * 存量 v2 迁移直接读取已保存的旧菜单权限与白名单。
  * 前置为空数组 = 所有角色无条件获得（如工作概览）。
  */
 export const MENU_PERM_INHERIT: Record<string, readonly string[]> = {
@@ -232,13 +236,20 @@ export const MENU_PERM_INHERIT: Record<string, readonly string[]> = {
   'aiusage:read': ['ai:admin'],
 };
 
+function permissionParts(permission: string): { domain: string; action: string } {
+  const parts = permission.split(':');
+  return parts[0] === 'module' && parts.length === 3
+    ? { domain: `module:${parts[1]}`, action: parts[2] ?? '' }
+    : { domain: parts[0] ?? permission, action: parts[1] ?? '' };
+}
+
 /** 权限点 → 中文展示名 */
 export const PERMISSION_LABELS: Record<Permission, string> = PERMISSIONS.reduce(
   (acc, p) => {
     if (PERMISSION_LABEL_OVERRIDES[p]) {
       acc[p] = PERMISSION_LABEL_OVERRIDES[p];
     } else {
-      const [dom = '', act = ''] = p.split(':');
+      const { domain: dom, action: act } = permissionParts(p);
       acc[p] = `${DOMAIN_LABELS[dom] ?? dom}·${ACTION_LABELS[act] ?? act}`;
     }
     return acc;
@@ -271,7 +282,7 @@ export function groupPermissions(
 ): { domain: string; label: string; perms: string[] }[] {
   const m = new Map<string, string[]>();
   for (const p of perms) {
-    const dom = p.split(':')[0] ?? p;
+    const { domain: dom } = permissionParts(p);
     const list = m.get(dom);
     if (list) list.push(p);
     else m.set(dom, [p]);

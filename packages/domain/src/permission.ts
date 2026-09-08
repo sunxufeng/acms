@@ -1,6 +1,9 @@
 import {
   DATA_LEVEL_RANK,
   MENU_PERM_INHERIT,
+  MODULE_RESOURCES,
+  PERMISSIONS,
+  modulePermission,
   type DataLevel,
   type Permission,
   type Role,
@@ -157,11 +160,46 @@ const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
 };
 
 /**
- * 菜单级权限点按 MENU_PERM_INHERIT 自动派生：
- * 角色只要拥有前置资源权限点（如 student:read），就自动获得对应菜单权限点
- * （如 observation:read / idp:read），避免新增菜单权限点后存量角色菜单凭空消失。
- * 前置为空 = 所有角色无条件获得（工作概览）。
+ * 仅用于默认角色初始化及存量角色 v2 迁移，不在 authorize/permissionsOf 中调用。
+ * 使用原始权限快照，菜单白名单只约束 enter，不能凭菜单权限推导数据读写。
+ * 合并后的 transition 覆盖多种旧审批动作，必须同时具备全部旧权限，避免越权。
  */
+export function inheritModulePermissions(role: {
+  key: string;
+  permissions: readonly string[];
+  menus?: readonly string[];
+}): Permission[] {
+  const legacy = new Set(role.permissions);
+  const result = new Set(role.permissions);
+  if (role.key === '系统管理员') {
+    for (const permission of PERMISSIONS) result.add(permission);
+    return [...result] as Permission[];
+  }
+  for (const resource of MODULE_RESOURCES) {
+    for (const action of resource.actions) {
+      let allowed = false;
+      if (action === 'enter') {
+        allowed = !resource.adminOnly
+          && (!resource.menuPermission || legacy.has(resource.menuPermission))
+          && (!role.menus?.length || role.menus.includes(resource.key));
+      } else if (action === 'export') {
+        allowed = !!resource.legacyRead && legacy.has(resource.legacyRead) && legacy.has('export:run');
+      } else {
+        const override = resource.legacyActions?.[action];
+        const source = action === 'read' || action === 'refresh' ? resource.legacyRead : resource.legacyWrite;
+        allowed = override !== undefined
+          ? override.length > 0 && override.every((permission) => legacy.has(permission))
+          : !!source && legacy.has(source);
+        // 导入必须有实际写权限，不能因 read、菜单权限或导出权限被授予。
+        if (action === 'import') allowed = allowed && !!resource.legacyWrite && legacy.has(resource.legacyWrite);
+      }
+      if (allowed) result.add(modulePermission(resource.key, action));
+    }
+  }
+  return [...result] as Permission[];
+}
+
+/** 内置基线先派生旧菜单权限，再按真实服务权限生成模块权限；管理员获得完整目录。 */
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = (() => {
   const out = {} as Record<Role, readonly Permission[]>;
   for (const role of Object.keys(BASE_ROLE_PERMISSIONS) as Role[]) {
@@ -169,7 +207,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = (() => {
     for (const [menuPerm, prereqs] of Object.entries(MENU_PERM_INHERIT)) {
       if (prereqs.length === 0 || prereqs.some((p) => set.has(p))) set.add(menuPerm);
     }
-    out[role] = [...set] as Permission[];
+    out[role] = inheritModulePermissions({ key: role, permissions: [...set] });
   }
   return out;
 })();

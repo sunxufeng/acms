@@ -121,6 +121,10 @@ export const api = {
   /** 当前会话用户 */
   me: () => request<SessionUser>('/auth/me'),
 
+  /** 通用 POST（如 CrudPage 批量导入 endpoint）。返回解析后的 JSON。 */
+  post: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
+
   /** 学生列表 */
   listStudents: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();

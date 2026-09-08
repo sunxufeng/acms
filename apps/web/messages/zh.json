@@ -231,7 +231,13 @@
     "wifiError": "未能读取本机 WiFi：请先在本机运行 `node scripts/wifi-helper.mjs`（保持运行），并用本地 dev 地址 http://localhost:3000 打开本页；或手动填写。",
     "tagPlaceholder": "输入或选择，回车添加",
     "remove": "移除",
-    "fillRequired": "请先填写必填项：{fields}"
+    "fillRequired": "请先填写必填项：{fields}",
+    "refresh": "刷新",
+    "export": "导出",
+    "import": "导入",
+    "importing": "导入中",
+    "importDone": "导入完成：成功 {ok} 条，失败 {failed} 条",
+    "importFailed": "导入失败"
   },
   "ai": {
     "config": {
@@ -977,6 +983,11 @@
     "搜索角色": "搜索角色",
     "全选": "全选",
     "清空": "清空",
+    "反选": "反选",
+    "模块": "模块",
+    "搜索模块": "搜索模块",
+    "复制模块权限给": "复制模块权限给",
+    "选择角色": "选择角色",
     "加载中": "加载中",
     "无匹配角色": "无匹配角色",
     "内置": "内置",

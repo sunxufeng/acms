@@ -231,7 +231,13 @@
     "wifiError": "Could not read this device's WiFi: please run `node scripts/wifi-helper.mjs` on this machine (keep it running) and open this page via the local dev address http://localhost:3000; or fill it in manually.",
     "tagPlaceholder": "Type or select, press Enter to add",
     "remove": "Remove",
-    "fillRequired": "Please fill in required fields: {fields}"
+    "fillRequired": "Please fill in required fields: {fields}",
+    "refresh": "Refresh",
+    "export": "Export",
+    "import": "Import",
+    "importing": "Importing",
+    "importDone": "Import done: {ok} succeeded, {failed} failed",
+    "importFailed": "Import failed"
   },
   "ai": {
     "config": {
@@ -977,6 +983,11 @@
     "搜索角色": "Search roles",
     "全选": "Select all",
     "清空": "Clear",
+    "反选": "Invert",
+    "模块": "Module",
+    "搜索模块": "Search modules",
+    "复制模块权限给": "Copy module perms to",
+    "选择角色": "Select role",
     "加载中": "Loading",
     "无匹配角色": "No matching role",
     "内置": "Built-in",

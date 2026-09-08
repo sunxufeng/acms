@@ -181,6 +181,8 @@ export default function AppShell({
   const tTop = useTranslations('topbar');
   const [me, setMe] = useState<Me | null>(null);
   const [myPerms, setMyPerms] = useState<string[]>([]);
+  /** 菜单白名单：null = 不限制（按权限点自动显隐）；数组 = 仅这些菜单可见 */
+  const [myMenus, setMyMenus] = useState<string[] | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>('dark');
@@ -286,7 +288,10 @@ export default function AppShell({
       .then((d) => setMe(d))
       .catch(() => null);
     api.getPermissions()
-      .then((p) => setMyPerms(p.myPermissions || []))
+      .then((p) => {
+        setMyPerms(p.myPermissions || []);
+        setMyMenus(!!p.myMenuRestricted ? (p.myMenus || []) : null);
+      })
       .catch(() => null);
   }, []);
 
@@ -401,6 +406,8 @@ export default function AppShell({
               const Icon = ICONS[item.icon] ?? (() => null);
               if (item.adminOnly && !isAdmin) return null;
               if (item.perm && !(myPerms || []).includes(item.perm)) return null;
+              // 角色级菜单白名单：仅作收敛，不会放大权限
+              if (myMenus && !myMenus.includes(item.key)) return null;
               const label = locale === 'en' ? (item.enLabel || tn(item.key) || item.label) : item.label;
               if (item.disabled) {
                 return (

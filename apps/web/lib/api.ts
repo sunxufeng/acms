@@ -772,9 +772,9 @@ export const api = {
 
   // ── 角色管理 ───────────────────────────────
   getRoleManagement: () => request<RoleManagementPayload>('/role-management'),
-  createRole: (data: { key: string; label?: string; permissions: string[]; maxDataLevel: string }) =>
+  createRole: (data: { key: string; label?: string; permissions: string[]; maxDataLevel: string; menus?: string[] }) =>
     request<RoleManagementPayload>('/role-management', { method: 'POST', body: JSON.stringify(data) }),
-  updateRole: (key: string, data: { label?: string; permissions?: string[]; maxDataLevel?: string }) =>
+  updateRole: (key: string, data: { label?: string; permissions?: string[]; maxDataLevel?: string; menus?: string[] }) =>
     request<RoleManagementPayload>(`/role-management/${encodeURIComponent(key)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -1038,6 +1038,9 @@ export interface PermissionsPayload {
   myRoles: string[];
   myMaxDataLevel: string;
   myPermissions: string[];
+  /** 可见菜单白名单（restricted=false 时不限制） */
+  myMenus?: string[];
+  myMenuRestricted?: boolean;
 }
 
 export interface RoleManagementPayload {

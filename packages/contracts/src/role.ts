@@ -109,6 +109,22 @@ export const PERMISSIONS = [
   'getnote:write',
   // 报表：独立权限点，与 student:read 解耦——可单独授予「只看报表、不看学生档案」
   'report:read',
+  // 菜单级权限点：只控制菜单入口可见性，不参与接口鉴权。
+  // 存在意义：多个菜单原本共用同一个资源权限点（如 学生观察/IDP管理 都挂 student:read），
+  // 导致权限清单里搜不到菜单名、也无法单独授权。此处为每个菜单提供唯一权限点。
+  'dashboard:read',
+  'portal:read',
+  'student360:read',
+  'observation:read',
+  'idp:read',
+  'dailyfollowup:read',
+  'studentattendance:read',
+  'teaching:read',
+  'settlement:read',
+  'adjustment:read',
+  'aiagent:read',
+  'aiskill:read',
+  'aiusage:read',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -141,6 +157,20 @@ export const DOMAIN_LABELS: Record<string, string> = {
   mail: '邮件归档',
   getnote: '我的笔记/知识库',
   report: '报表',
+  // 菜单级域（标签直接用菜单名，便于按菜单名搜索授权）
+  dashboard: '工作概览',
+  portal: '学生门户',
+  student360: '学生全景',
+  observation: '学生观察',
+  idp: 'IDP管理',
+  dailyfollowup: '日常跟进',
+  studentattendance: '学生考勤',
+  teaching: '教学班级',
+  settlement: '月度结算',
+  adjustment: '调整冲销',
+  aiagent: '智能体管理',
+  aiskill: '技能管理',
+  aiusage: 'AI 用量',
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -165,6 +195,41 @@ const PERMISSION_LABEL_OVERRIDES: Record<string, string> = {
   'ai:automation': 'AI 自动化',
   'ai:admin': 'AI 管理',
   'report:read': '报表查看',
+  'dashboard:read': '工作概览·查看',
+  'portal:read': '学生门户·查看',
+  'student360:read': '学生全景·查看',
+  'observation:read': '学生观察·查看',
+  'idp:read': 'IDP管理·查看',
+  'dailyfollowup:read': '日常跟进·查看',
+  'studentattendance:read': '学生考勤·查看',
+  'teaching:read': '教学班级·查看',
+  'settlement:read': '月度结算·查看',
+  'adjustment:read': '调整冲销·查看',
+  'aiagent:read': '智能体管理·查看',
+  'aiskill:read': '技能管理·查看',
+  'aiusage:read': 'AI 用量·查看',
+};
+
+/**
+ * 菜单级权限点的自动继承规则：新权限点 → 前置资源权限点。
+ * 已拥有前置权限点的角色，在升级/自愈时自动获得对应菜单权限点，
+ * 保证「拆权限点」这一动作不会让存量角色的菜单凭空消失。
+ * 前置为空数组 = 所有角色无条件获得（如工作概览）。
+ */
+export const MENU_PERM_INHERIT: Record<string, readonly string[]> = {
+  'dashboard:read': [],
+  'portal:read': ['student:read'],
+  'student360:read': ['student:read'],
+  'observation:read': ['student:read'],
+  'idp:read': ['student:read'],
+  'dailyfollowup:read': ['followup:read'],
+  'studentattendance:read': ['attendance:read'],
+  'teaching:read': ['course:read'],
+  'settlement:read': ['billing:read'],
+  'adjustment:read': ['billing:read'],
+  'aiagent:read': ['ai:config'],
+  'aiskill:read': ['ai:admin'],
+  'aiusage:read': ['ai:admin'],
 };
 
 /** 权限点 → 中文展示名 */
@@ -191,6 +256,10 @@ export const DOMAIN_ORDER = [
   'notification', 'grade', 'activity', 'communication', 'evaluation', 'alumni',
   'teacher', 'course', 'venue', 'schedule', 'export', 'admin', 'config', 'ai',
   'mail', 'getnote', 'report',
+  // 菜单级域：排在资源域之后
+  'dashboard', 'portal', 'student360', 'observation', 'idp', 'dailyfollowup',
+  'studentattendance', 'teaching', 'settlement', 'adjustment',
+  'aiagent', 'aiskill', 'aiusage',
 ] as const;
 
 /**
@@ -226,6 +295,12 @@ export interface RoleDef {
   permissions: Permission[];
   /** 数据密级上限 */
   maxDataLevel: DataLevel;
+  /**
+   * 菜单可见性白名单（菜单 key 列表）。
+   * undefined / 空 = 不额外限制，完全按权限点自动显隐；
+   * 非空 = 仅这些菜单对该角色可见（仍须同时通过 perm / adminOnly 校验）。
+   */
+  menus?: string[];
   /** 内置角色：不可删除 */
   protected?: boolean;
   /** 权限集锁定（如系统管理员）：仅可改名，权限/密级不可改 */

@@ -1866,7 +1866,13 @@
     "菜单路径": "Menu Path",
     "已转": "Converted",
     "配置名称": "Config name",
-    "归属人": "Owner"
+    "归属人": "Owner",
+    "菜单可见性": "Menu visibility",
+    "留空 = 按权限点自动显隐；勾选后该角色只能看到所选菜单。此处只做收敛，不会放大权限。": "Leave empty = show/hide automatically by permission. Once selected, the role sees only the chosen menus. This only narrows access, never grants more.",
+    "搜索菜单": "Search menus",
+    "白名单模式": "Whitelist mode",
+    "自动模式（不限制）": "Auto mode (unrestricted)",
+    "恢复自动": "Restore auto"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

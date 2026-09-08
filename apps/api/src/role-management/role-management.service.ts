@@ -11,6 +11,7 @@ import {
 import { BaseClient, toText } from '@acms/base-adapter';
 import {
   DATA_LEVELS,
+  MENU_PERM_INHERIT,
   PERMISSIONS,
   ROLE_PERMISSION_CONFIG_KEY,
   TABLES,
@@ -45,6 +46,8 @@ interface StoredRole {
   permissions: string[];
   maxDataLevel: string;
   protected?: boolean;
+  /** 菜单可见性白名单；空/缺省 = 不额外限制 */
+  menus?: string[];
 }
 
 export interface CreateRoleInput {
@@ -52,12 +55,14 @@ export interface CreateRoleInput {
   label?: string;
   permissions: string[];
   maxDataLevel: string;
+  menus?: string[];
 }
 
 export interface UpdateRoleInput {
   label?: string;
   permissions?: string[];
   maxDataLevel?: string;
+  menus?: string[];
 }
 
 @Injectable()
@@ -105,6 +110,19 @@ export class RoleManagementService implements OnModuleInit {
   private async ensureLoaded(): Promise<void> {
     const stored = await this.readStored();
     const roles = stored ?? this.defaultConfig();
+    // 存量自愈：按 MENU_PERM_INHERIT 补齐新增的菜单级权限点，
+    // 保证「新增/拆分权限点」不会让存量角色的菜单凭空消失（仅限补齐，绝不回收）。
+    if (stored && this.healMenuPerms(stored)) {
+      try {
+        await this.persist(stored); // persist 内部会 applyToEngine
+        this.logger.log('已自动为存量角色补齐新增的菜单级权限点');
+        this.applyToEngine(stored);
+        await this.syncRoleOptionsToFeishu(stored);
+        return;
+      } catch (e) {
+        this.logger.error(`菜单权限点自愈失败（不影响启动）：${(e as Error).message}`);
+      }
+    }
     this.applyToEngine(roles);
     // 启动即把已配置角色回填为飞书字段选项（含历史新增角色），失败不影响启动
     await this.syncRoleOptionsToFeishu(roles);
@@ -138,12 +156,37 @@ export class RoleManagementService implements OnModuleInit {
     }
   }
 
+  /**
+   * 为存量角色补齐新增的菜单级权限点（只增不减）。
+   * @returns 是否发生了变更
+   */
+  private healMenuPerms(roles: StoredRole[]): boolean {
+    let changed = false;
+    for (const r of roles) {
+      const set = new Set(r.permissions);
+      let roleChanged = false;
+      for (const [menuPerm, prereqs] of Object.entries(MENU_PERM_INHERIT)) {
+        if (set.has(menuPerm)) continue;
+        if (prereqs.length === 0 || prereqs.some((p) => set.has(p))) {
+          set.add(menuPerm);
+          roleChanged = true;
+        }
+      }
+      if (roleChanged) {
+        r.permissions = [...set];
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
   private applyToEngine(roles: StoredRole[]): void {
     loadRolePermissionConfig(
       roles.map((r) => ({
         key: r.key,
         permissions: r.permissions as Permission[],
         maxDataLevel: (r.maxDataLevel as DataLevel) ?? 'L1',
+        menus: r.menus,
       })),
     );
   }
@@ -154,6 +197,7 @@ export class RoleManagementService implements OnModuleInit {
       label: r.label?.trim() || r.key,
       permissions: r.permissions as Permission[],
       maxDataLevel: (r.maxDataLevel as DataLevel) ?? 'L1',
+      menus: r.menus,
       protected: !!r.protected || PROTECTED_ROLES.has(r.key),
       lockedPermissions: LOCKED_PERMISSION_ROLES.has(r.key),
     };
@@ -201,6 +245,14 @@ export class RoleManagementService implements OnModuleInit {
     return arr.filter((p): p is Permission => (PERMISSIONS as readonly string[]).includes(String(p)));
   }
 
+  /** 菜单白名单：去重、去空。空数组表示「不限制」（前端清空即恢复自动） */
+  private sanitizeMenus(arr: unknown): string[] | undefined {
+    if (arr === undefined || arr === null) return undefined;
+    if (!Array.isArray(arr)) return undefined;
+    const out = [...new Set(arr.map((m) => String(m ?? '').trim()).filter(Boolean))];
+    return out.length ? out : undefined;
+  }
+
   async createRole(
     dto: CreateRoleInput,
   ): Promise<{ roles: RoleDef[]; allPermissions: Permission[]; dataLevels: DataLevel[]; syncedToFeishu: string[] }> {
@@ -216,6 +268,7 @@ export class RoleManagementService implements OnModuleInit {
       label: (dto.label ?? '').trim() || key,
       permissions: this.sanitizePerms(dto.permissions),
       maxDataLevel: this.normalizeLevel(dto.maxDataLevel),
+      menus: this.sanitizeMenus(dto.menus),
     };
     const merged = [...current, next];
     await this.persist(merged);
@@ -241,6 +294,11 @@ export class RoleManagementService implements OnModuleInit {
     if (dto.label !== undefined) role.label = dto.label.trim() || key;
     if (dto.permissions !== undefined) role.permissions = this.sanitizePerms(dto.permissions);
     if (dto.maxDataLevel !== undefined) role.maxDataLevel = this.normalizeLevel(dto.maxDataLevel);
+    if (dto.menus !== undefined) {
+      const menus = this.sanitizeMenus(dto.menus);
+      if (menus) role.menus = menus;
+      else delete role.menus;
+    }
 
     current[idx] = role;
     await this.persist(current);

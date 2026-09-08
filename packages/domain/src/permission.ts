@@ -1,5 +1,6 @@
 import {
   DATA_LEVEL_RANK,
+  MENU_PERM_INHERIT,
   type DataLevel,
   type Permission,
   type Role,
@@ -9,7 +10,7 @@ import {
  * RBAC：角色 → 权限点。键为 Base 系统用户表「系统角色」实际选项（与 ROLES 一致）。
  * 导出供权限矩阵 UI / 接口使用。admin:user 仅授予系统管理员，避免普通管理员互删。
  */
-export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
+const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   系统管理员: [
     'student:read', 'student:write', 'student:archive',
     'followup:read', 'followup:write',
@@ -155,6 +156,24 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   ],
 };
 
+/**
+ * 菜单级权限点按 MENU_PERM_INHERIT 自动派生：
+ * 角色只要拥有前置资源权限点（如 student:read），就自动获得对应菜单权限点
+ * （如 observation:read / idp:read），避免新增菜单权限点后存量角色菜单凭空消失。
+ * 前置为空 = 所有角色无条件获得（工作概览）。
+ */
+export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = (() => {
+  const out = {} as Record<Role, readonly Permission[]>;
+  for (const role of Object.keys(BASE_ROLE_PERMISSIONS) as Role[]) {
+    const set = new Set<string>(BASE_ROLE_PERMISSIONS[role]);
+    for (const [menuPerm, prereqs] of Object.entries(MENU_PERM_INHERIT)) {
+      if (prereqs.length === 0 || prereqs.some((p) => set.has(p))) set.add(menuPerm);
+    }
+    out[role] = [...set] as Permission[];
+  }
+  return out;
+})();
+
 /** 角色 → 默认数据密级上限（引擎等级 L1–L4） */
 export const ROLE_MAX_LEVEL: Record<Role, DataLevel> = {
   系统管理员: 'L4',
@@ -193,23 +212,29 @@ function isRole(v: string): v is Role {
  */
 let effectiveRolePermissions: Record<string, Permission[]> | null = null;
 let effectiveMaxLevel: Record<string, DataLevel> | null = null;
+/** 角色 → 菜单可见性白名单（key 列表）。空/缺省 = 不额外限制，按权限点自动显隐 */
+let effectiveRoleMenus: Record<string, string[]> | null = null;
 
 export interface RolePermissionSeed {
   key: string;
   permissions: Permission[];
   maxDataLevel: DataLevel;
+  menus?: string[];
 }
 
 /** 用系统配置覆盖角色权限矩阵（角色管理保存 / 应用启动时调用） */
 export function loadRolePermissionConfig(roles: RolePermissionSeed[]): void {
   const pm: Record<string, Permission[]> = {};
   const ml: Record<string, DataLevel> = {};
+  const mn: Record<string, string[]> = {};
   for (const r of roles) {
     pm[r.key] = [...r.permissions];
     ml[r.key] = r.maxDataLevel;
+    if (Array.isArray(r.menus) && r.menus.length) mn[r.key] = [...r.menus];
   }
   effectiveRolePermissions = pm;
   effectiveMaxLevel = ml;
+  effectiveRoleMenus = mn;
 }
 
 function permsForRole(role: string): Permission[] {
@@ -238,6 +263,28 @@ export function getRolePermissionMatrix(): Record<string, Permission[]> {
 /** 有效角色清单（含配置中新增的自定义角色） */
 export function getRoleList(): string[] {
   return Object.keys(getRolePermissionMatrix());
+}
+
+/**
+ * 多角色的菜单可见性并集。
+ * 只要有一个角色未限制（未配置白名单），即视为不限制（按权限点自动显隐）；
+ * 全部角色都配置了白名单时，取并集并标记 restricted=true。
+ */
+export function menusOf(principal: Principal): { restricted: boolean; menus: string[] } {
+  const roles = principal.roles ?? [];
+  if (!roles.length) return { restricted: false, menus: [] };
+  if (!effectiveRoleMenus) return { restricted: false, menus: [] };
+  const union = new Set<string>();
+  let allRestricted = true;
+  for (const r of roles) {
+    const list = effectiveRoleMenus[r];
+    if (!list || !list.length) {
+      allRestricted = false;
+      continue;
+    }
+    for (const m of list) union.add(m);
+  }
+  return { restricted: allRestricted, menus: [...union] };
 }
 
 /** 多角色取并集 */

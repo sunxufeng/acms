@@ -4,7 +4,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useTl } from '../../lib/useTl';
 import { api, type RoleManagementPayload } from '../../lib/api';
-import { groupPermissions, PERMISSION_LABELS, type Permission, type DataLevel, type RoleDef } from '@acms/contracts';
+import {
+  groupPermissions,
+  PERMISSION_LABELS,
+  DEFAULT_NAV_MENU_CONFIG,
+  type NavMenuConfig,
+  type Permission,
+  type DataLevel,
+  type RoleDef,
+} from '@acms/contracts';
 
 const LEVEL_LABELS: Record<string, string> = {
   L1: 'L1（一般）',
@@ -26,6 +34,8 @@ interface Draft {
   label: string;
   permissions: string[];
   maxDataLevel: string;
+  /** 菜单可见性白名单；undefined = 不限制（按权限点自动显隐） */
+  menus?: string[];
   protected?: boolean;
   lockedPermissions?: boolean;
   isNew?: boolean;
@@ -46,6 +56,8 @@ export default function RoleManagementPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newKey, setNewKey] = useState('');
   const [newLabel, setNewLabel] = useState('');
+  const [menuConfig, setMenuConfig] = useState<NavMenuConfig | null>(null);
+  const [menuQuery, setMenuQuery] = useState('');
 
   async function load() {
     setLoading(true);
@@ -75,6 +87,7 @@ export default function RoleManagementPage() {
       label: r.label,
       permissions: [...r.permissions],
       maxDataLevel: r.maxDataLevel,
+      menus: r.menus && r.menus.length ? [...r.menus] : undefined,
       protected: r.protected,
       lockedPermissions: r.lockedPermissions,
       isNew: false,
@@ -87,6 +100,31 @@ export default function RoleManagementPage() {
     [draft, config],
   );
 
+  // 菜单可见性：菜单清单取自系统菜单配置（与侧边栏同源）
+  useEffect(() => {
+    api.getMenuConfig().then(setMenuConfig).catch(() => null);
+  }, []);
+
+  const menuItems = useMemo(
+    () => (menuConfig?.items?.length ? menuConfig.items : DEFAULT_NAV_MENU_CONFIG.items),
+    [menuConfig],
+  );
+  const allMenuKeys = useMemo(() => menuItems.map((i) => i.key), [menuItems]);
+  const filteredMenuGroups = useMemo(() => {
+    const q = menuQuery.trim().toLowerCase();
+    const hit = menuItems.filter(
+      (i) => !q || i.label.toLowerCase().includes(q) || i.key.toLowerCase().includes(q),
+    );
+    const m = new Map<string, typeof menuItems>();
+    for (const it of hit) {
+      const section = it.section ?? '未分组';
+      const list = m.get(section);
+      if (list) list.push(it);
+      else m.set(section, [it]);
+    }
+    return [...m.entries()].map(([section, items]) => ({ section, items }));
+  }, [menuItems, menuQuery]);
+
   function togglePerm(p: string) {
     if (!draft || draft.lockedPermissions) return;
     setDraft((prev) => {
@@ -97,6 +135,37 @@ export default function RoleManagementPage() {
         permissions: has ? prev.permissions.filter((x) => x !== p) : [...prev.permissions, p],
       };
     });
+  }
+
+  /** 菜单可见性：undefined 视为「不限制」；勾选第一个菜单时从「全部允许」收敛为白名单 */
+  function toggleMenu(key: string) {
+    if (!draft || draft.lockedPermissions) return;
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const current = prev.menus ?? allMenuKeys;
+      const has = current.includes(key);
+      const next = has ? current.filter((x) => x !== key) : [...current, key];
+      return { ...prev, menus: next.length === allMenuKeys.length ? undefined : next };
+    });
+  }
+
+  function toggleMenuSection(keys: string[], on: boolean) {
+    if (!draft || draft.lockedPermissions) return;
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const set = new Set(prev.menus ?? allMenuKeys);
+      for (const k of keys) {
+        if (on) set.add(k);
+        else set.delete(k);
+      }
+      const next = [...set];
+      return { ...prev, menus: next.length === allMenuKeys.length ? undefined : next };
+    });
+  }
+
+  function resetMenus() {
+    if (!draft || draft.lockedPermissions) return;
+    setDraft((prev) => (prev ? { ...prev, menus: undefined } : prev));
   }
 
   function toggleDomain(domain: string, perms: string[], on: boolean) {
@@ -118,17 +187,21 @@ export default function RoleManagementPage() {
     setSaving(true);
     setMsg(null);
     try {
+      // menus 传空数组 = 清除白名单（恢复按权限点自动显隐）
+      const menus = draft.menus ?? [];
       const payload = draft.isNew
         ? await api.createRole({
             key: draft.key,
             label: draft.label,
             permissions: draft.permissions,
             maxDataLevel: draft.maxDataLevel,
+            menus,
           })
         : await api.updateRole(draft.key, {
             label: draft.label,
             permissions: draft.permissions,
             maxDataLevel: draft.maxDataLevel,
+            menus,
           });
       setConfig(payload);
       setShowCreate(false);
@@ -204,9 +277,16 @@ export default function RoleManagementPage() {
       const orig = config.roles.find((r) => r.key === draft.key);
       if (draft.isNew) return true;
       if (!orig) return true;
+      const origMenus = orig.menus ?? [];
+      const draftMenus = draft.menus ?? [];
+      const menusChanged =
+        origMenus.length !== draftMenus.length ||
+        origMenus.some((m) => !draftMenus.includes(m)) ||
+        draftMenus.some((m) => !origMenus.includes(m));
       return (
         orig.label !== draft.label ||
         orig.maxDataLevel !== draft.maxDataLevel ||
+        menusChanged ||
         orig.permissions.length !== draft.permissions.length ||
         orig.permissions.some((p) => !draft.permissions.includes(p)) ||
         draft.permissions.some((p) => !(orig.permissions as string[]).includes(p))
@@ -383,6 +463,90 @@ export default function RoleManagementPage() {
                                       style={{ marginRight: 6 }}
                                     />
                                     {PERMISSION_LABELS[p as Permission] ?? p}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="form-legend" style={{ marginTop: 'var(--space-lg)', marginBottom: 10 }}>
+                {tl('菜单可见性')}
+              </div>
+              <p style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginTop: 0, marginBottom: 12 }}>
+                {tl('留空 = 按权限点自动显隐；勾选后该角色只能看到所选菜单。此处只做收敛，不会放大权限。')}
+              </p>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                <input
+                  className="input"
+                  style={{ maxWidth: 220 }}
+                  value={menuQuery}
+                  onChange={(e) => setMenuQuery(e.target.value)}
+                  placeholder={tl('搜索菜单')}
+                />
+                <span className={draft.menus ? 'tag tag-accent' : 'tag'}>
+                  {draft.menus ? `${tl('白名单模式')}：${draft.menus.length} / ${allMenuKeys.length}` : tl('自动模式（不限制）')}
+                </span>
+                <button
+                  className="btn btn-outline"
+                  onClick={resetMenus}
+                  disabled={saving || !!draft.lockedPermissions || !draft.menus}
+                >
+                  {tl('恢复自动')}
+                </button>
+              </div>
+              <div className="data-table-wrap" style={{ maxHeight: '40vh', overflowY: 'auto' }}>
+                <table className="data-table">
+                  <tbody>
+                    {filteredMenuGroups.map((g) => {
+                      const keys = g.items.map((i) => i.key);
+                      const selected = draft.menus ?? allMenuKeys;
+                      const allOn = keys.every((k) => selected.includes(k));
+                      return (
+                        <tr key={g.section}>
+                          <td style={{ width: 180, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-elevated)' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: draft.lockedPermissions ? 'default' : 'pointer' }}>
+                              {!draft.lockedPermissions && (
+                                <input
+                                  type="checkbox"
+                                  checked={allOn}
+                                  ref={(el) => {
+                                    if (el) el.indeterminate = !allOn && keys.some((k) => selected.includes(k));
+                                  }}
+                                  onChange={(e) => toggleMenuSection(keys, e.target.checked)}
+                                />
+                              )}
+                              {g.section}
+                            </label>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                              {g.items.map((item) => {
+                                const on = selected.includes(item.key);
+                                return (
+                                  <label
+                                    key={item.key}
+                                    className="tag"
+                                    style={{
+                                      cursor: draft.lockedPermissions ? 'default' : 'pointer',
+                                      opacity: on ? 1 : 0.55,
+                                      borderColor: on ? 'var(--accent)' : undefined,
+                                      background: on ? 'var(--accent-soft)' : undefined,
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={on}
+                                      disabled={draft.lockedPermissions}
+                                      onChange={() => toggleMenu(item.key)}
+                                      style={{ marginRight: 6 }}
+                                    />
+                                    {item.label}
                                   </label>
                                 );
                               })}

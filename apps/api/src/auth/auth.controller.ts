@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { DATA_LEVELS, PERMISSIONS, ROLES, type SessionUser } from '@acms/contracts';
-import { maxDataLevelOf, permissionsOf, getRolePermissionMatrix, getRoleList } from '@acms/domain';
+import { maxDataLevelOf, menusOf, permissionsOf, getRolePermissionMatrix, getRoleList } from '@acms/domain';
 import { AuthService } from './auth.service.js';
 import { SessionGuard } from './session.guard.js';
 import { LoginRateLimitGuard } from './rate-limit.guard.js';
@@ -85,7 +85,11 @@ export class AuthController {
   @UseGuards(SessionGuard)
   permissions(@Req() req: Request & { user: SessionUser }) {
     const p = toPrincipal(req.user);
+    const menuScope = menusOf(p);
     return {
+      /** 当前用户可见菜单白名单；restricted=false 表示不限制，按权限点自动显隐 */
+      myMenus: menuScope.menus,
+      myMenuRestricted: menuScope.restricted,
       roles: getRoleList(),
       permissions: PERMISSIONS,
       /** 角色 → 权限点 矩阵（有效矩阵，已加载角色管理配置则按配置） */

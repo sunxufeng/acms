@@ -1,6 +1,5 @@
-import { Inject, Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { authorize, type Principal } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
@@ -11,6 +10,7 @@ import {
   CoursePlanFilterDto,
   COURSE_PLAN_TRANSITIONS,
 } from './teaching.dto.js';
+import { requireModule } from '../shared/require-module.js';
 
 const TABLE = TABLES.coursePlan.tableId;
 const READONLY = new Set([
@@ -19,17 +19,12 @@ const READONLY = new Set([
 const MULTI = new Set(['适用年级']);
 const NUMBERS = new Set(['标准总课时', '单次标准课时', '建议班额']);
 
-function toPrincipal(user: SessionUser): Principal {
-  return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
-}
-
 @Injectable()
 export class CoursePlanService {
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
   async list(user: SessionUser, query: CoursePlanFilterDto) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:read').allowed) throw new ForbiddenException('FORBIDDEN:course:read');
+    requireModule(user, 'courses', 'read');
     const conditions: { field: string; op?: string; value: string[] }[] = [];
     if (query.q) conditions.push({ field: '课程方案名称', op: 'contains', value: [query.q] });
     if (query.方案类型) conditions.push({ field: '方案类型', value: [query.方案类型] });
@@ -43,15 +38,14 @@ export class CoursePlanService {
   }
 
   async detail(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), 'course:read').allowed) throw new ForbiddenException('FORBIDDEN:course:read');
+    requireModule(user, 'courses', 'read');
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     return toFlatRecord(rec, READONLY, MULTI);
   }
 
   async create(user: SessionUser, dto: CreateCoursePlanDto) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'courses', 'create');
     if (!dto.课程方案名称?.trim()) throw new BadRequestException('VALIDATION:课程方案名称必填');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (!fields['方案状态']) fields['方案状态'] = '草拟';
@@ -61,9 +55,8 @@ export class CoursePlanService {
   }
 
   async update(user: SessionUser, id: string, dto: UpdateCoursePlanDto) {
-    const principal = toPrincipal(user);
     await this.detail(user, id);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'courses', 'update');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(TABLE, id, fields);
@@ -71,8 +64,7 @@ export class CoursePlanService {
   }
 
   async archive(user: SessionUser, id: string) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'courses', 'delete');
     await this.detail(user, id);
     await this.base.delete(TABLE, id);
     return { ok: true };
@@ -80,8 +72,7 @@ export class CoursePlanService {
 
   /** 状态机显式转移（BR-006）：仅允许注册转移，否则 422 */
   async transition(user: SessionUser, id: string, to: string) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'courses', 'transition');
     const cur = (await this.detail(user, id)) as Record<string, unknown>;
     const from = (cur['方案状态'] as string) ?? '草拟';
     const allowed = COURSE_PLAN_TRANSITIONS[from] ?? [];

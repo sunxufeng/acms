@@ -1,6 +1,5 @@
-import { Inject, Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { authorize, type Principal } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
@@ -11,6 +10,7 @@ import {
   EnrollmentFilterDto,
   ENROLLMENT_TRANSITIONS,
 } from './enrollment.dto.js';
+import { requireModule } from '../shared/require-module.js';
 
 const TABLE = TABLES.enrollment.tableId;
 const READONLY = new Set([
@@ -19,17 +19,12 @@ const READONLY = new Set([
 const MULTI = new Set<string>([]);
 const NUMBERS = new Set<string>([]);
 
-function toPrincipal(user: SessionUser): Principal {
-  return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
-}
-
 @Injectable()
 export class EnrollmentService {
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
   async list(user: SessionUser, query: EnrollmentFilterDto) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:read').allowed) throw new ForbiddenException('FORBIDDEN:course:read');
+    requireModule(user, 'teaching', 'read');
     const conditions: { field: string; op?: string; value: string[] }[] = [];
     if (query.q) conditions.push({ field: '修读关系名称', op: 'contains', value: [query.q] });
     if (query.修读类型) conditions.push({ field: '修读类型', value: [query.修读类型] });
@@ -43,15 +38,14 @@ export class EnrollmentService {
   }
 
   async detail(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), 'course:read').allowed) throw new ForbiddenException('FORBIDDEN:course:read');
+    requireModule(user, 'teaching', 'read');
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     return toFlatRecord(rec, READONLY, MULTI);
   }
 
   async create(user: SessionUser, dto: CreateEnrollmentDto) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'teaching', 'create');
     if (!dto.修读关系名称?.trim()) throw new BadRequestException('VALIDATION:修读关系名称必填');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (!fields['修读状态']) fields['修读状态'] = '待确认';
@@ -60,9 +54,8 @@ export class EnrollmentService {
   }
 
   async update(user: SessionUser, id: string, dto: UpdateEnrollmentDto) {
-    const principal = toPrincipal(user);
     await this.detail(user, id);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'teaching', 'update');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(TABLE, id, fields);
@@ -70,8 +63,7 @@ export class EnrollmentService {
   }
 
   async archive(user: SessionUser, id: string) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'teaching', 'delete');
     await this.detail(user, id);
     await this.base.delete(TABLE, id);
     return { ok: true };
@@ -79,8 +71,7 @@ export class EnrollmentService {
 
   /** 状态机转移（修读关系生命周期） */
   async transition(user: SessionUser, id: string, to: string) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'teaching', 'transition');
     const cur = (await this.detail(user, id)) as Record<string, unknown>;
     const from = (cur['修读状态'] as string) ?? '待确认';
     const allowed = ENROLLMENT_TRANSITIONS[from] ?? [];

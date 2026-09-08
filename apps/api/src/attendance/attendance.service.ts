@@ -1,26 +1,22 @@
-import { Inject, Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { authorize, type Principal } from '@acms/domain';
-import { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
+import type { BaseClient } from '@acms/base-adapter';
 import { buildWriteFields, toFlatRecord, buildFilter } from '../shared/record.util.js';
 import { CreateAttendanceDto, UpdateAttendanceDto, AttendanceFilterDto, TransitionDto, ATTENDANCE_TRANSITIONS } from './attendance.dto.js';
+import { requireModule } from '../shared/require-module.js';
 
 const TABLE = TABLES.teacherAttendance.tableId;
 const READONLY = new Set<string>(['创建时间', '更新时间']);
 const NUMBERS = new Set(['计划课时', '实到人数']);
-
-function toPrincipal(user: SessionUser): Principal {
-  return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
-}
 
 @Injectable()
 export class AttendanceService {
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
   async list(user: SessionUser, query: AttendanceFilterDto) {
-    if (!authorize(toPrincipal(user), 'attendance:read').allowed) throw new ForbiddenException('FORBIDDEN:attendance:read');
+    requireModule(user, 'attendance', 'read');
     const conditions: { field: string; op?: string; value: string[] }[] = [];
     if (query.q) conditions.push({ field: '教学班文本', op: 'contains', value: [query.q] });
     if (query.出勤状态) conditions.push({ field: '出勤状态', value: [query.出勤状态] });
@@ -36,14 +32,14 @@ export class AttendanceService {
   }
 
   async detail(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), 'attendance:read').allowed) throw new ForbiddenException('FORBIDDEN:attendance:read');
+    requireModule(user, 'attendance', 'read');
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     return toFlatRecord(rec, READONLY, new Set());
   }
 
   async create(user: SessionUser, dto: CreateAttendanceDto) {
-    if (!authorize(toPrincipal(user), 'attendance:write').allowed) throw new ForbiddenException('FORBIDDEN:attendance:write');
+    requireModule(user, 'attendance', 'create');
     if (!dto.授课教师文本?.trim() && !dto.教学班文本?.trim()) throw new BadRequestException('VALIDATION:授课教师或教学班必填');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (!fields['出勤状态']) fields['出勤状态'] = '待提交';
@@ -53,7 +49,7 @@ export class AttendanceService {
 
   async update(user: SessionUser, id: string, dto: UpdateAttendanceDto) {
     await this.detail(user, id);
-    if (!authorize(toPrincipal(user), 'attendance:write').allowed) throw new ForbiddenException('FORBIDDEN:attendance:write');
+    requireModule(user, 'attendance', 'update');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(TABLE, id, fields);
@@ -61,7 +57,7 @@ export class AttendanceService {
   }
 
   async archive(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), 'attendance:write').allowed) throw new ForbiddenException('FORBIDDEN:attendance:write');
+    requireModule(user, 'attendance', 'delete');
     await this.detail(user, id);
     await this.base.delete(TABLE, id);
     return { ok: true };
@@ -72,8 +68,7 @@ export class AttendanceService {
     const cur = (rec['出勤状态'] as string) || '待提交';
     const allowed = ATTENDANCE_TRANSITIONS[cur]?.find((t) => t.to === dto.to);
     if (!allowed) throw new BadRequestException('INVALID_TRANSITION:' + cur + '→' + dto.to);
-    if (!authorize(toPrincipal(user), allowed.perm as 'attendance:write').allowed)
-      throw new ForbiddenException('FORBIDDEN:' + allowed.perm);
+    requireModule(user, 'attendance', 'transition');
     await this.base.update(TABLE, id, { 出勤状态: dto.to });
     return this.detail(user, id);
   }

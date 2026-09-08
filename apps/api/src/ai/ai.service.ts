@@ -1,7 +1,7 @@
 // @ts-nocheck
-import { Injectable, Inject, Logger, OnModuleInit, ForbiddenException, BadRequestException } from '@nestjs/common';
-import type { SessionUser } from '@acms/contracts';
-import { hasPermission } from '@acms/domain';
+import { Injectable, Inject, Logger, OnModuleInit, BadRequestException } from '@nestjs/common';
+import type { SessionUser, ModuleAction } from '@acms/contracts';
+import { requireModule } from '../shared/require-module.js';
 
 import {
   routeChat,
@@ -66,8 +66,6 @@ import { StudentService } from '../student/student.service.js';
 import { BASE_CLIENT } from '../base.provider.js';
 import type { BaseClient } from '@acms/base-adapter';
 
-type Principal = { roles: readonly string[]; campuses: readonly string[]; maxDataLevel?: string };
-
 @Injectable()
 export class AiService implements OnModuleInit {
   private readonly logger = new Logger(AiService.name);
@@ -117,15 +115,10 @@ export class AiService implements OnModuleInit {
   }
 
   // ---------------- 权限 ----------------
-  private assert(user: SessionUser, perm: string) {
-    const principal: Principal = {
-      roles: user.roles ?? [],
-      campuses: user.campuses ?? [],
-      maxDataLevel: user.maxDataLevel,
-    };
-    if (!hasPermission(principal, perm)) {
-      throw new ForbiddenException(`缺少权限：${perm}`);
-    }
+  // 与全站一致：统一走 module:<key>:<action>，使「按钮隐藏＝接口也拦」。
+  // ROLE_PERMISSION_VERSION=2 迁移已把 legacy 权限派生为 module:*，替换后与现有角色一致。
+  private assert(user: SessionUser, key: string, action: ModuleAction) {
+    requireModule(user, key, action);
   }
 
   // ---------------- 配置 / Provider ----------------
@@ -134,7 +127,7 @@ export class AiService implements OnModuleInit {
   }
 
   getMyConfig(user: SessionUser) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'read');
     const cfg = getConfig(user.openId);
     if (!cfg) return null;
     const { _apiKeyEnc, ...rest } = cfg as Record<string, unknown>;
@@ -142,7 +135,7 @@ export class AiService implements OnModuleInit {
   }
 
   saveMyConfig(user: SessionUser, body: Record<string, unknown>) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'update');
     try {
       const stored = setConfig(user.openId, body);
       const { _apiKeyEnc, ...rest } = stored as Record<string, unknown>;
@@ -153,13 +146,13 @@ export class AiService implements OnModuleInit {
   }
 
   deleteMyConfig(user: SessionUser) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'delete');
     const ok = deleteConfig(user.openId);
     return { ok };
   }
 
   async testMyConnection(user: SessionUser, body: Record<string, unknown> = {}) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'update');
     try {
       return await testConnection(user.openId, body);
     } catch (error) {
@@ -169,33 +162,33 @@ export class AiService implements OnModuleInit {
 
   // 组织默认配置（管理员下发模板，不含密钥）
   getOrgDefaultCfg(user: SessionUser) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'read');
     return getOrgDefault();
   }
 
   setOrgDefaultCfg(user: SessionUser, body: Record<string, unknown>) {
-    this.assert(user, 'ai:config');
+    this.assert(user, 'aiConfig', 'update');
     const tpl = setOrgDefault(body);
     return tpl;
   }
 
   // ---------------- 智能体配置 ----------------
-  // listAgents 仅读不取密钥（智能体本就不存 apiKey），放宽到 ai:chat，
-  // 让对话页也能下拉选择智能体（Provider）；新增/编辑/删除仍限 ai:config。
+  // listAgents 仅读不取密钥（智能体本就不存 apiKey），放宽到 aiChat 的 read，
+  // 让对话页也能下拉选择智能体（Provider）；新增/编辑/删除仍限 aiAgents。
   listAgents(user: SessionUser) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'read');
     return listAgentsStore();
   }
 
   getAgent(user: SessionUser, id: string) {
-    this.assert(user, 'ai:config');
+    this.assert(user, 'aiAgents', 'read');
     const agent = getAgentById(id);
     if (!agent) throw new BadRequestException('智能体不存在');
     return agent;
   }
 
   saveAgent(user: SessionUser, body: Record<string, unknown>, id?: string) {
-    this.assert(user, 'ai:config');
+    this.assert(user, 'aiAgents', 'update');
     const clean = { ...body };
     if (!id) clean.owner = user.openId;
     const saved = upsertAgent(clean, id);
@@ -204,7 +197,7 @@ export class AiService implements OnModuleInit {
   }
 
   deleteAgent(user: SessionUser, id: string) {
-    this.assert(user, 'ai:config');
+    this.assert(user, 'aiAgents', 'delete');
     return removeAgent(id);
   }
 
@@ -215,23 +208,23 @@ export class AiService implements OnModuleInit {
 
   // ---------------- 技能（工具文档） ----------------
   listSkills(user: SessionUser) {
-    this.assert(user, 'ai:admin');
+    this.assert(user, 'aiSkills', 'read');
     return listSkillsStore();
   }
 
   getSkill(user: SessionUser, name: string) {
-    this.assert(user, 'ai:admin');
+    this.assert(user, 'aiSkills', 'read');
     return getSkillStore(name);
   }
 
   saveSkill(user: SessionUser, name: string, body: Record<string, unknown>) {
-    this.assert(user, 'ai:admin');
+    this.assert(user, 'aiSkills', 'update');
     return saveSkillStore(name, body);
   }
 
   // ---------------- 对话 ----------------
   async chat(user: SessionUser, body: { message?: string; sessionId?: string; model?: string; agentId?: string; history?: { role: string; content: string }[] }) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'create');
     const message = (body.message ?? '').toString();
     if (!message.trim()) throw new BadRequestException('message 不能为空');
 
@@ -301,23 +294,23 @@ export class AiService implements OnModuleInit {
   }
 
   async listConversations(user: SessionUser, q?: string) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'read');
     return listSessions(user.openId, null, q);
   }
 
   async getConversation(user: SessionUser, sessionId: string) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'read');
     return getHistory(user.openId, sessionId, 200);
   }
 
   async createConversation(user: SessionUser, body: { title?: string } = {}) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'create');
     const id = await createSession(user.openId, body.title || '新对话');
     return { id };
   }
 
   async renameConversation(user: SessionUser, sessionId: string, title: string) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'update');
     if (!title || !title.trim()) throw new BadRequestException('会话名称不能为空');
     const updated = await renameSession(user.openId, sessionId, title.trim());
     if (!updated) throw new BadRequestException('会话不存在');
@@ -325,7 +318,7 @@ export class AiService implements OnModuleInit {
   }
 
   async deleteConversation(user: SessionUser, sessionId: string) {
-    this.assert(user, 'ai:chat');
+    this.assert(user, 'aiChat', 'delete');
     const ok = await removeSession(user.openId, sessionId);
     if (!ok) throw new BadRequestException('会话不存在');
     return { ok: true };
@@ -333,34 +326,34 @@ export class AiService implements OnModuleInit {
 
   // ---------------- 自动化 ----------------
   async listAutomations(user: SessionUser) {
-    this.assert(user, 'ai:automation');
+    this.assert(user, 'aiAutomations', 'read');
     const autos = await listAutomations();
     return autos.map((a) => ({ ...a, cronText: describeCron(a.cron) }));
   }
 
   async getAutomationById(user: SessionUser, id: string) {
-    this.assert(user, 'ai:automation');
+    this.assert(user, 'aiAutomations', 'read');
     const auto = await getAutomation(id);
     if (!auto) throw new BadRequestException('自动化不存在');
     return { ...auto, cronText: describeCron(auto.cron) };
   }
 
   async createAutomation(user: SessionUser, body: Record<string, unknown>) {
-    this.assert(user, 'ai:automation');
+    this.assert(user, 'aiAutomations', 'create');
     const auto = await createAutomation({ ...body, owner: user.openId });
     scheduleOne(auto);
     return auto;
   }
 
   async updateAutomation(user: SessionUser, id: string, body: Record<string, unknown>) {
-    this.assert(user, 'ai:automation');
+    this.assert(user, 'aiAutomations', 'update');
     const updated = await updateAutomation(id, body);
     if (updated) scheduleOne(updated);
     return updated;
   }
 
   async deleteAutomation(user: SessionUser, id: string) {
-    this.assert(user, 'ai:automation');
+    this.assert(user, 'aiAutomations', 'delete');
     const ok = await deleteAutomation(id);
     unscheduleOne(id);
     removePending(id);
@@ -368,7 +361,7 @@ export class AiService implements OnModuleInit {
   }
 
   async triggerAutomation(user: SessionUser, id: string) {
-    this.assert(user, 'ai:automation');
+    this.assert(user, 'aiAutomations', 'transition');
     const auto = await getAutomation(id);
     if (!auto) throw new BadRequestException('自动化不存在');
     // 异步触发，立即返回
@@ -382,7 +375,7 @@ export class AiService implements OnModuleInit {
 
   // ---------------- 管理：用量 / 审计 ----------------
   async getUsage(user: SessionUser, rangeDays = 30) {
-    this.assert(user, 'ai:admin');
+    this.assert(user, 'aiAdmin', 'read');
     await ensureLoaded();
     const users = listUsers();
     const userMap: Record<string, string> = {};
@@ -391,7 +384,7 @@ export class AiService implements OnModuleInit {
   }
 
   async getAudit(user: SessionUser, limit = 200) {
-    this.assert(user, 'ai:admin');
+    this.assert(user, 'aiAdmin', 'read');
     return queryAudit({ admin: true, limit });
   }
 

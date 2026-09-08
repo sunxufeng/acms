@@ -1,6 +1,5 @@
-import { Inject, Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { authorize, type Principal } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
@@ -11,6 +10,7 @@ import {
   TeachingClassFilterDto,
   TEACHING_CLASS_TRANSITIONS,
 } from './teaching.dto.js';
+import { requireModule } from '../shared/require-module.js';
 
 const TABLE = TABLES.teachingClass.tableId;
 const READONLY = new Set([
@@ -19,17 +19,12 @@ const READONLY = new Set([
 const MULTI = new Set<string>([]);
 const NUMBERS = new Set(['班额上限', '计划课次', '计划总课时']);
 
-function toPrincipal(user: SessionUser): Principal {
-  return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
-}
-
 @Injectable()
 export class TeachingClassService {
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
   async list(user: SessionUser, query: TeachingClassFilterDto) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:read').allowed) throw new ForbiddenException('FORBIDDEN:course:read');
+    requireModule(user, 'teaching', 'read');
     const conditions: { field: string; op?: string; value: string[] }[] = [];
     if (query.q) conditions.push({ field: '教学班名称', op: 'contains', value: [query.q] });
     if (query.教学班类型) conditions.push({ field: '教学班类型', value: [query.教学班类型] });
@@ -43,15 +38,14 @@ export class TeachingClassService {
   }
 
   async detail(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), 'course:read').allowed) throw new ForbiddenException('FORBIDDEN:course:read');
+    requireModule(user, 'teaching', 'read');
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     return toFlatRecord(rec, READONLY, MULTI);
   }
 
   async create(user: SessionUser, dto: CreateTeachingClassDto) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'teaching', 'create');
     if (!dto.教学班名称?.trim()) throw new BadRequestException('VALIDATION:教学班名称必填');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (!fields['教学状态']) fields['教学状态'] = '筹备';
@@ -61,9 +55,8 @@ export class TeachingClassService {
   }
 
   async update(user: SessionUser, id: string, dto: UpdateTeachingClassDto) {
-    const principal = toPrincipal(user);
     await this.detail(user, id);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'teaching', 'update');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(TABLE, id, fields);
@@ -71,8 +64,7 @@ export class TeachingClassService {
   }
 
   async archive(user: SessionUser, id: string) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'teaching', 'delete');
     await this.detail(user, id);
     await this.base.delete(TABLE, id);
     return { ok: true };
@@ -80,8 +72,7 @@ export class TeachingClassService {
 
   /** 状态机转移：教学班 筹备→进行中→已结课/取消 */
   async transition(user: SessionUser, id: string, to: string) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'course:write').allowed) throw new ForbiddenException('FORBIDDEN:course:write');
+    requireModule(user, 'teaching', 'transition');
     const cur = (await this.detail(user, id)) as Record<string, unknown>;
     const from = (cur['教学状态'] as string) ?? '筹备';
     const allowed = TEACHING_CLASS_TRANSITIONS[from] ?? [];

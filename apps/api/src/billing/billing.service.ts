@@ -1,11 +1,11 @@
-import { Inject, Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { authorize, type Principal } from '@acms/domain';
-import { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
+import type { BaseClient } from '@acms/base-adapter';
 import { buildWriteFields, toFlatRecord, buildFilter } from '../shared/record.util.js';
 import { CreateBillingDto, UpdateBillingDto, BillingFilterDto, TransitionDto, GenerateBillingDto, BILLING_TRANSITIONS } from './billing.dto.js';
+import { requireModule } from '../shared/require-module.js';
 
 const TABLE = TABLES.billingDetail.tableId;
 const ATT_TABLE = TABLES.teacherAttendance.tableId;
@@ -13,16 +13,12 @@ const PART_TABLE = TABLES.partnership.tableId;
 const READONLY = new Set<string>(['创建时间', '更新时间']);
 const NUMBERS = new Set(['课时数量', '单价', '金额']);
 
-function toPrincipal(user: SessionUser): Principal {
-  return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
-}
-
 @Injectable()
 export class BillingService {
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
   async list(user: SessionUser, query: BillingFilterDto) {
-    if (!authorize(toPrincipal(user), 'billing:read').allowed) throw new ForbiddenException('FORBIDDEN:billing:read');
+    requireModule(user, 'billing', 'read');
     const conditions: { field: string; op?: string; value: string[] }[] = [];
     if (query.q) conditions.push({ field: '教学班文本', op: 'contains', value: [query.q] });
     if (query.计费状态) conditions.push({ field: '计费状态', value: [query.计费状态] });
@@ -36,14 +32,14 @@ export class BillingService {
   }
 
   async detail(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), 'billing:read').allowed) throw new ForbiddenException('FORBIDDEN:billing:read');
+    requireModule(user, 'billing', 'read');
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     return toFlatRecord(rec, READONLY, new Set());
   }
 
   async create(user: SessionUser, dto: CreateBillingDto) {
-    if (!authorize(toPrincipal(user), 'billing:write').allowed) throw new ForbiddenException('FORBIDDEN:billing:write');
+    requireModule(user, 'billing', 'create');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (!fields['计费状态']) fields['计费状态'] = '待生成';
     const recordId = await this.base.create(TABLE, fields);
@@ -52,7 +48,7 @@ export class BillingService {
 
   /** 基于已审核履约 + 有效合作关系生成计费明细（BR-008 固化快照） */
   async generate(user: SessionUser, dto: GenerateBillingDto) {
-    if (!authorize(toPrincipal(user), 'billing:write').allowed) throw new ForbiddenException('FORBIDDEN:billing:write');
+    requireModule(user, 'billing', 'create');
     const att = await this.base.get(ATT_TABLE, dto.attendanceId);
     if (!att) throw new NotFoundException('NOT_FOUND:attendance');
     const attFields = att.fields as Record<string, unknown>;
@@ -100,7 +96,7 @@ export class BillingService {
 
   async update(user: SessionUser, id: string, dto: UpdateBillingDto) {
     await this.detail(user, id);
-    if (!authorize(toPrincipal(user), 'billing:write').allowed) throw new ForbiddenException('FORBIDDEN:billing:write');
+    requireModule(user, 'billing', 'update');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(TABLE, id, fields);
@@ -108,7 +104,7 @@ export class BillingService {
   }
 
   async archive(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), 'billing:write').allowed) throw new ForbiddenException('FORBIDDEN:billing:write');
+    requireModule(user, 'billing', 'delete');
     await this.detail(user, id);
     await this.base.delete(TABLE, id);
     return { ok: true };
@@ -119,8 +115,7 @@ export class BillingService {
     const cur = (rec['计费状态'] as string) || '待生成';
     const allowed = BILLING_TRANSITIONS[cur]?.find((t) => t.to === dto.to);
     if (!allowed) throw new BadRequestException('INVALID_TRANSITION:' + cur + '→' + dto.to);
-    if (!authorize(toPrincipal(user), allowed.perm as 'billing:write').allowed)
-      throw new ForbiddenException('FORBIDDEN:' + allowed.perm);
+    requireModule(user, 'billing', 'transition');
     await this.base.update(TABLE, id, { 计费状态: dto.to });
     return this.detail(user, id);
   }

@@ -5,6 +5,8 @@ import { TABLES } from '@acms/contracts';
 export interface AiSummarizeTableConfig {
   /** 路由前缀，例如 home-school-comms-ai */
   prefix: string;
+  /** 对应菜单/模块 key，用于模块级写权限门控（授权沿用三层权限模型） */
+  moduleKey: string;
   tableId: string;
   fieldAttach: string;
   fieldDetail: string;
@@ -16,6 +18,7 @@ export interface AiSummarizeTableConfig {
 
 export const HOME_SCHOOL_COMMS_CONFIG: AiSummarizeTableConfig = {
   prefix: 'home-school-comms-ai',
+  moduleKey: 'homeSchoolComms',
   tableId: TABLES.homeSchoolComm.tableId,
   fieldAttach: '沟通附件清单',
   fieldDetail: '沟通明细',
@@ -33,6 +36,7 @@ export const HOME_SCHOOL_COMMS_CONFIG: AiSummarizeTableConfig = {
 
 export const DAILY_FOLLOWUP_CONFIG: AiSummarizeTableConfig = {
   prefix: 'daily-followups-ai',
+  moduleKey: 'dailyFollowups',
   tableId: TABLES.dailyFollowup.tableId,
   fieldAttach: '沟通附件清单',
   fieldDetail: '沟通明细',
@@ -50,6 +54,7 @@ export const DAILY_FOLLOWUP_CONFIG: AiSummarizeTableConfig = {
 // 学生观察（2026-09-06 新增）：字段结构照搬日常跟进，另加「观察类型」作为提示词基本信息
 export const STUDENT_OBSERVATION_CONFIG: AiSummarizeTableConfig = {
   prefix: 'student-observations-ai',
+  moduleKey: 'studentObservations',
   tableId: TABLES.studentObservation.tableId,
   fieldAttach: '沟通附件清单',
   fieldDetail: '沟通明细',
@@ -66,6 +71,7 @@ export const STUDENT_OBSERVATION_CONFIG: AiSummarizeTableConfig = {
 
 export const SOURCE_FOLLOWUP_CONFIG: AiSummarizeTableConfig = {
   prefix: 'source-followups-ai',
+  moduleKey: 'sourceFollowups',
   tableId: TABLES.sourceFollowup.tableId,
   fieldAttach: '沟通附件清单',
   fieldDetail: '沟通明细',

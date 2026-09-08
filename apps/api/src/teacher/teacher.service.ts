@@ -1,10 +1,10 @@
-import { Inject, Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { authorize, type Principal } from '@acms/domain';
 import { BaseClient, toWriteSingle, toWriteMulti, toStringArray, toText, type FilterGroup } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { DictService } from '../dictionary/dict.service.js';
+import { requireModule } from '../shared/require-module.js';
 import type { CreateTeacherDto, UpdateTeacherDto, TeacherFilterDto } from './teacher.dto.js';
 
 const TABLE = TABLES.teacherProfile.tableId;
@@ -17,10 +17,6 @@ const READONLY_FIELDS = new Set([
 ]);
 
 type TeacherRecord = { id: string } & Record<string, unknown>;
-
-function toPrincipal(user: SessionUser): Principal {
-  return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
-}
 
 @Injectable()
 export class TeacherService {
@@ -85,8 +81,7 @@ export class TeacherService {
   }
 
   async list(user: SessionUser, query: TeacherFilterDto) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'teacher:read').allowed) throw new ForbiddenException('FORBIDDEN:teacher:read');
+    requireModule(user, 'teachers', 'read');
     const filter = this.buildFilter(query);
     const sort = query.sortBy
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]
@@ -97,16 +92,14 @@ export class TeacherService {
   }
 
   async detail(user: SessionUser, id: string) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'teacher:read').allowed) throw new ForbiddenException('FORBIDDEN:teacher:read');
+    requireModule(user, 'teachers', 'read');
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     return this.toTeacher(rec);
   }
 
   async create(user: SessionUser, dto: CreateTeacherDto) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'teacher:write').allowed) throw new ForbiddenException('FORBIDDEN:teacher:write');
+    requireModule(user, 'teachers', 'create');
     if (!dto.教师姓名?.trim()) throw new BadRequestException('VALIDATION:教师姓名必填');
     const fields = this.toWriteFields(dto);
     if (!fields['数据密级']) fields['数据密级'] = '内部';
@@ -117,9 +110,8 @@ export class TeacherService {
   }
 
   async update(user: SessionUser, id: string, dto: UpdateTeacherDto) {
-    const principal = toPrincipal(user);
     await this.detail(user, id);
-    if (!authorize(principal, 'teacher:write').allowed) throw new ForbiddenException('FORBIDDEN:teacher:write');
+    requireModule(user, 'teachers', 'update');
     const fields = this.toWriteFields(dto);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.ensureTeacherOptions(dto);
@@ -128,8 +120,7 @@ export class TeacherService {
   }
 
   async archive(user: SessionUser, id: string) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'teacher:archive').allowed) throw new ForbiddenException('FORBIDDEN:teacher:archive');
+    requireModule(user, 'teachers', 'delete');
     await this.detail(user, id);
     await this.base.delete(TABLE, id);
     return { ok: true };

@@ -1,12 +1,12 @@
-import { Inject, Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { authorize, type Principal } from '@acms/domain';
 import { preflightSessionConflicts, type SessionLike, type ConflictResult } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { buildWriteFields, toFlatRecord, buildFilter } from '../shared/record.util.js';
 import { CreateSessionDto, UpdateSessionDto, SessionFilterDto, SESSION_TRANSITIONS } from './session.dto.js';
+import { requireModule } from '../shared/require-module.js';
 
 const TABLE = TABLES.session.tableId;
 const READONLY = new Set([
@@ -16,10 +16,6 @@ const READONLY = new Set([
 ]);
 const MULTI = new Set<string>([]);
 const NUMBERS = new Set(['计划课时']);
-
-function toPrincipal(user: SessionUser): Principal {
-  return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
-}
 
 @Injectable()
 export class SessionService {
@@ -39,8 +35,7 @@ export class SessionService {
   }
 
   async list(user: SessionUser, query: SessionFilterDto) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'schedule:read').allowed) throw new ForbiddenException('FORBIDDEN:schedule:read');
+    requireModule(user, 'schedule', 'read');
     const conditions: { field: string; op?: string; value: string[] }[] = [];
     if (query.q) conditions.push({ field: '课次名称', op: 'contains', value: [query.q] });
     if (query.授课方式) conditions.push({ field: '授课方式', value: [query.授课方式] });
@@ -56,15 +51,14 @@ export class SessionService {
   }
 
   async detail(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), 'schedule:read').allowed) throw new ForbiddenException('FORBIDDEN:schedule:read');
+    requireModule(user, 'schedule', 'read');
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     return toFlatRecord(rec, READONLY, MULTI);
   }
 
   async create(user: SessionUser, dto: CreateSessionDto) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'schedule:write').allowed) throw new ForbiddenException('FORBIDDEN:schedule:write');
+    requireModule(user, 'schedule', 'create');
     if (!dto.课次名称?.trim()) throw new BadRequestException('VALIDATION:课次名称必填');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (!fields['课次状态']) fields['课次状态'] = '待确认';
@@ -74,9 +68,8 @@ export class SessionService {
   }
 
   async update(user: SessionUser, id: string, dto: UpdateSessionDto) {
-    const principal = toPrincipal(user);
     await this.detail(user, id);
-    if (!authorize(principal, 'schedule:write').allowed) throw new ForbiddenException('FORBIDDEN:schedule:write');
+    requireModule(user, 'schedule', 'update');
     const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(TABLE, id, fields);
@@ -84,8 +77,7 @@ export class SessionService {
   }
 
   async archive(user: SessionUser, id: string) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'schedule:write').allowed) throw new ForbiddenException('FORBIDDEN:schedule:write');
+    requireModule(user, 'schedule', 'delete');
     await this.detail(user, id);
     await this.base.delete(TABLE, id);
     return { ok: true };
@@ -93,8 +85,7 @@ export class SessionService {
 
   /** 状态机转移（BR-006）。待确认→已确认 时执行冲突预检，存在硬冲突则拒绝。 */
   async transition(user: SessionUser, id: string, to: string) {
-    const principal = toPrincipal(user);
-    if (!authorize(principal, 'schedule:write').allowed) throw new ForbiddenException('FORBIDDEN:schedule:write');
+    requireModule(user, 'schedule', 'transition');
     const cur = (await this.detail(user, id)) as Record<string, unknown>;
     const from = (cur['课次状态'] as string) ?? '待确认';
     const allowed = SESSION_TRANSITIONS[from] ?? [];

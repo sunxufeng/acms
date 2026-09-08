@@ -1,14 +1,12 @@
 // @ts-nocheck
-import { Injectable, Logger, ForbiddenException, NotFoundException, Inject, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Inject, BadRequestException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { authorize } from '@acms/domain';
 import { BaseClient, toText } from '@acms/base-adapter';
 import { BASE_CLIENT } from '../base.provider.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
 import { routeChat } from '../ai/lib/gateway/router.js';
+import { requireModule } from '../shared/require-module.js';
 import type { AiSummarizeTableConfig } from './ai-summarize.config.js';
-
-const WRITE_PERM = 'student:write';
 
 @Injectable()
 export class AiSummarizeService {
@@ -38,14 +36,8 @@ export class AiSummarizeService {
     }
   }
 
-  private toPrincipal(user: SessionUser) {
-    return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
-  }
-
-  private checkWrite(user: SessionUser) {
-    if (!authorize(this.toPrincipal(user), WRITE_PERM).allowed) {
-      throw new ForbiddenException('FORBIDDEN:' + WRITE_PERM);
-    }
+  private checkWrite(user: SessionUser, cfg: AiSummarizeTableConfig) {
+    requireModule(user, cfg.moduleKey, 'update');
   }
 
   /** 解析附件字段值：飞书文本字段返回 [{text:'...',type:'text'}]，里面存 JSON 数组 */
@@ -96,7 +88,7 @@ export class AiSummarizeService {
 
   /** 读取记录并做权限校验 */
   private async getRecord(cfg: AiSummarizeTableConfig, user: SessionUser, id: string) {
-    this.checkWrite(user);
+    this.checkWrite(user, cfg);
     const rec = await this.base.get(cfg.tableId, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     return { cfg, fields: rec.fields as Record<string, unknown> };

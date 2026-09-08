@@ -1,8 +1,11 @@
-import { Controller, Get, Post, HttpException, HttpStatus, Logger, Param, Res, Req, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, HttpException, HttpStatus, Logger, Param, Res, Req, UseGuards, UseInterceptors, UploadedFile, BadRequestException, Inject } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
+import type { DataStore } from '@acms/base-adapter';
 import { SessionGuard } from '../auth/session.guard.js';
+import { BASE_CLIENT } from '../base.provider.js';
 import { FileUploadService, decodeOriginalFilename } from './file-upload.service.js';
+import { resolveBitablePermContext } from './bitable-perm.util.js';
 
 /**
  * 文件代理下载
@@ -10,12 +13,20 @@ import { FileUploadService, decodeOriginalFilename } from './file-upload.service
  * 浏览器无法给 <img> / <a> 附加 Authorization header，直接访问飞书
  * `/drive/v1/medias/:token/download` 会报 99991661（缺少 token）。
  * 此接口用后端 tenant_access_token 取回文件并透传，前端改走相对路径即可。
+ *
+ * ⚠️ 多维表格开启「高级权限」后，仅用 file_token 直连 download 会返回 400，
+ * 必须先用 bitablePerm 声明素材归属换取预签名链接再下载（见 bitable-perm.util）。
+ * 本端点是全站附件下载的唯一出口（学生照片 / IDP / 家校沟通 / 邮件附件等），
+ * 因此修复此处即可恢复所有附件的显示与下载。
  */
 @Controller('files')
 @UseGuards(SessionGuard)
 export class FileController {
   private readonly logger = new Logger('FileController');
-  constructor(private readonly fileUpload: FileUploadService) {}
+  constructor(
+    @Inject(BASE_CLIENT) private readonly base: DataStore,
+    private readonly fileUpload: FileUploadService,
+  ) {}
 
   @Get(':token')
   async download(@Param('token') token: string, @Res() res: Response) {
@@ -23,7 +34,13 @@ export class FileController {
       throw new HttpException('INVALID_FILE_TOKEN', HttpStatus.BAD_REQUEST);
     }
     try {
-      const upstream = await this.fileUpload.downloadFile(token);
+      // 高级权限下：先用 bitablePerm 换预签名下载链接（直连会 400），再由服务端中转
+      const ctx = await resolveBitablePermContext(this.base, (m) => this.logger.warn(m));
+      const signedUrl = await this.fileUpload.resolveDownloadUrl(
+        token,
+        ctx.recordId && ctx.fieldId ? ctx : undefined,
+      );
+      const upstream = await fetch(signedUrl);
 
       // 透传状态码与内容类型
       res.status(upstream.status);

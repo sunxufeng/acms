@@ -572,10 +572,10 @@ export default function StudentsPage() {
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['性别']) || '—'}</td>
                       {/* Arete毕业届 */}
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['Arete毕业届']) || '—'}</td>
-                      {/* Arete班（年级/班级） */}
+                      {/* Arete班（年级/班级）：当前年级为主（加粗置顶），入学年级为次（小字置底） */}
                       <td>
-                        <div style={{ fontWeight: 500 }}>{str(s['入学年级']) || '—'}</div>
-                        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['当前年级']) || t('noClass')}</div>
+                        <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{str(s['当前年级']) || t('noClass')}</div>
+                        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['入学年级']) || '—'}</div>
                       </td>
                       {/* 来源渠道 */}
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['来源渠道']) || '—'}</td>

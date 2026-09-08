@@ -11,48 +11,34 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  Inject,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import type { DataStore } from '@acms/base-adapter';
 import { SessionGuard } from '../auth/session.guard.js';
+import { BASE_CLIENT } from '../base.provider.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
+import { resolveBitablePermContext } from '../file-upload/bitable-perm.util.js';
 import { HomepageConfigService } from './homepage-config.service.js';
 import type { HomepageConfigDto } from './homepage-config.dto.js';
 import type { NavMenuConfig, NavMenuGroupConfig, NoteConvertConfig } from '@acms/contracts';
-import { TABLES } from '@acms/contracts';
 
 @Controller('homepage-config')
 export class HomepageConfigController {
   private readonly logger = new Logger('HomepageConfigController');
 
-  /** bitablePerm 权限上下文（懒加载：取系统配置表的第一条记录+第一个字段） */
+  /** bitablePerm 权限上下文（懒加载：系统配置表首条记录 + logo素材 附件字段） */
   private bitableContext: Promise<{ recordId: string; fieldId: string; realTableId: string }> | null = null;
 
   private async getBitableContext(): Promise<{ recordId: string; fieldId: string; realTableId: string }> {
     if (!this.bitableContext) {
       this.bitableContext = (async () => {
-        try {
-          // 用代码级 alias 查询（BaseClient 内部会做 TABLE_ID_MAP 映射）
-          const tableId = TABLES.systemConfig.tableId;
-          const records = await this.service.listRecords(tableId, 1);
-          const fields = await this.service.listFields(tableId);
-          const recId = records[0]?.recordId ?? '';
-          // bitablePerm 鉴权要求用「附件类型(type=17)」字段作为素材归属上下文；
-          // 系统配置表已加「logo素材」附件字段（飞书 field_id 见下），优先按名匹配，
-          // 兜底：任意附件字段 → 已知 logo 附件字段 id，避免 SQL/飞书元数据不同步时失效。
-          const LOGO_ATTACH_FIELD_ID = 'fldhNMJqm2';
-          const logoField =
-            fields.find((f) => f.name === 'logo素材') ??
-            fields.find((f) => f.type === 17) ??
-            fields.find((f) => f.id === LOGO_ATTACH_FIELD_ID);
-          const fldId = logoField?.id ?? LOGO_ATTACH_FIELD_ID;
-          // 真实 tableId：通过 TABLE_ID_MAP 环境变量解析
-          const realTableId = resolveRealTableId(tableId);
-          this.logger.log(`bitableContext resolved: rec=${recId} field=${fldId} realTable=${realTableId}`);
-          return { recordId: recId, fieldId: fldId, realTableId };
-        } catch (e) {
-          this.logger.warn(`bitableContext fallback: ${(e as Error).message}`);
-          return { recordId: '', fieldId: '', realTableId: '' };
-        }
+        // 与 /api/v1/files 共用同一套 bitablePerm 上下文解析（单一真源）
+        const ctx = await resolveBitablePermContext(this.base, (m) => this.logger.warn(m));
+        this.logger.log(
+          `bitableContext resolved: rec=${ctx.recordId} field=${ctx.fieldId} realTable=${ctx.tableId}`,
+        );
+        return { recordId: ctx.recordId, fieldId: ctx.fieldId, realTableId: ctx.tableId };
       })();
     }
     return this.bitableContext;
@@ -61,6 +47,7 @@ export class HomepageConfigController {
   constructor(
     private readonly service: HomepageConfigService,
     private readonly fileUpload: FileUploadService,
+    @Inject(BASE_CLIENT) private readonly base: DataStore,
   ) {}
 
   /** 公开读取：登录页未登录时必须能拿到配置 */
@@ -159,17 +146,5 @@ export class HomepageConfigController {
       this.logger.error(`主页图片代理失败 token=${token}: ${(e as Error).message}`);
       throw new HttpException('IMAGE_PROXY_FAILED', HttpStatus.BAD_GATEWAY);
     }
-  }
-}
-
-/** 解析 TABLE_ID_MAP 环境变量，将代码级 tableId 别名映射为真实飞书表 ID */
-function resolveRealTableId(alias: string): string {
-  try {
-    const raw = process.env.TABLE_ID_MAP;
-    if (!raw) return alias;
-    const map = JSON.parse(raw) as Record<string, string>;
-    return map[alias] ?? alias;
-  } catch {
-    return alias;
   }
 }

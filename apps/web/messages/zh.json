@@ -762,7 +762,7 @@
     "colEnglishName": "英文名",
     "colGender": "性别",
     "colAreteGraduation": "Arete毕业届",
-    "colAreteClass": "入学/当前年级",
+    "colAreteClass": "当前/入学年级",
     "fldSource": "来源",
     "colSource": "来源渠道",
     "colStudent": "学生姓名/学号",

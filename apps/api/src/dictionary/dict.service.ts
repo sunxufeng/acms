@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BaseClient, toText } from '@acms/base-adapter';
 import { TABLES, USER_TABLE } from '@acms/contracts';
+import type { FieldLevel } from '../shared/field-mask.js';
 import { BASE_CLIENT } from '../base.provider.js';
 import {
   DICTIONARIES,
@@ -10,6 +11,7 @@ import {
   SINGLE_SELECT,
   MULTI_SELECT,
   PROVINCE_CITIES,
+  FIELD_LEVELS,
 } from './dict.data.js';
 
 export interface SyncResult {
@@ -29,18 +31,27 @@ export class DictService {
   private readonly TABLE = TABLES.studentProfile.tableId;
   /** 运行时可变字典（种子 + 持久化文件合并），编辑后写入文件 */
   private store: Record<string, string[]>;
+  /** 字段密级表（Stage 4b）：种子 + 持久化文件合并 */
+  private fieldLevels: FieldLevel[] = [...FIELD_LEVELS];
 
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {
     this.store = { ...DICTIONARIES };
     this.loadStore();
   }
 
-  /** 启动时若存在持久化文件，则用其覆盖同名 key（保留种子中新增的 key） */
+  /** 启动时若存在持久化文件，则用其覆盖同名 key（保留种子中新增的 key）。
+   *  兼容旧版仅 { dictionaries } 结构：缺 fieldLevels 时回退种子。 */
   private loadStore(): void {
     try {
       if (fs.existsSync(STORE_FILE)) {
-        const saved = JSON.parse(fs.readFileSync(STORE_FILE, 'utf-8')) as Record<string, string[]>;
-        this.store = { ...DICTIONARIES, ...saved };
+        const saved = JSON.parse(fs.readFileSync(STORE_FILE, 'utf-8')) as {
+          dictionaries?: Record<string, string[]>;
+          fieldLevels?: FieldLevel[];
+        };
+        if (saved.dictionaries) this.store = { ...DICTIONARIES, ...saved.dictionaries };
+        if (Array.isArray(saved.fieldLevels) && saved.fieldLevels.length) {
+          this.fieldLevels = saved.fieldLevels;
+        }
       }
     } catch (e) {
       this.logger.warn(`字典加载失败，使用种子：${(e as Error).message}`);
@@ -50,7 +61,11 @@ export class DictService {
   private persistStore(): void {
     try {
       fs.mkdirSync(DATA_DIR, { recursive: true });
-      fs.writeFileSync(STORE_FILE, JSON.stringify(this.store, null, 2), 'utf-8');
+      fs.writeFileSync(
+        STORE_FILE,
+        JSON.stringify({ dictionaries: this.store, fieldLevels: this.fieldLevels }, null, 2),
+        'utf-8',
+      );
     } catch (e) {
       this.logger.warn(`字典持久化失败：${(e as Error).message}`);
     }
@@ -64,6 +79,19 @@ export class DictService {
   /** 省 → 市 级联映射（前端级联下拉用） */
   getProvinceCities(): Record<string, string[]> {
     return PROVINCE_CITIES;
+  }
+
+  /** 字段密级表（Stage 4b）：全部受控字段（种子 + 持久化文件合并） */
+  getFieldLevels(): FieldLevel[] {
+    return this.fieldLevels;
+  }
+
+  /** 更新字段密级表（仅系统管理员经 Controller 调用）；写回内存并持久化，重启不丢 */
+  setFieldLevels(levels: FieldLevel[]): FieldLevel[] {
+    this.fieldLevels = levels.map((l) => ({ ...l }));
+    this.persistStore();
+    this.logger.log(`字段密级表已更新（${this.fieldLevels.length} 项）`);
+    return this.fieldLevels;
   }
 
   /** 单个字典 */

@@ -6,6 +6,7 @@ import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
 import { DictService } from '../dictionary/dict.service.js';
+import { FieldMaskService } from '../shared/field-mask.service.js';
 
 import type { CreateStudentDto, UpdateStudentDto, StudentFilterDto, ExportQueryDto } from './student.dto.js';
 
@@ -24,12 +25,6 @@ const ATTACHMENT_FIELDS = new Set(['学生照片']);
 /** 证件与文件关联表（type=21 关联字段指向此表），附件实体存于此表的「文件附件」字段 */
 const DOC_TABLE = 'tblJDhpAEOVhCwE2';
 
-/** L3/L4 脱敏字段（导出时掩码或隐藏） */
-const SENSITIVE_FIELDS: { L3: string[]; L4: string[] } = {
-  L3: ['证件号码（脱敏）', '学籍号（脱敏）'],
-  L4: [],
-};
-
 /** 简化学生对象（id + 原始字段） */
 type StudentRecord = { id: string } & Record<string, unknown>;
 
@@ -47,10 +42,11 @@ export class StudentService {
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
     private readonly fileUpload: FileUploadService,
     private readonly dict: DictService,
+    @Inject(FieldMaskService) private readonly mask: FieldMaskService,
   ) {}
 
   /** DTO → Base 写入字段（跳过只读字段，单选纯串、多选数组） */
-  private toWriteFields(dto: CreateStudentDto | UpdateStudentDto): Record<string, unknown> {
+  private toWriteFields(dto: Record<string, unknown>): Record<string, unknown> {
     const fields: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(dto)) {
       if (READONLY_FIELDS.has(k)) continue;
@@ -251,7 +247,7 @@ export class StudentService {
     student['证件与文件'] = await this.resolveDocFiles(student['证件与文件']);
     // 为学生照片/证件文件生成浏览器可直接访问的临时下载链接
     await this.enrichAttachmentViewUrls(student);
-    return student;
+    return this.mask.mask(user, 'students', student);
   }
 
   /**
@@ -402,7 +398,7 @@ export class StudentService {
     if (!dto.学生姓名?.trim()) {
       throw new BadRequestException('VALIDATION:学生姓名必填');
     }
-    const fields = this.toWriteFields(dto);
+    const fields = this.toWriteFields(this.mask.stripProtected(user, 'students', dto as unknown as Record<string, unknown>));
     if (!fields['数据密级']) fields['数据密级'] = 'L1';
     if (!fields['当前状态']) fields['当前状态'] = '潜在学生';
     await this.ensureTagOptions(dto);
@@ -421,7 +417,7 @@ export class StudentService {
     if (!decision.allowed) {
       throw new ForbiddenException(`FORBIDDEN:student:write:${decision.reason}`);
     }
-    const fields = this.toWriteFields(dto);
+    const fields = this.toWriteFields(this.mask.stripProtected(user, 'students', dto as unknown as Record<string, unknown>));
     if (Object.keys(fields).length === 0) {
       throw new BadRequestException('VALIDATION:无可更新字段');
     }
@@ -472,21 +468,12 @@ export class StudentService {
       pageSize: 500,
       filter: this.buildFilter({ ...query, includeArchived: 'true' }),
     });
-    const students = res.items.map((r) => this.toStudent(r));
+    const students = res.items.map((r) => this.mask.mask(user, 'students', this.toStudent(r)));
 
     const cols = ['学生编号', '学生姓名', '性别', '当前年级', '校区', '当前状态', '数据密级', '证件号码（脱敏）', '学籍号（脱敏）', '学生手机号', '学生邮箱'];
-    const mask = (s: ReturnType<StudentService['toStudent']>, f: string): string => {
-      const lvl = s.数据密级 as keyof typeof SENSITIVE_FIELDS;
-      if (lvl === 'L4' && (SENSITIVE_FIELDS.L3.includes(f) || SENSITIVE_FIELDS.L4.includes(f))) return '***';
-      if (lvl === 'L3' && SENSITIVE_FIELDS.L3.includes(f)) {
-        const v = (s as Record<string, unknown>)[f];
-        return typeof v === 'string' && v.length > 2 ? v.slice(0, 2) + '****' : '****';
-      }
-      return String((s as Record<string, unknown>)[f] ?? '');
-    };
-    const escape = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const header = cols.map(escape).join(',');
-    const rows = students.map((s) => cols.map((c) => escape(mask(s, c))).join(','));
+    const rows = students.map((s) => cols.map((c) => escape((s as Record<string, unknown>)[c])).join(','));
     return { csv: [header, ...rows].join('\n'), count: students.length };
   }
 

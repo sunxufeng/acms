@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import type { SessionUser } from '@acms/contracts';
+import type { FieldLevel } from '../shared/field-mask.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { DictService } from './dict.service.js';
 
@@ -35,6 +36,28 @@ export class DictController {
   @Get('province-cities')
   getProvinceCities() {
     return this.svc.getProvinceCities();
+  }
+
+  /** 字段密级表（Stage 4b）：GET /api/v1/dictionaries/field-levels */
+  @Get('field-levels')
+  getFieldLevels() {
+    return this.svc.getFieldLevels();
+  }
+
+  /** 更新字段密级表（仅系统管理员）：PUT /api/v1/dictionaries/field-levels */
+  @Put('field-levels')
+  putFieldLevels(
+    @Body() body: { levels?: FieldLevel[] },
+    @Req() req: Request,
+  ) {
+    const user = this.user(req);
+    if (!user.roles?.includes('系统管理员')) {
+      throw new ForbiddenException('FORBIDDEN:admin');
+    }
+    if (!Array.isArray(body?.levels)) {
+      throw new BadRequestException('levels 必须为 FieldLevel 数组');
+    }
+    return this.svc.setFieldLevels(body.levels);
   }
 
   /** 单个字典：GET /api/v1/dictionaries/:key */

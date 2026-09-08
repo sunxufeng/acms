@@ -6,6 +6,7 @@ import { BASE_CLIENT, baseClientProvider } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
 import { BaseRecordService } from '../shared/generic-crud.module.js';
+import { FieldMaskService } from '../shared/field-mask.service.js';
 import { buildFilter } from '../shared/record.util.js';
 import { MAIL_ARCHIVE_META } from './mail-archive.meta.js';
 import { MailAccountService } from './mail-account.service.js';
@@ -187,8 +188,9 @@ export class MailArchiveService extends BaseRecordService {
     @Inject(AuditService) audit: AuditService,
     @Inject(FileUploadService) private readonly fileUpload: FileUploadService,
     @Inject(MailAccountService) private readonly accountSvc: MailAccountService,
+    @Inject(FieldMaskService) mask: FieldMaskService,
   ) {
-    super(MAIL_ARCHIVE_META, base, audit);
+    super(MAIL_ARCHIVE_META, base, audit, mask);
   }
 
   /**

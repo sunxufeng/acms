@@ -4,6 +4,7 @@ import { BaseClient } from '@acms/base-adapter';
 import { BASE_CLIENT, baseClientProvider } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
 import { BaseRecordService } from '../shared/generic-crud.module.js';
+import { FieldMaskService } from '../shared/field-mask.service.js';
 import { MAIL_ACCOUNT_META } from './mail-account.meta.js';
 import { encryptCredential, decryptCredential, PASSWORD_MASK } from './crypto.js';
 
@@ -12,8 +13,9 @@ export class MailAccountService extends BaseRecordService {
   constructor(
     @Inject(BASE_CLIENT) base: BaseClient,
     @Inject(AuditService) audit: AuditService,
+    @Inject(FieldMaskService) mask: FieldMaskService,
   ) {
-    super(MAIL_ACCOUNT_META, base, audit);
+    super(MAIL_ACCOUNT_META, base, audit, mask);
   }
 
   /** 创建：明文密码 → 密文入库 */

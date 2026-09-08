@@ -6,6 +6,7 @@ import { BASE_CLIENT } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
 import { encryptSecret } from '../ai/lib/crypto/kms.js';
 import { BaseRecordService } from '../shared/generic-crud.module.js';
+import { FieldMaskService } from '../shared/field-mask.service.js';
 import { buildFilter } from '../shared/record.util.js';
 import { GETNOTE_SOURCE_META } from './sources.meta.js';
 import { GetnoteService } from './getnote.service.js';
@@ -94,8 +95,9 @@ export class GetnoteSourceService extends BaseRecordService {
     @Inject(BASE_CLIENT) base: BaseClient,
     @Inject(AuditService) audit: AuditService,
     @Inject(GetnoteService) private readonly getnote: GetnoteService,
+    @Inject(FieldMaskService) mask: FieldMaskService,
   ) {
-    super(GETNOTE_SOURCE_META, base, audit);
+    super(GETNOTE_SOURCE_META, base, audit, mask);
   }
 
   // ── 归属：行级隔离 ────────────────────────────────────────────────

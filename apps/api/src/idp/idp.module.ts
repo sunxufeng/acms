@@ -16,6 +16,7 @@ import { BASE_CLIENT, baseClientProvider } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { BaseRecordService, GenericCrudModule } from '../shared/generic-crud.module.js';
+import { FieldMaskService } from '../shared/field-mask.service.js';
 import { IDP_PLAN_META, IDP_COMM_META } from './idp.meta.js';
 
 @Injectable()
@@ -24,8 +25,9 @@ export class IdpPlanService extends BaseRecordService {
   constructor(
     @Inject(BASE_CLIENT) base: BaseClient,
     @Inject(AuditService) audit: AuditService,
+    @Inject(FieldMaskService) mask: FieldMaskService,
   ) {
-    super(IDP_PLAN_META, base, audit);
+    super(IDP_PLAN_META, base, audit, mask);
     this.client = base;
   }
 

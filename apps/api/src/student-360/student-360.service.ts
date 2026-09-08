@@ -7,6 +7,7 @@ import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { StudentService } from '../student/student.service.js';
 import { LIFECYCLE_METAS } from '../shared/lifecycle.meta.js';
+import { FieldMaskService } from '../shared/field-mask.service.js';
 import { IDP_PLAN_META } from '../idp/idp.meta.js';
 import type { RecordMeta } from '../shared/generic-crud.module.js';
 import { linkIds } from '../shared/record.util.js';
@@ -66,6 +67,7 @@ export class Student360Service {
   constructor(
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
     private readonly studentSvc: StudentService,
+    @Inject(FieldMaskService) private readonly mask: FieldMaskService,
   ) {}
 
   async getByStudent(
@@ -93,7 +95,8 @@ export class Student360Service {
       if (mod && !authorize(toPrincipal(user), modulePermission(mod.key, 'read')).allowed) continue;
       const studentLink = (meta.linkFields ?? []).find((l) => l.table === TABLES.studentProfile.tableId);
       const items = await this.fetchSection(meta, studentLink, studentId, String(student['学生姓名'] ?? ''), range);
-      resultSections.push({ key: meta.path, label, items });
+      const maskedItems = mod ? this.mask.maskMany(user, mod.key, items) : items;
+      resultSections.push({ key: meta.path, label, items: maskedItems });
     }
     return { student, sections: resultSections };
   }

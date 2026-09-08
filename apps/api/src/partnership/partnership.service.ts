@@ -5,6 +5,7 @@ import { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { buildWriteFields, toFlatRecord, buildFilter } from '../shared/record.util.js';
+import { FieldMaskService } from '../shared/field-mask.service.js';
 import { CreatePartnershipDto, UpdatePartnershipDto, PartnershipFilterDto } from './partnership.dto.js';
 
 const TABLE = TABLES.partnership.tableId;
@@ -17,7 +18,10 @@ function toPrincipal(user: SessionUser): Principal {
 
 @Injectable()
 export class PartnershipService {
-  constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
+  constructor(
+    @Inject(BASE_CLIENT) private readonly base: BaseClient,
+    @Inject(FieldMaskService) private readonly mask: FieldMaskService,
+  ) {}
 
   async list(user: SessionUser, query: PartnershipFilterDto) {
     if (!authorize(toPrincipal(user), 'partnership:read').allowed) throw new ForbiddenException('FORBIDDEN:partnership:read');
@@ -30,20 +34,21 @@ export class PartnershipService {
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]
       : [{ field: '生效开始', desc: true }];
     const res = await this.base.search(TABLE, { pageSize: Number((query as any).pageSize) || 50, pageToken: query.pageToken, filter: buildFilter(conditions), sort });
-    return { items: res.items.map((r) => toFlatRecord(r, READONLY, new Set())), total: res.total, hasMore: res.hasMore, pageToken: res.pageToken };
+    const items = res.items.map((r) => this.mask.mask(user, 'partnerships', toFlatRecord(r, READONLY, new Set())));
+    return { items, total: res.total, hasMore: res.hasMore, pageToken: res.pageToken };
   }
 
   async detail(user: SessionUser, id: string) {
     if (!authorize(toPrincipal(user), 'partnership:read').allowed) throw new ForbiddenException('FORBIDDEN:partnership:read');
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
-    return toFlatRecord(rec, READONLY, new Set());
+    return this.mask.mask(user, 'partnerships', toFlatRecord(rec, READONLY, new Set()));
   }
 
   async create(user: SessionUser, dto: CreatePartnershipDto) {
     if (!authorize(toPrincipal(user), 'partnership:write').allowed) throw new ForbiddenException('FORBIDDEN:partnership:write');
     if (!dto.教师文本?.trim()) throw new BadRequestException('VALIDATION:教师必填');
-    const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
+    const fields = buildWriteFields(this.mask.stripProtected(user, 'partnerships', dto as unknown as Record<string, unknown>), READONLY, NUMBERS);
     if (!fields['合作状态']) fields['合作状态'] = '生效中';
     const recordId = await this.base.create(TABLE, fields);
     return this.detail(user, recordId);
@@ -52,7 +57,7 @@ export class PartnershipService {
   async update(user: SessionUser, id: string, dto: UpdatePartnershipDto) {
     await this.detail(user, id);
     if (!authorize(toPrincipal(user), 'partnership:write').allowed) throw new ForbiddenException('FORBIDDEN:partnership:write');
-    const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
+    const fields = buildWriteFields(this.mask.stripProtected(user, 'partnerships', dto as unknown as Record<string, unknown>), READONLY, NUMBERS);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(TABLE, id, fields);
     return this.detail(user, id);

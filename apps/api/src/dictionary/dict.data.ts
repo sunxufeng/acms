@@ -9,6 +9,8 @@
  * 字段顺序即界面展示顺序。
  */
 
+import type { FieldLevel } from '../shared/field-mask.js';
+
 /** 省 → 市 映射（级联下拉用）。key 为省/直辖市/自治区，value 为该省下城市列表。 */
 export const PROVINCE_CITIES: Record<string, string[]> = {
   北京市: ['北京'],
@@ -253,3 +255,36 @@ export const BASE_FIELD_SYNC: { field: string; dictKey: string }[] = [
 /** 飞书 Base 字段类型：单选=3，多选=4 */
 export const SINGLE_SELECT = 3;
 export const MULTI_SELECT = 4;
+
+/**
+ * 字段密级表（Stage 4b · 第 4 层 字段密级，默认种子）。
+ * 与 design v3 第 4 层一致：L1 公开 / L2 内部 / L3 敏感(部分打码) / L4 高度敏感(完全隐藏)。
+ * module 用模块 key（与 module-permissions 一致：students / teachers / billing / partnerships）。
+ * 运营可在「字典数据」页调整并持久化（/opt/acms/data/dictionaries.json 的 fieldLevels）。
+ */
+export const FIELD_LEVELS: FieldLevel[] = [
+  // ── students（学生档案） ──
+  { field: '证件号码（脱敏）', module: 'students', level: 4 },
+  { field: '学籍号（脱敏）', module: 'students', level: 4 },
+  { field: '家庭地址', module: 'students', level: 4 },
+  { field: '现居住地址', module: 'students', level: 4 },
+  { field: '通讯地址', module: 'students', level: 4 },
+  { field: '既往病史', module: 'students', level: 4 },
+  { field: '奖学金金额', module: 'students', level: 4 },
+  { field: '学生手机号', module: 'students', level: 3 },
+  { field: '学生邮箱', module: 'students', level: 3 },
+  { field: '学生微信号', module: 'students', level: 3 },
+  { field: '父亲电话', module: 'students', level: 3 },
+  { field: '母亲电话', module: 'students', level: 3 },
+  { field: '父亲邮箱', module: 'students', level: 3 },
+  { field: '母亲邮箱', module: 'students', level: 3 },
+  // ── teachers（教师档案） ──
+  { field: '手机号', module: 'teachers', level: 3 },
+  { field: '邮箱', module: 'teachers', level: 3 },
+  { field: '微信号', module: 'teachers', level: 3 },
+  // ── billing（计费明细） ──
+  { field: '金额', module: 'billing', level: 4 },
+  { field: '单价', module: 'billing', level: 4 },
+  // ── partnerships（合作关系） ──
+  { field: '费率', module: 'partnerships', level: 4 },
+];

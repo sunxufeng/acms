@@ -20,6 +20,7 @@ import { NotificationModule } from './notification/notification.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
 import { ExportModule } from './export/export.module.js';
 import { GenericCrudModule } from './shared/generic-crud.module.js';
+import { FieldMaskModule } from './shared/field-mask.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { Student360Module } from './student-360/student-360.module.js';
 import { IdpModule } from './idp/idp.module.js';
@@ -77,6 +78,7 @@ import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.m
     GetnoteModule,
     GetnoteSourceModule,
     ReportsModule,
+    FieldMaskModule,
   ],
 })
 export class AppModule {}

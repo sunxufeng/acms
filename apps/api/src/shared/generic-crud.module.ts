@@ -17,6 +17,7 @@ import { toText, type FilterCondition, type FilterGroup } from '@acms/base-adapt
 import { BASE_CLIENT, baseClientProvider } from '../base.provider.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { AuditService } from '../audit/audit.service.js';
+import { FieldMaskService } from './field-mask.service.js';
 import { buildWriteFields, toFlatRecord, buildFilter } from './record.util.js';
 
 export interface RecordMeta {
@@ -62,6 +63,7 @@ export class BaseRecordService {
     protected readonly meta: RecordMeta,
     @Inject(BASE_CLIENT) protected readonly base: BaseClient,
     @Inject(AuditService) protected readonly audit: AuditService,
+    @Inject(FieldMaskService) protected readonly mask: FieldMaskService,
   ) {}
 
   /** 操作人展示名 */
@@ -168,8 +170,9 @@ export class BaseRecordService {
     });
     const items = res.items.map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet()));
     await this.resolveLinks(items);
+    const masked = this.mod ? this.mask.maskMany(user, this.mod.key, items) : items;
     return {
-      items,
+      items: masked,
       total: res.total,
       hasMore: res.hasMore,
       pageToken: res.pageToken,
@@ -284,7 +287,7 @@ export class BaseRecordService {
     if (!rec) throw new NotFoundException('NOT_FOUND');
     const flat = toFlatRecord(rec, this.readonlySet(), this.multiSet(), this.linkSet());
     await this.resolveLinks([flat]);
-    return flat;
+    return this.mod ? this.mask.mask(user, this.mod.key, flat) : flat;
   }
 
   private writeFields(dto: Record<string, unknown>) {
@@ -312,7 +315,8 @@ export class BaseRecordService {
 
   async create(user: SessionUser, dto: Record<string, unknown>) {
     this.require(user, 'create');
-    const fields = this.writeFields(dto);
+    const stripped = this.mod ? this.mask.stripProtected(user, this.mod.key, dto) : dto;
+    const fields = this.writeFields(stripped);
     if (this.meta.statusField && !fields[this.meta.statusField] && this.meta.defaultStatus) {
       fields[this.meta.statusField] = this.meta.defaultStatus;
     }
@@ -324,7 +328,8 @@ export class BaseRecordService {
   async update(user: SessionUser, id: string, dto: Record<string, unknown>) {
     this.require(user, 'update');
     await this.detail(user, id);
-    const fields = this.writeFields(dto);
+    const stripped = this.mod ? this.mask.stripProtected(user, this.mod.key, dto) : dto;
+    const fields = this.writeFields(stripped);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(this.tableId, id, fields);
     this.emitAudit(user, '更新', id, Object.keys(fields).join(','));
@@ -351,8 +356,12 @@ export class BaseRecordService {
   async exportCsv(user: SessionUser): Promise<{ csv: string; filename: string }> {
     this.require(user, 'export');
     const rows = await this.fetchAll();
-    if (!rows.length) return { csv: '﻿', filename: `${this.meta.path}.csv` };
-    const fields = Array.from(new Set(rows.flatMap((r) => Object.keys(r.fields)))).filter(
+    const flatRows = rows.map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet()));
+    const maskedRows = this.mod
+      ? flatRows.map((r) => this.mask.mask(user, this.mod!.key, r))
+      : flatRows;
+    if (!maskedRows.length) return { csv: '﻿', filename: `${this.meta.path}.csv` };
+    const fields = Array.from(new Set(maskedRows.flatMap((r) => Object.keys(r)))).filter(
       (k) => !k.endsWith('__link'),
     );
     const esc = (v: unknown): string => {
@@ -360,8 +369,8 @@ export class BaseRecordService {
       return `"${s.replace(/"/g, '""')}"`;
     };
     const header = fields.map(esc).join(',');
-    const body = rows
-      .map((r) => fields.map((f) => esc(r.fields[f])).join(','))
+    const body = maskedRows
+      .map((r) => fields.map((f) => esc(r[f])).join(','))
       .join('\n');
     return { csv: '﻿' + header + '\n' + body, filename: `${this.meta.path}.csv` };
   }
@@ -394,8 +403,9 @@ function makeService(meta: RecordMeta): Type<BaseRecordService> {
     constructor(
       @Inject(BASE_CLIENT) base: BaseClient,
       @Inject(AuditService) audit: AuditService,
+      @Inject(FieldMaskService) mask: FieldMaskService,
     ) {
-      super(meta, base, audit);
+      super(meta, base, audit, mask);
     }
   }
   return GService as unknown as Type<BaseRecordService>;

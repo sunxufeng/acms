@@ -4,6 +4,7 @@ import { BaseClient, toWriteSingle, toWriteMulti, toStringArray, toText, type Fi
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { DictService } from '../dictionary/dict.service.js';
+import { FieldMaskService } from '../shared/field-mask.service.js';
 import { requireModule } from '../shared/require-module.js';
 import type { CreateTeacherDto, UpdateTeacherDto, TeacherFilterDto } from './teacher.dto.js';
 
@@ -23,9 +24,10 @@ export class TeacherService {
   constructor(
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
     private readonly dict: DictService,
+    @Inject(FieldMaskService) private readonly mask: FieldMaskService,
   ) {}
 
-  private toWriteFields(dto: CreateTeacherDto | UpdateTeacherDto): Record<string, unknown> {
+  private toWriteFields(dto: Record<string, unknown>): Record<string, unknown> {
     const fields: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(dto)) {
       if (READONLY_FIELDS.has(k)) continue;
@@ -87,7 +89,7 @@ export class TeacherService {
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]
       : [{ field: '更新时间', desc: true }];
     const res = await this.base.search(TABLE, { pageSize: Number((query as any).pageSize) || 50, pageToken: query.pageToken, filter, sort });
-    const items = res.items.map((r) => this.toTeacher(r));
+    const items = this.mask.maskMany(user, 'teachers', res.items.map((r) => this.toTeacher(r)));
     return { items, total: res.total, hasMore: res.hasMore, pageToken: res.pageToken };
   }
 
@@ -95,13 +97,13 @@ export class TeacherService {
     requireModule(user, 'teachers', 'read');
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
-    return this.toTeacher(rec);
+    return this.mask.mask(user, 'teachers', this.toTeacher(rec));
   }
 
   async create(user: SessionUser, dto: CreateTeacherDto) {
     requireModule(user, 'teachers', 'create');
     if (!dto.教师姓名?.trim()) throw new BadRequestException('VALIDATION:教师姓名必填');
-    const fields = this.toWriteFields(dto);
+    const fields = this.toWriteFields(this.mask.stripProtected(user, 'teachers', dto as unknown as Record<string, unknown>));
     if (!fields['数据密级']) fields['数据密级'] = '内部';
     if (!fields['在职合作状态']) fields['在职合作状态'] = '候选';
     await this.ensureTeacherOptions(dto);
@@ -112,7 +114,7 @@ export class TeacherService {
   async update(user: SessionUser, id: string, dto: UpdateTeacherDto) {
     await this.detail(user, id);
     requireModule(user, 'teachers', 'update');
-    const fields = this.toWriteFields(dto);
+    const fields = this.toWriteFields(this.mask.stripProtected(user, 'teachers', dto as unknown as Record<string, unknown>));
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.ensureTeacherOptions(dto);
     await this.base.update(TABLE, id, fields);

@@ -4,6 +4,7 @@ import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import type { BaseClient } from '@acms/base-adapter';
 import { buildWriteFields, toFlatRecord, buildFilter } from '../shared/record.util.js';
+import { FieldMaskService } from '../shared/field-mask.service.js';
 import { CreateBillingDto, UpdateBillingDto, BillingFilterDto, TransitionDto, GenerateBillingDto, BILLING_TRANSITIONS } from './billing.dto.js';
 import { requireModule } from '../shared/require-module.js';
 
@@ -15,7 +16,10 @@ const NUMBERS = new Set(['课时数量', '单价', '金额']);
 
 @Injectable()
 export class BillingService {
-  constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
+  constructor(
+    @Inject(BASE_CLIENT) private readonly base: BaseClient,
+    @Inject(FieldMaskService) private readonly mask: FieldMaskService,
+  ) {}
 
   async list(user: SessionUser, query: BillingFilterDto) {
     requireModule(user, 'billing', 'read');
@@ -28,19 +32,20 @@ export class BillingService {
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]
       : [{ field: '计费周期', desc: true }];
     const res = await this.base.search(TABLE, { pageSize: Number((query as any).pageSize) || 50, pageToken: query.pageToken, filter: buildFilter(conditions), sort });
-    return { items: res.items.map((r) => toFlatRecord(r, READONLY, new Set())), total: res.total, hasMore: res.hasMore, pageToken: res.pageToken };
+    const items = res.items.map((r) => this.mask.mask(user, 'billing', toFlatRecord(r, READONLY, new Set())));
+    return { items, total: res.total, hasMore: res.hasMore, pageToken: res.pageToken };
   }
 
   async detail(user: SessionUser, id: string) {
     requireModule(user, 'billing', 'read');
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
-    return toFlatRecord(rec, READONLY, new Set());
+    return this.mask.mask(user, 'billing', toFlatRecord(rec, READONLY, new Set()));
   }
 
   async create(user: SessionUser, dto: CreateBillingDto) {
     requireModule(user, 'billing', 'create');
-    const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
+    const fields = buildWriteFields(this.mask.stripProtected(user, 'billing', dto as unknown as Record<string, unknown>), READONLY, NUMBERS);
     if (!fields['计费状态']) fields['计费状态'] = '待生成';
     const recordId = await this.base.create(TABLE, fields);
     return this.detail(user, recordId);
@@ -97,7 +102,7 @@ export class BillingService {
   async update(user: SessionUser, id: string, dto: UpdateBillingDto) {
     await this.detail(user, id);
     requireModule(user, 'billing', 'update');
-    const fields = buildWriteFields(dto as unknown as Record<string, unknown>, READONLY, NUMBERS);
+    const fields = buildWriteFields(this.mask.stripProtected(user, 'billing', dto as unknown as Record<string, unknown>), READONLY, NUMBERS);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(TABLE, id, fields);
     return this.detail(user, id);

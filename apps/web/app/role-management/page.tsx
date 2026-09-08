@@ -6,10 +6,16 @@ import { useTl } from '../../lib/useTl';
 import { api, type RoleManagementPayload } from '../../lib/api';
 import { DOMAIN_LABELS, PERMISSION_LABELS, type Permission, type DataLevel, type RoleDef } from '@acms/contracts';
 
+/**
+ * 权限域的展示顺序提示。
+ * 仅用于排序——未在此列出的域会自动追加到末尾（见 groupPerms），
+ * 避免新增权限域时忘记同步此数组，导致该域权限在界面上「整体消失」。
+ */
 const DOMAIN_ORDER = [
   'student', 'followup', 'attendance', 'billing', 'partnership', 'finance',
   'notification', 'grade', 'activity', 'communication', 'evaluation', 'alumni',
   'teacher', 'course', 'venue', 'schedule', 'export', 'admin', 'config', 'ai',
+  'mail', 'getnote',
 ];
 
 const LEVEL_LABELS: Record<string, string> = {
@@ -27,14 +33,23 @@ const LEVEL_LABEL_KEYS: Record<string, string> = {
   L4: 'levelL4',
 };
 
+/**
+ * 按权限域分组。
+ * 域集合由传入的权限点自动派生（而非取自 DOMAIN_ORDER 白名单），
+ * DOMAIN_ORDER 只决定已知域的先后顺序，未知域追加在末尾——
+ * 这样后端新增权限域后前端无需改动即可显示。
+ */
 function groupPerms(perms: string[]): { domain: string; label: string; perms: string[] }[] {
   const m = new Map<string, string[]>();
   for (const p of perms) {
-    const dom = p.split(':')[0];
-    if (!m.has(dom)) m.set(dom, []);
-    m.get(dom)!.push(p);
+    const dom = p.split(':')[0] ?? p;
+    const list = m.get(dom);
+    if (list) list.push(p);
+    else m.set(dom, [p]);
   }
-  return DOMAIN_ORDER.filter((d) => m.has(d)).map((d) => ({
+  const known = DOMAIN_ORDER.filter((d) => m.has(d));
+  const extra = [...m.keys()].filter((d) => !DOMAIN_ORDER.includes(d));
+  return [...known, ...extra].map((d) => ({
     domain: d,
     label: DOMAIN_LABELS[d] ?? d,
     perms: m.get(d)!,

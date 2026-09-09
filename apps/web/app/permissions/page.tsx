@@ -5,10 +5,12 @@ import Link from 'next/link';
 import { groupPermissions } from '@acms/contracts';
 import { api, type PermissionsPayload } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
+import { useRoleLabels } from '../../components/RoleLabels';
 
 export default function PermissionsPage() {
 
   const tl = useTl();
+  const { labelOf } = useRoleLabels();
   const [data, setData] = useState<PermissionsPayload | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -49,7 +51,7 @@ export default function PermissionsPage() {
             <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{tl('我的角色')}</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
               {(data.myRoles.length ? data.myRoles : ['（无）']).map((r) => (
-                <span key={r} className="tag tag-accent">{r}</span>
+                <span key={r} className="tag tag-accent">{labelOf(r)}</span>
               ))}
             </div>
           </div>
@@ -84,7 +86,7 @@ export default function PermissionsPage() {
               <tr>
                 <th style={{ position: 'sticky', left: 0, background: 'var(--bg-elevated)', minWidth: 180 }}>{tl('权限 \ 角色')}</th>
                 {data.roles.map((r) => (
-                  <th key={r} style={{ textAlign: 'center', minWidth: 84 }}>{r}</th>
+                  <th key={r} style={{ textAlign: 'center', minWidth: 84 }}>{labelOf(r)}</th>
                 ))}
               </tr>
             </thead>

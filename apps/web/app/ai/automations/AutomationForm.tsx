@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
+import { useRoleLabels } from '../../../components/RoleLabels';
 
 export type Auto = {
   id?: string;

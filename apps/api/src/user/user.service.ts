@@ -6,8 +6,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { ROLES, USER_LEVEL_OPTIONS, USER_TABLE } from '@acms/contracts';
-import { authorize, type Principal } from '@acms/domain';
+import { USER_LEVEL_OPTIONS, USER_TABLE } from '@acms/contracts';
+import { authorize, getRoleList, type Principal } from '@acms/domain';
 import { BaseClient, toText, toStringArray } from '@acms/base-adapter';
 import { BASE_CLIENT } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -120,7 +120,8 @@ export class UsersService {
     const name = toText(dto['姓名']);
     if (!name) throw new BadRequestException('VALIDATION:姓名 必填');
 
-    const roles = toStringArray(dto['系统角色']).filter((r) => (ROLES as readonly string[]).includes(r));
+    // 用动态有效角色清单校验（含角色管理里新建的自定义角色），避免自定义角色被静默剔除
+    const roles = toStringArray(dto['系统角色']).filter((r) => getRoleList().includes(r));
     const levelRaw = toText(dto['数据密级上限']) || '';
     const level = (USER_LEVEL_OPTIONS as readonly string[]).includes(levelRaw) ? levelRaw : 'L4';
     const statusRaw = toText(dto['账号状态']) || STATUS_ENABLED;

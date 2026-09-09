@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
 import { useTl } from '../lib/useTl';
 import { useTranslations } from 'next-intl';
+import { useRoleLabels } from './RoleLabels';
 
 export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone' | 'textarea' | 'number' | 'typescore';
 
@@ -887,6 +888,7 @@ function PhotoAttachmentSection({
 
   /** 用户列表（招生负责老师 / 班主任 选择器数据源；含角色/校区用于展示） */
   const [users, setUsers] = useState<{ openId: string; name: string; role?: string; campus?: string; teacherType?: string }[]>([]);
+  const { joinLabels } = useRoleLabels();
   useEffect(() => {
     let alive = true;
     const collected: { openId: string; name: string; role?: string; campus?: string; teacherType?: string }[] = [];
@@ -898,7 +900,7 @@ function PhotoAttachmentSection({
         collected.push({
           openId: String(u['飞书 Open ID'] ?? ''),
           name: String(u['姓名'] ?? ''),
-          role: Array.isArray(u['系统角色']) ? u['系统角色'].join('、') : String(u['系统角色'] ?? ''),
+          role: joinLabels(u['系统角色']),
           campus: String(u['默认校区'] ?? ''),
           teacherType: String(u['教师类型'] ?? ''),
         });

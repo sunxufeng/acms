@@ -1037,6 +1037,8 @@ export interface GetnoteLink {
 export interface PermissionsPayload {
   roles: string[];
   permissions: string[];
+  /** 角色 key → 展示名（label），供前端把存储的 key 解析成可读名称 */
+  roleLabels: Record<string, string>;
   matrix: Record<string, string[]>;
   dataLevels: string[];
   myRoles: string[];

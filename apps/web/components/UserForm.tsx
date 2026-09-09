@@ -68,7 +68,12 @@ export default function UserForm({ row, onDone }: UserFormProps) {
     });
   }, [row]);
 
-  const selected = useMemo(() => asList(form['系统角色']), [form]);
+  // 把存储值（可能是 key，也可能是改名前的旧 label）统一归一到当前 key
+  const normalize = (v: string): string => {
+    const r = (roles ?? []).find((x) => x.key === v || (x.label ?? '') === v);
+    return r ? r.key : v;
+  };
+  const selected = useMemo(() => asList(form['系统角色']).map(normalize), [form, roles]);
   const filtered = useMemo(() => {
     const all = roles ?? [];
     const k = kw.trim().toLowerCase();
@@ -76,10 +81,11 @@ export default function UserForm({ row, onDone }: UserFormProps) {
     return all.filter((r) => String(r.label ?? r.key ?? '').toLowerCase().includes(k));
   }, [roles, kw]);
 
-  const toggle = (label: string, on: boolean) => {
+  // 存 key 而非 label：改名后 key 不变，已授权用户立即显示新名；不会因存了改名后的 label 被鉴权剔除
+  const toggle = (key: string, on: boolean) => {
     setForm((f) => {
-      const cur = asList(f['系统角色']);
-      return { ...f, 系统角色: on ? [...cur, label] : cur.filter((x) => x !== label) };
+      const cur = asList(f['系统角色']).map(normalize);
+      return { ...f, 系统角色: on ? (cur.includes(key) ? cur : [...cur, key]) : cur.filter((x) => x !== key) };
     });
   };
 
@@ -100,7 +106,7 @@ export default function UserForm({ row, onDone }: UserFormProps) {
         数据密级上限: form['数据密级上限'],
         默认校区: form['默认校区'],
         账号状态: form['账号状态'],
-        系统角色: asList(form['系统角色']),
+        系统角色: asList(form['系统角色']).map(normalize),
       };
       // 飞书 Open ID 不在表单里编辑；仅编辑态原样带出，新建留空则不提交
       const openId = String(form['飞书 Open ID'] ?? '').trim();
@@ -238,7 +244,7 @@ export default function UserForm({ row, onDone }: UserFormProps) {
           <div style={{ display: 'flex', gap: 10, fontSize: 'var(--font-xs)', marginBottom: 8 }}>
             <span
               style={{ color: 'var(--accent)', cursor: 'pointer' }}
-              onClick={() => setForm((f) => ({ ...f, 系统角色: filtered.map((r) => String(r.label ?? r.key ?? '')) }))}
+              onClick={() => setForm((f) => ({ ...f, 系统角色: filtered.map((r) => String(r.key ?? '')) }))}
             >
               {tl('全选')}
             </span>
@@ -255,15 +261,16 @@ export default function UserForm({ row, onDone }: UserFormProps) {
               <div style={{ padding: 10, fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{tl('无匹配角色')}</div>
             )}
             {filtered.map((r) => {
+              const key = String(r.key ?? '');
               const label = String(r.label ?? r.key ?? '');
-              const on = selected.includes(label);
+              const on = selected.includes(key);
               return (
                 <label
-                  key={label}
+                  key={key}
                   className="user-role-row"
                   style={on ? { background: 'var(--accent-soft)' } : undefined}
                 >
-                  <input type="checkbox" checked={on} onChange={(e) => toggle(label, e.target.checked)} />
+                  <input type="checkbox" checked={on} onChange={(e) => toggle(key, e.target.checked)} />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span className="user-role-name">
                       {tl(label)}
@@ -279,7 +286,7 @@ export default function UserForm({ row, onDone }: UserFormProps) {
           </div>
 
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
-            {tl('已选')}：{selected.length ? selected.map((s) => tl(s)).join('、') : tl('未选择')}
+            {tl('已选')}：{selected.length ? selected.map((s) => { const r = (roles ?? []).find((x) => x.key === s); return tl(r?.label ?? r?.key ?? s); }).join('、') : tl('未选择')}
           </div>
         </div>
       </div>

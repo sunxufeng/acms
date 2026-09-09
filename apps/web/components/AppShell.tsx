@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { api } from '../lib/api';
 import LocaleSwitcher from './LocaleSwitcher';
+import { useRoleLabels } from './RoleLabels';
 import { modulePermission, MODULE_RESOURCES } from '@acms/contracts';
 import { loadPermissions } from '../lib/permissions';
 import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuGroup, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
@@ -182,6 +183,7 @@ export default function AppShell({
   const tb = useTranslations('breadcrumb');
   const tTop = useTranslations('topbar');
   const [me, setMe] = useState<Me | null>(null);
+  const { labelOf } = useRoleLabels();
   const [myPerms, setMyPerms] = useState<string[]>([]);
   /** 菜单白名单：null = 不限制（按权限点自动显隐）；数组 = 仅这些菜单可见 */
   const [myMenus, setMyMenus] = useState<string[] | null>(null);
@@ -488,7 +490,7 @@ export default function AppShell({
                 <span style={{ fontSize: 'var(--font-sm)', color: 'var(--topbar-fg-secondary)' }}>{me.name}</span>
                 <div className="user-chip">
                   <span className="user-avatar-xs">{initial(me.name)}</span>
-                  <span>{me.roles[0] || t('common.user')}</span>
+                  <span>{labelOf(me.roles[0] ?? '') || t('common.user')}</span>
                 </div>
               </>
             )}

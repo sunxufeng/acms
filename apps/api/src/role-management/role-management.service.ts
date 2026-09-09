@@ -168,6 +168,7 @@ export class RoleManagementService implements OnModuleInit {
     loadRolePermissionConfig(
       roles.map((r) => ({
         key: r.key,
+        label: r.label?.trim() || r.key,
         permissions: r.permissions as Permission[],
         maxDataLevel: (r.maxDataLevel as DataLevel) ?? 'L1',
         menus: r.menus,

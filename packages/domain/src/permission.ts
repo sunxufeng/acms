@@ -252,9 +252,13 @@ let effectiveRolePermissions: Record<string, Permission[]> | null = null;
 let effectiveMaxLevel: Record<string, DataLevel> | null = null;
 /** 角色 → 菜单可见性白名单（key 列表）。空/缺省 = 不额外限制，按权限点自动显隐 */
 let effectiveRoleMenus: Record<string, string[]> | null = null;
+/** 角色 key → 展示名（label）；供前端显示用，不含任何鉴权逻辑 */
+let effectiveRoleLabels: Record<string, string> | null = null;
 
 export interface RolePermissionSeed {
   key: string;
+  /** 展示名（缺省等于 key）；仅用于显示，不参与鉴权 */
+  label?: string;
   permissions: Permission[];
   maxDataLevel: DataLevel;
   menus?: string[];
@@ -265,14 +269,17 @@ export function loadRolePermissionConfig(roles: RolePermissionSeed[]): void {
   const pm: Record<string, Permission[]> = {};
   const ml: Record<string, DataLevel> = {};
   const mn: Record<string, string[]> = {};
+  const lb: Record<string, string> = {};
   for (const r of roles) {
     pm[r.key] = [...r.permissions];
     ml[r.key] = r.maxDataLevel;
     if (Array.isArray(r.menus) && r.menus.length) mn[r.key] = [...r.menus];
+    lb[r.key] = r.label?.trim() || r.key;
   }
   effectiveRolePermissions = pm;
   effectiveMaxLevel = ml;
   effectiveRoleMenus = mn;
+  effectiveRoleLabels = lb;
 }
 
 function permsForRole(role: string): Permission[] {
@@ -301,6 +308,15 @@ export function getRolePermissionMatrix(): Record<string, Permission[]> {
 /** 有效角色清单（含配置中新增的自定义角色） */
 export function getRoleList(): string[] {
   return Object.keys(getRolePermissionMatrix());
+}
+
+/**
+ * 角色 key → 展示名（label）。供前端把存储的 key 解析成可读名称显示。
+ * 配置在应用启动时（RoleManagementService.onModuleInit）即载入引擎，故请求期恒可用；
+ * 极端情况下未载入则回退空对象，前端以 key 本身兜底显示（内置角色 label 默认等于 key）。
+ */
+export function getRoleLabels(): Record<string, string> {
+  return effectiveRoleLabels ?? {};
 }
 
 /**

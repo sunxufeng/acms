@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { DATA_LEVELS, PERMISSIONS, ROLES, type SessionUser } from '@acms/contracts';
-import { maxDataLevelOf, menusOf, permissionsOf, getRolePermissionMatrix, getRoleList } from '@acms/domain';
+import { maxDataLevelOf, menusOf, permissionsOf, getRolePermissionMatrix, getRoleList, getRoleLabels } from '@acms/domain';
 import { AuthService } from './auth.service.js';
 import { SessionGuard } from './session.guard.js';
 import { LoginRateLimitGuard } from './rate-limit.guard.js';
@@ -92,6 +92,8 @@ export class AuthController {
       myMenuRestricted: menuScope.restricted,
       roles: getRoleList(),
       permissions: PERMISSIONS,
+      /** 角色 key → 展示名（label），供前端把存储的 key 解析成可读名称 */
+      roleLabels: getRoleLabels(),
       /** 角色 → 权限点 矩阵（有效矩阵，已加载角色管理配置则按配置） */
       matrix: getRolePermissionMatrix(),
       dataLevels: DATA_LEVELS,

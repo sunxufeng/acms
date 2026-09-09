@@ -2,6 +2,7 @@
 
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import UserForm from '../../components/UserForm';
+import { RoleLabelsCell } from '../../components/RoleLabels';
 import { api } from '../../lib/api';
 import { LEVEL_OPTS, STATUS_OPTS } from './constants';
 

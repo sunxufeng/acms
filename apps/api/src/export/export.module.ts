@@ -11,6 +11,8 @@ import { BaseClient, toText } from '@acms/base-adapter';
 import { BASE_CLIENT, baseClientProvider } from '../base.provider';
 import { TABLES } from '@acms/contracts';
 import type { SessionUser } from '@acms/contracts';
+import { DictService } from '../dictionary/dict.service';
+import { FIELD_DICTKEY } from '../dictionary/dict.data';
 
 function toPrincipal(u: SessionUser): Principal {
   return { roles: u.roles, campuses: u.campuses, maxDataLevel: u.maxDataLevel };
@@ -19,7 +21,10 @@ function toPrincipal(u: SessionUser): Principal {
 @Controller('export')
 @UseGuards(SessionGuard)
 export class ExportController {
-  constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
+  constructor(
+    @Inject(BASE_CLIENT) private readonly base: BaseClient,
+    private readonly dict: DictService,
+  ) {}
 
   @Get(':table')
   async export(
@@ -49,13 +54,23 @@ export class ExportController {
     const headers = ['记录ID', ...fields.map((f) => f.name)];
 
     const roleLabels = getRoleLabels();
-    /** 系统角色等字段存储的是角色 key，导出前解析成展示名；其它字段原样 */
+    /** 系统角色等字段存储的是角色 key，导出前解析成展示名；字典字段把旧值/别名解析为当前名；其它字段原样 */
     const resolveFieldValue = (fieldName: string, v: unknown): unknown => {
       if (fieldName === '系统角色') {
         const toLabel = (x: unknown): string => {
           const k = toText(x);
           if (!k) return '';
           return roleLabels[k] ?? k;
+        };
+        return Array.isArray(v) ? v.map(toLabel) : toLabel(v);
+      }
+      // 字典字段：fieldName → dictKey（FIELD_DICTKEY），把存量旧值/别名经 aliases 解析为当前展示名
+      const dictKey = FIELD_DICTKEY[fieldName];
+      if (dictKey) {
+        const toLabel = (x: unknown): string => {
+          const raw = toText(x);
+          if (!raw) return '';
+          return this.dict.resolve(dictKey, raw);
         };
         return Array.isArray(v) ? v.map(toLabel) : toLabel(v);
       }
@@ -87,6 +102,6 @@ export class ExportController {
 
 @Module({
   controllers: [ExportController],
-  providers: [baseClientProvider],
+  providers: [baseClientProvider, DictService],
 })
 export class ExportModule {}

@@ -12,7 +12,10 @@ import {
   MULTI_SELECT,
   PROVINCE_CITIES,
   FIELD_LEVELS,
+  FIELD_DICTKEY,
+  toOpts,
 } from './dict.data.js';
+import type { DictOption } from './dict.data.js';
 
 export interface SyncResult {
   table: string;
@@ -25,12 +28,19 @@ export interface SyncResult {
 const DATA_DIR = process.env.ACMS_DATA_DIR ?? '/opt/acms/data';
 const STORE_FILE = path.join(DATA_DIR, 'dictionaries.json');
 
+/** 把 DictOption[] 字典 store 投影为仅 labels 的 Record（旧端点/前端兼容用） */
+function labelsOf(store: Record<string, DictOption[]>): Record<string, string[]> {
+  return Object.fromEntries(
+    Object.entries(store).map(([k, v]) => [k, v.map((o) => o.label)]),
+  );
+}
+
 @Injectable()
 export class DictService {
   private readonly logger = new Logger(DictService.name);
   private readonly TABLE = TABLES.studentProfile.tableId;
-  /** 运行时可变字典（种子 + 持久化文件合并），编辑后写入文件 */
-  private store: Record<string, string[]>;
+  /** 运行时可变字典（种子 + 持久化文件合并，key+label+aliases 完整模型），编辑后写入文件 */
+  private store: Record<string, DictOption[]>;
   /** 字段密级表（Stage 4b）：种子 + 持久化文件合并 */
   private fieldLevels: FieldLevel[] = [...FIELD_LEVELS];
 
@@ -40,15 +50,24 @@ export class DictService {
   }
 
   /** 启动时若存在持久化文件，则用其覆盖同名 key（保留种子中新增的 key）。
+   *  兼容旧版 { dictionaries: Record<string, string[]> } 结构：字符串数组自动升级为 DictOption[]（key=label）。
    *  兼容旧版仅 { dictionaries } 结构：缺 fieldLevels 时回退种子。 */
   private loadStore(): void {
     try {
       if (fs.existsSync(STORE_FILE)) {
         const saved = JSON.parse(fs.readFileSync(STORE_FILE, 'utf-8')) as {
-          dictionaries?: Record<string, string[]>;
+          dictionaries?: Record<string, string[] | DictOption[]>;
           fieldLevels?: FieldLevel[];
         };
-        if (saved.dictionaries) this.store = { ...DICTIONARIES, ...saved.dictionaries };
+        if (saved.dictionaries) {
+          const merged: Record<string, DictOption[]> = {};
+          for (const [k, v] of Object.entries(saved.dictionaries)) {
+            merged[k] = Array.isArray(v) && typeof v[0] === 'string'
+              ? toOpts(v as string[])
+              : (v as DictOption[]);
+          }
+          this.store = { ...DICTIONARIES, ...merged };
+        }
         if (Array.isArray(saved.fieldLevels) && saved.fieldLevels.length) {
           this.fieldLevels = saved.fieldLevels;
         }
@@ -71,9 +90,14 @@ export class DictService {
     }
   }
 
-  /** 全部字典 */
-  getAll(): Record<string, string[]> {
+  /** 全部字典（完整 DictOption[] 模型，供 /meta 端点） */
+  getAllOptions(): Record<string, DictOption[]> {
     return this.store;
+  }
+
+  /** 全部字典（仅 labels，兼容旧 /dictionaries 端点，6 个只读前端消费方零改动） */
+  getAllLabels(): Record<string, string[]> {
+    return labelsOf(this.store);
   }
 
   /** 省 → 市 级联映射（前端级联下拉用） */
@@ -94,16 +118,77 @@ export class DictService {
     return this.fieldLevels;
   }
 
-  /** 单个字典 */
-  get(key: string): string[] | undefined {
+  /** 单个字典（完整模型） */
+  getOptions(key: string): DictOption[] | undefined {
     return this.store[key];
   }
 
-  /** 更新单个字典候选项：去重 + 去空白，写回内存并持久化 */
-  update(key: string, options: string[]): { key: string; options: string[] } {
-    const cleaned = Array.from(
-      new Set((options ?? []).map((o) => (o ?? '').trim()).filter((o) => o.length > 0)),
-    );
+  /**
+   * 把存储值（可能是旧 label / 别名 / key）解析为当前展示 label。
+   * 命中规则：value === option.key || value === option.label || option.aliases 包含 value。
+   * 未命中则原样返回（未知值不丢）。
+   */
+  resolve(dictKey: string, value: string): string {
+    const opts = this.store[dictKey];
+    if (!opts || value == null) return value;
+    for (const o of opts) {
+      if (o.key === value || o.label === value) return o.label;
+      if (o.aliases?.includes(value)) return o.label;
+    }
+    return value;
+  }
+
+  /** 批量解析（多选字段值数组） */
+  resolveValues(dictKey: string, values: string[]): string[] {
+    if (!Array.isArray(values)) return values;
+    return values.map((v) => this.resolve(dictKey, v));
+  }
+
+  /** 按字段名解析（经 FIELD_DICTKEY 回退定位 dictKey；明确知道表的调用方应直接传 dictKey 用 resolve） */
+  resolveFieldValue(fieldName: string, value: string): string {
+    const dictKey = FIELD_DICTKEY[fieldName];
+    return dictKey ? this.resolve(dictKey, value) : value;
+  }
+
+  /**
+   * 构造 /meta 响应：
+   * - options：全量 DictOption[]（编辑器编辑用）。
+   * - resolve：dictKey → (旧值/别名/key → 当前 label) 映射（CrudPage 显示解析、导出/AI 转可读名用）。
+   * - fieldDictKey：字段名 → 字典 key（按字段名解析的回退映射）。
+   */
+  getMeta(): {
+    options: Record<string, DictOption[]>;
+    resolve: Record<string, Record<string, string>>;
+    fieldDictKey: Record<string, string>;
+  } {
+    const resolve: Record<string, Record<string, string>> = {};
+    for (const [k, opts] of Object.entries(this.store)) {
+      const map: Record<string, string> = {};
+      for (const o of opts) {
+        map[o.key] = o.label;
+        map[o.label] = o.label;
+        for (const a of o.aliases ?? []) map[a] = o.label;
+      }
+      resolve[k] = map;
+    }
+    return { options: this.store, resolve, fieldDictKey: FIELD_DICTKEY };
+  }
+
+  /** 更新单个字典候选项：接受完整 DictOption[]（编辑器保留 aliases 兼容存量旧值）或遗留 string[]（标签类，自动升级为 key=label）。写回内存并持久化 */
+  update(key: string, options: DictOption[] | string[]): { key: string; options: DictOption[] } {
+    const cleaned = (options ?? [])
+      .map((o) =>
+        typeof o === 'string'
+          ? { key: o.trim(), label: o.trim() }
+          : {
+              key: (o.key ?? '').trim(),
+              label: (o.label ?? '').trim(),
+              aliases: Array.isArray(o.aliases)
+                ? Array.from(new Set(o.aliases.map((a) => (a ?? '').trim()).filter(Boolean)))
+                : undefined,
+            },
+      )
+      .filter((o) => o.key.length > 0 && o.label.length > 0);
     this.store[key] = cleaned;
     this.persistStore();
     this.logger.log(`字典更新：${key}（${cleaned.length} 项）`);
@@ -177,7 +262,7 @@ export class DictService {
         { name: '家长反馈态度', dictKey: '家长反馈态度' },
       ];
       for (const { name, dictKey } of singles) {
-        const options = (this.store[dictKey] ?? []).map((o) => ({ name: o }));
+        const options = (this.store[dictKey] ?? []).map((o) => ({ name: o.label }));
         const def = byName.get(name);
         if (!def) {
           await this.base.createField(tableId, { field_name: name, type: SINGLE_SELECT, property: { options } });
@@ -188,22 +273,7 @@ export class DictService {
           result.skipped.push(`${name}（已存在但非单选 type=${def.type}，跳过以免丢数据）`);
           continue;
         }
-        const existing = new Set((def.property.options ?? []).map((o) => o.name));
-        const toAdd = options.filter((o) => !existing.has(o.name));
-        if (toAdd.length) {
-          const merged = [
-            ...(def.property.options ?? []).map((o) => ({ name: o.name })),
-            ...toAdd,
-          ];
-          await this.base.updateField(tableId, def.id, {
-            field_name: def.name,
-            type: SINGLE_SELECT,
-            property: { options: merged },
-          });
-          result.synced.push(`${name}（+${toAdd.length}）`);
-        } else {
-          result.skipped.push(`${name}（已是最新）`);
-        }
+        await this.syncSelectOptions(tableId, name, this.store[dictKey] ?? [], result);
       }
 
       // 文本字段（自由输入）
@@ -254,7 +324,7 @@ export class DictService {
   private async ensureTeacherFields(): Promise<SyncResult> {
     const tableId = TABLES.teacherProfile.tableId;
     const result: SyncResult = { table: tableId, synced: [], skipped: [], errors: [] };
-    const opt = (key: string) => (this.store[key] ?? []).map((name) => ({ name }));
+    const opt = (key: string) => (this.store[key] ?? []).map((o) => ({ name: o.label }));
     try {
       const fields = await this.base.listFields(tableId);
       const byName = new Map(fields.map((f) => [f.name, f]));
@@ -314,17 +384,7 @@ export class DictService {
         }
         result.synced.push(`主要学科（单选→多选重建，迁移 ${restored} 条）`);
       } else {
-        const existing = new Set((majorDef.property.options ?? []).map((o) => o.name));
-        const toAdd = opt('主要学科').filter((o) => !existing.has(o.name));
-        if (toAdd.length) {
-          await this.base.updateField(tableId, majorDef.id, {
-            field_name: '主要学科', type: MULTI_SELECT,
-            property: { options: [...(majorDef.property.options ?? []).map((o) => ({ name: o.name })), ...toAdd] },
-          });
-          result.synced.push(`主要学科（+${toAdd.length}）`);
-        } else {
-          result.skipped.push('主要学科（已是最新）');
-        }
+        await this.syncSelectOptions(tableId, '主要学科', this.store['主要学科'] ?? [], result);
       }
 
       // 2.4) 教师合作等级：单选（下拉），候选项来自字典 L1/L2/L3。
@@ -342,17 +402,7 @@ export class DictService {
         });
         result.synced.push('教师合作等级（文本→单选重建）');
       } else {
-        const existing = new Set((levelDef.property.options ?? []).map((o) => o.name));
-        const toAdd = opt('教师合作等级').filter((o) => !existing.has(o.name));
-        if (toAdd.length) {
-          await this.base.updateField(tableId, levelDef.id, {
-            field_name: '教师合作等级', type: SINGLE_SELECT,
-            property: { options: [...(levelDef.property.options ?? []).map((o) => ({ name: o.name })), ...toAdd] },
-          });
-          result.synced.push(`教师合作等级（+${toAdd.length}）`);
-        } else {
-          result.skipped.push('教师合作等级（已是最新）');
-        }
+        await this.syncSelectOptions(tableId, '教师合作等级', this.store['教师合作等级'] ?? [], result);
       }
 
       // 2.5) 新增单选字段（带字典选项）
@@ -499,7 +549,7 @@ export class DictService {
   private async ensureHomeSchoolCommFields(): Promise<SyncResult> {
     const tableId = TABLES.homeSchoolComm.tableId;
     const result: SyncResult = { table: tableId, synced: [], skipped: [], errors: [] };
-    const opt = (key: string) => (this.store[key] ?? []).map((name) => ({ name }));
+    const opt = (key: string) => (this.store[key] ?? []).map((o) => ({ name: o.label }));
     try {
       const fields = await this.base.listFields(tableId);
       const byName = new Map(fields.map((f) => [f.name, f]));
@@ -536,22 +586,7 @@ export class DictService {
           result.skipped.push(`${name}（已存在但非单选 type=${def.type}，跳过以免丢数据）`);
           continue;
         }
-        const existing = new Set((def.property.options ?? []).map((o) => o.name));
-        const toAdd = options.filter((o) => !existing.has(o.name));
-        if (toAdd.length) {
-          const merged = [
-            ...(def.property.options ?? []).map((o) => ({ name: o.name })),
-            ...toAdd,
-          ];
-          await this.base.updateField(tableId, def.id, {
-            field_name: def.name,
-            type: SINGLE_SELECT,
-            property: { options: merged },
-          });
-          result.synced.push(`${name}（+${toAdd.length}）`);
-        } else {
-          result.skipped.push(`${name}（已是最新）`);
-        }
+        await this.syncSelectOptions(tableId, name, this.store[dictKey] ?? [], result);
       }
 
       // 1.5) 沟通主题：必须为文本(type=1)，自由文本主题；若为多选(type=4)则重建
@@ -586,7 +621,7 @@ export class DictService {
   private async ensureDailyFollowupFields(): Promise<SyncResult> {
     const tableId = TABLES.dailyFollowup.tableId;
     const result: SyncResult = { table: tableId, synced: [], skipped: [], errors: [] };
-    const opt = (key: string) => (this.store[key] ?? []).map((name) => ({ name }));
+    const opt = (key: string) => (this.store[key] ?? []).map((o) => ({ name: o.label }));
     try {
       const fields = await this.base.listFields(tableId);
       const byName = new Map(fields.map((f) => [f.name, f]));
@@ -612,22 +647,7 @@ export class DictService {
           result.skipped.push(`${name}（已存在但非单选 type=${def.type}，跳过以免丢数据）`);
           continue;
         }
-        const existing = new Set((def.property.options ?? []).map((o) => o.name));
-        const toAdd = options.filter((o) => !existing.has(o.name));
-        if (toAdd.length) {
-          const merged = [
-            ...(def.property.options ?? []).map((o) => ({ name: o.name })),
-            ...toAdd,
-          ];
-          await this.base.updateField(tableId, def.id, {
-            field_name: def.name,
-            type: SINGLE_SELECT,
-            property: { options: merged },
-          });
-          result.synced.push(`${name}（+${toAdd.length}）`);
-        } else {
-          result.skipped.push(`${name}（已是最新）`);
-        }
+        await this.syncSelectOptions(tableId, name, this.store[dictKey] ?? [], result);
       }
 
       // 1.5) 沟通主题：必须为文本(type=1)，自由文本主题；若为多选(type=4)则重建
@@ -665,7 +685,7 @@ export class DictService {
   private async ensureStudentObservationFields(): Promise<SyncResult> {
     const tableId = TABLES.studentObservation.tableId;
     const result: SyncResult = { table: tableId, synced: [], skipped: [], errors: [] };
-    const opt = (key: string) => (this.store[key] ?? []).map((name) => ({ name }));
+    const opt = (key: string) => (this.store[key] ?? []).map((o) => ({ name: o.label }));
     try {
       const fields = await this.base.listFields(tableId);
       const byName = new Map(fields.map((f) => [f.name, f]));
@@ -717,7 +737,7 @@ export class DictService {
    */
   private async ensureStudentSelectFields(): Promise<SyncResult> {
     const result: SyncResult = { table: this.TABLE, synced: [], skipped: [], errors: [] };
-    const opt = (key: string) => (this.store[key] ?? []).map((name) => ({ name }));
+    const opt = (key: string) => (this.store[key] ?? []).map((o) => ({ name: o.label }));
     try {
       const fields = await this.base.listFields(this.TABLE);
       const byName = new Map(fields.map((f) => [f.name, f]));
@@ -801,22 +821,7 @@ export class DictService {
         });
         result.synced.push('特长标签（已创建多选）');
       } else if (tagDef.type === MULTI_SELECT) {
-        const existing = new Set((tagDef.property.options ?? []).map((o) => o.name));
-        const toAdd = (this.store['特长标签'] ?? []).filter((o) => !existing.has(o));
-        if (toAdd.length) {
-          const merged = [
-            ...(tagDef.property.options ?? []).map((o) => ({ name: o.name })),
-            ...toAdd.map((name) => ({ name })),
-          ];
-          await this.base.updateField(this.TABLE, tagDef.id, {
-            field_name: '特长标签',
-            type: MULTI_SELECT,
-            property: { options: merged },
-          });
-          result.synced.push(`特长标签（+${toAdd.length} 选项）`);
-        } else {
-          result.skipped.push('特长标签（已是最新）');
-        }
+        await this.syncSelectOptions(this.TABLE, '特长标签', this.store['特长标签'] ?? [], result);
       } else {
         result.skipped.push(`特长标签（已存在但非多选 type=${tagDef.type}，跳过）`);
       }
@@ -967,7 +972,7 @@ export class DictService {
       await this.base.createField(USER_TABLE.tableId, {
         field_name: name,
         type: SINGLE_SELECT,
-        property: { options: (this.store['教师类型'] ?? []).map((o) => ({ name: o })) },
+        property: { options: (this.store['教师类型'] ?? []).map((o) => ({ name: o.label })) },
       });
       result.synced.push(`${name}（已创建单选字段）`);
       this.logger.log(`字典同步：创建用户表单选字段 ${name}`);
@@ -975,6 +980,75 @@ export class DictService {
       result.errors.push(`ensureUserTeacherTypeField: ${(e as Error).message}`);
     }
     return result;
+  }
+
+  /**
+   * 将字典 DictOption[] 同步进飞书单选/多选字段，**按 option id 重命名而非只追加**：
+   * - 对每条期望 DictOption：在 Base 现有 options 中按 name===label || name===key || aliases 包含 匹配；
+   *   命中则保留 id 仅改 name（重命名，存量数据不丢）；未命中则作为新选项追加。
+   * - 未被任何 DictOption 匹配的 Base 孤儿选项（true 孤儿，如历史 `YYYY春/秋`）保留，避免误删有数据的旧选项。
+   * 这样「当前年级 改名 大班」后，Base 里旧选项被原地重命名，不再新旧并存。
+   */
+  private async syncSelectOptions(
+    tableId: string,
+    fieldName: string,
+    opts: DictOption[],
+    result: SyncResult,
+  ): Promise<void> {
+    try {
+      const fields = await this.base.listFields(tableId);
+      const def = fields.find((f) => f.name === fieldName);
+      if (!def) {
+        result.skipped.push(`${fieldName}（Base 无此字段）`);
+        return;
+      }
+      if (def.type !== SINGLE_SELECT && def.type !== MULTI_SELECT) {
+        result.skipped.push(`${fieldName}（非单选/多选，type=${def.type}，跳过）`);
+        return;
+      }
+      // 无字典选项时不操作，避免误清空 Base 字段现有选项
+      if (!opts || opts.length === 0) {
+        result.skipped.push(`${fieldName}（无字典选项，跳过）`);
+        return;
+      }
+      const existing = (def.property.options ?? []).map((o) => ({ id: o.id, name: o.name }));
+      const matchedIds = new Set<string>();
+      const next: { id?: string; name: string }[] = [];
+      for (const o of opts) {
+        const ex = existing.find(
+          (e) => e.name === o.label || e.name === o.key || (o.aliases ?? []).includes(e.name),
+        );
+        if (ex && ex.id) {
+          next.push({ id: ex.id, name: o.label });
+          matchedIds.add(ex.id);
+        } else {
+          next.push({ name: o.label });
+        }
+      }
+      // 保留未匹配的孤儿选项（避免误删有数据的旧选项）
+      for (const e of existing) {
+        if (e.id && !matchedIds.has(e.id)) next.push({ id: e.id, name: e.name });
+      }
+      const curSig = existing.map((e) => `${e.id ?? ''}::${e.name}`).join('|');
+      const nextSig = next.map((n) => `${n.id ?? ''}::${n.name}`).join('|');
+      if (curSig === nextSig) {
+        result.skipped.push(`${fieldName}（已是最新）`);
+        return;
+      }
+      await this.base.updateField(tableId, def.id, {
+        field_name: def.name,
+        type: def.type,
+        property: { options: next },
+      });
+      const renamed = next.filter(
+        (n) => n.id && existing.find((e) => e.id === n.id && e.name !== n.name),
+      ).length;
+      const added = next.filter((n) => !n.id).length;
+      result.synced.push(`${fieldName}（重命名 ${renamed} / 新增 ${added}）`);
+    } catch (e) {
+      result.errors.push(`${fieldName}: ${(e as Error).message}`);
+      this.logger.warn(`字典同步失败 ${fieldName}: ${(e as Error).message}`);
+    }
   }
 
   private async syncTable(
@@ -992,7 +1066,7 @@ export class DictService {
     const fieldByName = new Map(fields.map((f) => [f.name, f]));
 
     for (const { field, dictKey } of syncs) {
-      const options = this.store[dictKey];
+      const options = this.store[dictKey] ?? [];
       if (!options?.length) continue;
       const def = fieldByName.get(field);
       if (!def) {
@@ -1003,28 +1077,7 @@ export class DictService {
         result.skipped.push(`${field}（非单选/多选，type=${def.type}，跳过）`);
         continue;
       }
-      try {
-        const existing = (def.property.options ?? []).map((o) => o.name);
-        const toAdd = options.filter((o) => !existing.includes(o));
-        if (toAdd.length === 0) {
-          result.synced.push(`${field}（已是最新）`);
-          continue;
-        }
-        const merged = [
-          ...(def.property.options ?? []).map((o) => ({ name: o.name })),
-          ...toAdd.map((name) => ({ name })),
-        ];
-        await this.base.updateField(tableId, def.id, {
-          field_name: def.name,
-          type: def.type,
-          property: { options: merged },
-        });
-        result.synced.push(`${field}（+${toAdd.length}）`);
-        this.logger.log(`字典同步：${field} 追加 ${toAdd.length} 个选项`);
-      } catch (e) {
-        result.errors.push(`${field}: ${(e as Error).message}`);
-        this.logger.warn(`字典同步失败 ${field}: ${(e as Error).message}`);
-      }
+      await this.syncSelectOptions(tableId, field, options, result);
     }
     return result;
   }

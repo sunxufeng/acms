@@ -14,6 +14,7 @@ import {
 import type { Request } from 'express';
 import type { SessionUser } from '@acms/contracts';
 import type { FieldLevel } from '../shared/field-mask.js';
+import type { DictOption } from './dict.data.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { DictService } from './dict.service.js';
 
@@ -26,10 +27,16 @@ export class DictController {
     return (req as Request & { user: SessionUser }).user;
   }
 
-  /** 全部字典：GET /api/v1/dictionaries */
+  /** 全部字典（仅 labels，兼容旧端点，6 个只读前端消费方零改动）：GET /api/v1/dictionaries */
   @Get()
   getAll() {
-    return this.svc.getAll();
+    return this.svc.getAllLabels();
+  }
+
+  /** 字典元数据（完整 DictOption[] + 旧值→当前名 resolve 映射）：GET /api/v1/dictionaries/meta */
+  @Get('meta')
+  getMeta() {
+    return this.svc.getMeta();
   }
 
   /** 省 → 市级联映射：GET /api/v1/dictionaries/province-cities */
@@ -60,17 +67,17 @@ export class DictController {
     return this.svc.setFieldLevels(body.levels);
   }
 
-  /** 单个字典：GET /api/v1/dictionaries/:key */
+  /** 单个字典（完整 DictOption[]）：GET /api/v1/dictionaries/:key */
   @Get(':key')
   getOne(@Param('key') key: string) {
-    return { key, options: this.svc.get(key) ?? [] };
+    return { key, options: this.svc.getOptions(key) ?? [] };
   }
 
-  /** 更新单个字典候选项（仅系统管理员）：PUT /api/v1/dictionaries/:key */
+  /** 更新单个字典候选项（完整 DictOption[]，仅系统管理员）：PUT /api/v1/dictionaries/:key */
   @Put(':key')
   update(
     @Param('key') key: string,
-    @Body() body: { options?: string[] },
+    @Body() body: { options?: DictOption[] | string[] },
     @Req() req: Request,
   ) {
     const user = this.user(req);
@@ -78,7 +85,7 @@ export class DictController {
       throw new ForbiddenException('FORBIDDEN:admin');
     }
     if (!Array.isArray(body?.options)) {
-      throw new BadRequestException('options 必须为字符串数组');
+      throw new BadRequestException('options 必须为 DictOption 数组');
     }
     return this.svc.update(key, body.options);
   }

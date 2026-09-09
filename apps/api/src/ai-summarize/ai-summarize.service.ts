@@ -8,6 +8,8 @@ import { routeChat } from '../ai/lib/gateway/router.js';
 import { requireModule } from '../shared/require-module.js';
 import { getRoleLabels } from '@acms/domain';
 import type { AiSummarizeTableConfig } from './ai-summarize.config.js';
+import { DictService } from '../dictionary/dict.service.js';
+import { FIELD_DICTKEY } from '../dictionary/dict.data.js';
 
 @Injectable()
 export class AiSummarizeService {
@@ -16,6 +18,7 @@ export class AiSummarizeService {
   constructor(
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
     private readonly fileUpload: FileUploadService,
+    private readonly dict: DictService,
   ) {}
 
   /** tableId|fieldName -> fieldId 缓存（避免每次 AI 总结都拉字段列表） */
@@ -172,18 +175,23 @@ export class AiSummarizeService {
     }
 
     const roleLabels = getRoleLabels();
-    /** 角色 key / 数据密级 经解析函数转可读名；普通文本（关联学生/家长/沟通人等）原样透传 */
-    const resolveDisplay = (raw: string): string => {
+    /** 角色 key / 数据密级 / 字典字段 经解析函数转可读名；普通文本（关联学生/家长/沟通人等）原样透传 */
+    const resolveDisplay = (fieldName: string, raw: string): string => {
       const trimmed = raw.trim();
       if (!trimmed) return raw;
       const rl = roleLabels[trimmed];
       if (rl) return rl;
+      const dk = FIELD_DICTKEY[fieldName];
+      if (dk) {
+        const resolved = this.dict.resolve(dk, trimmed);
+        if (resolved) return resolved;
+      }
       return dataLevelLabel(trimmed);
     };
     const meta = cfg.metaFields
       .map((m) => {
         const raw = toText(fields[m.key]);
-        return `${m.label}：${raw ? resolveDisplay(raw) : '—'}`;
+        return `${m.label}：${raw ? resolveDisplay(m.key, raw) : '—'}`;
       })
       .join('\n');
 

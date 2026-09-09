@@ -2,10 +2,10 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { api } from '../../lib/api';
+import { api, type DictOption } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
 
-type DictMap = Record<string, string[]>;
+type DictMap = Record<string, DictOption[]>;
 
 export default function DictionariesPage() {
 
@@ -26,8 +26,8 @@ export default function DictionariesPage() {
   const [newDictInitOption, setNewDictInitOption] = useState('');
   const [creating, setCreating] = useState(false);
 
-  /* 正在编辑的选项：{ key, oldValue } */
-  const [editingOpt, setEditingOpt] = useState<{ key: string; value: string } | null>(null);
+  /* 正在编辑的选项：{ key(字典 key), optKey(选项 key) } */
+  const [editingOpt, setEditingOpt] = useState<{ key: string; optKey: string } | null>(null);
 
   /* 拖拽排序：当前正在拖拽的项位置 */
   const [dragIdx, setDragIdx] = useState<{ key: string; idx: number } | null>(null);
@@ -41,9 +41,9 @@ export default function DictionariesPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.dictionaries();
-      setDicts(data);
-      setDrafts(JSON.parse(JSON.stringify(data)));
+      const meta = await api.dictionaryMeta();
+      setDicts(meta.options);
+      setDrafts(JSON.parse(JSON.stringify(meta.options)));
     } catch (e) {
       setError((e as Error).message || tc('loadFailed'));
     } finally {
@@ -86,31 +86,44 @@ export default function DictionariesPage() {
     }
   };
 
+  /** 新增选项：key 默认等于 label（向后兼容存量记录） */
   const addOption = (key: string, value: string) => {
     const v = value.trim();
     if (!v) return;
     setDrafts((d) => {
       const cur = d[key] ?? [];
-      if (cur.includes(v)) return d;
-      return { ...d, [key]: [...cur, v] };
+      if (cur.some((o) => o.key === v || o.label === v)) return d;
+      return { ...d, [key]: [...cur, { key: v, label: v }] };
     });
   };
 
-  const removeOption = (key: string, value: string) => {
-    setDrafts((d) => ({ ...d, [key]: (d[key] ?? []).filter((o) => o !== value) }));
+  /** 移除选项（按 key，稳定标识） */
+  const removeOption = (key: string, optKey: string) => {
+    setDrafts((d) => ({ ...d, [key]: (d[key] ?? []).filter((o) => o.key !== optKey) }));
   };
 
-  /** 重命名已有选项 */
-  const renameOption = (key: string, oldVal: string, newVal: string) => {
-    const v = newVal.trim();
-    if (!v || v === oldVal) {
+  /**
+   * 重命名已有选项：保留 key（= 旧 label），仅改 label，并把旧 label 记入 aliases。
+   * 这样存量记录里存的旧值经 resolve 仍能显示为新名，且飞书同步会按 id 原地重命名，不再新旧并存。
+   */
+  const renameOption = (key: string, oldKey: string, newLabel: string) => {
+    const v = newLabel.trim();
+    if (!v || v === oldKey) {
       setEditingOpt(null);
       return;
     }
     setDrafts((d) => {
       const cur = d[key] ?? [];
-      if (cur.includes(v)) return d; // 不能和已有项重复
-      return { ...d, [key]: cur.map((o) => (o === oldVal ? v : o)) };
+      // 不能和别的选项（其 label 或 aliases）重复
+      if (cur.some((o) => o.key !== oldKey && (o.label === v || o.aliases?.includes(v)))) return d;
+      return {
+        ...d,
+        [key]: cur.map((o) =>
+          o.key === oldKey
+            ? { ...o, label: v, aliases: Array.from(new Set([...(o.aliases ?? []), oldKey])) }
+            : o,
+        ),
+      };
     });
     setEditingOpt(null);
   };
@@ -162,6 +175,7 @@ export default function DictionariesPage() {
           <h1 className="page-title">{tl('字典数据')}</h1>
           <p className="page-subtitle">
             维护各表单下拉项的候选项。修改后点击「保存」持久化；再点「同步到飞书 Base」将新选项写入对应字段。
+            重命名选项会保留旧名（别名），存量记录与飞书字段自动兼容，不会新旧并存。
           </p>
         </div>
         <div className="page-header-actions">
@@ -191,13 +205,16 @@ export default function DictionariesPage() {
                   {options.length === 0 && <div className="dict-empty">{tl('暂无选项')}</div>}
                   {options.map((opt, idx) => {
                     const isEditing =
-                      editingOpt?.key === key && editingOpt?.value === opt;
+                      editingOpt?.key === key && editingOpt?.optKey === opt.key;
+                    const aliasHint = opt.aliases?.length
+                      ? tl('曾用') + '：' + opt.aliases.join('、')
+                      : undefined;
                     if (isEditing) {
                       return (
                         <EditableOption
-                          key={opt}
-                          value={opt}
-                          onBlur={(v) => renameOption(key, opt, v)}
+                          key={opt.key}
+                          value={opt.label}
+                          onBlur={(v) => renameOption(key, opt.key, v)}
                           onCancel={() => setEditingOpt(null)}
                           autoFocus
                         />
@@ -207,8 +224,9 @@ export default function DictionariesPage() {
                     return (
                       <span
                         className={`dict-option${isDragging ? ' dragging' : ''}`}
-                        key={opt}
+                        key={opt.key}
                         draggable
+                        title={aliasHint}
                         onDragStart={(e) => {
                           setDragIdx({ key, idx });
                           e.dataTransfer.effectAllowed = 'move';
@@ -226,11 +244,11 @@ export default function DictionariesPage() {
                           setDragIdx(null);
                         }}
                         onDragEnd={() => setDragIdx(null)}
-                        onDoubleClick={() => setEditingOpt({ key, value: opt })}
-                        title={tl('双击编辑；拖拽或点击上下箭头排序')}
+                        onDoubleClick={() => setEditingOpt({ key, optKey: opt.key })}
                       >
                         <span className="dict-drag-handle" title={tl('拖拽排序')}>⠿</span>
-                        <span className="dict-opt-label">{opt}</span>
+                        <span className="dict-opt-label">{opt.label}</span>
+                        {aliasHint && <span className="dict-opt-alias" title={aliasHint}>↺</span>}
                         <span className="dict-opt-actions">
                           <button
                             type="button"
@@ -238,7 +256,7 @@ export default function DictionariesPage() {
                             onClick={() => moveOption(key, idx, idx - 1)}
                             disabled={idx === 0}
                             title={tl('上移')}
-                            aria-label={`上移 ${opt}`}
+                            aria-label={`上移 ${opt.label}`}
                           >
                             ↑
                           </button>
@@ -248,15 +266,15 @@ export default function DictionariesPage() {
                             onClick={() => moveOption(key, idx, idx + 1)}
                             disabled={idx === options.length - 1}
                             title={tl('下移')}
-                            aria-label={`下移 ${opt}`}
+                            aria-label={`下移 ${opt.label}`}
                           >
                             ↓
                           </button>
                           <button
                             className="dict-option-remove"
-                            onClick={() => removeOption(key, opt)}
+                            onClick={() => removeOption(key, opt.key)}
                             title={tl('移除')}
-                            aria-label={`移除 ${opt}`}
+                            aria-label={`移除 ${opt.label}`}
                           >
                             ×
                           </button>

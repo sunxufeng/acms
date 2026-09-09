@@ -54,8 +54,11 @@ export const ALL_CITIES: string[] = Array.from(
   new Set(Object.values(PROVINCE_CITIES).flat()),
 );
 
-/** 字典 key → 候选项 */
-export const DICTIONARIES: Record<string, string[]> = {
+/**
+ * 字典 key → 候选项（原始种子，裸字符串）。
+ * 请改用下方派生的 `DICTIONARIES`（DictOption[] 完整模型）。本常量仅作种子来源。
+ */
+export const DICTIONARIES_RAW: Record<string, string[]> = {
   当前状态: [
     '已录未报到',
     '在校在读',
@@ -218,6 +221,27 @@ export const DICTIONARIES: Record<string, string[]> = {
 };
 
 /**
+ * 字典候选项完整模型（key+label+aliases）。
+ * - key：稳定标识，永不变更，用于关联/存储/飞书 option id。
+ * - label：展示名，可改名。
+ * - aliases：历史曾用名（含旧 label），用于把存量旧值解析为当前 label，保证改名后旧记录不丢展示。
+ * 已上线选项用「标签本身」当 key（记录里存的正是标签，旧值天然是合法 key，因此零记录迁移）。
+ */
+export interface DictOption {
+  key: string;
+  label: string;
+  aliases?: string[];
+}
+
+/** 将裸字符串选项数组派生为 DictOption[]，key 默认等于 label（向后兼容旧存储值）。 */
+export const toOpts = (arr: string[]): DictOption[] => arr.map((o) => ({ key: o, label: o }));
+
+/** 字典 key → 候选项（完整 key+label 模型，运行时 store 与前端 meta 均消费此结构）。 */
+export const DICTIONARIES: Record<string, DictOption[]> = Object.fromEntries(
+  Object.entries(DICTIONARIES_RAW).map(([k, v]) => [k, toOpts(v)]),
+);
+
+/**
  * 需要同步到飞书 Base 字段的字典映射。
  * syncToBase 仅对「单选(type=1)/多选(type=3)」字段执行合并；文本字段跳过。
  * 注意：学生标签 / 特长标签 为动态标签字段，候选项随使用增长，
@@ -251,6 +275,80 @@ export const BASE_FIELD_SYNC: { field: string; dictKey: string }[] = [
   { field: '学期', dictKey: '学期' },
   { field: '展示方式', dictKey: 'IDP展示方式' },
 ];
+
+/**
+ * 字段名 → 字典 key 全量映射（供导出 / AI 解析按字段名定位字典，再经 DictService.resolve 转可读名）。
+ * 来源 = BASE_FIELD_SYNC + USER_FIELD_SYNC + 各 ensureX 内联映射 的并集。
+ * 注意：字段名 `闭环状态` 在生源跟进表对应字典 `闭环状态`、在家校沟通/日常跟进/学生观察表对应 `家校闭环状态`，
+ * 这里取后者（出现表更多）作为默认值；明确知道表的调用方应直接传 dictKey（列配置里已有），不走此回退映射。
+ */
+export const FIELD_DICTKEY: Record<string, string> = {
+  // ── BASE_FIELD_SYNC（学生档案 + IDP） ──
+  当前状态: '当前状态',
+  当前学段: '当前学段',
+  入学年级: '入学年级',
+  入学类型: '入学类型',
+  离校原因: '离校原因',
+  特殊支持摘要: '特殊支持摘要',
+  健康风险摘要: '健康风险摘要',
+  来源渠道: '来源渠道',
+  生源跟进状态: '生源跟进状态',
+  校区: '校区',
+  通知状态: '通知状态',
+  当前年级: '当前年级',
+  毕业届: '毕业届',
+  实际学制: '实际学制',
+  入学年份: '入学年份',
+  性别: '性别',
+  户籍类型: '户籍类型',
+  现居住省: '现居住省',
+  城市: '城市',
+  数据密级: '数据密级',
+  档案完整度: '档案完整度',
+  状态: 'IDP状态',
+  学期: '学期',
+  展示方式: 'IDP展示方式',
+  // ── 用户表 ──
+  默认校区: '校区',
+  教师类型: '教师类型',
+  // ── 生源跟进 ──
+  活动类型: '活动类型',
+  跟进状态: '跟进状态',
+  跟进方式: '跟进方式',
+  意向等级: '意向等级',
+  闭环状态: '闭环状态',
+  原学校类型: '原学校类型',
+  合同状态: '合同状态',
+  付款状态: '付款状态',
+  家庭关键决策点: '家庭关键决策点',
+  家长反馈态度: '家长反馈态度',
+  // ── 教师档案 ──
+  教师类别: '教师类别',
+  主要学科: '主要学科',
+  教师合作等级: '教师合作等级',
+  授课学段: '授课学段',
+  授课科目类型: '授课科目类型',
+  合作开始时间: '合作开始时间',
+  收款主体: '收款主体',
+  学历学位: '学历/学位',
+  授课科目: '授课科目',
+  // ── 家校沟通 / 日常跟进 / 学生观察 ──
+  沟通方式: '沟通方式',
+  信息敏感级别: '信息敏感级别',
+  观察类型: '观察类型',
+  // ── 学生档案（ensureStudentSelectFields 单选字段） ──
+  是否是新生: '是否是新生',
+  英语标化类型: '英语标化类型',
+  综合评定等级: '综合评定等级',
+  GPA成绩类型: 'GPA成绩类型',
+  语言标化类型: '语言标化类型',
+  学术标化类型: '学术标化类型',
+  是否企业家庭: '是否',
+  是否工坊企业: '是否',
+  是否多胎家庭: '是否',
+  签证情况: '签证情况',
+  特长标签: '特长标签',
+};
 
 /** 飞书 Base 字段类型：单选=3，多选=4 */
 export const SINGLE_SELECT = 3;

@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useTl } from '../lib/useTl';
 import { MODULE_RESOURCES } from '@acms/contracts';
-import { api as apiClient, type Page } from '../lib/api';
+import { api as apiClient, type Page, type DictMeta } from '../lib/api';
 import MarkdownField from './MarkdownField';
 import TagInput from './TagInput';
 import MapPicker from './MapPicker';
@@ -170,10 +170,13 @@ function str(v: unknown): string {
  * 只对候选项来自字典/枚举的列（dictKey 或 options）翻译；自由文本列（姓名、校名等）
  * 直出原文，避免误命中 labels 里的同名词条。
  */
-function cellText(v: unknown, c: CrudColumn, tl: (k: string) => string): string {
+function cellText(v: unknown, c: CrudColumn, tl: (k: string) => string, meta: DictMeta | null): string {
   if (!c.dictKey && !c.options) return str(v);
-  if (Array.isArray(v)) return v.map((x) => tl(str(x))).join('、');
-  return tl(str(v));
+  // 字典列：先把存储值（旧 label/别名/key）解析为当前展示名，再翻译
+  const resolve = (s: string): string =>
+    c.dictKey && meta ? (meta.resolve[c.dictKey]?.[s] ?? s) : s;
+  if (Array.isArray(v)) return v.map((x) => tl(resolve(str(x)))).join('、');
+  return tl(resolve(str(v)));
 }
 
 /** 将存储值（"YYYY-MM-DD" 或 "YYYY-MM-DD HH:mm"）转为 <input type="datetime-local"> 所需的 "YYYY-MM-DDTHH:mm" */
@@ -265,6 +268,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const [error, setError] = useState<string | null>(null);
   const [txMenu, setTxMenu] = useState<string | null>(null);
   const [dicts, setDicts] = useState<Record<string, string[]>>({});
+  /** 字典元数据（/meta）：含旧值→当前名 resolve 映射，用于把存量旧值解析为当前展示名 */
+  const [dictMeta, setDictMeta] = useState<DictMeta | null>(null);
   /** 行级自定义操作的加载态：key = `${rowId}:${label}` */
   const [rowActionBusy, setRowActionBusy] = useState<string | null>(null);
   /**
@@ -446,11 +451,22 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
 
   useEffect(() => { reload(); }, [filters, reload]);
 
-  // 字典表候选项（供带 dictKey 的字段使用），加载前用字段自带 options 兜底
+  // 字典表候选项（供带 dictKey 的字段使用），加载前用字段自带 options 兜底。
+  // 同时拉取 /meta（含 resolve 映射），用于把存量旧值/别名解析为当前展示名。
   useEffect(() => {
     if (!columns.some((c) => c.dictKey)) return;
     let alive = true;
-    apiClient.dictionaries().then((d) => { if (alive) setDicts(d ?? {}); }).catch(() => {});
+    apiClient
+      .dictionaryMeta()
+      .then((m) => {
+        if (!alive) return;
+        setDictMeta(m);
+        // 下拉候选项用当前 labels（与旧 /dictionaries 端点一致）
+        const labels: Record<string, string[]> = {};
+        for (const [k, opts] of Object.entries(m.options)) labels[k] = opts.map((o) => o.label);
+        setDicts(labels);
+      })
+      .catch(() => {});
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columns]);
@@ -752,7 +768,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     const esc = (v: unknown): string => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const header = cols.map((c) => esc(tl(c.label))).join(',');
     const body = items.map((row) =>
-      cols.map((c) => esc(cellText(row[c.key], c, tl))).join(','),
+      cols.map((c) => esc(cellText(row[c.key], c, tl, dictMeta))).join(','),
     );
     const csv = '﻿' + header + '\n' + body.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -1192,7 +1208,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                           })()
                           : (c.type === 'studentLink' && studentDetailHref
                             ? <Link href={studentDetailHref(row)} style={{ color: 'var(--accent)', fontWeight: 600 }}>{str(row[c.key])}</Link>
-                            : (c.render ? c.render(row[c.key],  row) : cellText(row[c.key], c, tl)))}
+                            : (c.render ? c.render(row[c.key],  row) : cellText(row[c.key], c, tl, dictMeta)))}
                     </td>
                   ))}
                   <td>

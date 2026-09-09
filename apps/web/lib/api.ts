@@ -28,6 +28,42 @@ export interface ApiError {
  */
 export type ApiRequestError = Error & { apiCode?: string };
 
+/** 字典候选项完整模型（与后端 DictOption 对齐）：key 稳定标识，label 展示名，aliases 历史曾用名 */
+export interface DictOption {
+  key: string;
+  label: string;
+  aliases?: string[];
+}
+
+/** 字典 /meta 响应：options 全量 + resolve 映射（旧值/别名/key → 当前 label） + 字段名→字典 key */
+export interface DictMeta {
+  options: Record<string, DictOption[]>;
+  resolve: Record<string, Record<string, string>>;
+  fieldDictKey: Record<string, string>;
+}
+
+/** 把存储值（旧 label / 别名 / key）解析为当前展示 label；未命中原样返回。 */
+export function resolveDictValue(
+  meta: DictMeta | null | undefined,
+  dictKey: string,
+  value: string,
+): string {
+  if (!meta || value == null) return value;
+  const map = meta.resolve[dictKey];
+  if (!map) return value;
+  return map[value] ?? value;
+}
+
+/** 批量解析多选字段值数组。 */
+export function resolveDictValues(
+  meta: DictMeta | null | undefined,
+  dictKey: string,
+  values: string[],
+): string[] {
+  if (!Array.isArray(values)) return values;
+  return values.map((v) => resolveDictValue(meta, dictKey, v));
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // multipart 上传（FormData）不能带 Content-Type，必须由浏览器自动填充 boundary，
   // 否则服务端 multer/FileInterceptor 会因非 multipart/form-data 直接返回 400。
@@ -225,15 +261,18 @@ export const api = {
   /** 省 → 市级联映射 */
   provinceCities: () => request<Record<string, string[]>>('/dictionaries/province-cities'),
 
-  /** 更新单个字典候选项 */
-  updateDictionary: (key: string, options: string[]) =>
-    request<{ key: string; options: string[] }>(`/dictionaries/${encodeURIComponent(key)}`, {
+  /** 更新单个字典候选项（接受 DictOption[] 或遗留 string[]） */
+  updateDictionary: (key: string, options: string[] | DictOption[]) =>
+    request<{ key: string; options: DictOption[] }>(`/dictionaries/${encodeURIComponent(key)}`, {
       method: 'PUT',
       body: JSON.stringify({ options }),
     }),
 
   /** 把字典候选项同步进飞书 Base 字段 */
   syncDictionaries: () => request<unknown>('/dictionaries/sync', { method: 'POST' }),
+
+  /** 字典元数据（完整 DictOption[] + 旧值→当前名 resolve 映射）：供编辑器编辑 / CrudPage 显示解析 */
+  dictionaryMeta: () => request<DictMeta>('/dictionaries/meta'),
 
   // ── M2 教师域 ───────────────────────────────
   listTeachers: (params: Record<string, string | undefined> = {}) => {

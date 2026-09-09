@@ -225,6 +225,8 @@ export class GetnoteService {
 
   /** openId → 管理员聚合快照。见 listAllForAdmin 里的说明 */
   private readonly adminSnapshots = new Map<string, { at: number; items: GetnoteNote[] }>();
+  /** 正在后台刷新快照的 openId，防止同一管理员的并发请求触发多轮重复聚合 */
+  private readonly adminSnapshotInflight = new Set<string>();
 
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
@@ -598,8 +600,13 @@ export class GetnoteService {
   //   配置一多必撞限流。缓存后只有首次（与过期后）才打上游。
   //   代价：新笔记最多延迟 60 秒出现在管理员列表里 —— 这是明确的取舍。
 
-  /** 管理员聚合快照有效期 */
-  private static readonly ADMIN_SNAPSHOT_TTL = 60_000;
+  /**
+   * 管理员聚合快照有效期。
+   * ⚠️ 2026-09-09 从 60s 提到 10 分钟：60s 意味着只要隔一分钟再进页面就要重跑一次
+   * 全量聚合（实测 5.7s，笔记越多越慢），管理员体感就是「我的笔记很卡」。
+   * 配合下面的「过期先返回旧快照 + 后台刷新」，用户不再为刷新买单。
+   */
+  private static readonly ADMIN_SNAPSHOT_TTL = 600_000;
   /** 单个配置最多拉多少页（每页 100 条），防止某个源数据巨量拖垮整次聚合 */
   private static readonly ADMIN_MAX_PAGES_PER_SOURCE = 10;
   /** 源之间的节流间隔。Get笔记 QPS 2，串行 + 250ms 留足余量 */
@@ -711,26 +718,40 @@ export class GetnoteService {
     const key = user.openId;
     const now = Date.now();
     let snap = this.adminSnapshots.get(key);
-    if (!snap || now - snap.at > GetnoteService.ADMIN_SNAPSHOT_TTL) {
-      snap = { at: now, items: await this.collectAllNotes(user) };
+
+    if (!snap) {
+      // 首次进入：没有任何快照可返回，只能同步等一次全量聚合。
+      const t0 = Date.now();
+      const items = await this.collectAllNotes(user);
+      snap = { at: Date.now(), items };
       this.adminSnapshots.set(key, snap);
-      // 顺手回收过期快照：只按 openId 存，管理员多了不清理会一直占内存
-      // （单份快照是完整笔记列表，N 个人就是 N 份全量）。
-      for (const [k, v] of this.adminSnapshots) {
-        if (k !== key && now - v.at > GetnoteService.ADMIN_SNAPSHOT_TTL) {
-          this.adminSnapshots.delete(k);
-        }
+      this.logger.log(`管理员笔记快照首次构建：${items.length} 条，耗时 ${Date.now() - t0}ms`);
+    } else if (now - snap.at > GetnoteService.ADMIN_SNAPSHOT_TTL) {
+      // ⚠️ 过期但手上还有旧数据：先把旧的返回，后台异步刷新。
+      // 此前这里是 `await collectAllNotes()` —— 快照一过期，用户每次进页面都要干等
+      // 一轮全量聚合（实测 5.7s，笔记越多越慢，官方 QPS 2 的节流是硬成本）。
+      // 改成 stale-while-revalidate 后，用户永远不必为刷新买单。
+      void this.refreshAdminSnapshot(key, user);
+    }
+
+    // 顺手回收其他管理员的过期快照：只按 openId 存，管理员多了不清理会一直占内存
+    // （单份快照是完整笔记列表，N 个人就是 N 份全量）。
+    for (const [k, v] of this.adminSnapshots) {
+      if (k !== key && now - v.at > GetnoteService.ADMIN_SNAPSHOT_TTL) {
+        this.adminSnapshots.delete(k);
       }
     }
 
+    const snapshot = snap;
+
     const keyword = q?.trim().toLowerCase();
     const pool = keyword
-      ? snap.items.filter(
+      ? snapshot.items.filter(
           (n) =>
             String(n.title ?? '').toLowerCase().includes(keyword) ||
             String(n.content ?? '').toLowerCase().includes(keyword),
         )
-      : snap.items;
+      : snapshot.items;
 
     // ⚠️ 快照过期后翻页的处理：
     // 上面那段在过期时会**重新拉取**一次，重建出来的列表可能已经变了（有人新增/删除笔记）。
@@ -749,6 +770,23 @@ export class GetnoteService {
       cursor: hasMore ? `snap:${nextOffset}` : undefined,
       total: pool.length,
     };
+  }
+
+  /** 后台重建管理员笔记快照。同一管理员并发请求只会触发一轮聚合。 */
+  private async refreshAdminSnapshot(key: string, user: SessionUser): Promise<void> {
+    if (this.adminSnapshotInflight.has(key)) return;
+    this.adminSnapshotInflight.add(key);
+    const t0 = Date.now();
+    try {
+      const items = await this.collectAllNotes(user);
+      this.adminSnapshots.set(key, { at: Date.now(), items });
+      this.logger.log(`管理员笔记快照后台刷新完成：${items.length} 条，耗时 ${Date.now() - t0}ms`);
+    } catch (e) {
+      // 刷新失败时保留旧快照继续可用，不打断用户当前浏览
+      this.logger.warn(`管理员笔记快照后台刷新失败（沿用旧快照）：${(e as Error).message.slice(0, 120)}`);
+    } finally {
+      this.adminSnapshotInflight.delete(key);
+    }
   }
 
   async list(

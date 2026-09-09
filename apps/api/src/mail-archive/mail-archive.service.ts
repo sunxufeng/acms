@@ -328,7 +328,11 @@ export class MailArchiveService extends BaseRecordService {
         await client.logout();
       }
     } catch (e) {
-      lastErr = (e as Error).message;
+      // ⚠️ imapflow 把服务器的真实原因放在 responseText 里，message 往往只是干巴巴的
+      // 「Command failed」。此前只取 message，用户看到「失败：Command failed」根本无从下手
+      // （2026-09-09 实测：6 个账户其实是密码/授权码不对，服务器原话是
+      //  "Login fail. Account is abnormal, service is not open, password is incorrect...")。
+      lastErr = this.describeImapError(e);
       this.logger.error(`账户 ${a.name} 同步失败: ${lastErr}`);
     }
 
@@ -366,6 +370,52 @@ export class MailArchiveService extends BaseRecordService {
       .catch((e) => this.logger.error(`回写账户收取结果失败 ${a.id}: ${(e as Error).message}`));
 
     return { ok: !lastErr, fetched, stored, error: lastErr || undefined, folders: folderStats, resultText };
+  }
+
+  /**
+   * 把 imapflow 的异常翻成「人能看懂、且知道下一步干什么」的中文提示。
+   *
+   * imapflow 的 Error.message 常常只是 `Command failed`，真正的服务器原话在
+   * `responseText` 上；还有一类异常 message 直接是空串（连服务器都没搭上话），
+   * 此前写进「最后收取结果」就是「失败：」后面一片空白 —— 用户和管理员都一脸懵。
+   */
+  private describeImapError(e: unknown): string {
+    const err = e as {
+      message?: string;
+      responseText?: string;
+      serverResponseCode?: string;
+      code?: string;
+    };
+    const msg = String(err?.message ?? '').trim();
+    const resp = String(err?.responseText ?? '').trim();
+    const code = String(err?.serverResponseCode ?? err?.code ?? '').trim();
+    const raw = `${msg} ${resp} ${code}`;
+
+    // 登录类：腾讯企业邮/QQ 邮箱系的原话是 "Login fail. Account is abnormal, ..."，
+    // 标准 IMAP 则是 AUTHENTICATIONFAILED。这类错重试没用，必须改配置。
+    if (/login fail|authenticationfailed|invalid credential|authentication failed/i.test(raw)) {
+      return (
+        'IMAP 登录失败：邮箱密码或「客户端专用授权码」不正确，或该邮箱未开启 IMAP 服务。' +
+        '请在邮箱网页端 → 设置 → 账户 中开启 IMAP/SMTP 并生成专用密码后重新填写' +
+        `（服务器原话：${resp || msg || '无'}）`
+      );
+    }
+    // 主机名/网络类
+    if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(raw)) {
+      return `IMAP 服务器地址无法解析：请检查「IMAP服务器」填写是否正确（${msg || resp || 'DNS 解析失败'}）`;
+    }
+    if (/ECONNREFUSED/i.test(raw)) {
+      return `IMAP 连接被拒绝：服务器地址或端口不对（${msg || resp}）`;
+    }
+    if (/ETIMEDOUT|timed out|socket timeout/i.test(raw)) {
+      return `IMAP 连接超时：服务器无响应，可能是端口/SSL 配置不匹配或网络不通（${msg || resp}）`;
+    }
+    if (/certificate|self.signed|unable to verify/i.test(raw)) {
+      return `IMAP SSL 证书校验失败：请确认「启用SSL」与端口匹配（${msg || resp}）`;
+    }
+    // 兜底：把服务器原话带上，胜过只有一句 Command failed
+    const parts = [msg, resp, code].filter(Boolean);
+    return parts.length ? parts.join(' | ') : '未知错误（未拿到服务器返回信息）';
   }
 
   /**

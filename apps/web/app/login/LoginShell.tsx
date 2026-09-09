@@ -78,6 +78,44 @@ export default function LoginShell({ config, preview }: LoginShellProps) {
   const [logoError, setLogoError] = useState(false);
   const t = useTranslations('login');
 
+  // 应急管理员登录：飞书 OAuth 不可用时的兜底入口。预览模式不渲染，避免编辑器内误触发真实登录
+  const [showEmergency, setShowEmergency] = useState(false);
+  const [emergencyPwd, setEmergencyPwd] = useState('');
+  const [emergencyErr, setEmergencyErr] = useState('');
+  const [emergencyBusy, setEmergencyBusy] = useState(false);
+
+  async function submitEmergency(e: React.FormEvent) {
+    e.preventDefault();
+    setEmergencyBusy(true);
+    setEmergencyErr('');
+    try {
+      const r = await fetch('/api/v1/auth/emergency', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ password: emergencyPwd }),
+      });
+      if (r.ok) {
+        window.location.href = '/';
+        return;
+      }
+      if (r.status === 429) {
+        setEmergencyErr(t('emergencyLocked'));
+      } else if (r.status === 401) {
+        const j = (await r.json().catch(() => ({}))) as { message?: string };
+        setEmergencyErr(
+          j.message === 'EMERGENCY_LOGIN_DISABLED' ? t('emergencyDisabled') : t('emergencyFailed'),
+        );
+      } else {
+        setEmergencyErr(t('emergencyFailed'));
+      }
+    } catch {
+      setEmergencyErr(t('emergencyFailed'));
+    } finally {
+      setEmergencyBusy(false);
+    }
+  }
+
   // 已登录用户自动跳转到首页（仅真实登录页；预览模式不触发，避免编辑器内嵌预览把整页重定向走）
   useEffect(() => {
     if (preview) return;
@@ -200,6 +238,90 @@ export default function LoginShell({ config, preview }: LoginShellProps) {
           >
             {t('studentLoginLink')}
           </a>
+
+          {!preview && (
+            <div style={{ marginTop: 16, textAlign: 'center' }}>
+              {!showEmergency ? (
+                <button
+                  type="button"
+                  onClick={() => setShowEmergency(true)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--fg-tertiary)',
+                    fontSize: 'var(--font-sm)',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    opacity: 0.8,
+                  }}
+                >
+                  {t('emergencyLink')}
+                </button>
+              ) : (
+                <form
+                  onSubmit={submitEmergency}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}
+                >
+                  <input
+                    type="password"
+                    value={emergencyPwd}
+                    onChange={(e) => setEmergencyPwd(e.target.value)}
+                    placeholder={t('emergencyPassword')}
+                    autoFocus
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-subtle)',
+                      color: 'var(--fg)',
+                      fontSize: 'var(--font-sm)',
+                    }}
+                  />
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                    <button
+                      type="submit"
+                      disabled={emergencyBusy}
+                      style={{
+                        padding: '8px 18px',
+                        borderRadius: 8,
+                        border: '1px solid var(--accent)',
+                        background: 'var(--accent)',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        fontSize: 'var(--font-sm)',
+                      }}
+                    >
+                      {t('emergencySubmit')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowEmergency(false);
+                        setEmergencyPwd('');
+                        setEmergencyErr('');
+                      }}
+                      style={{
+                        padding: '8px 18px',
+                        borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        background: 'transparent',
+                        color: 'var(--fg-tertiary)',
+                        cursor: 'pointer',
+                        fontSize: 'var(--font-sm)',
+                      }}
+                    >
+                      {t('emergencyCancel')}
+                    </button>
+                  </div>
+                  {emergencyErr ? (
+                    <p style={{ color: 'var(--fg-error)', fontSize: 'var(--font-sm)', margin: 0 }}>
+                      {emergencyErr}
+                    </p>
+                  ) : null}
+                </form>
+              )}
+            </div>
+          )}
 
           <div className="status-block">
             <span className="status-tag">{config.statusTag}</span>

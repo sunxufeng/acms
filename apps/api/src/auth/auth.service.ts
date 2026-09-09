@@ -1,4 +1,5 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, Logger, HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { USER_LEVEL_TO_ENGINE, USER_TABLE, type DataLevel, type SessionUser } from '@acms/contracts';
 import { getRoleList } from '@acms/domain';
@@ -8,6 +9,13 @@ import { REDIS } from '../redis.provider.js';
 import { BASE_CLIENT } from '../base.provider.js';
 
 const FEISHU_BASE = 'https://open.feishu.cn';
+
+/** 应急登录：连续失败达到该次数即锁定 IP */
+const EMERGENCY_MAX_FAILS = 5;
+/** 应急登录：失败计数与锁定时长（秒） */
+const EMERGENCY_LOCK_SECONDS = 15 * 60;
+/** 应急登录未配置 EMERGENCY_ADMIN_OPEN_ID 时使用的虚拟 openId */
+const EMERGENCY_DEFAULT_OPEN_ID = 'emergency-admin';
 
 interface FeishuUserInfo {
   code: number;
@@ -22,6 +30,8 @@ interface FeishuUserInfo {
 /** 飞书 OAuth 2.0 + PKCE S256 + 用户解析 */
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger('AuthService');
+
   constructor(
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
@@ -192,6 +202,57 @@ export class AuthService {
     const maxDataLevel: DataLevel =
       levelRaw in USER_LEVEL_TO_ENGINE ? (USER_LEVEL_TO_ENGINE[levelRaw] ?? 'L1') : 'L1';
     return { openId, name: toText(record.fields['姓名']) || name, roles, campuses, maxDataLevel };
+  }
+
+  /**
+   * 应急管理员本地登录（飞书不可用时的兜底入口）。
+   *
+   * 飞书 OAuth 曾是本系统唯一的登录链路：应用被停用、凭据过期或网络不通时，
+   * 连系统管理员都进不来，且无法自助恢复。此入口只依赖环境变量，不触碰飞书。
+   *
+   * 启用条件：配置 `EMERGENCY_ADMIN_PASSWORD`；未配置时直接 401（不消耗失败计数）。
+   * 可选 `EMERGENCY_ADMIN_OPEN_ID`：指定以哪个已有用户的 openId 建会话（可复用其数据与授权），
+   * 缺省使用虚拟 openId 'emergency-admin'。
+   *
+   * 防护：同一 IP 连续失败 5 次锁定 15 分钟，成功即清零；成功与失败均记告警日志。
+   */
+  async emergencyLogin(password: string, ip: string): Promise<SessionUser> {
+    const expected = process.env.EMERGENCY_ADMIN_PASSWORD?.trim();
+    if (!expected) {
+      throw new UnauthorizedException('EMERGENCY_LOGIN_DISABLED');
+    }
+
+    const lockKey = `emergency:lock:${ip}`;
+    const failKey = `emergency:fail:${ip}`;
+    if (await this.redis.get(lockKey)) {
+      throw new HttpException('EMERGENCY_LOGIN_LOCKED', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    // 定长比较，避免通过响应耗时逐字节爆破
+    const input = Buffer.from(password);
+    const want = Buffer.from(expected);
+    if (input.length !== want.length || !timingSafeEqual(input, want)) {
+      const fails = await this.redis.incr(failKey);
+      await this.redis.expire(failKey, EMERGENCY_LOCK_SECONDS);
+      if (fails >= EMERGENCY_MAX_FAILS) {
+        await this.redis.set(lockKey, '1', 'EX', EMERGENCY_LOCK_SECONDS);
+        this.logger.warn(`应急登录连续失败 ${fails} 次，锁定 IP=${ip} ${EMERGENCY_LOCK_SECONDS}s`);
+      } else {
+        this.logger.warn(`应急登录失败 IP=${ip}（第 ${fails}/${EMERGENCY_MAX_FAILS} 次）`);
+      }
+      throw new UnauthorizedException('BAD_CREDENTIALS');
+    }
+
+    await this.redis.del(failKey);
+    const openId = process.env.EMERGENCY_ADMIN_OPEN_ID?.trim() || EMERGENCY_DEFAULT_OPEN_ID;
+    this.logger.warn(`应急管理员登录成功 IP=${ip} openId=${openId}`);
+    return this.sessions.create({
+      openId,
+      name: '应急管理员',
+      roles: ['系统管理员'],
+      campuses: [],
+      maxDataLevel: 'L4',
+    });
   }
 
   async logout(sessionId: string): Promise<void> {

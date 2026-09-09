@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -62,6 +63,35 @@ export class AuthController {
     const proto = secure ? 'https' : 'http';
     const host = req.get('host') || 'localhost:3100';
     res.redirect(`${proto}://${host}/`);
+  }
+
+  /**
+   * 应急管理员本地登录：飞书 OAuth 不可用（应用停用 / 凭据过期 / 网络不通）时的兜底入口。
+   * 仅在服务端配置 EMERGENCY_ADMIN_PASSWORD 后启用，未配置返回 401。
+   */
+  @Post('emergency')
+  @UseGuards(LoginRateLimitGuard)
+  async emergency(
+    @Body() body: { password?: string },
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    const ip =
+      (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ||
+      req.socket?.remoteAddress ||
+      'unknown';
+    const user = await this.auth.emergencyLogin(String(body?.password ?? ''), ip);
+    const secure = ((req.headers['x-forwarded-proto'] as string | undefined) ?? 'http').includes(
+      'https',
+    );
+    res.cookie(process.env.SESSION_COOKIE ?? 'acms_sid', user.sessionId, {
+      httpOnly: true,
+      secure,
+      sameSite: 'lax',
+      maxAge: Number(process.env.SESSION_TTL_SECONDS ?? 3600) * 1000,
+      path: '/',
+    });
+    res.json({ ok: true });
   }
 
   /** 当前会话用户（未登录 401） */

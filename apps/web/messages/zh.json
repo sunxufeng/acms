@@ -85,7 +85,15 @@
     "welcome": "欢迎使用学院运营管理系统"
   },
   "login": {
-    "studentLoginLink": "我是学生？用学号 + 姓名登录"
+    "studentLoginLink": "我是学生？用学号 + 姓名登录",
+    "emergencyLink": "飞书无法登录？使用应急管理员入口",
+    "emergencyTitle": "应急管理员登录",
+    "emergencyPassword": "应急口令",
+    "emergencySubmit": "登录",
+    "emergencyCancel": "取消",
+    "emergencyDisabled": "未启用应急登录（服务端未配置 EMERGENCY_ADMIN_PASSWORD）",
+    "emergencyLocked": "尝试次数过多，请 15 分钟后重试",
+    "emergencyFailed": "口令不正确，请重试"
   },
   "bind": {
     "studentNo": "学号",

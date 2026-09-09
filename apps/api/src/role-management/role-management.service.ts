@@ -150,18 +150,21 @@ export class RoleManagementService implements OnModuleInit {
       this.logger.log(`已完成角色权限 v${ROLE_PERMISSION_VERSION} 一次性迁移`);
     }
     this.applyToEngine(roles);
-    // 启动即把已配置角色回填为飞书字段选项（含历史新增角色），失败不影响启动
-    await this.syncRoleOptionsToFeishu(roles);
+    // 启动即把已配置角色回填为「系统角色」字段选项（含历史新增角色），失败不影响启动
+    await this.syncRoleOptions(roles);
   }
 
   /**
-   * 自动把角色同步为飞书「系统用户表-系统角色」字段选项，
-   * 使新建角色可在飞书中直接分配给系统用户（选项名 = 角色标识 key，与鉴权引擎一致）。
+   * 自动把角色同步为「系统用户表-系统角色」字段选项，
+   * 使新建角色可直接分配给系统用户（选项名 = 角色标识 key，与鉴权引擎一致）。
+   *
+   * ⚠️ 函数名里没有「飞书」：本方法走 BASE_CLIENT 路由，实际写入当前数据存储层的字段定义
+   * （PG 切流后写 PostgreSQL），并不调用任何飞书接口。历史命名 syncRoleOptionsToFeishu 有误导性。
    * 仅追加缺失项，不改动/删除已有选项（避免孤立已分配记录）。
-   * 外部角色（student/parent）不进入飞书系统用户表，跳过。
-   * @returns 本次实际新增同步到飞书的选项名
+   * 外部角色（student/parent）不进入系统用户表，跳过。
+   * @returns 本次实际新增的选项名
    */
-  private async syncRoleOptionsToFeishu(roles: StoredRole[]): Promise<string[]> {
+  private async syncRoleOptions(roles: StoredRole[]): Promise<string[]> {
     try {
       const desired = roles.map((r) => r.key).filter((k) => !EXTERNAL_ROLES.has(k));
       const fields = await this.base.listFields(USER_TABLE.tableId);
@@ -288,8 +291,8 @@ export class RoleManagementService implements OnModuleInit {
     };
     const merged = [...current, next];
     await this.persist(merged);
-    // 新建角色即时同步为飞书「系统角色」字段选项，便于在飞书中分配给用户
-    const syncedToFeishu = EXTERNAL_ROLES.has(key) ? [] : await this.syncRoleOptionsToFeishu(merged);
+    // 新建角色即时同步为「系统角色」字段选项，便于分配给用户
+    const syncedToFeishu = EXTERNAL_ROLES.has(key) ? [] : await this.syncRoleOptions(merged);
     return { ...(await this.getConfig()), syncedToFeishu };
   }
 

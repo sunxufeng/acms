@@ -21,24 +21,6 @@ export class AiSummarizeService {
     private readonly dict: DictService,
   ) {}
 
-  /** tableId|fieldName -> fieldId 缓存（避免每次 AI 总结都拉字段列表） */
-  private fieldIdCache = new Map<string, string>();
-
-  private async resolveFieldId(tableId: string, fieldName: string): Promise<string | undefined> {
-    const key = `${tableId}|${fieldName}`;
-    if (this.fieldIdCache.has(key)) return this.fieldIdCache.get(key);
-    try {
-      const fields = await this.base.listFields(tableId);
-      const hit = (fields || []).find((f: { field_name?: string; name?: string; field_id?: string; id?: string }) =>
-        f.field_name === fieldName || f.name === fieldName,
-      );
-      const id = hit?.field_id || hit?.id;
-      if (id) this.fieldIdCache.set(key, id);
-      return id;
-    } catch {
-      return undefined;
-    }
-  }
 
   private checkWrite(user: SessionUser, cfg: AiSummarizeTableConfig) {
     requireModule(user, cfg.moduleKey, 'update');
@@ -78,16 +60,9 @@ export class AiSummarizeService {
     }
   }
 
-  private async readAttachment(cfg: AiSummarizeTableConfig, recordId: string, fileToken: string, name: string): Promise<string> {
-    const fieldId = await this.resolveFieldId(cfg.tableId, cfg.fieldAttach);
-    if (!fieldId) throw new Error(`无法解析附件字段「${cfg.fieldAttach}」的 fieldId`);
-    const tmpUrl = await this.fileUpload.getBitableTmpDownloadUrl(cfg.tableId, recordId, fieldId, fileToken);
-    const resp = await fetch(tmpUrl);
-    if (!resp.ok) {
-      throw new Error(`下载失败 HTTP ${resp.status}`);
-    }
-    const buf = Buffer.from(await resp.arrayBuffer());
-    return this.extractText(buf, name);
+  private async readAttachment(fileToken: string, name: string): Promise<string> {
+    const f = await this.fileUpload.readLocal(fileToken);
+    return this.extractText(f.buffer, name);
   }
 
   /** 读取记录并做权限校验 */
@@ -122,7 +97,7 @@ export class AiSummarizeService {
     const target = attachments.find((a) => a.file_token === fileToken);
     if (!target) throw new BadRequestException('ATTACHMENT_NOT_FOUND');
 
-    const text = await this.readAttachment(cfg, id, target.file_token, target.name);
+    const text = await this.readAttachment(target.file_token, target.name);
     if (!text.trim()) throw new BadRequestException('ATTACHMENT_EMPTY:该附件无可用文本内容');
 
     const currentDetail = toText(fields[cfg.fieldDetail]) || '';
@@ -155,7 +130,7 @@ export class AiSummarizeService {
     let okCount = 0;
     for (const a of attachments) {
       try {
-        const text = await this.readAttachment(cfg, id, a.file_token, a.name);
+        const text = await this.readAttachment(a.file_token, a.name);
         if (text) {
           corpus += `\n\n--- 附件来源：${a.name} ---\n${text}`;
           okCount++;

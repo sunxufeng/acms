@@ -5,6 +5,7 @@ import { BaseClient, toWriteSingle, toWriteMulti, toStringArray, toText, toUserI
 import { TABLES } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
+import { FileStorageService } from '../file-storage/file-storage.service.js';
 import { DictService } from '../dictionary/dict.service.js';
 import { FieldMaskService } from '../shared/field-mask.service.js';
 
@@ -40,7 +41,6 @@ function toPrincipal(user: SessionUser): Principal {
 export class StudentService {
   constructor(
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
-    private readonly fileUpload: FileUploadService,
     private readonly dict: DictService,
     @Inject(FieldMaskService) private readonly mask: FieldMaskService,
   ) {}
@@ -278,41 +278,18 @@ export class StudentService {
   }
 
   /**
-   * 为学生记录的附件字段（学生照片、证件与文件）生成浏览器可直接访问的临时下载链接。
-   * 飞书附件对象里的 url/tmp_url 都需要 Authorization，浏览器 <img>/<a> 无法携带，
-   * 因此调用 batch_get_tmp_download_url 换取免 token 的临时链接并注入 viewUrl。
+   * 为学生记录的附件字段（学生照片、证件与文件）注入浏览器可直接访问的直链。
+   * 附件已全部落在本地磁盘，统一走本站代理 /api/v1/files/<token>，无需任何外部凭据。
    */
   private async enrichAttachmentViewUrls(student: StudentRecord): Promise<void> {
     const fields = ['学生照片', '证件与文件'] as const;
     for (const field of fields) {
       const raw = student[field];
       const list = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
-      if (list.length === 0) continue;
-      const extra = this.extractExtraFromAttachment(list[0]!);
-      if (!extra) continue;
-      const tokens = list.map((a) => String(a.file_token ?? '')).filter(Boolean);
-      if (tokens.length === 0) continue;
-      try {
-        const map = await this.fileUpload.getBatchTmpDownloadUrls(tokens, extra);
-        for (const att of list) {
-          const ft = String(att.file_token ?? '');
-          if (map[ft]) att.viewUrl = map[ft];
-        }
-      } catch {
-        /* 临时链接失败不影响主记录展示，前端仍可按原对象降级 */
+      for (const att of list) {
+        const ft = String(att.file_token ?? '');
+        if (ft && FileStorageService.isLocal(ft)) att.viewUrl = FileUploadService.viewUrl(ft);
       }
-    }
-  }
-
-  /** 从飞书附件对象的 url 字段解析 extra 查询参数 */
-  private extractExtraFromAttachment(att: Record<string, unknown>): string | undefined {
-    const url = String(att.url ?? '');
-    if (!url) return undefined;
-    try {
-      const u = new URL(url);
-      return u.searchParams.get('extra') ?? undefined;
-    } catch {
-      return undefined;
     }
   }
 

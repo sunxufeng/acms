@@ -85,7 +85,15 @@
     "welcome": "Welcome to the College Operations Management System"
   },
   "login": {
-    "studentLoginLink": "Student? Sign in with student ID + name"
+    "studentLoginLink": "Student? Sign in with student ID + name",
+    "emergencyLink": "Can't sign in with Feishu? Use emergency admin access",
+    "emergencyTitle": "Emergency admin sign in",
+    "emergencyPassword": "Emergency passphrase",
+    "emergencySubmit": "Sign in",
+    "emergencyCancel": "Cancel",
+    "emergencyDisabled": "Emergency sign-in is not enabled (EMERGENCY_ADMIN_PASSWORD not configured)",
+    "emergencyLocked": "Too many attempts. Try again in 15 minutes",
+    "emergencyFailed": "Incorrect passphrase, please try again"
   },
   "bind": {
     "studentNo": "Student No.",

@@ -10,7 +10,8 @@ const LOC_PREFIX = 'loc_';
  * 新上传的附件直接落服务器磁盘（ACMS_ATTACHMENT_DIR，默认 /opt/acms/data/attachments），
  * 不再写入飞书 Drive。返回的 id 带 loc_ 前缀，与飞书 file_token 共用同一字段名，
  * 因此前端业务字段结构与历史 Drive 记录均无需改动。
- * 历史 Drive 文件（非 loc_ 前缀）继续走飞书兼容回退，待一次性迁移脚本回收后 bitablePerm 可移除。
+ * 历史 Drive 素材已于 2026-09-09 全量迁移为本地文件（全库零非 loc_ 残留），
+ * 飞书兼容回退已移除：非 loc_ 前缀一律视为迁移前的失效标记。
  */
 @Injectable()
 export class FileStorageService {

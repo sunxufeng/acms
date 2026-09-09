@@ -608,45 +608,10 @@ export class MailArchiveService extends BaseRecordService {
   }
 
   /** 解析附件下载链接（供前端下载归档附件）
-   *  归档时附件会写入记录的原生「文件附件」字段，从而具备 bitablePerm 归属；
-   *  这里优先用该归属换取预签名链接，避免只依赖上传后 20h 失效的 Redis 缓存。 */
-  async getAttachmentUrl(recordId: string, fileToken: string): Promise<string> {
-    // 本地附件（云盘内化）：直接返回本站代理直链，无需向飞书换取
-    if (FileStorageService.isLocal(fileToken)) {
-      return this.fileUpload.resolveViewUrl(fileToken);
-    }
-    const extra = await this.resolveAttachmentExtra(recordId, fileToken);
-    if (extra) {
-      try {
-        const map = await this.fileUpload.getBatchTmpDownloadUrls([fileToken], extra);
-        if (map[fileToken]) return map[fileToken];
-      } catch (e) {
-        this.logger.warn(`bitablePerm 换取下载链接失败 ${fileToken}: ${(e as Error).message}`);
-      }
-    }
-    return this.fileUpload.resolveDownloadUrl(fileToken);
-  }
-
-  /** 从记录的「文件附件」字段里取出该附件的 bitablePerm 参数（url 上的 extra 查询串） */
-  private async resolveAttachmentExtra(recordId: string, fileToken: string): Promise<string | undefined> {
-    try {
-      const rec = await this.base.get(this.meta.tableId, recordId);
-      const list = rec?.fields?.['文件附件'];
-      if (!Array.isArray(list)) return undefined;
-      for (const att of list as Array<Record<string, unknown>>) {
-        if (String(att?.file_token ?? '') !== fileToken) continue;
-        const url = String(att?.url ?? '');
-        if (!url) continue;
-        try {
-          return new URL(url).searchParams.get('extra') ?? undefined;
-        } catch {
-          return undefined;
-        }
-      }
-    } catch (e) {
-      this.logger.warn(`读取归档记录附件字段失败 ${recordId}: ${(e as Error).message}`);
-    }
-    return undefined;
+   *  附件已全部落在本地磁盘，统一走本站代理直链；
+   *  迁移前遗留的非 loc_ 标记视为失效，由 resolveViewUrl 直接 404。 */
+  async getAttachmentUrl(fileToken: string): Promise<string> {
+    return this.fileUpload.resolveViewUrl(fileToken);
   }
 
   /** 探测发件箱文件夹路径：优先用 IMAP SPECIAL-USE 标志 `\Sent`（RFC 6154），

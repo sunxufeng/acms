@@ -310,12 +310,73 @@ export class GetnoteService {
     return { ok: deleteCredential(user.openId) };
   }
 
+  // ── 上游限流保护（2026-09-09） ──────────────────────────────────────
   /**
-   * 统一出口。
+   * ⚠️ 为什么必须有这一段：
+   * 官方限流是 **QPS 2**（按 API Key 计）。而自动同步（SourcesService.syncOne）是
+   * 连续翻页拉笔记的，且多个配置会被同一个 15 分钟调度同时触发 —— 实测第 3 页就撞
+   * `10202 qps_bucket_exceeded`，异常一路抛到 runSync，整次同步判「失败」，已拉到的
+   * 内容全部作废。用户看到的就是「第一次收取就失败：请求频率超限，请稍后重试」。
+   *
+   * 两道防线：
+   * 1. **全局串行节流** —— 所有凭证、所有接口共用一个队列，请求间隔 ≥ MIN_INTERVAL_MS。
+   *    取 700ms（≈1.4 QPS）而非 500ms，是因为并发场景（多配置同时同步）下要留余量。
+   * 2. **10202 退避重试** —— 万一仍撞墙，按 1s/2s/4s 退避重试，而不是整次同步判死。
+   */
+  private static readonly MIN_INTERVAL_MS = 700;
+  private static readonly MAX_RETRY = 3;
+  private static lastRequestAt = 0;
+  private static queue: Promise<unknown> = Promise.resolve();
+
+  /** 全局排队：保证任意两次上游请求间隔 ≥ MIN_INTERVAL_MS（并发调用也不会一起放行） */
+  private static throttle(): Promise<void> {
+    const tick = async (): Promise<void> => {
+      const wait = GetnoteService.MIN_INTERVAL_MS - (Date.now() - GetnoteService.lastRequestAt);
+      if (wait > 0) await sleep(wait);
+      GetnoteService.lastRequestAt = Date.now();
+    };
+    const next = GetnoteService.queue.then(tick, tick);
+    // 队列本身不能因为单次失败而断掉，否则后续请求全部卡死
+    GetnoteService.queue = next.catch(() => undefined);
+    return next;
+  }
+
+  /** 是否命中上游频率限制（10202 → GETNOTE_RATE_LIMITED / 429） */
+  private isRateLimited(e: unknown): boolean {
+    const ex = e as HttpException | undefined;
+    if (!ex || typeof ex.getStatus !== 'function') return false;
+    if (ex.getStatus() !== HttpStatus.TOO_MANY_REQUESTS) return false;
+    return (ex.getResponse() as { code?: string } | undefined)?.code === 'GETNOTE_RATE_LIMITED';
+  }
+
+  /** 统一出口：节流 + 10202 退避重试 + 单次请求。 */
+  private async request<T>(
+    cred: { key: string; clientId: string },
+    path: string,
+    opts: { method?: string; body?: unknown; query?: Record<string, string | undefined> } = {},
+  ): Promise<T> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= GetnoteService.MAX_RETRY; attempt++) {
+      await GetnoteService.throttle();
+      try {
+        return await this.requestOnce<T>(cred, path, opts);
+      } catch (e) {
+        lastErr = e;
+        if (!this.isRateLimited(e) || attempt === GetnoteService.MAX_RETRY) throw e;
+        const backoff = 1000 * 2 ** attempt;
+        this.logger.warn(`Get笔记 命中限流，${backoff}ms 后重试（第 ${attempt + 1} 次） ${path}`);
+        await sleep(backoff);
+      }
+    }
+    throw lastErr;
+  }
+
+  /**
+   * 单次请求（不含限流/重试）。
    * ⚠️ 不能只看 HTTP 状态码：HTTP 200 也可能是业务失败（success: false）。
    * 业务错误码经 toHttpError() 翻成结构化错误（见 UPSTREAM_ERROR 表）。
    */
-  private async request<T>(
+  private async requestOnce<T>(
     cred: { key: string; clientId: string },
     path: string,
     opts: { method?: string; body?: unknown; query?: Record<string, string | undefined> } = {},

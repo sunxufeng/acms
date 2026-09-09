@@ -403,33 +403,55 @@ export class GetnoteSourceService extends BaseRecordService {
     const mapped = await this.loadMappedNoteIds(recordId);
     const mapCounter = { created: 0 };
 
-    do {
-      const r = await this.getnote.listWithCred(cred, cursor, undefined, 50);
-      fetched += r.notes.length;
-      for (const note of r.notes) {
-        const noteId = String(note.note_id ?? note.id ?? '').trim();
-        if (!noteId) continue;
-        try {
-          // 注入点：把这条新笔记「处理」一遍（写入 笔记 ↔ 配置 归属）。
-          // 归属跟随配置行 —— 配置是谁的，它同步来的笔记就是谁的。
-          await this.processNote({
-            note,
-            sourceName,
-            sourceType,
-            configId: recordId,
-            ownerName: plainText(fields['归属人']),
-            ownerOpenId: plainText(fields['归属人ID']),
-            mapped,
-            counter: mapCounter,
-          });
-          processed++;
-        } catch (e) {
-          errors.push(`noteId=${noteId}: ${(e as Error).message.slice(0, 80)}`);
+    /**
+     * 翻页中途失败（最常见是上游限流 10202）时**保留已处理的部分结果**：
+     * 直接往上抛会让本次已写入的笔记归属映射全部白做，下次还得从头翻一遍
+     * （而"从头翻"正是再次撞限流的原因 —— 越失败越翻，越翻越失败）。
+     */
+    let interrupted: string | undefined;
+    try {
+      do {
+        const r = await this.getnote.listWithCred(cred, cursor, undefined, 50);
+        fetched += r.notes.length;
+        for (const note of r.notes) {
+          const noteId = String(note.note_id ?? note.id ?? '').trim();
+          if (!noteId) continue;
+          try {
+            // 注入点：把这条新笔记「处理」一遍（写入 笔记 ↔ 配置 归属）。
+            // 归属跟随配置行 —— 配置是谁的，它同步来的笔记就是谁的。
+            await this.processNote({
+              note,
+              sourceName,
+              sourceType,
+              configId: recordId,
+              ownerName: plainText(fields['归属人']),
+              ownerOpenId: plainText(fields['归属人ID']),
+              mapped,
+              counter: mapCounter,
+            });
+            processed++;
+          } catch (e) {
+            errors.push(`noteId=${noteId}: ${(e as Error).message.slice(0, 80)}`);
+          }
         }
-      }
-      cursor = String(r.cursor ?? '');
-      if (!r.has_more) break;
-    } while (cursor && processed < 5000); // 单次最多处理 5000 条，防止失控
+        cursor = String(r.cursor ?? '');
+        if (!r.has_more) break;
+      } while (cursor && processed < 5000); // 单次最多处理 5000 条，防止失控
+    } catch (e) {
+      interrupted = (e as Error).message;
+      this.logger.warn(`同步中断 ${sourceName}（已处理 ${processed} 条）: ${interrupted}`);
+    }
+
+    if (interrupted) {
+      return {
+        fetched,
+        stored: processed,
+        created: processed,
+        sourceName,
+        error: interrupted,
+        resultText: `中断：已处理 ${processed}/${fetched} 条（${interrupted}）；下次同步继续`.slice(0, 500),
+      };
+    }
 
     const resultText = errors.length
       ? `处理 ${processed}/${fetched} 条；失败 ${errors.length}（${errors[0] ?? ''}）`

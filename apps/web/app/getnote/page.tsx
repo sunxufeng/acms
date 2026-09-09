@@ -366,6 +366,8 @@ export default function GetnotePage() {
   const router = useRouter();
 
   const [cred, setCred] = useState<GetnoteCredential | null>(null); // null = 加载中
+  /** 凭证状态拉取失败的原因。⚠️ 不能吞掉：吞了页面就永远停在「加载中…」，用户只会以为系统坏了 */
+  const [loadErr, setLoadErr] = useState('');
   const [open, setOpen] = useState(false); // 设置区展开
   const [cid, setCid] = useState('');
   const [key, setKey] = useState('');
@@ -621,11 +623,16 @@ export default function GetnotePage() {
   const intervalRef = useRef(5);
 
   const load = useCallback(() => {
+    setLoadErr('');
     api
       .getGetnoteCredential()
       .then(setCred)
-      .catch(() => setCred(null));
-  }, []);
+      .catch((e: unknown) => {
+        const raw = String((e as Error)?.message ?? '');
+        // 403 单独提示：这是「没权限」而不是「系统坏了」，用户自己解决不了，必须说清找谁
+        setLoadErr(raw.includes('FORBIDDEN') ? t('errNoPermission') : errorText(e, t));
+      });
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -943,9 +950,25 @@ export default function GetnotePage() {
     return (
       <div className="card" style={{ padding: 24, margin: 24 }}>
         <h1 className="page-title">{tl('知识库')}</h1>
-        <p className="muted" style={{ marginTop: 12 }}>
-          {t('loading')}
-        </p>
+        {loadErr ? (
+          <>
+            <p style={{ color: 'var(--fg-error)', fontSize: 13, marginTop: 12, marginBottom: 0 }}>
+              {loadErr}
+            </p>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ marginTop: 12 }}
+              onClick={() => load()}
+            >
+              {t('reload')}
+            </button>
+          </>
+        ) : (
+          <p className="muted" style={{ marginTop: 12 }}>
+            {t('loading')}
+          </p>
+        )}
       </div>
     );
   }

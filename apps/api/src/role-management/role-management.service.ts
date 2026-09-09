@@ -111,8 +111,38 @@ export class RoleManagementService implements OnModuleInit {
     return null;
   }
 
+  /**
+   * 带重试地读取权限配置。
+   *
+   * ⚠️ 为什么必须重试（2026-09-09 事故复盘）：
+   * `onModuleInit` 阶段飞书 tenant token 往往还没就绪，此时 `base.search` 可能返回
+   * 空结果（**不抛错**），`readStored()` 于是返回 null，代码转头就用**静态默认矩阵**
+   * —— 而默认矩阵里既没有自定义角色（如 Phase1），也不含后来在界面上新增的权限点。
+   * 后果：每次重启，自定义角色被授予的权限静默失效，用户大面积 403，日志里一个字都没有。
+   *
+   * 实测：15:37 部署重启后，Amy（Phase1）的 `getnote:read` 凭空消失，知识库页一直转圈；
+   * 直到有人再保存一次权限矩阵（persist 会热更新引擎）才恢复 —— 所以现象看起来
+   * 像「时好时坏的玄学 bug」，实际是启动时序问题。
+   */
+  private async readStoredWithRetry(attempts = 5): Promise<StoredRole[] | null> {
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const stored = await this.readStored();
+        if (stored) return stored;
+      } catch (e) {
+        this.logger.warn(`读取角色权限配置失败（第 ${i + 1}/${attempts} 次）：${(e as Error).message}`);
+      }
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    }
+    this.logger.warn(
+      `未读到角色权限配置（已重试 ${attempts} 次），本次启动使用内置默认矩阵。` +
+        '若为首次部署属正常；否则自定义角色的授权在重启后将不生效，请检查飞书系统配置表 role_permission_config。',
+    );
+    return null;
+  }
+
   private async ensureLoaded(): Promise<void> {
-    const stored = await this.readStored();
+    const stored = await this.readStoredWithRetry();
     const roles = stored ?? this.defaultConfig();
     // 先持久化版本与权限，再加载引擎；失败即中止启动，避免未落盘的继承被反复执行。
     if (stored && this.migratePermissions(stored)) {

@@ -1883,7 +1883,18 @@
     "搜索菜单": "Search menus",
     "白名单模式": "Whitelist mode",
     "自动模式（不限制）": "Auto mode (unrestricted)",
-    "恢复自动": "Restore auto"
+    "恢复自动": "Restore auto",
+    "曾用": "Formerly",
+    "加载失败": "Failed to load",
+    "已保存": "Saved",
+    "确认删除该文档？": "Delete this document?",
+    "已删除": "Deleted",
+    "智能助手 / AI 文档": "AI Assistant / AI Docs",
+    "AI 文档": "AI Docs",
+    "新建文档": "New Document",
+    "文档标题": "Document Title",
+    "编辑": "Edit",
+    "保存中…": "Saving…"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",
@@ -2099,7 +2110,9 @@
     "convertedTimesTip": "This note has been converted to \"{label}\" {count} times",
     "convertNoTarget": "No conversion target is enabled yet. Go to Administration › Note Convert to enable a module and map its fields.",
     "convertFieldMap": "Summary → {summary}　Raw record → {raw}",
-    "convertLoadFailed": "Failed to load conversion config. Please try again later"
+    "convertLoadFailed": "Failed to load conversion config. Please try again later",
+    "errNoPermission": "You don't have access to My Notes / Knowledge Base. Ask an admin to grant this permission to your role.",
+    "reload": "Retry"
   },
   "getnoteSources": {
     "title": "Knowledge Sources",

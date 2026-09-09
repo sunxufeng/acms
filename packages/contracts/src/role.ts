@@ -52,6 +52,18 @@ export const USER_LEVEL_TO_ENGINE: Record<string, DataLevel> = {
   L4: 'L4',
 };
 
+/** 数据密级展示名：存储值（L1–L4 或中文 一般/内部/敏感/高度敏感）→ 可读标签；未知回退原值。
+ *  与「键值双标识」铁律一致：界面 / 导出 / AI 入参统一经此解析，绝不裸显示存储值。 */
+export function dataLevelLabel(level: string): string {
+  const map: Record<string, string> = {
+    L1: '一般', 一般: '一般',
+    L2: '内部', 内部: '内部',
+    L3: '敏感', 敏感: '敏感',
+    L4: '高度敏感', 高度敏感: '高度敏感',
+  };
+  return map[level] ?? level;
+}
+
 /** 功能权限点 */
 export const PERMISSIONS = [
   'student:read',

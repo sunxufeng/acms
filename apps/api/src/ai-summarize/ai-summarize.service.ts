@@ -1,11 +1,12 @@
 // @ts-nocheck
 import { Injectable, Logger, NotFoundException, Inject, BadRequestException } from '@nestjs/common';
-import type { SessionUser } from '@acms/contracts';
+import { dataLevelLabel, type SessionUser } from '@acms/contracts';
 import { BaseClient, toText } from '@acms/base-adapter';
 import { BASE_CLIENT } from '../base.provider.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
 import { routeChat } from '../ai/lib/gateway/router.js';
 import { requireModule } from '../shared/require-module.js';
+import { getRoleLabels } from '@acms/domain';
 import type { AiSummarizeTableConfig } from './ai-summarize.config.js';
 
 @Injectable()
@@ -170,8 +171,20 @@ export class AiSummarizeService {
       throw new NotFoundException('NO_SOURCE:该记录既没有附件，也没有「沟通人备注」文本，无法生成总结');
     }
 
+    const roleLabels = getRoleLabels();
+    /** 角色 key / 数据密级 经解析函数转可读名；普通文本（关联学生/家长/沟通人等）原样透传 */
+    const resolveDisplay = (raw: string): string => {
+      const trimmed = raw.trim();
+      if (!trimmed) return raw;
+      const rl = roleLabels[trimmed];
+      if (rl) return rl;
+      return dataLevelLabel(trimmed);
+    };
     const meta = cfg.metaFields
-      .map((m) => `${m.label}：${toText(fields[m.key]) || '—'}`)
+      .map((m) => {
+        const raw = toText(fields[m.key]);
+        return `${m.label}：${raw ? resolveDisplay(raw) : '—'}`;
+      })
       .join('\n');
 
     const currentDetail = toText(fields[cfg.fieldDetail]) || '';

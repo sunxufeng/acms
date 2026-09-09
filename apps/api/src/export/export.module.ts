@@ -6,8 +6,8 @@
 import { Controller, Get, Param, Query, Res, Req, UseGuards, Inject, Module, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { Response, Request } from 'express';
 import { SessionGuard } from '../auth/session.guard';
-import { authorize, type Principal } from '@acms/domain';
-import { BaseClient } from '@acms/base-adapter';
+import { authorize, getRoleLabels, type Principal } from '@acms/domain';
+import { BaseClient, toText } from '@acms/base-adapter';
 import { BASE_CLIENT, baseClientProvider } from '../base.provider';
 import { TABLES } from '@acms/contracts';
 import type { SessionUser } from '@acms/contracts';
@@ -48,6 +48,20 @@ export class ExportController {
     const fields = await this.base.listFields(tableId);
     const headers = ['记录ID', ...fields.map((f) => f.name)];
 
+    const roleLabels = getRoleLabels();
+    /** 系统角色等字段存储的是角色 key，导出前解析成展示名；其它字段原样 */
+    const resolveFieldValue = (fieldName: string, v: unknown): unknown => {
+      if (fieldName === '系统角色') {
+        const toLabel = (x: unknown): string => {
+          const k = toText(x);
+          if (!k) return '';
+          return roleLabels[k] ?? k;
+        };
+        return Array.isArray(v) ? v.map(toLabel) : toLabel(v);
+      }
+      return v;
+    };
+
     const esc = (v: unknown): string => {
       if (v == null) return '';
       const s = Array.isArray(v) ? v.join('|') : String(v);
@@ -56,7 +70,11 @@ export class ExportController {
 
     const lines = [headers.join(',')];
     for (const row of rows) {
-      lines.push([row.id, ...fields.map((f) => esc(row.fields[f.name]))].join(','));
+      const cells: string[] = [row.id];
+      for (const f of fields) {
+        cells.push(esc(resolveFieldValue(f.name, row.fields[f.name])));
+      }
+      lines.push(cells.join(','));
     }
     const csv = '﻿' + lines.join('\n');
     const fname = `${table}_${new Date().toISOString().slice(0, 10)}.csv`;

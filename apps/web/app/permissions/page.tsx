@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { groupPermissions } from '@acms/contracts';
+import { groupPermissions, PERMISSION_LABELS, dataLevelLabel, type Permission } from '@acms/contracts';
 import { api, type PermissionsPayload } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
 import { useRoleLabels } from '../../components/RoleLabels';
@@ -57,7 +57,7 @@ export default function PermissionsPage() {
           </div>
           <div>
             <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{tl('数据密级上限')}</div>
-            <div style={{ fontSize: 'var(--font-lg)', fontWeight: 700, marginTop: 4 }}>{data.myMaxDataLevel}</div>
+            <div style={{ fontSize: 'var(--font-lg)', fontWeight: 700, marginTop: 4 }}>{dataLevelLabel(data.myMaxDataLevel)}</div>
           </div>
           <div>
             <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{tl('有效权限点')}</div>
@@ -68,7 +68,7 @@ export default function PermissionsPage() {
           <div key={g.domain} style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)', marginBottom: 6 }}>{g.label}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {g.perms.map((p) => <span key={p} className="tag">{p}</span>)}
+              {g.perms.map((p) => <span key={p} className="tag">{PERMISSION_LABELS[p as Permission] ?? p}</span>)}
             </div>
           </div>
         ))}
@@ -118,7 +118,7 @@ function GroupRows({
       </tr>
       {group.perms.map((perm) => (
         <tr key={perm}>
-          <td style={{ position: 'sticky', left: 0, background: 'var(--bg-elevated)' }}>{perm}</td>
+          <td style={{ position: 'sticky', left: 0, background: 'var(--bg-elevated)' }}>{PERMISSION_LABELS[perm as Permission] ?? perm}</td>
           {roles.map((r) => {
             const has = (matrix[r] ?? []).includes(perm);
             return (

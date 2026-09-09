@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { GetnoteController } from './getnote.controller.js';
 import { GetnoteService } from './getnote.service.js';
 import { baseClientProvider } from '../base.provider.js';
+import { redisProvider } from '../redis.provider.js';
 
 /**
  * 得到大脑（Get笔记）模块。
@@ -11,7 +12,9 @@ import { baseClientProvider } from '../base.provider.js';
  */
 @Module({
   controllers: [GetnoteController],
-  providers: [GetnoteService, baseClientProvider],
+  // redisProvider：管理员笔记快照要跨进程重启存活（见 GetnoteService 的快照持久化），
+  // 否则服务一重启快照就归零，用户首次进页面要干等一轮全量聚合。
+  providers: [GetnoteService, baseClientProvider, redisProvider],
   exports: [GetnoteService],
 })
 export class GetnoteModule {}

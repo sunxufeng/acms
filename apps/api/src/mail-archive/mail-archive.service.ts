@@ -230,7 +230,26 @@ export class MailArchiveService extends BaseRecordService {
         secure: a.secure,
         auth: { user: a.user, pass: a.pass },
         logger: false,
+        // ⚠️ 显式超时：不设的话卡死的 IMAP 连接会一直挂着，把整轮同步（乃至后续的
+        // 定时任务）无限期拖住。设成有限值，让失败快速暴露、下一轮可重试。
+        connectionTimeout: 30_000,
+        greetingTimeout: 30_000,
+        socketTimeout: 120_000,
       });
+
+      // ⚠️ 必须挂 error 监听 —— 这是**进程级保命**代码，不是可选的日志美化。
+      // ImapFlow 是 EventEmitter：socket 超时、连接被服务端 RST、TLS 异常等都会以
+      // 'error' 事件**异步**抛出，它不发生在任何 await 的调用栈上，因此外层 try/catch
+      // 根本接不住。没有监听器时 Node 视其为 Unhandled 'error' event，**直接终止进程**。
+      // 线上实测（2026-09-09 22:03:19）：`Error: Socket timeout` at TLSSocket._socketTimeout
+      // → 整个 acms-api 崩溃，systemd restart counter 涨到 2；连带清空内存中
+      // 的 getnote 管理员快照，用户下次打开「我的笔记」就要干等 5.7s 冷启动。
+      client.on('error', (err: Error) => {
+        this.logger.warn(
+          `账户 ${a.name} IMAP 连接异常（已捕获，不影响服务）: ${err?.message ?? err}`,
+        );
+      });
+
       const tConn = Date.now();
       await client.connect();
       timing.connect = Date.now() - tConn;
@@ -325,7 +344,18 @@ export class MailArchiveService extends BaseRecordService {
           }
         }
       } finally {
-        await client.logout();
+        // ⚠️ 关闭失败不能掩盖真实错误：连接已经断掉时 logout() 自己会抛，
+        // 若不接住，原本「收取成功/某封失败」的结论会被替换成一句无关的登出异常。
+        try {
+          await client.logout();
+        } catch {
+          /* 连接可能已断开，忽略 */
+        }
+        try {
+          client.close();
+        } catch {
+          /* 已关闭，忽略 */
+        }
       }
     } catch (e) {
       // ⚠️ imapflow 把服务器的真实原因放在 responseText 里，message 往往只是干巴巴的

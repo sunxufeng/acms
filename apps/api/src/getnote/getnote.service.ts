@@ -4,6 +4,8 @@ import { TABLES } from '@acms/contracts';
 import { toText } from '@acms/base-adapter';
 import type { SessionUser, NoteConvertLogItem, NoteConfigMapItem } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
+import { REDIS } from '../redis.provider.js';
+import type { Redis } from 'ioredis';
 import { buildFilter } from '../shared/record.util.js';
 import {
   getCredentialStatus,
@@ -228,7 +230,10 @@ export class GetnoteService {
   /** 正在后台刷新快照的 openId，防止同一管理员的并发请求触发多轮重复聚合 */
   private readonly adminSnapshotInflight = new Set<string>();
 
-  constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
+  constructor(
+    @Inject(BASE_CLIENT) private readonly base: BaseClient,
+    @Inject(REDIS) private readonly redis: Redis,
+  ) {}
 
   /**
    * 取出当前用户的凭证对。Client ID 与 API Key **都来自用户自己**，不读 .env。
@@ -611,6 +616,16 @@ export class GetnoteService {
   private static readonly ADMIN_MAX_PAGES_PER_SOURCE = 10;
   /** 源之间的节流间隔。Get笔记 QPS 2，串行 + 250ms 留足余量 */
   private static readonly ADMIN_SOURCE_INTERVAL = 250;
+  /**
+   * 快照在 Redis 里的存活时间（比内存 TTL 长得多）。
+   *
+   * ⚠️ 存在的意义是**扛住进程重启**：快照只放内存时，服务一重启就归零，
+   * 下一个进来的管理员要同步等一轮全量聚合（实测 5.7s）。而重启并不罕见 ——
+   * 2026-09-09 就因 IMAP 未捕获的 error 事件把进程打崩过（已修），
+   * 那次崩溃的直接投诉就是「我的笔记第一次进来很慢」。
+   * 落 Redis 后，重启完第一次访问就能立刻拿到上一轮的快照，再后台刷新。
+   */
+  private static readonly ADMIN_SNAPSHOT_REDIS_TTL_SEC = 3600;
 
   /**
    * 拉齐管理员能看到的所有笔记：自己的凭证 + 所有启用配置的凭证。
@@ -720,12 +735,26 @@ export class GetnoteService {
     let snap = this.adminSnapshots.get(key);
 
     if (!snap) {
-      // 首次进入：没有任何快照可返回，只能同步等一次全量聚合。
-      const t0 = Date.now();
-      const items = await this.collectAllNotes(user);
-      snap = { at: Date.now(), items };
-      this.adminSnapshots.set(key, snap);
-      this.logger.log(`管理员笔记快照首次构建：${items.length} 条，耗时 ${Date.now() - t0}ms`);
+      // 内存里没有：可能是首次进入，也可能是**进程刚重启**（内存快照随进程一起没了）。
+      // 先到 Redis 找上一轮的快照 —— 找到就立刻返回，用户不必干等一轮全量聚合。
+      const restored = await this.restoreAdminSnapshot(key);
+      if (restored && restored.items.length > 0) {
+        snap = restored;
+        this.adminSnapshots.set(key, snap);
+        this.logger.log(
+          `管理员笔记快照从 Redis 恢复：${restored.items.length} 条（已避免一次冷启动等待）`,
+        );
+        // 恢复的数据可能已经旧了，顺手在后台刷新一轮
+        void this.refreshAdminSnapshot(key, user);
+      } else {
+        // 真·首次：Redis 里也没有，只能同步等一次全量聚合。
+        const t0 = Date.now();
+        const items = await this.collectAllNotes(user);
+        snap = { at: Date.now(), items };
+        this.adminSnapshots.set(key, snap);
+        void this.persistAdminSnapshot(key, items);
+        this.logger.log(`管理员笔记快照首次构建：${items.length} 条，耗时 ${Date.now() - t0}ms`);
+      }
     } else if (now - snap.at > GetnoteService.ADMIN_SNAPSHOT_TTL) {
       // ⚠️ 过期但手上还有旧数据：先把旧的返回，后台异步刷新。
       // 此前这里是 `await collectAllNotes()` —— 快照一过期，用户每次进页面都要干等
@@ -772,6 +801,49 @@ export class GetnoteService {
     };
   }
 
+  /** 快照在 Redis 中的 key。按 openId 隔离，与内存快照一一对应。 */
+  private snapshotRedisKey(openId: string): string {
+    return `getnote:admin_snapshot:${openId}`;
+  }
+
+  /**
+   * 把快照写进 Redis，供**进程重启后**立即恢复。
+   * 失败不影响主流程（Redis 挂了就退化回「纯内存快照」的旧行为）。
+   */
+  private async persistAdminSnapshot(key: string, items: GetnoteNote[]): Promise<void> {
+    try {
+      await this.redis.set(
+        this.snapshotRedisKey(key),
+        JSON.stringify({ at: Date.now(), items }),
+        'EX',
+        GetnoteService.ADMIN_SNAPSHOT_REDIS_TTL_SEC,
+      );
+    } catch (e) {
+      this.logger.warn(
+        `管理员笔记快照写入 Redis 失败（不影响使用）：${(e as Error).message.slice(0, 80)}`,
+      );
+    }
+  }
+
+  /** 进程重启后从 Redis 恢复快照；没有则返回 null。 */
+  private async restoreAdminSnapshot(
+    key: string,
+  ): Promise<{ at: number; items: GetnoteNote[] } | null> {
+    try {
+      const raw = await this.redis.get(this.snapshotRedisKey(key));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { at?: number; items?: GetnoteNote[] };
+      if (!Array.isArray(parsed.items)) return null;
+      return { at: Number(parsed.at) || 0, items: parsed.items };
+    } catch (e) {
+      // Redis 不可用或数据损坏都不能让列表接口挂掉 —— 退化成重建快照
+      this.logger.warn(
+        `管理员笔记快照从 Redis 恢复失败（将重建）：${(e as Error).message.slice(0, 80)}`,
+      );
+      return null;
+    }
+  }
+
   /** 后台重建管理员笔记快照。同一管理员并发请求只会触发一轮聚合。 */
   private async refreshAdminSnapshot(key: string, user: SessionUser): Promise<void> {
     if (this.adminSnapshotInflight.has(key)) return;
@@ -780,6 +852,7 @@ export class GetnoteService {
     try {
       const items = await this.collectAllNotes(user);
       this.adminSnapshots.set(key, { at: Date.now(), items });
+      void this.persistAdminSnapshot(key, items);
       this.logger.log(`管理员笔记快照后台刷新完成：${items.length} 条，耗时 ${Date.now() - t0}ms`);
     } catch (e) {
       // 刷新失败时保留旧快照继续可用，不打断用户当前浏览

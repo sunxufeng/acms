@@ -19,6 +19,7 @@ import { SessionGuard } from '../auth/session.guard.js';
 import { BASE_CLIENT } from '../base.provider.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
 import { resolveBitablePermContext } from '../file-upload/bitable-perm.util.js';
+import { FileStorageService } from '../file-storage/file-storage.service.js';
 import { HomepageConfigService } from './homepage-config.service.js';
 import type { HomepageConfigDto } from './homepage-config.dto.js';
 import type { NavMenuConfig, NavMenuGroupConfig, NoteConvertConfig } from '@acms/contracts';
@@ -47,6 +48,7 @@ export class HomepageConfigController {
   constructor(
     private readonly service: HomepageConfigService,
     private readonly fileUpload: FileUploadService,
+    private readonly storage: FileStorageService,
     @Inject(BASE_CLIENT) private readonly base: DataStore,
   ) {}
 
@@ -127,6 +129,17 @@ export class HomepageConfigController {
       throw new HttpException('INVALID_FILE_TOKEN', HttpStatus.BAD_REQUEST);
     }
     try {
+      // 本地存储（云盘内化）：直接读盘返流，不再依赖飞书 token
+      if (FileStorageService.isLocal(token)) {
+        const f = await this.storage.read(token);
+        if (!f) throw new HttpException('FILE_NOT_FOUND', HttpStatus.NOT_FOUND);
+        res.setHeader('Content-Type', f.mime || 'application/octet-stream');
+        res.setHeader('Content-Disposition', 'inline');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.status(200).end(f.buffer);
+        return;
+      }
+
       // 用系统配置表作为 bitablePerm 权限上下文（素材上传时 parent_node 即为此 Bitable）
       const ctx = await this.getBitableContext();
       const tmpUrl = await this.fileUpload.resolveDownloadUrl(token, {
@@ -143,6 +156,8 @@ export class HomepageConfigController {
       const buf = Buffer.from(await upstream.arrayBuffer());
       res.status(200).end(buf);
     } catch (e) {
+      // 本地分支抛出的 HttpException（如 FILE_NOT_FOUND）保持原语义，不要被包装成 502
+      if (e instanceof HttpException) throw e;
       this.logger.error(`主页图片代理失败 token=${token}: ${(e as Error).message}`);
       throw new HttpException('IMAGE_PROXY_FAILED', HttpStatus.BAD_GATEWAY);
     }

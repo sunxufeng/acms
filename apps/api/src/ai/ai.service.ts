@@ -20,7 +20,10 @@ import {
 import { PROVIDER_PRESETS } from './lib/providers/presets.js';
 import { AgentRuntime } from './lib/agent/runtime.js';
 import { webTools } from './lib/tools/web.js';
-import { createFeishuDocTool } from './lib/tools/feishuDoc.js';
+// ⚠️ 必须是值导入（不能写 import type）：AiDocsService 作为构造器注入依赖，
+// Nest 需要运行时的类令牌；写成 type-only 会被编译期擦除，导致 DI 解析成 Function 而启动崩溃。
+import { AiDocsService } from '../ai-docs/ai-docs.service.js';
+import { createAcmsDocTool } from './lib/tools/feishuDoc.js';
 import {
   createSession,
   appendMessage,
@@ -74,11 +77,12 @@ export class AiService implements OnModuleInit {
   constructor(
     private readonly studentService: StudentService,
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
+    private readonly aiDocs: AiDocsService,
   ) {
     this.runtime = new AgentRuntime({
       tools: [
         ...webTools,
-        createFeishuDocTool,
+        createAcmsDocTool(this.aiDocs),
         ...feishuDriveTools,
         createStudentQueryTool(this.studentService),
         ...createFeishuExtraTools(this.base),
@@ -94,7 +98,7 @@ export class AiService implements OnModuleInit {
         new AgentRuntime({
           tools: [
             ...webTools,
-            createFeishuDocTool,
+            createAcmsDocTool(this.aiDocs),
             ...feishuDriveTools,
             createStudentQueryTool(this.studentService),
             ...createFeishuExtraTools(this.base),
@@ -203,7 +207,7 @@ export class AiService implements OnModuleInit {
 
   // 可用工具清单（供智能体「工具开关」使用）
   listTools(_user: SessionUser) {
-    return [...webTools, createFeishuDocTool, ...feishuDriveTools].map((t) => ({ name: t.name, description: t.description || '' }));
+    return [...webTools, createAcmsDocTool(this.aiDocs), ...feishuDriveTools].map((t) => ({ name: t.name, description: t.description || '' }));
   }
 
   // ---------------- 技能（工具文档） ----------------

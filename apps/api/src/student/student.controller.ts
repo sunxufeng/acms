@@ -127,10 +127,10 @@ export class StudentController {
     return { ok: true, file_token, name: safeName, record_id: recordId, viewUrl: newAtt?.viewUrl };
   }
 
-  /** 获取附件下载 URL */
+  /** 获取附件下载 URL（本地附件返回本站直链，历史飞书附件返回临时链接） */
   @Get(':id/attachment-url')
   async getAttachmentUrl(@Param('id') _id: string, @Query('file_token') fileToken: string) {
-    const url = await this.fileUpload.getDownloadUrl(fileToken);
+    const url = await this.fileUpload.resolveViewUrl(fileToken);
     return { url };
   }
 

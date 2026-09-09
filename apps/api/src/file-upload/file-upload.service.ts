@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
 import type { Redis } from 'ioredis';
 import { REDIS } from '../redis.provider.js';
+import { FileStorageService } from '../file-storage/file-storage.service.js';
 
 /**
  * 还原被 multer/busboy 误判为 latin1 的中文文件名。
@@ -41,7 +42,10 @@ export class FileUploadService {
   /** 缓存有效期 20 小时（飞书临时 URL 约 24h 有效，提前刷新） */
   private static readonly URL_CACHE_TTL = 20 * 3600;
 
-  constructor(@Inject(REDIS) private readonly redis: Redis) {}
+  constructor(
+    @Inject(REDIS) private readonly redis: Redis,
+    private readonly storage: FileStorageService,
+  ) {}
 
   /** 读取环境变量 */
   private env(key: string): string | undefined {
@@ -84,17 +88,34 @@ export class FileUploadService {
   }
 
   /**
-   * 上传文件到飞书 Drive
+   * 上传附件（云盘内化）：
+   * 新附件直接落本地磁盘（FileStorageService），返回带 loc_ 前缀的 file_token。
+   * 业务字段仍叫 file_token，前端与历史数据结构零改动。
+   *
+   * 历史飞书 Drive 文件（非 loc_ 前缀）继续走 resolveDownloadUrl 兼容路径下载，
+   * 待存量迁移脚本回收后该兼容路径与 bitablePerm 可一并移除。
+   *
    * @param buffer 文件内容
    * @param filename 原始文件名
    * @param mimeType MIME 类型
-   * @param timeoutMs 可选超时（ms）。⚠️ **Node 的 fetch 默认没有超时** ——
-   *   飞书网关挂起时请求会一直挂着不返回，批量场景（如邮件附件归档）会被这种
-   *   悬挂请求整体拖死。传了就用 AbortSignal.timeout 强制中断，让调用方快速失败。
-   *   不传保持原有行为（不超时），因此其他调用方不受影响。
-   * @returns file_token
+   * @param timeoutMs 仅保留以兼容旧调用方签名；本地写盘无网络请求，忽略该参数。
+   * @returns { file_token } 带 loc_ 前缀的本地文件 id
    */
   async uploadFile(
+    buffer: Buffer,
+    filename: string,
+    mimeType: string,
+    timeoutMs?: number,
+  ): Promise<{ file_token: string }> {
+    const id = await this.storage.save(buffer, filename, mimeType);
+    return { file_token: id };
+  }
+
+  /**
+   * 上传到飞书 Drive（云盘内化后新附件不再走此路径）。
+   * 保留用途：存量迁移脚本补写 / 飞书回退应急。当前无业务调用方。
+   */
+  private async uploadToFeishu(
     buffer: Buffer,
     filename: string,
     mimeType: string,
@@ -371,6 +392,21 @@ export class FileUploadService {
       .catch(() => {});
 
     return url;
+  }
+
+  /**
+   * 统一解析附件的可下载 URL（云盘内化的分流入口）。
+   * - 本地文件（loc_ 前缀）→ 返回本站代理直链 /api/v1/files/<token>，由 FileController 读盘返流。
+   * - 历史飞书 Drive 文件 → 沿用 resolveDownloadUrl（Redis 缓存 > 直连）。
+   *
+   * 供「换下载链接」类接口（学生附件、邮件附件等）使用，
+   * 避免本地 token 被误传到飞书接口而报错。
+   */
+  async resolveViewUrl(token: string): Promise<string> {
+    if (FileStorageService.isLocal(token)) {
+      return `/api/v1/files/${encodeURIComponent(token)}`;
+    }
+    return this.resolveDownloadUrl(token);
   }
 
   /**

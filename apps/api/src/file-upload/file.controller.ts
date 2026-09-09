@@ -6,6 +6,7 @@ import { SessionGuard } from '../auth/session.guard.js';
 import { BASE_CLIENT } from '../base.provider.js';
 import { FileUploadService, decodeOriginalFilename } from './file-upload.service.js';
 import { resolveBitablePermContext } from './bitable-perm.util.js';
+import { FileStorageService } from '../file-storage/file-storage.service.js';
 
 /**
  * 文件代理下载
@@ -26,6 +27,7 @@ export class FileController {
   constructor(
     @Inject(BASE_CLIENT) private readonly base: DataStore,
     private readonly fileUpload: FileUploadService,
+    private readonly storage: FileStorageService,
   ) {}
 
   @Get(':token')
@@ -34,7 +36,22 @@ export class FileController {
       throw new HttpException('INVALID_FILE_TOKEN', HttpStatus.BAD_REQUEST);
     }
     try {
-      // 高级权限下：先用 bitablePerm 换预签名下载链接（直连会 400），再由服务端中转
+      // 本地存储（云盘内化）：直接读盘返流，不再依赖飞书 token
+      if (FileStorageService.isLocal(token)) {
+        const f = await this.storage.read(token);
+        if (!f) {
+          this.logger.warn(`本地附件不存在 token=${token}`);
+          throw new HttpException('FILE_NOT_FOUND', HttpStatus.NOT_FOUND);
+        }
+        res.status(200);
+        res.setHeader('Content-Type', f.mime || 'application/octet-stream');
+        res.setHeader('Content-Disposition', this.buildDisposition(token, f.filename, f.mime));
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        res.end(f.buffer);
+        return;
+      }
+
+      // 历史飞书 Drive 文件：高级权限下先用 bitablePerm 换预签名下载链接（直连会 400），再由服务端中转
       const ctx = await resolveBitablePermContext(this.base, (m) => this.logger.warn(m));
       const signedUrl = await this.fileUpload.resolveDownloadUrl(
         token,
@@ -76,9 +93,18 @@ export class FileController {
         res.end();
       }
     } catch (e) {
+      // 本地分支抛出的 HttpException（如 FILE_NOT_FOUND）保持原语义，不要被包装成 502
+      if (e instanceof HttpException) throw e;
       this.logger.error(`文件下载失败 token=${token}: ${(e as Error).message}`);
       throw new HttpException('FILE_DOWNLOAD_FAILED', HttpStatus.BAD_GATEWAY);
     }
+  }
+
+  /** 本地附件的 Content-Disposition：图片内联显示，其余按真实文件名下载 */
+  private buildDisposition(token: string, filename: string, mime?: string): string {
+    if (mime?.startsWith('image/')) return 'inline';
+    const name = filename || token;
+    return `attachment; filename*=UTF-8''${encodeURIComponent(name)}`;
   }
 
   /**

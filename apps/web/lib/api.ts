@@ -268,11 +268,19 @@ export const api = {
       body: JSON.stringify({ options }),
     }),
 
-  /** 把字典候选项同步进飞书 Base 字段 */
-  syncDictionaries: () => request<unknown>('/dictionaries/sync', { method: 'POST' }),
-
   /** 字典元数据（完整 DictOption[] + 旧值→当前名 resolve 映射）：供编辑器编辑 / CrudPage 显示解析 */
   dictionaryMeta: () => request<DictMeta>('/dictionaries/meta'),
+
+  /** AI 文档（云文档内化）：列表 / 详情 / 创建 / 更新 / 删除 */
+  aiDocs: {
+    list: () => request<unknown[]>('/ai-docs'),
+    get: (id: string) => request<Record<string, unknown>>(`/ai-docs/${encodeURIComponent(id)}`),
+    create: (body: { title?: string; content?: string; refTable?: string; refRecord?: string }) =>
+      request<{ id: string; url: string }>('/ai-docs', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: { title?: string; content?: string }) =>
+      request<{ ok: boolean }>(`/ai-docs/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+    remove: (id: string) => request<{ ok: boolean }>(`/ai-docs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  },
 
   // ── M2 教师域 ───────────────────────────────
   listTeachers: (params: Record<string, string | undefined> = {}) => {

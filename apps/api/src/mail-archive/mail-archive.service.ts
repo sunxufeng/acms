@@ -5,6 +5,7 @@ import { BaseClient } from '@acms/base-adapter';
 import { BASE_CLIENT, baseClientProvider } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
+import { FileStorageService } from '../file-storage/file-storage.service.js';
 import { BaseRecordService } from '../shared/generic-crud.module.js';
 import { FieldMaskService } from '../shared/field-mask.service.js';
 import { buildFilter } from '../shared/record.util.js';
@@ -530,6 +531,10 @@ export class MailArchiveService extends BaseRecordService {
    *  归档时附件会写入记录的原生「文件附件」字段，从而具备 bitablePerm 归属；
    *  这里优先用该归属换取预签名链接，避免只依赖上传后 20h 失效的 Redis 缓存。 */
   async getAttachmentUrl(recordId: string, fileToken: string): Promise<string> {
+    // 本地附件（云盘内化）：直接返回本站代理直链，无需向飞书换取
+    if (FileStorageService.isLocal(fileToken)) {
+      return this.fileUpload.resolveViewUrl(fileToken);
+    }
     const extra = await this.resolveAttachmentExtra(recordId, fileToken);
     if (extra) {
       try {

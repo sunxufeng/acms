@@ -317,6 +317,7 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'partnerships', label: '聘用合作', enLabel: 'Partnerships', href: '/partnerships', icon: 'teachers', section: '教师管理', order: 60, perm: 'partnership:read' },
 
     { key: 'aiChat', label: 'AI 对话', enLabel: 'AI Chat', href: '/ai/chat', icon: 'chat', section: '智能助手', order: 10, perm: 'ai:chat' },
+    { key: 'aiDocs', label: 'AI 文档', enLabel: 'AI Docs', href: '/ai-docs', icon: 'file', section: '智能助手', order: 12, perm: 'ai:chat' },
     { key: 'aiConfig', label: 'AI 设置', enLabel: 'AI Settings', href: '/ai/config', icon: 'config', section: '智能助手', order: 20, perm: 'ai:config' },
     { key: 'aiAgents', label: 'Bot管理', enLabel: 'Bots', href: '/ai/agents', icon: 'bot', section: '智能助手', order: 30, perm: 'aiagent:read' },
     { key: 'aiSkills', label: '技能管理', enLabel: 'Skills', href: '/ai/skills', icon: 'skill', section: '智能助手', order: 40, perm: 'aiskill:read' },

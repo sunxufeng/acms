@@ -196,46 +196,6 @@ export class DictService {
   }
 
   /**
-   * 将字典候选项合并进飞书 Base 对应单选/多选字段（幂等）。
-   * - 仅处理 type=3（单选）/ type=4（多选）字段；文本等其他类型跳过。
-   * - 当前选项取自 listFields 的 property.options（飞书无单字段 GET 接口），
-   *   已存在的选项保留（含其 id），仅追加缺失项，不删除任何选项。
-   * - 单字段失败不影响其余字段；结果汇总返回，便于接口/日志查看。
-   */
-  async syncToBase(): Promise<SyncResult[]> {
-    const results = await Promise.all([
-      this.syncTable(this.TABLE, BASE_FIELD_SYNC),
-      this.syncTable(USER_TABLE.tableId, this.USER_FIELD_SYNC),
-    ]);
-    // 确保学生表新增的「文本类」字段存在（Arete毕业届 / 证件信息），否则写入会被飞书静默丢弃
-    results.push(await this.ensureStudentTextFields());
-    // 确保用户表「教师类型」单选字段存在（新建用户时下拉选择），否则写入会被飞书静默丢弃
-    results.push(await this.ensureUserTeacherTypeField());
-    // 将人员类字段（招生负责老师/班主任/数据负责人）从飞书 User 类型(11) 转为 Text 类型(1)。
-    // 原因：该租户下这些 open_id 无法通过飞书 User 字段校验（UserFieldConvFail），
-    // 且应用侧已自行用 open_id↔姓名 映射展示，Text 存储 open_id 即可稳定读写。
-    results.push(await this.ensureUserFieldsAsText());
-    // 学生档案：新建单/多选字段（省/市/入学年份/实际学制）、重命名 当前年级→入学年级、
-    // 将 学生标签 文本列转为多选标签列、新建 特长标签 多选列。
-    results.push(await this.ensureStudentSelectFields());
-    // 生源跟进记录表：确保字典下拉字段存在且选项与字典一致（含新增的 原学校类型/合同状态/付款状态/家庭关键决策点/原学校/奖学金金额）
-    results.push(await this.ensureFollowupFields());
-    // 教师档案表：确保「教师类别/授课学段/授课科目类型/授课科目/合作开始时间/收款主体」等
-    // 字典下拉字段存在且选项与字典一致；并补齐文本类字段（微信号/常驻城市/个人描述/附件等）。
-    results.push(await this.ensureTeacherFields());
-    // 家校沟通表：确保「沟通方式/家长反馈态度/闭环状态/信息敏感级别」单选字段与字典一致；
-    // 补齐文本字段（关联学生/家长/沟通人/沟通主题/沟通明细/沟通总结/沟通附件清单）。
-    results.push(await this.ensureHomeSchoolCommFields());
-    // 日常跟进表：确保「沟通方式/闭环状态/信息敏感级别」单选字段与字典一致；
-    // 补齐文本字段（关联学生/沟通人/沟通人备注/沟通明细/沟通总结/沟通附件清单/待办事项/责任人/待办负责人）。
-    results.push(await this.ensureDailyFollowupFields());
-    // 学生观察表（2026-09-06 新增）：确保「观察类型/沟通方式/闭环状态/信息敏感级别」
-    // 单选字段与字典一致。表不存在时（尚未建表）会被 catch 记录进 errors，不影响启动。
-    results.push(await this.ensureStudentObservationFields());
-    return results;
-  }
-
-  /**
    * 确保「生源跟进记录表」的字段存在且选项与字典一致：
    * - 单选字段（活动类型/跟进状态/跟进方式/意向等级/闭环状态/原学校类型/合同状态/付款状态/家庭关键决策点/家长反馈态度）：
    *   不存在则创建（type=3，带字典选项）；已存在单选则追加缺失选项；已存在非单选则跳过（不删字段，避免丢数据）。

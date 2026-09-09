@@ -27,6 +27,7 @@ import { IdpModule } from './idp/idp.module.js';
 import { MonitorModule } from './monitor/monitor.module.js';
 import { UsersModule } from './user/user.module.js';
 import { AiModule } from './ai/ai.module.js';
+import { AiDocsModule } from './ai-docs/ai-docs.module.js';
 import { AiSummarizeModule } from './ai-summarize/ai-summarize.module.js';
 import { WechatBindingModule } from './wechat-binding/wechat-binding.module.js';
 import { HomepageConfigModule } from './homepage-config/homepage-config.module.js';

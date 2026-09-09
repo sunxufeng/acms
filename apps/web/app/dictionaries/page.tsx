@@ -17,7 +17,6 @@ export default function DictionariesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [savingKey, setSavingKey] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState('');
 
   /* 新增字典类型状态 */
@@ -68,24 +67,6 @@ export default function DictionariesPage() {
     }
   };
 
-  const syncToBase = async () => {
-    setSyncing(true);
-    try {
-      const res = (await api.syncDictionaries()) as {
-        synced?: string[];
-        skipped?: string[];
-        errors?: string[];
-      };
-      const ok = (res.synced ?? []).length;
-      const err = (res.errors ?? []).length;
-      flash(err ? t('syncResultWithErrors', { ok, err }) : t('syncResult', { ok }));
-    } catch (e) {
-      flash(`同步失败：${(e as Error).message}`);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   /** 新增选项：key 默认等于 label（向后兼容存量记录） */
   const addOption = (key: string, value: string) => {
     const v = value.trim();
@@ -104,7 +85,7 @@ export default function DictionariesPage() {
 
   /**
    * 重命名已有选项：保留 key（= 旧 label），仅改 label，并把旧 label 记入 aliases。
-   * 这样存量记录里存的旧值经 resolve 仍能显示为新名，且飞书同步会按 id 原地重命名，不再新旧并存。
+   * 这样存量记录里存的旧值经 resolve 仍能显示为新名，不会新旧并存。
    */
   const renameOption = (key: string, oldKey: string, newLabel: string) => {
     const v = newLabel.trim();
@@ -174,14 +155,9 @@ export default function DictionariesPage() {
           <div className="eyebrow">{tl('系统 / 字典数据')}</div>
           <h1 className="page-title">{tl('字典数据')}</h1>
           <p className="page-subtitle">
-            维护各表单下拉项的候选项。修改后点击「保存」持久化；再点「同步到飞书 Base」将新选项写入对应字段。
-            重命名选项会保留旧名（别名），存量记录与飞书字段自动兼容，不会新旧并存。
+            维护各表单下拉项的候选项。修改后点击「保存」持久化即可（字段选项已本地化，无需再同步飞书）。
+            重命名选项会保留旧名（别名），存量记录自动兼容，不会新旧并存。
           </p>
-        </div>
-        <div className="page-header-actions">
-          <button className="btn btn-outline" onClick={syncToBase} disabled={syncing}>
-            {syncing ? t('syncing') : t('syncToBase')}
-          </button>
         </div>
       </div>
 

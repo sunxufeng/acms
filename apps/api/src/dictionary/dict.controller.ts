@@ -1,13 +1,11 @@
 import {
   Controller,
   Get,
-  Post,
   Put,
   Param,
   Body,
   Req,
   UseGuards,
-  HttpCode,
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
@@ -88,12 +86,5 @@ export class DictController {
       throw new BadRequestException('options 必须为 DictOption 数组');
     }
     return this.svc.update(key, body.options);
-  }
-
-  /** 触发把字典候选项合并进飞书 Base 字段：POST /api/v1/dictionaries/sync */
-  @Post('sync')
-  @HttpCode(200)
-  sync() {
-    return this.svc.syncToBase();
   }
 }

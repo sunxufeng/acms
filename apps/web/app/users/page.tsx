@@ -10,7 +10,7 @@ const COLUMNS: CrudColumn[] = [
   { key: '姓名', label: '姓名', width: '140px', form: true, type: 'text', required: true },
   { key: '飞书 Open ID', label: '飞书 Open ID', width: '200px', form: false, type: 'text', list: false },
   // ⚠️ 不写死 options：表单区已由 UserForm 接管，角色动态取自 GET /role-management
-  { key: '系统角色', label: '系统角色', width: '200px', form: true, type: 'multiselect', render: (v) => Array.isArray(v) ? v.join('、') : String(v ?? '') },
+  { key: '系统角色', label: '系统角色', width: '200px', form: true, type: 'multiselect', render: (v) => <RoleLabelsCell value={v} /> },
   { key: '教师类型', label: '教师类型', width: '120px', form: true, type: 'select', dictKey: '教师类型', options: ['班主任', '招生老师'], filter: true },
   { key: '数据密级上限', label: '数据密级', width: '110px', form: true, type: 'select', options: LEVEL_OPTS, list: false },
   { key: '默认校区', label: '校区', width: '180px', form: true, type: 'select', dictKey: '校区', render: (v) => Array.isArray(v) ? v.join('、') : String(v ?? ''), list: false },

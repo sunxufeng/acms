@@ -42,6 +42,7 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
   const [recipients, setRecipients] = useState<string[]>((initial?.pushTo || []).filter(Boolean));
   const [agentOpenId, setAgentOpenId] = useState('');
   const [users, setUsers] = useState<UserOption[]>([]);
+  const { joinLabels } = useRoleLabels();
 
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [busy, setBusy] = useState(false);
@@ -61,7 +62,7 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
       const p = await api.listUsers(params);
       for (const u of p.items) {
         const openId = String(u['飞书 Open ID'] ?? '');
-        if (openId) collected.push({ openId, name: String(u['姓名'] ?? ''), role: Array.isArray(u['系统角色']) ? u['系统角色'].join('、') : String(u['系统角色'] ?? '') });
+        if (openId) collected.push({ openId, name: String(u['姓名'] ?? ''), role: joinLabels(u['系统角色']) });
       }
       if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
     };

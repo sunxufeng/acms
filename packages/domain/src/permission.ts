@@ -235,8 +235,10 @@ export interface Principal {
 }
 
 export interface ResourceScope {
-  campus?: string;
-  dataLevel?: string;
+  /** 校区：单选为字符串，飞书多选字段在运行时为数组，故两者都接受 */
+  campus?: string | readonly string[];
+  /** 密级：同上，多选字段运行时为数组 */
+  dataLevel?: string | readonly string[];
 }
 
 function isRole(v: string): v is Role {

@@ -19,22 +19,51 @@ describe('字段转换（飞书坑位规则）', () => {
   });
 });
 
-describe('Base 契约（Schema Drift 检测）', () => {
-  const snapshot = JSON.parse(
-    readFileSync(new URL('../../../docs/base-schema-snapshot.json', import.meta.url), 'utf-8'),
-  ) as { tables: Record<string, { table_id: string; fields: { name: string; type: number }[] }> };
+describe('表注册表自检', () => {
+  const entries = Object.entries(TABLES) as Array<[string, { tableId: string; name: string }]>;
 
-  it('代码表注册与快照 table_id 完全一致', () => {
-    const snapIds = new Set(Object.values(snapshot.tables).map((t) => t.table_id));
-    for (const [key, t] of Object.entries(TABLES)) {
-      expect(snapIds.has(t.tableId), `${key} 的 ${t.tableId} 不在快照中，Base 结构已漂移`).toBe(true);
+  it('每张表的 tableId / name 均非空且 tableId 以 tbl 开头', () => {
+    for (const [key, t] of entries) {
+      expect(t.tableId, `${key} 缺 tableId`).toMatch(/^tbl[A-Za-z0-9]+$/);
+      expect(t.name?.length ?? 0, `${key} 缺中文表名`).toBeGreaterThan(0);
     }
-    expect(new Set(Object.values(TABLES).map((t) => t.tableId)).size).toBe(snapIds.size);
   });
 
-  it('每张表字段数 ≥ 16（防误删字段）', () => {
-    for (const [name, t] of Object.entries(snapshot.tables)) {
-      expect(t.fields.length, `${name} 字段数异常`).toBeGreaterThanOrEqual(16);
-    }
+  it('tableId 不重复（重复会导致不同模块串表）', () => {
+    const ids = entries.map(([, t]) => t.tableId);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+/**
+ * 数据源漂移检测：以 PostgreSQL 为事实来源（2026-09 起业务数据已切 PG，飞书 Base 仅作历史结构）。
+ * 生产通过环境变量 TABLE_ID_MAP 把代码里的 DEV 表 ID 重映射为生产表 ID，
+ * 因此只有配置了该映射时才具备比对条件，本地/CI 未配置则跳过。
+ */
+describe('数据源漂移检测（需 TABLE_ID_MAP）', () => {
+  const pg = JSON.parse(
+    readFileSync(new URL('../../../docs/pg-tables.json', import.meta.url), 'utf-8'),
+  ) as { generated_at: string; count: number; tables: string[] };
+  const hasMap = !!process.env.TABLE_ID_MAP;
+
+  it.runIf(hasMap)('代码注册的每张表在 PostgreSQL 中都存在', () => {
+    const pgSet = new Set(pg.tables);
+    const map = JSON.parse(process.env.TABLE_ID_MAP ?? '{}') as Record<string, string>;
+    const missing = (Object.entries(TABLES) as Array<[string, { tableId: string }]>)
+      .map(([key, t]) => {
+        const resolved = map[t.tableId] ?? t.tableId;
+        return pgSet.has(`t_${resolved.toLowerCase()}`) ? null : `${key}(${resolved})`;
+      })
+      .filter((x): x is string => x !== null);
+    expect(
+      missing,
+      `以下表在 PG 中不存在（快照 ${pg.generated_at}，共 ${pg.count} 表）：${missing.join('、')}`,
+    ).toEqual([]);
+  });
+
+  it('PG 快照非空且格式合法', () => {
+    expect(pg.count).toBeGreaterThan(0);
+    expect(pg.tables.length).toBe(pg.count);
+    for (const t of pg.tables) expect(t).toMatch(/^t_tbl[a-z0-9]+$/);
   });
 });

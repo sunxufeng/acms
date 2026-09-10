@@ -64,11 +64,29 @@ describe('ABAC 密级与校区', () => {
   });
 
   it('校区不匹配拒绝', () => {
-    const d = authorize({ roles: ['院级管理'], campuses: ['虹桥校区'] }, 'student:read', {
+    // 注意：系统管理员/院级管理是组织级角色，按设计绕过校区限制（见下方用例），
+    // 因此校区维度必须用带校区范围的普通角色来校验。
+    const d = authorize({ roles: ['学生事务'], campuses: ['虹桥校区'] }, 'student:read', {
       campus: '浦东校区',
     });
     expect(d.allowed).toBe(false);
     expect(d.reason).toBe('campus-mismatch');
+  });
+
+  it('组织级角色（系统管理员/院级管理）不受单校区限制', () => {
+    for (const role of ['系统管理员', '院级管理']) {
+      const d = authorize({ roles: [role], campuses: ['虹桥校区'] }, 'student:read', {
+        campus: '浦东校区',
+      });
+      expect(d.allowed, `${role} 应可跨校区访问全部数据`).toBe(true);
+    }
+  });
+
+  it('校区多选：资源的任一校区命中用户范围即放行', () => {
+    const d = authorize({ roles: ['学生事务'], campuses: ['虹桥校区'] }, 'student:read', {
+      campus: ['浦东校区', '虹桥校区'],
+    });
+    expect(d.allowed).toBe(true);
   });
 
   it('校区为空视为不限（全校区管理员）', () => {

@@ -321,7 +321,7 @@ export default function RoleManagementPage() {
       setNewLabel('');
       const saved = payload.roles.find((r) => r.key === draft.key);
       if (saved) selectRole(saved);
-      const synced = payload.syncedToFeishu;
+      const synced = payload.syncedRoleOptions;
       const base = draft.isNew ? t('roleCreated') : tc('saved');
       const syncText = synced && synced.length ? t('roleSyncSuffix', { list: synced.join('、') }) : '';
       setMsg({ type: 'ok', text: base + syncText });

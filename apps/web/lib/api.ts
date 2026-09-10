@@ -1100,8 +1100,8 @@ export interface RoleManagementPayload {
   roles: RoleDef[];
   allPermissions: string[];
   dataLevels: string[];
-  /** 新建角色时自动同步到飞书「系统角色」字段的选项名（仅 createRole 返回） */
-  syncedToFeishu?: string[];
+  /** 新建角色时自动补入「系统角色」字段选项的选项名（仅 createRole 返回；写入 PostgreSQL，不涉及飞书） */
+  syncedRoleOptions?: string[];
 }
 
 /** 通用导出：任一已注册飞书表 → CSV 下载（需 export:run 权限） */

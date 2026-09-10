@@ -273,7 +273,12 @@ export class RoleManagementService implements OnModuleInit {
 
   async createRole(
     dto: CreateRoleInput,
-  ): Promise<{ roles: RoleDef[]; allPermissions: Permission[]; dataLevels: DataLevel[]; syncedToFeishu: string[] }> {
+  ): Promise<{
+    roles: RoleDef[];
+    allPermissions: Permission[];
+    dataLevels: DataLevel[];
+    syncedRoleOptions: string[];
+  }> {
     const key = (dto.key ?? '').trim();
     if (!key) throw new BadRequestException('角色标识（key）不能为空');
     if (!/^[一-龥A-Za-z0-9_]+$/.test(key)) {
@@ -292,8 +297,8 @@ export class RoleManagementService implements OnModuleInit {
     const merged = [...current, next];
     await this.persist(merged);
     // 新建角色即时同步为「系统角色」字段选项，便于分配给用户
-    const syncedToFeishu = EXTERNAL_ROLES.has(key) ? [] : await this.syncRoleOptions(merged);
-    return { ...(await this.getConfig()), syncedToFeishu };
+    const syncedRoleOptions = EXTERNAL_ROLES.has(key) ? [] : await this.syncRoleOptions(merged);
+    return { ...(await this.getConfig()), syncedRoleOptions };
   }
 
   async updateRole(

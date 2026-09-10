@@ -1,0 +1,30 @@
+[Unit]
+Description=ACMS Web slot %i (Blue-Green)
+After=network.target
+
+[Service]
+Type=simple
+# 与旧版 acms-web.service 保持一致以 ecs-user 运行（.env 为 0600，owner 即 ecs-user，可正常读取）
+User=ecs-user
+WorkingDirectory=/opt/acms/repo/apps/web
+# 凭证与环境变量统一从 /opt/acms/.env 读取（含 WEB_ORIGIN 等）
+EnvironmentFile=/opt/acms/.env
+# 平滑部署关键：让 web 的 rewrites(/api/:path* 兜底代理)回灌本机 nginx(127.0.0.1:80)，
+# 由 nginx 的 upstream 选当前 active api slot。这样 web 不直连 api 端口，Blue-Green
+# 切流后服务端潜在回灌也始终正确跟随，无需随 slot 改 API_ORIGIN。
+# Environment 在 EnvironmentFile 之后，会覆盖 /opt/acms/.env 中可能写死的 API_ORIGIN=http://localhost:3000
+Environment=API_ORIGIN=http://127.0.0.1
+# ⚠️ 注意：systemd 的 %i specifier 在 Environment= 中【不展开】，必须用 ExecStart 内联传目录/端口。
+# 用 bash -c 内联 NEXT_DIST_DIR=.next-%i（展开为实例目录，如 .next-3101）与 -p %i（实例端口，如 3101）；
+# exec 让 next 取代 bash 进程，保证 systemd 信号直达。
+ExecStart=/bin/bash -c 'NEXT_DIST_DIR=.next-%i exec /opt/acms/repo/apps/web/node_modules/.bin/next start -p %i'
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=90
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=acms-web-%i
+
+[Install]
+WantedBy=multi-user.target

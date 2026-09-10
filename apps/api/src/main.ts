@@ -38,6 +38,12 @@ async function bootstrap(): Promise<void> {
   app.use((_req: Request, _res: Response, next: NextFunction) => runWithActorStore(next));
   // M7 安全加固：安全响应头 +  ️写接口跨域来源校验（全局）
   app.use(securityMiddleware);
+  // 平滑部署：监听 SIGTERM/SIGINT，收到后 drain 在途请求再退出（systemd stop / Blue-Green 切流停旧实例时用到）
+  app.enableShutdownHooks();
+  // 轻量健康检查端点：供 Blue-Green 切流探活与监控使用（不查 DB，仅确认进程已监听）
+  app.getHttpAdapter().getInstance().get('/api/v1/health', (_req: Request, res: Response) => {
+    res.status(200).json({ status: 'ok', ts: Date.now() });
+  });
   const port = Number(process.env.API_PORT ?? 3000);
   await app.listen(port);
   console.log(`[acms-api] listening on :${port}`);

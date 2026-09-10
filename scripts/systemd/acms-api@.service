@@ -1,0 +1,32 @@
+[Unit]
+Description=ACMS API slot %i (Blue-Green)
+After=network.target redis-server.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+# 与旧版 acms-api.service 保持一致以 ecs-user 运行（.env 为 0600，owner 即 ecs-user，可正常读取）
+User=ecs-user
+WorkingDirectory=/opt/acms/repo/apps/api
+# 凭证与环境变量统一从 /opt/acms/.env 读取
+EnvironmentFile=/opt/acms/.env
+# ⚠️ 注意：systemd 的 %i specifier 在 Environment= 中【不展开】，必须用 ExecStart 内联传端口。
+# 这里用 bash -c 在命令前内联 API_PORT=%i（展开为实例端口，如 3001），覆盖 .env 里的 API_PORT=3000；
+# exec 让 node 取代 bash 进程，保证 systemd 信号直达 node（SIGTERM → graceful shutdown）。
+ExecStart=/bin/bash -c 'API_PORT=%i exec /usr/bin/node /opt/acms/repo/apps/api/dist-%i/main.js'
+# 每个 slot 独立的构建产物目录，避免 Blue-Green 切换时新实例覆盖旧实例仍在用的 dist
+# （dist-%i 在 ExecStart 展开：acms-api@3001 → /opt/acms/repo/apps/api/dist-3001）
+# 平滑部署：main.ts 已 enableShutdownHooks()，收到 SIGTERM 后会 drain 在途请求再退出
+Restart=on-failure
+RestartSec=5
+# 启动较慢（Nest 引导 + 建连 Redis/PG），放宽超时避免被 systemd 误杀
+TimeoutStartSec=90
+# 优雅关闭窗口：给在途请求足够时间 drain
+TimeoutStopSec=30
+KillMode=control-group
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=acms-api-%i
+
+[Install]
+WantedBy=multi-user.target

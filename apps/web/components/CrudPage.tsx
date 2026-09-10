@@ -18,7 +18,7 @@ import { takeConvertPayload, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../
 // 注意组件内已有名为 api 的 prop，所以全局 api 必须起别名，否则会遮蔽。
 import { api as globalApi } from '../lib/api';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'attachment' | 'markdown' | 'map' | 'tags';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags';
 
 export interface CrudColumn {
   key: string;
@@ -545,6 +545,23 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     return () => { alive = false; };
   }, [columns]);
 
+  // 部门字段（department）候选项：从「组织管理 / 部门管理」读取已同步的飞书部门树
+  // （已删除部门 status='invalid' 不出现在树中，这里也一并过滤掉）
+  const [departmentOptions, setDepartmentOptions] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    if (!columns.some((c) => c.type === 'department')) return;
+    let alive = true;
+    apiClient
+      .listDepartments()
+      .then((res) => {
+        if (!alive) return;
+        const items = (res?.items ?? []).filter((d) => d.status !== 'invalid');
+        setDepartmentOptions(items.map((d) => ({ value: d.name, label: d.name })));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [columns]);
+
   /** 字段有效候选项：优先字典，其次字段 options */
   const optionsFor = (c: CrudColumn): string[] =>
     c.dictKey ? (dicts[c.dictKey] ?? c.options ?? []) : (c.options ?? []);
@@ -944,6 +961,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentOptions} placeholder="输入学生姓名筛选…" />
           ) : c.type === 'studentLink' ? (
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" />
+          ) : c.type === 'department' ? (
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={departmentOptions} placeholder="输入部门名称筛选…" />
           ) : c.type === 'parent' ? (
             (() => {
               const dep = form[c.dependsOn ?? ''] as string;
@@ -1075,7 +1094,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             ) : (
               <FilterSelect key={c.key} label={tl(c.label)} value={filters[c.key] ?? ''}
                 onChange={(v) => setFilters((f) => ({ ...f, [c.key]: v }))}
-                options={c.filterOptions ?? (c.dictKey ? (dicts[c.dictKey] ?? c.options ?? []) : (c.options ?? []))} />
+                options={c.filterOptions ?? (c.dictKey ? (dicts[c.dictKey] ?? c.options ?? []) : c.type === 'department' ? departmentOptions.map((d) => d.value) : (c.options ?? []))} />
             ),
           )}
           {(rangeFilters ?? []).map((rf) => (

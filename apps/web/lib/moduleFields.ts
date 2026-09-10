@@ -19,6 +19,8 @@ export const MODULE_FIELDS: Record<string, string[]> = {
   studentAttendances: ['异常描述', '处理结果'],
   alumniFollowups: ['跟进事项', '跟进备注'],
   idpPlans: ['展示内容', '展示亮点', '原始文档'],
+  // 组织管理：会议纪要（2026-09-11）
+  meetingMinutes: ['会议总结', '会议明细', '待办事宜', '会议议题'],
 };
 
 /** 取某模块的候选字段；未登记返回空数组（调用方降级为文本框） */

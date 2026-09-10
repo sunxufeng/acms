@@ -130,6 +130,7 @@ export const PERMISSIONS = [
   'portal:read',
   'student360:read',
   'observation:read',
+  'meeting:read',
   'idp:read',
   'dailyfollowup:read',
   'studentattendance:read',
@@ -177,6 +178,7 @@ export const DOMAIN_LABELS: Record<string, string> = {
   portal: '学生门户',
   student360: '学生全景',
   observation: '学生观察',
+  meeting: '会议纪要',
   idp: 'IDP管理',
   dailyfollowup: '日常跟进',
   studentattendance: '学生考勤',
@@ -215,6 +217,7 @@ const PERMISSION_LABEL_OVERRIDES: Record<string, string> = {
   'portal:read': '学生门户·查看',
   'student360:read': '学生全景·查看',
   'observation:read': '学生观察·查看',
+  'meeting:read': '会议纪要·查看',
   'idp:read': 'IDP管理·查看',
   'dailyfollowup:read': '日常跟进·查看',
   'studentattendance:read': '学生考勤·查看',
@@ -237,6 +240,8 @@ export const MENU_PERM_INHERIT: Record<string, readonly string[]> = {
   'portal:read': ['student:read'],
   'student360:read': ['student:read'],
   'observation:read': ['student:read'],
+  // 会议纪要挂在「组织管理」下、按部门维度组织，继承部门读权限即可
+  'meeting:read': ['department:read'],
   'idp:read': ['student:read'],
   'dailyfollowup:read': ['followup:read'],
   'studentattendance:read': ['attendance:read'],
@@ -280,7 +285,7 @@ export const DOMAIN_ORDER = [
   'teacher', 'course', 'venue', 'schedule', 'export', 'admin', 'config', 'ai',
   'mail', 'getnote', 'report',
   // 菜单级域：排在资源域之后
-  'dashboard', 'portal', 'student360', 'observation', 'idp', 'dailyfollowup',
+  'dashboard', 'portal', 'student360', 'observation', 'meeting', 'idp', 'dailyfollowup',
   'studentattendance', 'teaching', 'settlement', 'adjustment',
   'aiagent', 'aiskill', 'aiusage',
 ] as const;

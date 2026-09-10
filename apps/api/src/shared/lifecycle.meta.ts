@@ -161,6 +161,24 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     searchField: '关联学生编号',
     sortField: '跟进时间',
   },
+  // 会议纪要（2026-09-11 新增）：组织管理域，按部门维度记录会议。
+  // 与日常跟进同构（明细/总结/待办/敏感级别），但主体从「学生」换成「部门」。
+  {
+    path: 'meeting-minutes',
+    tableId: TABLES.meetingMinutes.tableId,
+    readPerm: 'department:read',
+    writePerm: 'department:write',
+    dateFields: ['会议时间', '开始时间', '结束时间'],
+    // 时间范围筛选（前端 rangeFilters 传 from/to → listDeep 内存过滤）作用于「会议时间」
+    rangeField: '会议时间',
+    // 业务校验：结束时间必须晚于开始时间（create/update 时由 generic-crud 统一校验）
+    timeRange: { startField: '开始时间', endField: '结束时间' },
+    statusField: '状态',
+    defaultStatus: '草稿',
+    searchField: '会议议题',
+    searchFields: ['会议议题', '部门', '会议地点', '主持人'],
+    sortField: '会议时间',
+  },
 ];
 
 /** 系统配置表（M6 运营工作台补充）：key-value 配置，仅管理员可写 */

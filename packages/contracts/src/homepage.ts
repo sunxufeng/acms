@@ -159,6 +159,8 @@ export const DEFAULT_CONVERT_FIELDS: Record<string, { summaryField: string; rawF
   dailyFollowups: { summaryField: '沟通总结', rawField: '沟通明细' },
   // 学生观察：字段结构照搬日常跟进，总结/明细 key 完全一致（2026-09-06）
   studentObservations: { summaryField: '沟通总结', rawField: '沟通明细' },
+  // 会议纪要（2026-09-11）：笔记「总结」→ 会议总结，「原始记录」→ 会议明细
+  meetingMinutes: { summaryField: '会议总结', rawField: '会议明细' },
   sourceFollowups: { summaryField: '沟通总结', rawField: '沟通明细' },
   alumniFollowups: { summaryField: '跟进事项', rawField: '跟进备注' },
   idpPlans: { summaryField: '展示内容', rawField: '原始文档' },
@@ -348,6 +350,7 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
 
   // ── 组织管理（2026-09-10 新增）：只读同步飞书通讯录部门树，全员可见 ──
   { key: 'department-management', label: '部门管理', enLabel: 'Departments', href: '/department-management', icon: 'compass', section: '组织管理', order: 10, perm: '' },
+  { key: 'meetingMinutes', label: '会议纪要', enLabel: 'Meeting Minutes', href: '/meeting-minutes', icon: 'notifications', section: '组织管理', order: 20, perm: 'meeting:read' },
   ],
 };
 

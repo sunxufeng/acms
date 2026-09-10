@@ -50,6 +50,8 @@ export interface RecordMeta {
   studentMatch?: { field: string; by: 'id' | 'name' };
   /** 时间范围筛选字段（用于审计日志等的操作时间区间过滤，内存过滤） */
   rangeField?: string;
+  /** 跨字段校验：结束时间必须晚于开始时间（如会议纪要的开始时间/结束时间） */
+  timeRange?: { startField: string; endField: string };
   /** 关联字段（type=18/21/22）：需跨表解析为可读名。field=本表字段名，table=目标表 tableId，nameField=目标表用于展示的字段名 */
   linkFields?: { field: string; table: string; nameField: string }[];
 }
@@ -262,6 +264,35 @@ export class BaseRecordService {
     if (query.action) {
       filtered = filtered.filter((r) => String(r['操作类型'] ?? '') === query.action);
     }
+    // 其余查询参数按字段等值过滤（如会议纪要按「会议类型 / 状态 / 部门」筛选）。
+    // 只跳过 DEEP_PARAMS 与分页/排序参数，保证审计日志的既有行为完全不变。
+    const skip = new Set<string>([
+      ...BaseRecordService.DEEP_PARAMS,
+      'pageToken',
+      'pageSize',
+      'sortBy',
+      'sortOrder',
+      'q',
+    ]);
+    for (const [k, v] of Object.entries(query)) {
+      if (!v || skip.has(k)) continue;
+      const want = String(v);
+      filtered = filtered.filter((r) => String(r[k] ?? '') === want);
+    }
+    // 关键字检索（与 list 主分支一致的 contains 语义）
+    if (query.q) {
+      const fields = this.meta.searchFields?.length
+        ? this.meta.searchFields
+        : this.meta.searchField
+          ? [this.meta.searchField]
+          : [];
+      if (fields.length) {
+        const kw = String(query.q).toLowerCase();
+        filtered = filtered.filter((r) =>
+          fields.some((f) => String(r[f] ?? '').toLowerCase().includes(kw)),
+        );
+      }
+    }
     if (rangeField) {
       filtered.sort((x, y) => Number(y[rangeField]) - Number(x[rangeField]));
     }
@@ -313,10 +344,28 @@ export class BaseRecordService {
     return fields;
   }
 
+  /** 跨字段时间校验：结束时间须晚于开始时间（配置 meta.timeRange 时生效） */
+  private validateTimeRange(fields: Record<string, unknown>): void {
+    const tr = this.meta.timeRange;
+    if (!tr) return;
+    const s = fields[tr.startField];
+    const e = fields[tr.endField];
+    if (s == null || e == null || s === '' || e === '') return;
+    const st = new Date(String(s)).getTime();
+    const et = new Date(String(e)).getTime();
+    if (Number.isNaN(st) || Number.isNaN(et)) return;
+    if (et <= st) {
+      throw new BadRequestException(
+        `VALIDATION:${tr.endField}必须晚于${tr.startField}`,
+      );
+    }
+  }
+
   async create(user: SessionUser, dto: Record<string, unknown>) {
     this.require(user, 'create');
     const stripped = this.mod ? this.mask.stripProtected(user, this.mod.key, dto) : dto;
     const fields = this.writeFields(stripped);
+    this.validateTimeRange(fields);
     if (this.meta.statusField && !fields[this.meta.statusField] && this.meta.defaultStatus) {
       fields[this.meta.statusField] = this.meta.defaultStatus;
     }
@@ -330,6 +379,7 @@ export class BaseRecordService {
     await this.detail(user, id);
     const stripped = this.mod ? this.mask.stripProtected(user, this.mod.key, dto) : dto;
     const fields = this.writeFields(stripped);
+    this.validateTimeRange({ ...(await this.detail(user, id)), ...fields });
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(this.tableId, id, fields);
     this.emitAudit(user, '更新', id, Object.keys(fields).join(','));

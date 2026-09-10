@@ -649,6 +649,19 @@ export const api = {
   updateDailyFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/daily-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveDailyFollowup: (id: string) => request<{ ok: boolean }>(`/daily-followups/${id}`, { method: 'DELETE' }),
 
+  /** 会议纪要（组织管理域，2026-09-11 新增）：与日常跟进同构，主体为部门 */
+  listMeetingMinutes: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/meeting-minutes${q ? `?${q}` : ''}`);
+  },
+  /** 会议纪要单条记录（详情只读页用） */
+  getMeetingMinute: (id: string) => request<Record<string, unknown>>(`/meeting-minutes/${id}`),
+  createMeetingMinute: (data: Record<string, unknown>) => request<Record<string, unknown>>('/meeting-minutes', { method: 'POST', body: JSON.stringify(data) }),
+  updateMeetingMinute: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/meeting-minutes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveMeetingMinute: (id: string) => request<{ ok: boolean }>(`/meeting-minutes/${id}`, { method: 'DELETE' }),
+
   /** 学生观察 AI 总结：准备数据（附件、当前明细/总结/观察人备注） */
   studentObservationAiPrepare: (id: string) =>
     request<{ attachments: { file_token: string; name: string }[]; currentDetail: string; currentSummary: string; content: string }>(

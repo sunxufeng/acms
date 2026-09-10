@@ -74,6 +74,10 @@ export const TABLES = {
   // 这是 ACMS 自建 SQL 表（不走飞书 Base），建表用 SqlStore.ensureTable 幂等首建 t_tbldept0000001。
   // ⚠️ 合成 tableId，仅本地使用，无需 TABLE_ID_MAP 映射；记录 id = 飞书 open_department_id。
   departments: { tableId: 'tbldept0000001', name: '部门表' },
+  // 会议纪要表（组织管理 / 会议纪要，2026-09-11 新增）：会议记录与总结，关联部门（存部门名）。
+  // 与部门表同为该校自建 SQL 表（不走飞书 Base），由 SqlStore.ensureTable 幂等首建 t_tblmtg0000000001。
+  // ⚠️ 合成 tableId，仅本地使用，无需 TABLE_ID_MAP 映射。
+  meetingMinutes: { tableId: 'tblmtg0000000001', name: '会议纪要表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

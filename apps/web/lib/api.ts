@@ -68,14 +68,42 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // multipart 上传（FormData）不能带 Content-Type，必须由浏览器自动填充 boundary，
   // 否则服务端 multer/FileInterceptor 会因非 multipart/form-data 直接返回 400。
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  const res = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include',
-    headers: {
-      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  // 上游临时不可用自愈（2026-09-10 修复「立即收取」502）：
+  // 部署/重启时 api 会短暂不监听端口，nginx 返回 502/503/504 或浏览器直接连接失败。
+  // 这类错误请求通常没抵达后端（连接被拒），重试安全；最多重试 2 次、间隔 800ms，
+  // 能把约 2s 的部署空窗完全掩盖，用户无感知。4xx/500 等业务错误不重试。
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const MAX_RETRY = 2;
+  let res!: Response;
+  for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        credentials: 'include',
+        headers: {
+          ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+          ...(options.headers || {}),
+        },
+        ...options,
+      });
+    } catch (e) {
+      // 网络层错误（连接拒绝 / 超时 / 断网）：重试
+      if (attempt < MAX_RETRY) {
+        await sleep(800);
+        continue;
+      }
+      throw e;
+    }
+    // 502/503/504 视为瞬时上游错误，重试；其余状态直接跳出进入正常处理
+    if (res.status === 502 || res.status === 503 || res.status === 504) {
+      if (attempt < MAX_RETRY) {
+        await sleep(800);
+        continue;
+      }
+      // 超出重试次数，落入下方统一错误处理
+    } else {
+      break;
+    }
+  }
   if (res.status === 401) {
     // 未登录：根据当前路径决定跳转目标，避免自刷新死循环。
     // 学生自助门户/学生登录走学生网页登录页，其余走飞书登录页。

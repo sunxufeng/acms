@@ -1059,6 +1059,12 @@ export const api = {
   /** 立即收取：异步触发，立刻返回当前进度；之后轮询 sync-status */
   syncGetnoteSource: (id: string) => request<SourceSyncProgress>(`/getnote-sources/${id}/sync`, { method: 'POST' }),
   getGetnoteSourceSyncStatus: (id: string) => request<SourceSyncProgress>(`/getnote-sources/${id}/sync-status`),
+  // ── 部门管理（组织管理）：只读同步飞书通讯录部门树 ──
+  /** 读取全部部门（前端构建树；已删除部门 status='invalid' 由前端过滤） */
+  listDepartments: () => request<DepartmentListResult>('/departments'),
+  /** 立即同步飞书部门：异步触发，立刻返回当前进度；之后轮询 sync-status */
+  syncDepartments: () => request<DepartmentSyncProgress>('/departments/sync', { method: 'POST' }),
+  getDepartmentSyncStatus: () => request<DepartmentSyncProgress>('/departments/sync-status'),
 };
 
 /** 知识库配置「立即收取」的实时进度（与 MailSyncProgress 同范式） */
@@ -1069,6 +1075,40 @@ export interface SourceSyncProgress {
   fetched: number;
   stored: number;
   created: number;
+  sourceName: string;
+  error?: string;
+  result?: string;
+}
+
+/** 部门状态：active 正常 / disabled 已停用 / invalid 已删除（不在树中展示） */
+export type DepartmentStatus = 'active' | 'disabled' | 'invalid';
+
+/** 部门节点（已归一化） */
+export interface DepartmentNode {
+  open_department_id: string;
+  name: string;
+  parent_department_id: string;
+  order: number;
+  status: DepartmentStatus;
+  leader_user_id: string;
+  manager_user_id: string;
+  member_count: number;
+  synced_at: number;
+}
+
+export interface DepartmentListResult {
+  items: DepartmentNode[];
+  total: number;
+  lastSyncedAt: number;
+}
+
+/** 部门同步进度（轮询） */
+export interface DepartmentSyncProgress {
+  running: boolean;
+  startedAt: number;
+  finishedAt?: number;
+  fetched: number;
+  stored: number;
   sourceName: string;
   error?: string;
   result?: string;

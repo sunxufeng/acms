@@ -71,6 +71,7 @@ const SYSTEM_LABELS: Record<string, string> = {
   'system:role-sync': '系统 · 角色同步',
   'system:import': '系统 · 批量导入',
   'system:migration': '系统 · 历史迁移',
+  'system:department-sync': '系统 · 部门同步',
   'system:unknown': '系统（未识别来源）',
 };
 

@@ -279,6 +279,7 @@ export const SECTION_EN_LABELS: Record<string, string> = {
   邮件归档: 'Mail Archive',
   知识库: 'Knowledge Base',
   报表管理: 'Reports',
+  组织管理: 'Organization',
 };
 
 /** 默认导航菜单（与当前 AppShell 硬编码菜单保持一致，用于回退） */
@@ -344,6 +345,9 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'menu-groups-settings', label: '菜单分组', enLabel: 'Menu Groups', href: '/menu-groups-settings', icon: 'list', section: '后台管理', order: 122, adminOnly: true },
     { key: 'note-convert', label: '转换配置', enLabel: 'Note Convert', href: '/note-convert', icon: 'settings', section: '后台管理', order: 124, adminOnly: true },
     { key: 'student-users', label: '学生账号', enLabel: 'Student Accounts', href: '/student-users', icon: 'user', section: '后台管理', order: 130, adminOnly: true, perm: 'admin:studentUser' },
+
+  // ── 组织管理（2026-09-10 新增）：只读同步飞书通讯录部门树，全员可见 ──
+  { key: 'department-management', label: '部门管理', enLabel: 'Departments', href: '/department-management', icon: 'compass', section: '组织管理', order: 10, perm: '' },
   ],
 };
 

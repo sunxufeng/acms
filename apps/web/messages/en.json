@@ -2134,6 +2134,27 @@
     "testOk": "Connection OK",
     "testFailed": "Connection failed"
   },
+  "departments": {
+    "title": "Departments",
+    "subtitle": "Read-only sync of Feishu contact departments",
+    "searchPlaceholder": "Search department…",
+    "syncNow": "Sync Feishu departments",
+    "syncing": "Syncing Feishu departments…",
+    "syncDone": "Department sync done",
+    "syncFailed": "Sync failed",
+    "lastSynced": "Last synced: {time}",
+    "neverSynced": "Not synced yet",
+    "total": "{count} departments",
+    "memberCount": "{count} members",
+    "statusActive": "Active",
+    "statusDisabled": "Disabled",
+    "statusInvalid": "Deleted",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "readOnlyHint": "Department data is read-only, pulled from Feishu contacts via \"Sync Feishu departments\"",
+    "empty": "No departments yet. Click \"Sync Feishu departments\"",
+    "syncError": "Sync error: {msg}"
+  },
   "noteConvert": {
     "subtitle": "Select which modules may receive note content, and map which field the Summary / Raw Record goes into. Enabled modules appear in the Convert button on the My Notes list. Newly developed modules show up here automatically.",
     "addTarget": "Add module",

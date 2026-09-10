@@ -70,6 +70,10 @@ export const TABLES = {
   // scripts/backfill_note_config_map.mjs 补。
   // ⚠️ 只在生产 Base 存在，无 DEV 版本；建表脚本 scripts/setup_note_config_map_table.mjs（幂等）。
   noteConfigMap: { tableId: 'tbleFsIxXwZckVB8', name: '笔记配置映射' },
+  // 部门表（组织管理 / 部门管理，2026-09-10 新增）：只读同步飞书通讯录部门树。
+  // 这是 ACMS 自建 SQL 表（不走飞书 Base），建表用 SqlStore.ensureTable 幂等首建 t_tbldept0000001。
+  // ⚠️ 合成 tableId，仅本地使用，无需 TABLE_ID_MAP 映射；记录 id = 飞书 open_department_id。
+  departments: { tableId: 'tbldept0000001', name: '部门表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

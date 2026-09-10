@@ -2134,6 +2134,27 @@
     "testOk": "连接正常",
     "testFailed": "连接失败"
   },
+  "departments": {
+    "title": "部门管理",
+    "subtitle": "只读同步飞书通讯录部门树",
+    "searchPlaceholder": "搜索部门名称…",
+    "syncNow": "同步飞书部门",
+    "syncing": "正在同步飞书部门…",
+    "syncDone": "部门同步完成",
+    "syncFailed": "同步失败",
+    "lastSynced": "最近同步：{time}",
+    "neverSynced": "尚未同步",
+    "total": "共 {count} 个部门",
+    "memberCount": "{count} 人",
+    "statusActive": "正常",
+    "statusDisabled": "已停用",
+    "statusInvalid": "已删除",
+    "expandAll": "展开全部",
+    "collapseAll": "收起全部",
+    "readOnlyHint": "本部门数据只读，由「同步飞书部门」按钮从飞书通讯录拉取",
+    "empty": "暂无部门数据，请点击「同步飞书部门」",
+    "syncError": "同步出错：{msg}"
+  },
   "noteConvert": {
     "subtitle": "勾选允许接收笔记内容的模块，并指定「总结 / 原始记录」写入该模块的哪个字段。启用的模块会出现在「我的笔记」列表的「转换」按钮里。系统新开发的功能会自动出现在此列表。",
     "addTarget": "添加功能",

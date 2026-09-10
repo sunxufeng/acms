@@ -107,6 +107,9 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'menu-groups-settings', label: '菜单分组', path: '/homepage-config/menu-groups', aliases: ['/menu-groups-settings'], legacyRead: null, legacyWrite: null, menuPermission: null, actions: [...READ, 'update'], adminOnly: true },
   { key: 'note-convert', label: '转换配置', path: '/homepage-config/note-convert', aliases: ['/note-convert'], legacyRead: null, legacyWrite: null, menuPermission: null, actions: [...READ, 'update'], adminOnly: true },
   { key: 'student-users', label: '学生账号', path: '/student-auth/accounts', aliases: ['/student-users', '/student-auth/search', '/student-auth/admin/set-password'], legacyRead: 'admin:studentUser', legacyWrite: 'admin:studentUser', menuPermission: 'admin:studentUser', actions: [...READ, 'update'], adminOnly: true },
+  // 组织管理 / 部门管理：只读同步飞书通讯录部门树，全员可见（菜单 perm 空）。
+  // 无写权限点；同步动作由后端身份 system:department-sync 执行，不暴露给普通用户。
+  { key: 'departments', label: '部门管理', path: '/department-management', legacyRead: 'department:read', legacyWrite: null, menuPermission: null, actions: READ },
 ];
 
 /** 返回值是 Permission 的子类型，供现有 authorize/hasPermission 直接使用。 */

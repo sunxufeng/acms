@@ -300,6 +300,58 @@ export async function resolveUserNames(openIds, creds) {
   return out;
 }
 
+// ---------- 飞书通讯录：部门树（用于「组织管理 / 部门管理」只读同步） ----------
+// 需要应用具备 contact:department:readonly 权限（租户通讯录范围由后台「通讯录权限范围」配置）。
+// 返回归一化后的部门数组，字段稳定，供 DepartmentService 按 open_department_id 落库。
+export async function listDepartments(creds) {
+  const token = await getTenantToken(creds);
+  if (!token) return { error: '未配置飞书凭据' };
+
+  // 1) 取根部门 open_department_id（用于后续翻页的 parent_department_id 起点）
+  const rootRes = await fetch(
+    `${FEISHU_HOST}/open-apis/contact/v3/departments/root?department_id_type=open_department_id`,
+    { headers: { authorization: `Bearer ${token}` } }
+  );
+  const rootData = await rootRes.json();
+  if (rootData.code !== 0) return { error: `读取根部门失败: ${rootData.msg}` };
+  const rootId = rootData.data && rootData.data.department && rootData.data.department.open_department_id;
+  if (!rootId) return { error: '未获取到根部门 open_department_id' };
+
+  // 2) 翻页拉全量部门（fetch_child=true 一次返回整棵子树，仍需 page_token 翻页）
+  const all = [];
+  let pageToken = '';
+  for (let i = 0; i < 100; i++) {
+    let url =
+      `${FEISHU_HOST}/open-apis/contact/v3/departments` +
+      `?department_id_type=open_department_id&parent_department_id=${encodeURIComponent(rootId)}` +
+      `&page_size=50&fetch_child=true`;
+    if (pageToken) url += `&page_token=${encodeURIComponent(pageToken)}`;
+    const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    if (data.code !== 0) return { error: `读取部门列表失败: ${data.msg}` };
+    const items = (data.data && data.data.items) || [];
+    for (const d of items) {
+      all.push({
+        open_department_id: d.open_department_id,
+        name: d.name || '',
+        parent_department_id: d.parent_department_id || '',
+        order: Number(d.order) || 0,
+        status: {
+          is_deleted: !!(d.status && d.status.is_deleted),
+          is_deactivated: !!(d.status && d.status.is_deactivated),
+        },
+        leader_user_id: d.leader_user_id || '',
+        manager_user_id: d.manager_user_id || '',
+        i18n_name: d.i18n_name || null,
+        member_count: Number(d.member_count) || 0,
+      });
+    }
+    pageToken = (data.data && data.data.page_token) || '';
+    if (!pageToken || !items.length) break;
+  }
+  return { departments: all, rootId };
+}
+
 // 把 Markdown 渲染成飞书互动卡片（卡片内 markdown 元素可正常渲染排版）
 // 超过卡片上限或发送失败时，回退为纯文本（剥离 markdown 语法）
 const CARD_MD_LIMIT = 4000;

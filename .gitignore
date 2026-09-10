@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .next/
+# Blue-Green 各 slot 的本地构建目录（.next-3101 / .next-3102 等），勿入库
+.next-*/
 .turbo/
 coverage/
 *.tsbuildinfo

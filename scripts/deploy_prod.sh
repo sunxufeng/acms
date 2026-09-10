@@ -85,7 +85,14 @@ fi
 # ---- 2) 上传构建产物 + systemd 模板 ----
 # 用 ssh + cat 重定向逐文件上传（比 scp 更抗 rate-limit），失败 sleep 15 重试最多 5 次
 echo "=== 上传产物与 systemd 模板到 ${SSH_HOST} ==="
-UPLOADS=("$LOCAL_API_TAR" "$LOCAL_PKGS_TAR" "$LOCAL_WEB_TAR" scripts/systemd/acms-api@.service scripts/systemd/acms-web@.service)
+# 注意：next.config.mjs 是 next start 的「运行时源码」，服务器不随源码同步，必须显式推送，
+# 否则会一直服务默认 .next（陈旧构建）。见 scripts/deploy/next.config.prod.mjs 顶部说明。
+PROD_NEXT_CONFIG=scripts/deploy/next.config.prod.mjs
+if [ ! -f "$PROD_NEXT_CONFIG" ]; then
+  echo "缺少生产运行时配置: $PROD_NEXT_CONFIG" >&2
+  exit 1
+fi
+UPLOADS=("$LOCAL_API_TAR" "$LOCAL_PKGS_TAR" "$LOCAL_WEB_TAR" scripts/systemd/acms-api@.service scripts/systemd/acms-web@.service "$PROD_NEXT_CONFIG")
 if [ -f "$LOCAL_WEB_PUBLIC_TAR" ]; then UPLOADS+=("$LOCAL_WEB_PUBLIC_TAR"); fi
 for f in "${UPLOADS[@]}"; do
   base=$(basename "$f")
@@ -100,6 +107,20 @@ done
 
 rssh_cmd 'sudo cp -f /tmp/acms-api@.service /etc/systemd/system/ && sudo cp -f /tmp/acms-web@.service /etc/systemd/system/ && sudo systemctl daemon-reload && echo "[remote] systemd 模板已安装/刷新"' \
   || { echo "错误：systemd 模板安装/daemon-reload 失败，中止部署" >&2; exit 1; }
+
+# ---- 2.1) 远端：安装「运行时」next.config.mjs ----
+# 服务器只部署构建产物、不部署源码，而 next.config.mjs 是 next start 运行时必读的文件。
+# 缺 distDir 会让 next start 永远走默认 .next（陈旧构建）⇒ 新页面 404 且日志无报错（2026-09-10 已踩）。
+# 安装后立刻断言包含 NEXT_DIST_DIR，漂移即中止部署。
+rssh_cmd 'set -e
+CFG=/opt/acms/repo/apps/web/next.config.mjs
+TS=$(date +%s)
+if [ -f "$CFG" ]; then sudo cp -a "$CFG" "/opt/acms/next.config.mjs.bak-$TS" && echo "[remote] 已备份旧配置 -> /opt/acms/next.config.mjs.bak-$TS"; fi
+sudo cp -f /tmp/next.config.prod.mjs "$CFG"
+sudo chown ecs-user:ecs-user "$CFG"
+grep -q "NEXT_DIST_DIR" "$CFG" || { echo "错误：next.config.mjs 缺少 distDir，会导致服务陈旧构建"; exit 1; }
+echo "[remote] 运行时 next.config.mjs 已同步并校验 distDir OK"' \
+  || { echo "错误：运行时 next.config.mjs 安装失败，中止部署" >&2; exit 1; }
 
 # ---- 3) 远端：解压到目标 slot + 启动新实例 + 探活 ----
 cat > /tmp/acms_remote_deploy.sh <<'REMOTE_EOF'
@@ -225,6 +246,8 @@ rssh_file /tmp/acms_remote_stop.sh "$MODE" "$TARGET_API" "${OLD_API:-none}" "${O
 cat > /tmp/acms_remote_verify.sh <<'REMOTE_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+TW=$1
+REPO=/opt/acms/repo
 echo "[verify] 经 nginx 探活（localhost）"
 for i in $(seq 1 10); do
   c_api=$(curl -skL -o /dev/null -w '%{http_code}' --max-time 5 http://localhost/api/v1/health || true)
@@ -237,10 +260,27 @@ done
 echo "[verify] 运行中的实例："
 systemctl is-active 'acms-api@*' 'acms-web@*' 2>/dev/null || true
 echo "[verify] .deploy_slot=$(cat /opt/acms/.deploy_slot 2>/dev/null)"
+
+# 构建一致性校验：确认对外服务的就是本次部署的构建。
+# 若 next.config.mjs 缺 distDir，next start 会走默认 .next（陈旧构建），
+# 现象是新页面 404、老页面全 200、日志零报错——极难排查。这条校验能当场拦下。
+echo "[verify] 构建一致性校验"
+WANT=$(cat "$REPO/apps/web/.next-$TW/BUILD_ID" 2>/dev/null || true)
+GOT=$(curl -s -H "RSC: 1" --max-time 5 "http://127.0.0.1:$TW/" | grep -o '"b":"[^"]*"' | head -1 | sed 's/.*:"//;s/"$//' || true)
+echo "[verify] 期望 buildId=$WANT / 实际 buildId=$GOT"
+if [ -n "$WANT" ] && [ -n "$GOT" ] && [ "$WANT" != "$GOT" ]; then
+  echo "[verify] 构建不一致：实际服务的不是本次部署的构建（多半是 next.config.mjs 缺 distDir）" >&2
+  exit 1
+fi
+if [ -z "$GOT" ]; then
+  echo "[verify] 未能取到运行时 buildId，跳过一致性校验"
+else
+  echo "[verify] 构建一致 OK"
+fi
 REMOTE_EOF
 
 echo "=== 零空窗验证 ==="
-rssh_file /tmp/acms_remote_verify.sh \
+rssh_file /tmp/acms_remote_verify.sh "$TARGET_WEB" \
   || { echo "错误：零空窗验证失败" >&2; exit 1; }
 
 echo "=== 平滑部署完成：对外 slot = $TARGET_API/$TARGET_WEB ==="

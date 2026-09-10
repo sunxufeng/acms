@@ -307,23 +307,23 @@ export async function listDepartments(creds) {
   const token = await getTenantToken(creds);
   if (!token) return { error: '未配置飞书凭据' };
 
-  // 1) 取根部门 open_department_id（用于后续翻页的 parent_department_id 起点）
-  const rootRes = await fetch(
-    `${FEISHU_HOST}/open-apis/contact/v3/departments/root?department_id_type=open_department_id`,
-    { headers: { authorization: `Bearer ${token}` } }
-  );
-  const rootData = await rootRes.json();
-  if (rootData.code !== 0) return { error: `读取根部门失败: ${rootData.msg}` };
-  const rootId = rootData.data && rootData.data.department && rootData.data.department.open_department_id;
-  if (!rootId) return { error: '未获取到根部门 open_department_id' };
+  // ⚠️ 飞书 contact v3 **没有** /departments/root 端点：把 "root" 当 department_id 会报
+  //    `Invalid ids: [root]`（code 99992357）。根部门的 open_department_id 固定为 "0"。
+  //    实测（2026-09-11 生产只读探针）：
+  //      /departments/root                                  -> 99992357 Invalid ids: [root]
+  //      /departments/0                                     -> code 0，根部门 id=0
+  //      /departments/children?department_id=0               -> 99992357 Invalid ids: [children]
+  //      /departments?parent_department_id=0&fetch_child=true -> code 0，返回全量部门及 parent 关系 ✅
+  //    ⇒ 直接用 parent_department_id=0 + fetch_child=true 拿整棵子树（仍按 page_token 翻页）。
+  const ROOT_ID = '0';
 
-  // 2) 翻页拉全量部门（fetch_child=true 一次返回整棵子树，仍需 page_token 翻页）
+  // 翻页拉全量部门（fetch_child=true 一次返回整棵子树，仍需 page_token 翻页）
   const all = [];
   let pageToken = '';
   for (let i = 0; i < 100; i++) {
     let url =
       `${FEISHU_HOST}/open-apis/contact/v3/departments` +
-      `?department_id_type=open_department_id&parent_department_id=${encodeURIComponent(rootId)}` +
+      `?department_id_type=open_department_id&parent_department_id=${ROOT_ID}` +
       `&page_size=50&fetch_child=true`;
     if (pageToken) url += `&page_token=${encodeURIComponent(pageToken)}`;
     const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
@@ -349,7 +349,7 @@ export async function listDepartments(creds) {
     pageToken = (data.data && data.data.page_token) || '';
     if (!pageToken || !items.length) break;
   }
-  return { departments: all, rootId };
+  return { departments: all, rootId: ROOT_ID };
 }
 
 // 把 Markdown 渲染成飞书互动卡片（卡片内 markdown 元素可正常渲染排版）

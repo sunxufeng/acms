@@ -20,6 +20,16 @@ import { AuditService } from '../audit/audit.service.js';
 import { FieldMaskService } from './field-mask.service.js';
 import { buildWriteFields, toFlatRecord, buildFilter } from './record.util.js';
 
+/** 把「毫秒时间戳（number / 纯数字字符串）」或「日期字符串」统一解析为 epoch ms；无法解析返回 null */
+function toEpochMs(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const s = String(v).trim();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) return Number(s);
+  const t = new Date(s).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
 export interface RecordMeta {
   /** 路由前缀，如 'source-followups' */
   path: string;
@@ -351,9 +361,10 @@ export class BaseRecordService {
     const s = fields[tr.startField];
     const e = fields[tr.endField];
     if (s == null || e == null || s === '' || e === '') return;
-    const st = new Date(String(s)).getTime();
-    const et = new Date(String(e)).getTime();
-    if (Number.isNaN(st) || Number.isNaN(et)) return;
+    // ⚠️ writeFields 已把 dateFields 转成毫秒时间戳（number），也可能是原始日期字符串，两种都要支持
+    const st = toEpochMs(s);
+    const et = toEpochMs(e);
+    if (st == null || et == null) return;
     if (et <= st) {
       throw new BadRequestException(
         `VALIDATION:${tr.endField}必须晚于${tr.startField}`,

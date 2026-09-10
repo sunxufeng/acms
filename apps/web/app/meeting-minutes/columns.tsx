@@ -1,6 +1,20 @@
 import type { CrudColumn } from '../../components/CrudPage';
 
 /**
+ * 日期显示：SQL 自建表没有飞书字段元数据，日期字段读出来是毫秒时间戳（number），
+ * 直接渲染会显示成一串数字，这里统一格式化。
+ */
+function fmtTime(v: unknown, withTime: boolean): string {
+  if (v == null || v === '') return '—';
+  const raw = typeof v === 'number' ? v : /^\d+$/.test(String(v).trim()) ? Number(v) : new Date(String(v)).getTime();
+  if (!raw || Number.isNaN(raw)) return String(v);
+  const d = new Date(raw);
+  const p = (n: number) => String(n).padStart(2, '0');
+  const date = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return withTime ? `${date} ${p(d.getHours())}:${p(d.getMinutes())}` : date;
+}
+
+/**
  * 会议纪要列定义。
  *
  * 结构照搬「日常跟进」，但主体从「学生」换成「部门」：
@@ -30,8 +44,16 @@ export const COLUMNS: CrudColumn[] = [
   { key: '会议类型', label: '会议类型', width: '110px', filter: true, form: true, type: 'select', dictKey: '会议类型', required: true },
   { key: '会议议题', label: '会议议题', width: '180px', filter: true, filterType: 'text', form: true, required: true },
   { key: '会议地点', label: '会议地点', width: '120px', filter: true, filterType: 'text', form: true },
-  { key: '会议时间', label: '会议时间', width: '120px', form: true, type: 'date', required: true },
-  { key: '开始时间', label: '开始时间', width: '150px', form: true, type: 'datetime' },
+  {
+    key: '会议时间',
+    label: '会议时间',
+    width: '120px',
+    form: true,
+    type: 'date',
+    required: true,
+    render: (v) => fmtTime(v, false),
+  },
+  { key: '开始时间', label: '开始时间', width: '150px', form: true, type: 'datetime', render: (v) => fmtTime(v, true) },
   {
     key: '结束时间',
     label: '结束时间',
@@ -40,6 +62,7 @@ export const COLUMNS: CrudColumn[] = [
     type: 'datetime',
     // 结束时间必须晚于开始时间（后端 meta.timeRange 也会校验，这里只是给录入提示）
     hint: '结束时间须晚于开始时间',
+    render: (v) => fmtTime(v, true),
   },
   { key: '主持人', label: '主持人', width: '100px', form: true, type: 'person' },
   { key: '记录人', label: '记录人', width: '100px', list: false, form: true, type: 'person' },

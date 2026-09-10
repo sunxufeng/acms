@@ -1,6 +1,7 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { Cron } from 'croner';
 import { baseClientProvider } from '../base.provider.js';
+import { runAs, systemActor } from '../shared/actor-context.js';
 import { GetnoteModule } from './getnote.module.js';
 import { GetnoteSourceController } from './sources.controller.js';
 import { GetnoteSourceService } from './sources.service.js';
@@ -37,8 +38,8 @@ export class GetnoteSourceModule implements OnModuleInit {
         '*/15 * * * *',
         { name: 'getnote-source-sync', protect: true },
         () => {
-          this.svc
-            .syncAllDue()
+          // 后台写入无用户会话，显式声明身份：笔记记录的创建人 = system:getnote-sync
+          runAs(systemActor('getnote-sync', '系统 · 笔记同步'), () => this.svc.syncAllDue())
             .then((r) =>
               this.logger.log(
                 `[getnote-source] 调度扫描完成，触发 ${r.synced} 个，跳过 ${r.skipped} 个`,

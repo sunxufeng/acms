@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { listAutomations, getAutomation } from './store.js';
 import { runAutomation } from './runner.js';
+import { runAs, systemActor } from '../../../shared/actor-context.js';
 
 const jobs = new Map(); // id -> Cron instance
 
@@ -107,7 +108,10 @@ async function onFire(id) {
       return;
     }
   }
-  runAutomation(auto).catch((e) => console.error('[automation] run error:', e.message));
+  // cron 触发属后台执行，无用户会话：显式声明身份，写入记录记到 system:ai-automation 名下
+  runAs(systemActor('ai-automation', '系统 · AI 自动化'), () =>
+    runAutomation(auto).catch((e) => console.error('[automation] run error:', e.message)),
+  );
 }
 
 // 下一个空闲窗口起点（次日 00:00）
@@ -130,7 +134,10 @@ async function sweepPendingIdle() {
   for (const p of due) {
     const auto = await getAutomation(p.id);
     if (!auto || auto.enabled === false) continue;
-    await runAutomation(auto).catch((e) => console.error('[automation] idle-run error:', e.message));
+    // 自动化是后台执行，无用户会话：显式声明身份，写入记录记到 system:ai-automation 名下
+    await runAs(systemActor('ai-automation', '系统 · AI 自动化'), () =>
+      runAutomation(auto).catch((e) => console.error('[automation] idle-run error:', e.message)),
+    );
   }
 }
 

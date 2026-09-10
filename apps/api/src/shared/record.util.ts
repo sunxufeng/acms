@@ -1,5 +1,28 @@
 /** 通用记录读写辅助（M2 各模块复用，避免重复 student 模式代码） */
-import { toWriteSingle, toWriteMulti, toStringArray, toText, type FilterCondition, type FilterGroup } from '@acms/base-adapter';
+import {
+  toWriteSingle,
+  toWriteMulti,
+  toStringArray,
+  toText,
+  type FilterCondition,
+  type FilterGroup,
+  type RecordAudit,
+} from '@acms/base-adapter';
+
+/**
+ * 审计四件套的展示字段名。
+ *
+ * ⚠️ 唯一真源是 PostgreSQL 物理列（created_by/created_at/updated_by/updated_at），
+ * 不是 data 里的业务字段 —— 历史飞书自动字段在切 PG 后已停止写入，继续读会拿到空值。
+ * 这里在展平时统一注入，因此业务表里不需要、也不应该再存这四个键。
+ */
+export const AUDIT_FIELDS = ['创建人', '创建时间', '更新人', '更新时间'] as const;
+const AUDIT_FIELD_SET: ReadonlySet<string> = new Set(AUDIT_FIELDS);
+
+/** 写入时必须剔除审计字段，避免前端回传后被当成业务值写进 data */
+export function isAuditField(key: string): boolean {
+  return AUDIT_FIELD_SET.has(key);
+}
 
 export function buildWriteFields(
   dto: Record<string, unknown>,
@@ -8,7 +31,7 @@ export function buildWriteFields(
 ): Record<string, unknown> {
   const fields: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(dto)) {
-    if (readonly.has(k)) continue;
+    if (readonly.has(k) || isAuditField(k)) continue;
     if (v === undefined || v === null) continue;
     if (Array.isArray(v)) fields[k] = toWriteMulti(v);
     else if (typeof v === 'string') {
@@ -22,13 +45,15 @@ export function buildWriteFields(
 }
 
 export function toFlatRecord(
-  rec: { recordId: string; fields: Record<string, unknown> },
+  rec: { recordId: string; fields: Record<string, unknown>; audit?: RecordAudit },
   readonly: Set<string>,
   multiFields: Set<string>,
   linkFields: Set<string> = new Set(),
 ): { id: string } & Record<string, unknown> {
   const obj: { id: string } & Record<string, unknown> = { id: rec.recordId };
   for (const [k, v] of Object.entries(rec.fields)) {
+    // 审计字段以物理列为准，data 里的同名历史值一律忽略（历史值已由回填脚本迁走）
+    if (isAuditField(k)) continue;
     if (multiFields.has(k)) obj[k] = toStringArray(v);
     else if (linkFields.has(k)) {
       // type=18 关联字段返回值形如 [{ record_ids:[id], table_id, text:null, ... }]
@@ -38,6 +63,13 @@ export function toFlatRecord(
       (obj as Record<string, unknown>)[k + '__link'] = ids;
     } else if (readonly.has(k)) obj[k] = toText(v);
     else obj[k] = toText(v);
+  }
+  // 注入审计四件套（唯一真源：PG 物理列）。人显示解析后的姓名，DB 里存的仍是 openId
+  if (rec.audit) {
+    obj['创建人'] = rec.audit.createdByName;
+    obj['创建时间'] = rec.audit.createdAt;
+    obj['更新人'] = rec.audit.updatedByName;
+    obj['更新时间'] = rec.audit.updatedAt;
   }
   return obj;
 }

@@ -28,6 +28,7 @@ import {
   inheritModulePermissions,
 } from '@acms/domain';
 import { BASE_CLIENT } from '../base.provider.js';
+import { runAs, systemActor } from '../shared/actor-context.js';
 import { buildFilter } from '../shared/record.util.js';
 
 const TABLE_ID = TABLES.systemConfig.tableId;
@@ -74,9 +75,12 @@ export class RoleManagementService implements OnModuleInit {
 
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
 
-  /** 应用启动即把已持久化的角色权限矩阵载入引擎，确保鉴权与配置一致 */
+  /**
+   * 应用启动即把已持久化的角色权限矩阵载入引擎，确保鉴权与配置一致。
+   * 启动期没有 HTTP 请求上下文，这里显式声明身份，避免写入被记成 system:unknown。
+   */
   async onModuleInit(): Promise<void> {
-    await this.ensureLoaded();
+    await runAs(systemActor('role-sync', '系统 · 角色同步'), () => this.ensureLoaded());
   }
 
   private defaultConfig(): StoredRole[] {
@@ -177,10 +181,10 @@ export class RoleManagementService implements OnModuleInit {
       const missing = desired.filter((k) => !existing.has(k));
       if (!missing.length) return [];
       await this.base.addFieldOptions(USER_TABLE.tableId, roleField.id, missing);
-      this.logger.log(`已自动同步角色选项到飞书「${ROLE_FIELD_NAME}」字段：${missing.join('、')}`);
+      this.logger.log(`已自动同步角色选项到「${ROLE_FIELD_NAME}」字段：${missing.join('、')}`);
       return missing;
     } catch (e) {
-      this.logger.error(`同步角色选项到飞书失败：${(e as Error).message}`);
+      this.logger.error(`同步角色选项失败：${(e as Error).message}`);
       return [];
     }
   }

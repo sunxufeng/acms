@@ -10,10 +10,12 @@ import type {
   FilterGroup,
   ListOptions,
   ListResult,
+  RecordAudit,
   TableRef,
   UpdateFieldBody,
 } from '@acms/base-adapter';
 import { dateFormatterHasTime, formatReadValue, newFieldId, newRecordId } from './field-type.js';
+import { currentActor, systemLabel, UNKNOWN_ACTOR } from '../shared/actor-context.js';
 
 /** SQL 标识符白名单：表名只允许 t_<小写字母数字> */
 const SAFE_TABLE = /^t_[a-z0-9]+$/;
@@ -95,10 +97,14 @@ export class SqlStore implements DataStore {
          id         text PRIMARY KEY,
          data       jsonb NOT NULL DEFAULT '{}'::jsonb,
          created_at timestamptz NOT NULL DEFAULT now(),
-         updated_at timestamptz NOT NULL DEFAULT now()
+         updated_at timestamptz NOT NULL DEFAULT now(),
+         created_by text NOT NULL DEFAULT 'system:unknown',
+         updated_by text NOT NULL DEFAULT 'system:unknown'
        );
        CREATE INDEX IF NOT EXISTS ${t}_data_gin ON ${t} USING gin (data jsonb_path_ops);
-       CREATE INDEX IF NOT EXISTS ${t}_created_idx ON ${t} (created_at DESC);`,
+       CREATE INDEX IF NOT EXISTS ${t}_created_idx ON ${t} (created_at DESC);
+       ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS created_by text NOT NULL DEFAULT 'system:unknown';
+       ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS updated_by text NOT NULL DEFAULT 'system:unknown';`,
     );
     await this.pool.query(
       `INSERT INTO acms_tables (table_id, name, sql_table) VALUES ($1,$2,$3)
@@ -215,18 +221,28 @@ export class SqlStore implements DataStore {
     const total =
       ((await this.pool.query<{ c: number }>(countSql, p.slice(0, whereParams))).rows[0]?.c ?? 0) as number;
 
+    await this.ensureAuditColumns(tableId);
     const p2 = [...p, pageSize, offset];
-    const rows = await this.pool.query<{ id: string; data: Record<string, unknown>; created_at: Date }>(
-      `SELECT id, data, created_at FROM ${t}${where ? ` WHERE ${where}` : ''}
+    const rows = await this.pool.query<{
+      id: string;
+      data: Record<string, unknown>;
+      created_at: Date;
+      updated_at: Date;
+      created_by: string;
+      updated_by: string;
+    }>(
+      `SELECT id, data, created_at, updated_at, created_by, updated_by FROM ${t}${where ? ` WHERE ${where}` : ''}
        ORDER BY ${orderBy} LIMIT $${p.length + 1} OFFSET $${p.length + 2}`,
       p2,
     );
 
     const metas = await this.fieldsOf(tableId);
+    const names = await this.resolveNames(rows.rows.flatMap((r) => [r.created_by, r.updated_by]));
     const items: BaseRecord[] = rows.rows.map((r) => ({
       recordId: r.id,
       fields: this.normalize(tableId, r.data ?? {}, metas),
       createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : undefined,
+      audit: SqlStore.toAudit(r, names),
     }));
 
     const nextOffset = offset + items.length;
@@ -236,10 +252,15 @@ export class SqlStore implements DataStore {
 
   async get(tableId: string, recordId: string): Promise<BaseRecord | null> {
     const t = sqlTableName(tableId);
-    const r = await this.pool.query<{ id: string; data: Record<string, unknown>; created_at: Date }>(
-      `SELECT id, data, created_at FROM ${t} WHERE id = $1`,
-      [recordId],
-    );
+    await this.ensureAuditColumns(tableId);
+    const r = await this.pool.query<{
+      id: string;
+      data: Record<string, unknown>;
+      created_at: Date;
+      updated_at: Date;
+      created_by: string;
+      updated_by: string;
+    }>(`SELECT id, data, created_at, updated_at, created_by, updated_by FROM ${t} WHERE id = $1`, [recordId]);
     const row = r.rows[0];
     if (!row) return null;
     const metas = await this.fieldsOf(tableId);
@@ -247,23 +268,147 @@ export class SqlStore implements DataStore {
       recordId: row.id,
       fields: this.normalize(tableId, row.data ?? {}, metas),
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : undefined,
+      audit: SqlStore.toAudit(row, await this.resolveNames([row.created_by, row.updated_by])),
+    };
+  }
+
+  /** 当前操作人 id：无上下文（启动期 / 裸脚本）时回落为 system:unknown */
+  private actorId(): string {
+    return currentActor()?.id ?? UNKNOWN_ACTOR.id;
+  }
+
+  /**
+   * 审计列自愈：历史表（迁移脚本未覆盖 / 手工建的表）缺 created_by、updated_by 时补上。
+   * 每张表只执行一次 DDL，结果缓存在 auditReady；表不存在时静默跳过（由 ensureTable 负责建）。
+   */
+  private readonly auditReady = new Set<string>();
+  private async ensureAuditColumns(tableId: string): Promise<void> {
+    if (this.auditReady.has(tableId)) return;
+    const t = sqlTableName(tableId);
+    try {
+      await this.pool.query(
+        `ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS created_by text NOT NULL DEFAULT 'system:unknown';
+         ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS updated_by text NOT NULL DEFAULT 'system:unknown'`,
+      );
+      this.auditReady.add(tableId);
+    } catch {
+      // 表尚未创建（首次访问），交给 ensureTable 处理，这里忽略
+    }
+  }
+
+  /** 把 PG 时间戳列统一转成 ISO 字符串 */
+  private static iso(v: unknown): string {
+    return v instanceof Date ? v.toISOString() : String(v ?? '');
+  }
+
+  // ---------- 操作人展示名解析（openId -> 姓名） ----------
+
+  private static readonly NAME_TTL_MS = 5 * 60 * 1000;
+  private readonly nameCache = new Map<string, string>();
+  private nameCacheAt = 0;
+  private userTable: string | null | undefined;
+
+  /** 定位系统用户表（不同环境表名可能不同，按名称匹配而非硬编码 tableId） */
+  private async findUserTable(): Promise<string | null> {
+    if (this.userTable !== undefined) return this.userTable;
+    try {
+      await this.ensureMeta();
+      const r = await this.pool.query<{ sql_table: string }>(
+        `SELECT sql_table FROM acms_tables WHERE name LIKE '系统用户%' LIMIT 1`,
+      );
+      this.userTable = r.rows[0]?.sql_table ?? null;
+    } catch {
+      this.userTable = null;
+    }
+    return this.userTable;
+  }
+
+  /** 刷新 openId -> 姓名 缓存（5 分钟 TTL，用户表只有几十行，全量拉最省事） */
+  private async loadNames(): Promise<void> {
+    if (Date.now() - this.nameCacheAt < SqlStore.NAME_TTL_MS) return;
+    const t = await this.findUserTable();
+    if (!t) return;
+    try {
+      const r = await this.pool.query<{ oid: string; nm: string }>(
+        `SELECT data->>'飞书 Open ID' AS oid, data->>'姓名' AS nm FROM ${t}`,
+      );
+      this.nameCache.clear();
+      for (const row of r.rows) {
+        if (row.oid) this.nameCache.set(row.oid, row.nm || row.oid);
+      }
+      this.nameCacheAt = Date.now();
+    } catch {
+      // 用户表结构异常时降级：直接显示 openId，不影响主流程
+    }
+  }
+
+  /** 批量解析展示名：系统身份查映射表，openId 查用户表缓存 */
+  private async resolveNames(ids: (string | null)[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const needDb = new Set<string>();
+    for (const id of ids) {
+      if (!id || out.has(id)) continue;
+      const sys = systemLabel(id);
+      if (sys) {
+        out.set(id, sys);
+        continue;
+      }
+      const cached = this.nameCache.get(id);
+      if (cached) {
+        out.set(id, cached);
+        continue;
+      }
+      needDb.add(id);
+    }
+    if (needDb.size) {
+      await this.loadNames();
+      for (const id of needDb) out.set(id, this.nameCache.get(id) ?? id);
+    }
+    return out;
+  }
+
+  /** 组装审计四件套（时间列一定存在，人列由 ensureAuditColumns 保障） */
+  private static toAudit(
+    r: {
+      created_at: unknown;
+      updated_at: unknown;
+      created_by?: string | null;
+      updated_by?: string | null;
+    },
+    names: Map<string, string>,
+  ): RecordAudit {
+    const cb = r.created_by ?? UNKNOWN_ACTOR.id;
+    const ub = r.updated_by ?? UNKNOWN_ACTOR.id;
+    return {
+      createdBy: cb,
+      createdByName: names.get(cb) ?? systemLabel(cb) ?? cb,
+      createdAt: SqlStore.iso(r.created_at),
+      updatedBy: ub,
+      updatedByName: names.get(ub) ?? systemLabel(ub) ?? ub,
+      updatedAt: SqlStore.iso(r.updated_at),
     };
   }
 
   async create(tableId: string, fields: Record<string, unknown>): Promise<string> {
     const t = sqlTableName(tableId);
     const id = newRecordId();
-    await this.pool.query(`INSERT INTO ${t} (id, data) VALUES ($1, $2::jsonb)`, [id, JSON.stringify(fields ?? {})]);
+    const actor = this.actorId();
+    await this.pool.query(
+      `INSERT INTO ${t} (id, data, created_by, updated_by) VALUES ($1, $2::jsonb, $3, $3)`,
+      [id, JSON.stringify(fields ?? {}), actor],
+    );
     return id;
   }
 
   /** 用指定 id 写入（双写场景：id 由飞书生成，SQL 侧跟随，保证两边 id 一致可回退） */
   async createWithId(tableId: string, id: string, fields: Record<string, unknown>): Promise<string> {
     const t = sqlTableName(tableId);
+    const actor = this.actorId();
+    // ⚠️ ON CONFLICT 分支只更新 updated_by，保留首次写入的 created_by
     await this.pool.query(
-      `INSERT INTO ${t} (id, data) VALUES ($1, $2::jsonb)
-       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
-      [id, JSON.stringify(fields ?? {})],
+      `INSERT INTO ${t} (id, data, created_by, updated_by) VALUES ($1, $2::jsonb, $3, $3)
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now(), updated_by = $3`,
+      [id, JSON.stringify(fields ?? {}), actor],
     );
     return id;
   }
@@ -271,8 +416,8 @@ export class SqlStore implements DataStore {
   async update(tableId: string, recordId: string, fields: Record<string, unknown>): Promise<void> {
     const t = sqlTableName(tableId);
     await this.pool.query(
-      `UPDATE ${t} SET data = data || $1::jsonb, updated_at = now() WHERE id = $2`,
-      [JSON.stringify(fields ?? {}), recordId],
+      `UPDATE ${t} SET data = data || $1::jsonb, updated_at = now(), updated_by = $3 WHERE id = $2`,
+      [JSON.stringify(fields ?? {}), recordId, this.actorId()],
     );
   }
 

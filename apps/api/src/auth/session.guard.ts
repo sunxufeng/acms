@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { SessionService } from './session.service.js';
+import { actorFromUser, setActor } from '../shared/actor-context.js';
 
 /** 会话守卫：解析 cookie sid → 校验 Redis 会话 → request.user */
 @Injectable()
@@ -20,6 +21,8 @@ export class SessionGuard implements CanActivate {
     if (!user) throw new UnauthorizedException('UNAUTHENTICATED');
     await this.sessions.refresh(sid);
     req.user = user;
+    // 写入操作人上下文：后续所有写入的「创建人 / 更新人」都取这里的值
+    setActor(actorFromUser(user));
     (req as Request & { sessionId?: string }).sessionId = sid;
     return true;
   }

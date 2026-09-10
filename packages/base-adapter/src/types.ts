@@ -14,6 +14,27 @@ export interface BaseRecord {
   fields: Record<string, unknown>;
   /** 记录创建时间（已转 ISO 字符串）；部分接口不返回则为 undefined */
   createdAt?: string;
+  /**
+   * 审计信息「创建人 / 创建时间 / 更新人 / 更新时间」。
+   * 由支持审计的存储实现（SqlStore）从物理列读取；不支持的实现（飞书）不返回。
+   * 放在 fields 之外，避免与业务字段混淆、也避免被写回 data。
+   */
+  audit?: RecordAudit;
+}
+
+/**
+ * 记录级审计四件套。遵循「键值双标识」：
+ * - `createdBy` / `updatedBy` 是稳定 key（飞书 openId 或 system:<来源>），改名不受影响；
+ * - `createdByName` / `updatedByName` 是展示 label（真实姓名或「系统 · 邮件归档」）。
+ * 只存姓名会在用户改名后对不上人，只存 openId 用户又看不懂，所以两个都要。
+ */
+export interface RecordAudit {
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedByName: string;
+  updatedAt: string;
 }
 
 export interface FilterCondition {

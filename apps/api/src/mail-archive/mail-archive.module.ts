@@ -1,6 +1,7 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { Cron } from 'croner';
 import { baseClientProvider } from '../base.provider.js';
+import { runAs, systemActor } from '../shared/actor-context.js';
 import { FileUploadModule } from '../file-upload/file-upload.module.js';
 import { MailAccountService } from './mail-account.service.js';
 import { MailArchiveService } from './mail-archive.service.js';
@@ -29,8 +30,8 @@ export class MailArchiveModule implements OnModuleInit {
         '*/15 * * * *',
         { name: 'mail-archive-sync', protect: true },
         () => {
-          this.archive
-            .syncAll()
+          // 后台写入无用户会话，显式声明身份，使归档记录的创建人 = system:mail-archive
+          runAs(systemActor('mail-archive', '系统 · 邮件归档'), () => this.archive.syncAll())
             .then((r) => this.logger.log(`[mail-archive] 定时同步完成，触发 ${r.synced} 个账户`))
             .catch((e) => this.logger.error(`[mail-archive] 定时同步失败: ${(e as Error).message}`));
         },

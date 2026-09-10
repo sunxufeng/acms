@@ -1,8 +1,10 @@
 import 'reflect-metadata';
+import type { NextFunction, Request, Response } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { securityMiddleware } from './security/security.middleware.js';
 import { AllExceptionsFilter } from './common/exception.filter.js';
+import { runWithActorStore } from './shared/actor-context.js';
 
 /**
  * ⚠️ 进程级兜底：日志照记，但**绝不让进程退出**。
@@ -32,6 +34,8 @@ async function bootstrap(): Promise<void> {
   });
   // 全局异常过滤器：透传真实错误信息，避免「Internal Server Error」掩盖校验/业务错误
   app.useGlobalFilters(new AllExceptionsFilter());
+  // 操作人上下文：必须最先执行，后续 SessionGuard 写入、存储层读取都依赖它
+  app.use((_req: Request, _res: Response, next: NextFunction) => runWithActorStore(next));
   // M7 安全加固：安全响应头 +  ️写接口跨域来源校验（全局）
   app.use(securityMiddleware);
   const port = Number(process.env.API_PORT ?? 3000);

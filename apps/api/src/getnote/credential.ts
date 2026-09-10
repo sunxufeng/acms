@@ -61,7 +61,7 @@ function load(): CredDb {
  * gk_live_9d3f2a7b → gk_live****2a7b；cli_8f2a1c9b4d → cli****9b4d
  * ⚠️ 不要按固定长度切前缀 —— cli_ 后面跟着的是应用 ID，截多了等于泄露。
  */
-function mask(v: string): string {
+export function mask(v: string): string {
   const s = String(v ?? '').trim();
   if (!s) return '';
   if (s.length <= 8) return '****';

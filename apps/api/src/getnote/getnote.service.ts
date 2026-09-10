@@ -10,6 +10,7 @@ import { buildFilter } from '../shared/record.util.js';
 import {
   getCredentialStatus,
   getCredentialPair,
+  mask,
   setCredential,
   deleteCredential,
   type CredentialStatus,
@@ -241,14 +242,34 @@ export class GetnoteService {
    * 未配好统一返回 412（前置条件未满足）：这完全是用户侧能自己解决的事，
    * 不该出现「请联系管理员」这种他无能为力的提示。
    */
-  private credFor(user: SessionUser): { key: string; clientId: string } {
-    const cred = getCredentialPair(user.openId);
-    if (!cred?.key || !cred.clientId)
-      throw new HttpException(
-        { code: 'GETNOTE_CREDENTIAL_MISSING', message: '尚未连接得到大脑账号' },
-        HttpStatus.PRECONDITION_FAILED,
-      );
-    return cred;
+  /**
+   * 当前用户用于「我的笔记」的凭证对。
+   *
+   * 优先用本人向导页填的 user 凭证（getnote-credentials.json）；若该用户没有、
+   * 但在「知识库配置」自建了来源（归属人ID = 本人 openId），则复用那套凭证 ——
+   * 否则普通老师配了来源后打开「我的笔记」仍卡在向导页（两套存储之前不同步）。
+   * ⚠️ 精确按「归属人」匹配，绝不会读到别人的来源凭证（隐私）。
+   */
+  private async credFor(user: SessionUser): Promise<{ key: string; clientId: string }> {
+    const own = getCredentialPair(user.openId);
+    if (own?.key && own.clientId) return own;
+
+    const fromSource = await this.userSourceCred(user.openId);
+    if (fromSource) return fromSource;
+
+    throw new HttpException(
+      { code: 'GETNOTE_CREDENTIAL_MISSING', message: '尚未连接得到大脑账号' },
+      HttpStatus.PRECONDITION_FAILED,
+    );
+  }
+
+  /** 在「知识库配置」表里找「归属人ID = openId」且带有效凭证的启用来源 */
+  private async userSourceCred(openId: string): Promise<{ key: string; clientId: string } | null> {
+    const entries = await listEnabledSourceCreds(this.base, TABLES.getnoteSource.tableId, {
+      maxPages: 5,
+    });
+    const hit = entries.find((e) => e.ownerOpenId === openId && e.cred);
+    return hit?.cred ?? null;
   }
 
   private headers(cred: { key: string; clientId: string }): Record<string, string> {
@@ -265,9 +286,20 @@ export class GetnoteService {
    * 当前用户的凭证状态。不返回任何明文/密文，只给掩码。
    * `oauthEnabled` 决定前端是否显示「一键授权」入口。
    */
-  credentialStatus(user: SessionUser): CredentialStatus & { oauthEnabled: boolean } {
+  async credentialStatus(user: SessionUser): Promise<CredentialStatus & { oauthEnabled: boolean }> {
+    const base = getCredentialStatus(user.openId);
+    if (base.configured) {
+      return { ...base, oauthEnabled: Boolean(OAUTH_CLIENT_ID()) };
+    }
+    // 回退：用户在「知识库配置」自建的来源也视为已连接，避免卡在向导页
+    const hit = await this.userSourceCred(user.openId);
     return {
-      ...getCredentialStatus(user.openId),
+      configured: Boolean(hit),
+      masked: hit ? mask(hit.key) : '',
+      clientIdMasked: hit ? mask(hit.clientId) : '',
+      updatedAt: '',
+      verifiedAt: '',
+      source: '',
       oauthEnabled: Boolean(OAUTH_CLIENT_ID()),
     };
   }
@@ -873,7 +905,7 @@ export class GetnoteService {
 
     // 非管理员只用自己的 Key 直接翻上游游标，size 由上游决定（这里用不到）
     void size;
-    const cred = this.credFor(user);
+    const cred = await this.credFor(user);
     const key = q?.trim();
     if (key) {
       const items = await this.recall(user, key, 10);
@@ -902,7 +934,7 @@ export class GetnoteService {
    * 再去拉详情 —— 否则管理员点开别人的笔记必然失败（自己的 Key 下没有那条笔记）。
    */
   async detail(user: SessionUser, id: string, imageQuality?: string): Promise<GetnoteNote> {
-    let cred = this.credFor(user);
+    let cred = await this.credFor(user);
     let owner: { name: string; sourceName: string } | null = null;
 
     if (this.isAdmin(user)) {
@@ -958,7 +990,7 @@ export class GetnoteService {
   }
 
   /** 新建文本笔记（同步返回 note_id）。链接/图片笔记是异步任务，本模块暂不支持。 */
-  create(
+  async create(
     user: SessionUser,
     body: {
       title?: string;
@@ -970,7 +1002,7 @@ export class GetnoteService {
     },
   ): Promise<{ note_id?: string; title?: string }> {
     return this.request<{ note_id?: string; title?: string }>(
-      this.credFor(user),
+      await this.credFor(user),
       '/open/api/v1/resource/note/save',
       { method: 'POST', body: { note_type: 'plain_text', ...body } },
     );
@@ -981,19 +1013,19 @@ export class GetnoteService {
    * ⚠️ title/content/tags 至少要传一个，且仅支持 plain_text 类型。
    * ⚠️ tags 是**替换**语义（不传则保持原样，传了就整体覆盖）。
    */
-  update(
+  async update(
     user: SessionUser,
     body: { note_id: string; title?: string; content?: string; tags?: string[] },
   ): Promise<unknown> {
-    return this.request(this.credFor(user), '/open/api/v1/resource/note/update', {
+    return this.request(await this.credFor(user), '/open/api/v1/resource/note/update', {
       method: 'POST',
       body,
     });
   }
 
   /** 删除笔记（移入回收站）。调用方必须先向用户二次确认。 */
-  remove(user: SessionUser, noteId: string): Promise<unknown> {
-    return this.request(this.credFor(user), '/open/api/v1/resource/note/delete', {
+  async remove(user: SessionUser, noteId: string): Promise<unknown> {
+    return this.request(await this.credFor(user), '/open/api/v1/resource/note/delete', {
       method: 'POST',
       body: { note_id: noteId },
     });
@@ -1036,7 +1068,7 @@ export class GetnoteService {
   async recall(user: SessionUser, query: string, topK = 5): Promise<GetnoteRecallItem[]> {
     const k = Math.min(Math.max(Number(topK) || 5, 1), 10);
     const data = await this.request<{ results?: GetnoteRecallItem[] } & GetnoteRecallItem[]>(
-      this.credFor(user),
+      await this.credFor(user),
       '/open/api/v1/resource/recall',
       { method: 'POST', body: { query, top_k: k } },
     );
@@ -1044,12 +1076,12 @@ export class GetnoteService {
   }
 
   /** 添加标签。返回该笔记的完整标签列表（含 tag id，删标签时要用到）。 */
-  addTags(
+  async addTags(
     user: SessionUser,
     noteId: string,
     tags: string[],
   ): Promise<{ note_id?: string; tags?: GetnoteTag[] }> {
-    return this.request(this.credFor(user), '/open/api/v1/resource/note/tags/add', {
+    return this.request(await this.credFor(user), '/open/api/v1/resource/note/tags/add', {
       method: 'POST',
       body: { note_id: noteId, tags },
     });
@@ -1060,8 +1092,8 @@ export class GetnoteService {
    * ⚠️ 传的是 tag_id（不是标签名），来自 addTags 返回值或 detail 的 tags[].id。
    * ⚠️ system 类型标签不允许删除，调了会报错。
    */
-  removeTag(user: SessionUser, noteId: string, tagId: string): Promise<unknown> {
-    return this.request(this.credFor(user), '/open/api/v1/resource/note/tags/delete', {
+  async removeTag(user: SessionUser, noteId: string, tagId: string): Promise<unknown> {
+    return this.request(await this.credFor(user), '/open/api/v1/resource/note/tags/delete', {
       method: 'POST',
       body: { note_id: noteId, tag_id: tagId },
     });

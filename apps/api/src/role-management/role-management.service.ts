@@ -145,9 +145,26 @@ export class RoleManagementService implements OnModuleInit {
     return null;
   }
 
+  /**
+   * 自愈：锁定角色（系统管理员）的「拥有全部权限」由代码保证，而非存储快照。
+   *
+   * ⚠️ 背景（2026-09-11）：新增「会议纪要」模块后，管理员访问新模块却 403。
+   * 原因：系统管理员权限集被设计成锁定（防止管理员自锁），但存储里留的是**历史时点的权限快照**，
+   * 新增模块产生的 `module:xxx:*` 权限点不会自动进快照 → 越权保护反过来把管理员自己挡在门外。
+   * 这里用代码默认的全量权限覆盖锁定角色（只改内存、不回写，保留「权限集不可编辑」的锁定语义）。
+   */
+  private healLockedRoles(roles: StoredRole[]): StoredRole[] {
+    for (const r of roles) {
+      if (!LOCKED_PERMISSION_ROLES.has(r.key)) continue;
+      const full = ROLE_PERMISSIONS[r.key as Role];
+      if (full) r.permissions = [...full];
+    }
+    return roles;
+  }
+
   private async ensureLoaded(): Promise<void> {
     const stored = await this.readStoredWithRetry();
-    const roles = stored ?? this.defaultConfig();
+    const roles = this.healLockedRoles(stored ?? this.defaultConfig());
     // 先持久化版本与权限，再加载引擎；失败即中止启动，避免未落盘的继承被反复执行。
     if (stored && this.migratePermissions(stored)) {
       await this.persist(stored);
@@ -228,7 +245,7 @@ export class RoleManagementService implements OnModuleInit {
   /** 读取角色权限矩阵（含全部权限点与密级，供前端渲染） */
   async getConfig(): Promise<{ roles: RoleDef[]; allPermissions: Permission[]; dataLevels: DataLevel[] }> {
     const stored = await this.readStored();
-    const roles = stored ?? this.defaultConfig();
+    const roles = this.healLockedRoles(stored ?? this.defaultConfig());
     return {
       roles: roles.map((r) => this.toRoleDef(r)),
       allPermissions: [...PERMISSIONS],

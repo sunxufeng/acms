@@ -50,6 +50,27 @@ function project(fields: Record<string, unknown>): Record<string, unknown> {
   return row;
 }
 
+/**
+ * 时间字段 → 毫秒。
+ *
+ * ⚠️ 同一个字段在不同表里读出来的形态不一样：
+ *  - 自建 SQL 表（无字段元数据）：原样返回毫秒数字
+ *  - 飞书 Base 表（字段类型=日期）：读取侧会格式化成 "2026-09-11 12:00" 字符串
+ * 直接 Number() 的话后者得到 NaN，时间范围过滤会把记录全筛掉（2026-09-11 踩过：
+ * 转换记录 6 条全被漏掉，统计恒为 0）。
+ */
+function toEpochMs(v: unknown): number {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return v > 1e11 ? v : v * 1000;
+  const s = String(v).trim();
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    return n > 1e11 ? n : n * 1000;
+  }
+  const t = new Date(s.replace(' ', 'T')).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
@@ -288,8 +309,8 @@ export class ReportsService {
         });
         for (const r of page.items ?? []) {
           const f = rowsOf(r);
-          const created = Number(f['笔记创建时间'] ?? 0);
-          const synced = Number(f['同步时间'] ?? 0);
+          const created = toEpochMs(f['笔记创建时间']);
+          const synced = toEpochMs(f['同步时间']);
           if (synced && (!syncedAt || synced > syncedAt)) syncedAt = synced;
           if (created >= fromMs && created <= toMs) {
             snapshots.push({
@@ -309,9 +330,6 @@ export class ReportsService {
 
     // 2) 转换记录（按创建时间落在区间内）
     const converts: { module: string; at: number; by: string }[] = [];
-    let convertRaw = 0;
-    let convertSample: string[] | null = null;
-    let convertFirst: Record<string, unknown> | null = null;
     try {
       // 转换记录是 ACMS 自建/本地表，优先直连 PG（避免飞书路由不通导致静默空结果）
       const store = (getSqlStore() ?? this.base) as Pick<BaseClient, 'search'>;
@@ -321,21 +339,14 @@ export class ReportsService {
           pageSize: 500,
           ...(token ? { pageToken: token } : {}),
         });
-        convertRaw += (page.items ?? []).length;
         for (const r of page.items ?? []) {
           const f = rowsOf(r);
-          if (!convertSample) convertSample = Object.keys(f).slice(0, 8);
-          if (!convertFirst) {
-            convertFirst = {
-              raw: f['转换时间'],
-              type: typeof f['转换时间'],
-              num: Number(f['转换时间'] ?? 0),
-              keys: Object.keys(f),
-            };
-          }
           // ⚠️ 转换记录的时间字段叫「转换时间」（毫秒），不是审计的「创建时间」——
           // 取错字段会让转换次数恒为 0（2026-09-11 踩过）。
-          const at = Number(f['转换时间'] ?? f['创建时间'] ?? f['created_at'] ?? 0);
+          const at =
+            toEpochMs(f['转换时间']) ||
+            toEpochMs(f['创建时间']) ||
+            toEpochMs(f['created_at']);
           if (at >= fromMs && at <= toMs) {
             converts.push({
               module: String(f['目标模块'] ?? f['模块KEY'] ?? ''),
@@ -405,7 +416,6 @@ export class ReportsService {
       byModule: [...byModuleMap.values()].sort((a, b) => b.count - a.count),
       byConverter: [...byConverterMap.values()].sort((a, b) => b.count - a.count),
       byDay: [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
-      _debug: { convertRaw, convertSample, convertFirst, fromMs, toMs },
     };
   }
 }

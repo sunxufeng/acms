@@ -37,6 +37,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
     } else if (exception instanceof Error) {
       message = exception.message;
+      // body-parser 超限抛的是普通 Error（PayloadTooLargeError: request entity too large），
+      // 不是 HttpException，若不处理会被当成 500 —— 前端只能看到「服务器错误」，
+      // 用户完全不知道是内容太长。这里还原为 413 并给出可操作的提示。
+      const maybeStatus = (exception as { status?: number }).status;
+      const maybeType = (exception as { type?: string }).type;
+      // 第三方/底层中间件（如 body 解析）用普通 Error 带 status，这里按 4xx 原样透出，
+      // 否则全部被当成 500，前端无法给用户准确提示。
+      if (typeof maybeStatus === 'number' && maybeStatus >= 400 && maybeStatus < 500) {
+        status = maybeStatus;
+      }
+      if (status === HttpStatus.PAYLOAD_TOO_LARGE || maybeType === 'entity.too.large') {
+        status = HttpStatus.PAYLOAD_TOO_LARGE;
+        message = '内容过大，超出服务器接收上限。请精简会议明细/会议总结等长文本，或改为上传附件。';
+      }
     } else {
       message = 'Internal server error';
     }

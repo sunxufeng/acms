@@ -25,8 +25,100 @@ process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection] 已捕获，进程继续运行：', reason);
 });
 
+/** 请求体上限：10MB。nginx client_max_body_size 为 50m，这里留出余量又不至于撑爆内存。 */
+const BODY_LIMIT_BYTES = 10 * 1024 * 1024;
+
+/**
+ * 零依赖的请求体解析中间件（替代 express 的 body-parser）。
+ *
+ * 覆盖 application/json、application/x-www-form-urlencoded、text/plain；
+ * multipart（文件上传）直接放行交给 multer，chunked 流也放行。
+ * 超限时抛出带 status=413 / type='entity.too.large' 的错误，
+ * 由 AllExceptionsFilter 还原为 413 并给出可操作提示。
+ */
+function createBodyParser(limitBytes: number) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const ct = String(req.headers['content-type'] ?? '').toLowerCase();
+    const isJson = ct.includes('application/json');
+    const isForm = ct.includes('application/x-www-form-urlencoded');
+    const isText = ct.startsWith('text/plain');
+    // 无 body、multipart 上传、chunked 流：交给 multer / 后续中间件处理
+    if (!ct || req.headers['transfer-encoding'] || !(isJson || isForm || isText)) {
+      next();
+      return;
+    }
+    const declared = Number(req.headers['content-length'] ?? 0);
+    if (declared > limitBytes) {
+      next(tooLarge());
+      return;
+    }
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let done = false;
+    const fail = (): void => {
+      if (done) return;
+      done = true;
+      next(tooLarge());
+    };
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limitBytes) {
+        fail();
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (done) return;
+      done = true;
+      const raw = Buffer.concat(chunks).toString('utf8');
+      if (!raw) {
+        (req as Request & { body?: unknown }).body = isForm ? {} : {};
+        next();
+        return;
+      }
+      try {
+        if (isJson) (req as Request & { body?: unknown }).body = JSON.parse(raw);
+        else if (isForm) {
+          const out: Record<string, string> = {};
+          for (const [k, v] of new URLSearchParams(raw)) out[k] = v;
+          (req as Request & { body?: unknown }).body = out;
+        } else (req as Request & { body?: unknown }).body = raw;
+        next();
+      } catch {
+        const err = new Error('请求体不是合法的 JSON') as Error & { status: number };
+        err.status = 400;
+        next(err);
+      }
+    });
+    req.on('error', (e: Error) => {
+      if (done) return;
+      done = true;
+      next(e);
+    });
+  };
+}
+
+function tooLarge(): Error & { status: number; type: string } {
+  const err = new Error('request entity too large') as Error & { status: number; type: string };
+  err.status = 413;
+  err.type = 'entity.too.large';
+  return err;
+}
+
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // ⚠️ 请求体上限：express body-parser 默认只有 100kb，会议纪要的「会议明细 / 会议总结」
+  // 是长 Markdown，用户粘贴内容后轻松超过 → request entity too large（2026-09-11 实测）。
+  // 这里提到 10mb（nginx client_max_body_size 50m，留余量又不撑爆内存）。
+  //
+  // 为什么不直接 import { json } from 'express'：
+  // 生产服务器 node_modules 里 express / body-parser **从 apps/api 不可解析**
+  // （只是 @nestjs/platform-express 的传递依赖，未提升到可解析路径），
+  // 一旦 import 就 MODULE_NOT_FOUND，API 直接起不来（已踩）。
+  // 故关闭 Nest 内置 parser，改用下方零依赖的自实现解析。
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(createBodyParser(BODY_LIMIT_BYTES));
   app.setGlobalPrefix('api/v1');
   app.enableCors({
     origin: process.env.WEB_ORIGIN?.split(',') ?? ['http://localhost:3100'],

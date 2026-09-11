@@ -1,9 +1,9 @@
-import { Inject, Injectable, ForbiddenException } from '@nestjs/common';
+import { Inject, Injectable, ForbiddenException, Logger } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
-import { BASE_CLIENT } from '../base.provider.js';
+import { BASE_CLIENT, getSqlStore } from '../base.provider.js';
 import { LoginLogService } from '../login-log/login-log.service.js';
 
 function toPrincipal(user: SessionUser): Principal {
@@ -52,6 +52,8 @@ function project(fields: Record<string, unknown>): Record<string, unknown> {
 
 @Injectable()
 export class ReportsService {
+  private readonly logger = new Logger(ReportsService.name);
+
   constructor(
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
     private readonly loginLog: LoginLogService,
@@ -269,8 +271,10 @@ export class ReportsService {
     const fromMs = (query.from ? startOf(query.from) : null) ?? now - 29 * 86_400_000;
     const toMs = (query.to ? endOf(query.to) : null) ?? now;
 
+    // ⚠️ 不同数据源返回结构不一致：SqlStore 给 { id, fields }，有的路径直接给扁平对象。
+    // 两种都兼容，取错会静默变成「取不到字段」这类最难查的问题。
     const rowsOf = (r: unknown): Record<string, unknown> =>
-      ((r as { fields?: Record<string, unknown> }).fields ?? {}) as Record<string, unknown>;
+      (((r as { fields?: Record<string, unknown> }).fields ?? r) ?? {}) as Record<string, unknown>;
 
     // 1) 笔记快照
     const snapshots: { createdAt: number; owner: string; source: string; title: string }[] = [];
@@ -306,9 +310,11 @@ export class ReportsService {
     // 2) 转换记录（按创建时间落在区间内）
     const converts: { module: string; at: number; by: string }[] = [];
     try {
+      // 转换记录是 ACMS 自建/本地表，优先直连 PG（避免飞书路由不通导致静默空结果）
+      const store = (getSqlStore() ?? this.base) as Pick<BaseClient, 'search'>;
       let token: string | undefined;
       for (let i = 0; i < 20; i += 1) {
-        const page = await this.base.search(TABLES.noteConvertLog.tableId, {
+        const page = await store.search(TABLES.noteConvertLog.tableId, {
           pageSize: 500,
           ...(token ? { pageToken: token } : {}),
         });
@@ -328,8 +334,8 @@ export class ReportsService {
         if (!page.hasMore || !page.pageToken) break;
         token = page.pageToken;
       }
-    } catch {
-      /* 转换记录不可读时忽略 */
+    } catch (e) {
+      this.logger?.warn(`笔记转换记录读取失败（转换统计会为空）：${(e as Error).message.slice(0, 160)}`);
     }
 
     // 聚合

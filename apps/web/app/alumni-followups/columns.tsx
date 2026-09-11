@@ -6,7 +6,7 @@ const 当前去向类型_OPTS = ['升学', '就业', '创业', '间隔年', '其
 const 跟进状态_OPTS = ['待跟进', '保持联系', '暂时失联', '停止跟进'];
 
 export const COLUMNS: CrudColumn[] = [
-  { key: '关联学生编号', label: '学生', width: '110px', form: true, type: 'studentLink', required: true, listOrder: 1 },
+  { key: '关联学生编号', label: '学生', width: '170px', form: true, type: 'studentLink', required: true, listOrder: 1 },
   { key: '跟进事项', label: '跟进事项', form: true, type: 'textarea', listOrder: 3 },
   { key: '跟进时间', label: '跟进日期', width: '120px', form: true, type: 'date', listOrder: 2 },
   { key: '跟进备注', label: '跟进备注', form: true, type: 'textarea', list: false },

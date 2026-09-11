@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
 
 // 学生观察：飞书字段结构照搬「日常跟进表」，故 key（飞书字段名）仍是「沟通X」，
 // 但界面统一显示为「观察X」——保留原字段名才能复用 dict.service 的字典同步逻辑。
@@ -14,7 +15,7 @@ export const COLUMNS: CrudColumn[] = [
   {
     key: '关联学生',
     label: '学生',
-    width: '120px',
+    width: '180px',
     form: true,
     type: 'student',
     required: true,
@@ -22,7 +23,7 @@ export const COLUMNS: CrudColumn[] = [
     render: (_v, row) => {
       const name = studentName(row);
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-      return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{name}</span>;
+      return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{studentLabel(name, row[STUDENT_ENGLISH_KEY])}</span>;
     },
   },
   { key: '沟通人', label: '观察人', width: '100px', form: true, type: 'person' },

@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
 
 // 列表仅展示：学生 / 沟通人 / 沟通方式 / 沟通主题，外加组件自动的「操作」列。
 // 其余字段设为 list:false，仅在新建/编辑表单中可用。
@@ -8,7 +9,7 @@ export const COLUMNS: CrudColumn[] = [
   {
     key: '关联学生',
     label: '学生',
-    width: '120px',
+    width: '180px',
     form: true,
     type: 'student',
     required: true,
@@ -16,7 +17,7 @@ export const COLUMNS: CrudColumn[] = [
     render: (_v, row) => {
       const name = studentName(row);
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-      return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{name}</span>;
+      return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{studentLabel(name, row[STUDENT_ENGLISH_KEY])}</span>;
     },
   },
   { key: '沟通人', label: '沟通人', width: '100px', form: true, type: 'person' },

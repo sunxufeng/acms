@@ -9,7 +9,7 @@ const 成绩状态_OPTS = ['草稿', '已发布', '已更正', '已归档'];
 
 export function buildGradeColumns(t: (key: string) => string): CrudColumn[] {
   return [
-    { key: '关联学生编号', label: t('colStudent'), width: '110px', form: true, type: 'studentLink', required: true, listOrder: 1 },
+    { key: '关联学生编号', label: t('colStudent'), width: '170px', form: true, type: 'studentLink', required: true, listOrder: 1 },
     { key: '学科', label: t('colSubject'), width: '90px', filter: true, filterOptions: 学科_OPTS, form: true, type: 'select', options: 学科_OPTS, listOrder: 3 },
     { key: '成绩', label: t('colScore'), width: '90px', form: true, type: 'number', list: false },
     { key: '课堂表现', label: t('colPerformance'), width: '100px', filter: true, filterOptions: 课堂表现_OPTS, form: true, type: 'select', options: 课堂表现_OPTS, list: false },

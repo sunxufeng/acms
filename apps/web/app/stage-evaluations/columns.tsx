@@ -9,7 +9,7 @@ const 家长确认状态_OPTS = ['待确认', '已确认', '有异议', '不适�
 
 export function buildStageColumns(t: (key: string) => string): CrudColumn[] {
   return [
-    { key: '关联学生编号', label: t('colStudent'), width: '110px', form: true, type: 'studentLink', required: true, listOrder: 1 },
+    { key: '关联学生编号', label: t('colStudent'), width: '170px', form: true, type: 'studentLink', required: true, listOrder: 1 },
     { key: '评价周期', label: t('colEvalPeriod'), width: '100px', filter: true, filterOptions: 评价周期_OPTS, form: true, type: 'select', options: 评价周期_OPTS, listOrder: 3 },
     { key: '评价等级', label: t('colEvalLevel'), width: '100px', filter: true, filterOptions: 评价等级_OPTS, form: true, type: 'select', options: 评价等级_OPTS, listOrder: 4 },
     { key: '评价内容', label: t('colEvalContent'), form: true, type: 'textarea', list: false },

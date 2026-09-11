@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
 
 // 列表列顺序（listOrder）：学生 → 沟通主题 → 跟进时间 → 跟进状态 → 活动类型 → 负责人，
 // 外加组件自动追加的「操作」列（含 AI 总结）。付款状态 在列表中隐藏（保留在表单）。
@@ -8,7 +9,7 @@ export const COLUMNS: CrudColumn[] = [
   {
     key: '关联学生',
     label: '学生',
-    width: '120px',
+    width: '180px',
     form: true,
     type: 'student',
     required: true,
@@ -17,7 +18,7 @@ export const COLUMNS: CrudColumn[] = [
     render: (_v, row) => {
       const name = studentName(row);
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-      return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{name}</span>;
+      return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{studentLabel(name, row[STUDENT_ENGLISH_KEY])}</span>;
     },
   },
   { key: '跟进时间', label: '跟进时间', width: '150px', form: true, type: 'datetime', listOrder: 3 },

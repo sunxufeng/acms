@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { usePermissions } from '../lib/permissions';
 import { useRouter } from 'next/navigation';
@@ -177,6 +177,14 @@ function str(v: unknown): string {
   if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' ? x : String((x as { text?: string })?.text ?? ''))).join('、');
   if (typeof v === 'object') return String((v as { text?: string })?.text ?? '');
   return String(v);
+}
+
+/** 学生列英文名派生键：列表渲染前由 CrudPage 注入到行上，供各模块自定义 render 取用 */
+export const STUDENT_ENGLISH_KEY = '__studentEnglish';
+/** 学生显示名：有英文名时显示「中文名 / 英文名」，与表单下拉选项保持一致 */
+export function studentLabel(name: string, englishName?: unknown): string {
+  const en = typeof englishName === 'string' ? englishName.trim() : '';
+  return name && en ? `${name} / ${en}` : name;
 }
 
 /**
@@ -516,6 +524,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const [studentLinkOptions, setStudentLinkOptions] = useState<{ value: string; label: string }[]>([]);
   const [studentMap, setStudentMap] = useState<Record<string, { father: string; mother: string }>>({});
   const [studentIdByName, setStudentIdByName] = useState<Record<string, string>>({});
+  /** 学生姓名 → 英文名：列表里学生列要显示「中文名 / 英文名」，表单下拉已带英文名，这里补列表用 */
+  const [studentEnglishByName, setStudentEnglishByName] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!columns.some((c) => c.type === 'student' || c.type === 'studentLink' || c.type === 'parent')) return;
     let alive = true;
@@ -542,12 +552,15 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         if (!alive) return;
         const map: Record<string, { father: string; mother: string }> = {};
         const idByName: Record<string, string> = {};
+        const enByName: Record<string, string> = {};
         for (const s of collected) {
           map[s.name] = { father: s.father, mother: s.mother };
           idByName[s.name] = s.id;
+          if (s.englishName) enByName[s.name] = s.englishName;
         }
         setStudentMap(map);
         setStudentIdByName(idByName);
+        setStudentEnglishByName(enByName);
         const seen = new Set<string>();
         const opts = collected
           .filter((s) => {
@@ -562,6 +575,24 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       .catch(() => {});
     return () => { alive = false; };
   }, [columns]);
+
+  // 学生列补英文名：把「中文名 → 英文名」以 __studentEnglish 注入行上，
+  // 这样既有通用单元格渲染、也有各模块自定义 render（如家校沟通的学生列）都能显示双语。
+  const studentCols = useMemo(
+    () => columns.filter((c) => c.type === 'student' || c.type === 'studentLink').map((c) => c.key),
+    [columns],
+  );
+  const rows = useMemo(() => {
+    if (!studentCols.length || !Object.keys(studentEnglishByName).length) return items;
+    return items.map((r) => {
+      for (const k of studentCols) {
+        const n = str(r[k]);
+        const en = n ? studentEnglishByName[n] : '';
+        if (en) return { ...r, [STUDENT_ENGLISH_KEY]: en };
+      }
+      return r;
+    });
+  }, [items, studentCols, studentEnglishByName]);
 
   // 部门字段（department）候选项：从「组织管理 / 部门管理」读取已同步的飞书部门树
   // （已删除部门 status='invalid' 不出现在树中，这里也一并过滤掉）
@@ -1255,7 +1286,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             </tr>
           </thead>
           <tbody>
-            {items.map((row) => {
+            {rows.map((row) => {
               const st = statusField ? str(row[statusField]) : '';
               const allowed = transitions && st ? transitions[st] ?? [] : [];
               return (
@@ -1291,8 +1322,12 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                             );
                           })()
                           : (c.type === 'studentLink' && studentDetailHref
-                            ? <Link href={studentDetailHref(row)} style={{ color: 'var(--accent)', fontWeight: 600 }}>{str(row[c.key])}</Link>
-                            : (c.render ? c.render(row[c.key],  row) : cellText(row[c.key], c, tl, dictMeta)))}
+                            ? <Link href={studentDetailHref(row)} style={{ color: 'var(--accent)', fontWeight: 600 }}>{studentLabel(str(row[c.key]), row[STUDENT_ENGLISH_KEY])}</Link>
+                            : c.render
+                              ? c.render(row[c.key], row)
+                              : (c.type === 'student' || c.type === 'studentLink'
+                                ? studentLabel(str(row[c.key]), row[STUDENT_ENGLISH_KEY])
+                                : cellText(row[c.key], c, tl, dictMeta)))}
                     </td>
                   ))}
                   <td>

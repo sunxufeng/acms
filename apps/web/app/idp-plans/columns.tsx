@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
 
 // IDP 方案列表仅展示：学生 / 学期 / 导师 / 状态 / 制定日期。
 // 复杂结构化字段（人生平衡轮 / 目标列表 / 阶段成果）在「新建 / 编辑」独立页通过可视化编辑器填写，
@@ -7,7 +8,7 @@ export const COLUMNS: CrudColumn[] = [
   {
     key: '关联学生',
     label: '学生',
-    width: '140px',
+    width: '180px',
     form: true,
     type: 'student',
     required: true,
@@ -15,7 +16,7 @@ export const COLUMNS: CrudColumn[] = [
     render: (_v, row) => {
       const name = studentName(row);
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-      return <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{name}</span>;
+      return <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{studentLabel(name, row[STUDENT_ENGLISH_KEY])}</span>;
     },
   },
   { key: '学期', label: '学期', width: '100px', filter: true, form: true, type: 'select', dictKey: '学期', required: true },

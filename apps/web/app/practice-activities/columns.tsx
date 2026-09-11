@@ -7,7 +7,7 @@ const 安全确认状态_OPTS = ['待确认', '已确认', '不适用'];
 
 export function buildPracticeColumns(t: (key: string) => string): CrudColumn[] {
   return [
-    { key: '关联学生编号', label: t('colStudent'), width: '110px', form: true, type: 'studentLink', required: true, listOrder: 1 },
+    { key: '关联学生编号', label: t('colStudent'), width: '170px', form: true, type: 'studentLink', required: true, listOrder: 1 },
     { key: '活动名称', label: t('colActivityName'), width: '140px', form: true, type: 'text', listOrder: 3 },
     { key: '活动内容', label: t('colActivityContent'), form: true, type: 'textarea', list: false },
     { key: '参与情况', label: t('colParticipation'), width: '100px', filter: true, filterOptions: 参与情况_OPTS, form: true, type: 'select', options: 参与情况_OPTS, listOrder: 4 },

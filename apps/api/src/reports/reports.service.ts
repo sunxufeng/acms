@@ -132,8 +132,10 @@ export class ReportsService {
         if (!page.hasMore || !page.pageToken) break;
         token = page.pageToken;
       }
-    } catch {
-      /* 解析失败就退回显示原值 */
+      this.logger.log(`人员 open_id→姓名 映射已建立：${map.size} 条`);
+    } catch (e) {
+      // 解析失败就退回显示原值，但必须留下日志 —— 静默失败会让 open_id 直接显示给用户
+      this.logger.warn(`人员姓名映射建立失败（报表将显示 open_id）：${(e as Error).message.slice(0, 160)}`);
     }
     nameCache = { at: Date.now(), map };
     return map;

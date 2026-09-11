@@ -65,8 +65,19 @@ export class SystemMonitorService {
   /** 主机：CPU / 负载 / 内存 / 磁盘 / 运行时长 */
   private async host() {
     const cpus = os.cpus();
-    const memTotal = os.totalmem();
-    const memFree = os.freemem();
+    let memTotal = os.totalmem();
+    let memFree = os.freemem();
+    // ⚠️ Linux 下 os.freemem() 不含 buff/cache，算出来的「已用」会明显偏低
+    // （实测 7.2G 机器只显示用了 1G）。有 /proc/meminfo 时改用 MemAvailable 更贴近真实。
+    const meminfo = await readFile('/proc/meminfo', 'utf8').catch(() => null);
+    if (meminfo) {
+      const total = Number(/MemTotal:\s+(\d+)/.exec(meminfo)?.[1] ?? 0) * 1024;
+      const avail = Number(/MemAvailable:\s+(\d+)/.exec(meminfo)?.[1] ?? 0) * 1024;
+      if (total > 0 && avail > 0) {
+        memTotal = total;
+        memFree = avail;
+      }
+    }
     // df -B1 <挂载点>：第 2 行是「总 已用 可用 使用率 挂载点」
     const df = await runCmd('df', ['-B1', '/']);
     let disk: { total: number; used: number; available: number } | null = null;
@@ -222,7 +233,12 @@ export class SystemMonitorService {
     const unit = `acms-api@${slot}`;
     const r = await runCmd('journalctl', ['-u', unit, '-p', 'err', '-n', '20', '--no-pager', '-o', 'short-iso']);
     if (!r.ok) return { ok: false as const, unit, lines: [] as string[] };
-    const lines = r.out.split('\n').filter(Boolean).slice(-20);
+    // 过滤 journalctl 的空结果提示行（「-- No entries --」「-- Journal begins at … --」）
+    const lines = r.out
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !/^--.*--$/.test(l))
+      .slice(-20);
     return { ok: true as const, unit, lines };
   }
 

@@ -157,7 +157,7 @@ export class ReportsService {
         pageSize,
         ...(token ? { pageToken: token } : {}),
       });
-      for (const r of page.items) out.push(project((r.fields ?? {}) as Record<string, unknown>));
+      for (const r of page.items) out.push(project((r.fields ?? {}) as Record<string, unknown>, names));
       if (!page.hasMore || !page.pageToken) break;
       token = page.pageToken;
     }

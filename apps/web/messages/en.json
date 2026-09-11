@@ -193,7 +193,8 @@
     "collapseSidebar": "Collapse sidebar",
     "expandSidebar": "Expand sidebar",
     "toggleSidebar": "Toggle sidebar",
-    "reports": "Reports"
+    "reports": "Reports",
+    "open-platform": "Open Platform"
   },
   "breadcrumb": {
     "dashboard": "Workspace",

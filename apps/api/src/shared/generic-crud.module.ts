@@ -18,6 +18,7 @@ import { BASE_CLIENT, baseClientProvider } from '../base.provider.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { AuditService } from '../audit/audit.service.js';
 import { FieldMaskService } from './field-mask.service.js';
+import { encryptSecret, isEncrypted, isSecretMask, maskSecret } from './secret-cipher.js';
 import { buildWriteFields, toFlatRecord, buildFilter } from './record.util.js';
 
 /** 把「毫秒时间戳（number / 纯数字字符串）」或「日期字符串」统一解析为 epoch ms；无法解析返回 null */
@@ -64,6 +65,13 @@ export interface RecordMeta {
   timeRange?: { startField: string; endField: string };
   /** 关联字段（type=18/21/22）：需跨表解析为可读名。field=本表字段名，table=目标表 tableId，nameField=目标表用于展示的字段名 */
   linkFields?: { field: string; table: string; nameField: string }[];
+  /**
+   * 凭证字段（如开放平台的 App Secret）：
+   *  - 写入时 AES 加密落库
+   *  - 读取时一律回显掩码 `******`，前端原样回传表示「不修改」
+   * 用于开放平台外接系统凭证，避免明文出现在列表、备份与日志里。
+   */
+  secretFields?: string[];
 }
 
 function toPrincipal(user: SessionUser): Principal {
@@ -183,6 +191,7 @@ export class BaseRecordService {
     const items = res.items.map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet()));
     await this.resolveLinks(items);
     const masked = this.mod ? this.mask.maskMany(user, this.mod.key, items) : items;
+    if (this.meta.secretFields?.length) masked.forEach((r) => this.maskSecrets(r));
     return {
       items: masked,
       total: res.total,
@@ -198,6 +207,7 @@ export class BaseRecordService {
     const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet()));
     await this.resolveLinks(rows);
     const filtered = rows.filter((r) => String(r[sf] ?? '').toLowerCase().includes(q));
+    if (this.meta.secretFields?.length) filtered.forEach((r) => this.maskSecrets(r));
     return { items: filtered, total: filtered.length, hasMore: false, pageToken: undefined };
   }
 
@@ -328,7 +338,8 @@ export class BaseRecordService {
     if (!rec) throw new NotFoundException('NOT_FOUND');
     const flat = toFlatRecord(rec, this.readonlySet(), this.multiSet(), this.linkSet());
     await this.resolveLinks([flat]);
-    return this.mod ? this.mask.mask(user, this.mod.key, flat) : flat;
+    const out = this.mod ? this.mask.mask(user, this.mod.key, flat) : flat;
+    return this.maskSecrets(out);
   }
 
   private writeFields(dto: Record<string, unknown>) {
@@ -351,7 +362,26 @@ export class BaseRecordService {
         }
       }
     }
+    // 凭证字段：掩码 = 不修改（删掉，保留原值）；空串 = 清空；其它 = 加密后写入
+    for (const k of this.meta.secretFields ?? []) {
+      if (!(k in fields)) continue;
+      const v = fields[k];
+      if (isSecretMask(v)) delete fields[k];
+      else if (v == null || String(v).trim() === '') fields[k] = '';
+      else if (isEncrypted(v)) fields[k] = String(v);
+      else fields[k] = encryptSecret(String(v));
+    }
     return fields;
+  }
+
+  /** 读取侧把凭证字段换成掩码 */
+  private maskSecrets<T extends Record<string, unknown>>(row: T): T {
+    const keys = this.meta.secretFields;
+    if (!keys?.length) return row;
+    for (const k of keys) {
+      if (k in row) (row as Record<string, unknown>)[k] = maskSecret(row[k]);
+    }
+    return row;
   }
 
   /** 跨字段时间校验：结束时间须晚于开始时间（配置 meta.timeRange 时生效） */

@@ -19,7 +19,7 @@ import { currentUserName } from '../lib/noteAutoFill';
 // 注意组件内已有名为 api 的 prop，所以全局 api 必须起别名，否则会遮蔽。
 import { api as globalApi } from '../lib/api';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags' | 'password';
 
 export interface CrudColumn {
   key: string;
@@ -1107,6 +1107,15 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             <input className="form-input" type="date" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
           ) : c.type === 'datetime' ? (
             <input className="form-input" type="datetime-local" value={toDateTimeLocal(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
+          ) : c.type === 'password' ? (
+            // 凭证字段：后端读取侧恒返回掩码 ******，原样回传 = 不修改；输入新值才覆盖
+            <input
+              className="form-input"
+              type="password"
+              autoComplete="new-password"
+              value={str(form[c.key])}
+              onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}
+            />
           ) : (
             <input className="form-input" type="text" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
           )}

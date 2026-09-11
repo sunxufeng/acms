@@ -179,6 +179,19 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     searchFields: ['会议议题', '部门', '会议地点', '主持人'],
     sortField: '会议时间',
   },
+  // ── 开放平台（2026-09-11 新增）：外接系统应用凭证 ──
+  {
+    path: 'open-platform',
+    tableId: TABLES.openPlatformApp.tableId,
+    readPerm: 'openplatform:read',
+    writePerm: 'openplatform:write',
+    // ⚠️ 凭证字段：写入加密、读取掩码（前端原样回传掩码 = 不修改）
+    secretFields: ['App Secret'],
+    statusField: '状态',
+    defaultStatus: '启用',
+    searchFields: ['应用名称', '系统来源', 'App ID'],
+    sortField: '更新时间',
+  },
 ];
 
 /** 系统配置表（M6 运营工作台补充）：key-value 配置，仅管理员可写 */

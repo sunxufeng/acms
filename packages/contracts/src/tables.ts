@@ -88,6 +88,8 @@ export const TABLES = {
   // ⚠️ 不额外消耗上游额度：复用已经拉到的管理员快照，fire-and-forget 写入。
   // 记录 id = 笔记 ID（上游 note_id）。
   noteSnapshot: { tableId: 'tblnotesnap000001', name: '笔记快照表' },
+  /** 开放平台：外接系统的应用凭证（App ID / App Secret）。自建 SQL 表，启动期幂等建表。 */
+  openPlatformApp: { tableId: 'tblopenapp000001', name: '开放平台应用表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

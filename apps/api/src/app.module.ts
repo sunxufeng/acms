@@ -39,6 +39,7 @@ import { RoleManagementModule } from './role-management/role-management.module.j
 import { MailArchiveModule } from './mail-archive/mail-archive.module.js';
 import { GetnoteModule } from './getnote/getnote.module.js';
 import { NoteSnapshotModule } from './getnote/note-snapshot.module.js';
+import { OpenPlatformModule } from './open-platform/open-platform.module.js';
 import { GetnoteSourceModule } from './getnote/sources.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.meta.js';
@@ -82,6 +83,7 @@ import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.m
     MailArchiveModule,
     GetnoteModule,
     NoteSnapshotModule,
+    OpenPlatformModule,
     GetnoteSourceModule,
     ReportsModule,
     FieldMaskModule,

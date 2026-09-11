@@ -649,6 +649,20 @@ export const api = {
   updateDailyFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/daily-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveDailyFollowup: (id: string) => request<{ ok: boolean }>(`/daily-followups/${id}`, { method: 'DELETE' }),
 
+  /** 开放平台：外接系统应用凭证（2026-09-11 新增）。App Secret 读取侧恒为掩码 ****** */
+  listOpenPlatformApps: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/open-platform${q ? `?${q}` : ''}`);
+  },
+  getOpenPlatformApp: (id: string) => request<Record<string, unknown>>(`/open-platform/${id}`),
+  createOpenPlatformApp: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/open-platform', { method: 'POST', body: JSON.stringify(data) }),
+  updateOpenPlatformApp: (id: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/open-platform/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveOpenPlatformApp: (id: string) => request<{ ok: boolean }>(`/open-platform/${id}`, { method: 'DELETE' }),
+
   /** 会议纪要（组织管理域，2026-09-11 新增）：与日常跟进同构，主体为部门 */
   listMeetingMinutes: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();

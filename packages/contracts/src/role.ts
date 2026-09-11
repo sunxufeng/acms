@@ -108,6 +108,7 @@ export const PERMISSIONS = [
   'admin:user',
   'admin:studentUser',
   'admin:audit',
+  'admin:monitor',
   'config:read',
   'config:write',
   // AI 域（来自 acaily 迁移）：对话对所有登录用户开放；配置/自动化/管理仅系统管理员
@@ -214,6 +215,7 @@ const PERMISSION_LABEL_OVERRIDES: Record<string, string> = {
   'admin:user': '用户管理',
   'admin:studentUser': '学生账号',
   'admin:audit': '审计查看',
+  'admin:monitor': '系统监控',
   'config:read': '配置查看',
   'config:write': '配置编辑',
   'ai:chat': 'AI 对话',

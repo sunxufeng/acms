@@ -23,6 +23,7 @@ import { GenericCrudModule } from './shared/generic-crud.module.js';
 import { FieldMaskModule } from './shared/field-mask.module.js';
 import { DepartmentModule } from './department/department.module.js';
 import { MeetingMinutesModule } from './meeting-minutes/meeting-minutes.module.js';
+import { SystemMonitorModule } from './system-monitor/system-monitor.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { Student360Module } from './student-360/student-360.module.js';
 import { IdpModule } from './idp/idp.module.js';
@@ -84,6 +85,7 @@ import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.m
     FieldMaskModule,
     DepartmentModule,
     MeetingMinutesModule,
+    SystemMonitorModule,
   ],
 })
 export class AppModule {}

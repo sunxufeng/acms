@@ -873,6 +873,9 @@ export const api = {
 
   // ── 角色管理 ───────────────────────────────
   getRoleManagement: () => request<RoleManagementPayload>('/role-management'),
+
+  // ── 系统监控（需 admin:monitor 权限） ─────
+  systemStatus: () => request<SystemStatusPayload>('/system/status'),
   createRole: (data: { key: string; label?: string; permissions: string[]; maxDataLevel: string; menus?: string[] }) =>
     request<RoleManagementPayload>('/role-management', { method: 'POST', body: JSON.stringify(data) }),
   updateRole: (key: string, data: { label?: string; permissions?: string[]; maxDataLevel?: string; menus?: string[] }) =>
@@ -1184,6 +1187,47 @@ export interface PermissionsPayload {
   /** 可见菜单白名单（restricted=false 时不限制） */
   myMenus?: string[];
   myMenuRestricted?: boolean;
+}
+
+/** 系统监控快照：任一分区采集失败时该分区为 null 或 ok:false，页面降级显示「不可用」 */
+export interface SystemStatusPayload {
+  collectedAt: string;
+  host: {
+    hostname: string;
+    platform: string;
+    cpuModel: string;
+    cpuCores: number;
+    load1: number;
+    load5: number;
+    load15: number;
+    memTotalText: string;
+    memUsedText: string;
+    memUsagePercent: number;
+    disk: {
+      totalText: string;
+      usedText: string;
+      availableText: string;
+      usagePercent: number;
+    } | null;
+    uptimeText: string;
+  } | null;
+  app: {
+    pid: number;
+    nodeVersion: string;
+    uptimeText: string;
+    startedAt: string;
+    rssText: string;
+    heapUsedText: string;
+    slot: string | null;
+    buildId: string | null;
+  } | null;
+  deps: {
+    postgres: { ok: boolean; dbSizeText?: string; tableCount?: number; connections?: number };
+    redis: { ok: boolean; keys?: number; memoryText?: string };
+  } | null;
+  services: { name: string; unit: string; active: 'active' | 'inactive' | 'unknown'; detail?: string }[];
+  backups: { ok: boolean; dir: string; items: { name: string; sizeText: string; at: string | null }[] };
+  errors: { ok: boolean; unit: string | null; lines: string[] };
 }
 
 export interface RoleManagementPayload {

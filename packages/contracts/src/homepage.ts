@@ -339,6 +339,7 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'notifications', label: '通知任务', enLabel: 'Notifications', href: '/notifications', icon: 'notifications', section: '后台管理', order: 60, perm: 'notification:read' },
     { key: 'notification-templates', label: '通知模板', enLabel: 'Notification Templates', href: '/notification-templates', icon: 'notifications', section: '后台管理', order: 70, perm: 'notification:write' },
     { key: 'settings', label: '系统设置', enLabel: 'Settings', href: '/settings', icon: 'settings', section: '后台管理', order: 80, adminOnly: true },
+    { key: 'system-monitor', label: '系统监控', enLabel: 'System Monitor', href: '/system-monitor', icon: 'chart', section: '后台管理', order: 85, adminOnly: true, perm: 'admin:monitor' },
     { key: 'attendance-zones', label: '考勤围栏', enLabel: 'Attendance Zones', href: '/attendance-zones', icon: 'settings', section: '后台管理', order: 90, adminOnly: true },
     { key: 'wechat-bindings', label: '微信用户', enLabel: 'WeChat Users', href: '/wechat-bindings', icon: 'userGroup', section: '后台管理', order: 100, adminOnly: true },
     { key: 'homepage-management', label: '工作台主题', enLabel: 'Dashboard Theme', href: '/homepage-management', icon: 'settings', section: '后台管理', order: 105, adminOnly: true },

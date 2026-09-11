@@ -892,20 +892,19 @@ function PhotoAttachmentSection({
   useEffect(() => {
     let alive = true;
     const collected: { openId: string; name: string; role?: string; campus?: string; teacherType?: string }[] = [];
-    const fetchPage = async (token?: string): Promise<void> => {
-      const params: Record<string, string | undefined> = { pageSize: '100' };
-      if (token) params.pageToken = token;
-      const p = await api.listUsers(params);
-      for (const u of p.items) {
+    const fetchPage = async (): Promise<void> => {
+      // ⚠️ 用 /users/directory（全员可读）而不是 listUsers（需 admin:user）：
+      // 班主任/招生老师等一线角色没有 admin:user，用后者会 403，选择器永远为空。
+      const list = await api.listUserDirectory();
+      for (const u of list) {
         collected.push({
-          openId: String(u['飞书 Open ID'] ?? ''),
-          name: String(u['姓名'] ?? ''),
-          role: joinLabels(u['系统角色']),
-          campus: String(u['默认校区'] ?? ''),
-          teacherType: String(u['教师类型'] ?? ''),
+          openId: u.openId,
+          name: u.name,
+          role: joinLabels(u.roles),
+          campus: u.campus,
+          teacherType: u.teacherType,
         });
       }
-      if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
     };
     fetchPage()
       .then(() => {

@@ -124,13 +124,11 @@ export default function PlanForm({ planId, onDone }: { planId?: string; onDone: 
   // 导师候选项：来自用户管理（用户「姓名」字段），可输入筛选。
   useEffect(() => {
     const collected: string[] = [];
-    const fetchPage = async (token?: string): Promise<void> => {
-      const p = await api.listUsers({ pageSize: '100', pageToken: token });
-      for (const u of p.items) {
-        const name = String(u['姓名'] ?? '');
-        if (name) collected.push(name);
-      }
-      if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
+    const fetchPage = async (): Promise<void> => {
+      // ⚠️ 用 /users/names（全员可读）而不是 listUsers（需 admin:user），
+      // 否则非管理员角色的导师下拉永远为空。这里只需要姓名。
+      const names = await api.listUserNames();
+      for (const n of names) if (n) collected.push(n);
     };
     fetchPage()
       .then(() => setMentors(Array.from(new Set(collected)).sort((a, b) => a.localeCompare(b, 'zh-CN')).map((n) => ({ value: n, label: n }))))

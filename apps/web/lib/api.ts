@@ -794,6 +794,12 @@ export const api = {
   /** 人员姓名列表：全员可读、只返回姓名，供主持人/记录人等下拉使用
    *  （listUsers 需要 admin:user，普通角色会 403 导致下拉为空） */
   listUserNames: () => request<string[]>('/users/names'),
+  /** 人员目录：全员可读，含 Open ID / 教师类型 / 校区 / 角色（不含密级、账号状态）。
+   *  班主任、招生老师等字段存的是 Open ID，只拿姓名无法完成还原。 */
+  listUserDirectory: () =>
+    request<{ name: string; openId: string; teacherType: string; campus: string; roles: string[] }[]>(
+      '/users/directory',
+    ),
   listUsers: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);

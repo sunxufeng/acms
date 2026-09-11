@@ -77,6 +77,36 @@ export class UsersService {
     return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, 'zh-CN'));
   }
 
+  /**
+   * 人员目录（全员可读）：姓名 + 飞书 Open ID + 教师类型 + 默认校区 + 系统角色。
+   *
+   * 用途：学生列表的「班主任 / 招生老师」筛选、学生表单的班主任与招生负责老师选择器、
+   * AI 自动化的收件人选择器 —— 这些字段在系统里**存的是 Open ID**，
+   * 只拿姓名无法完成「所选姓名 → Open ID」的还原，筛选与写入都会失效。
+   *
+   * ⚠️ 边界：不返回密级（dataLevel）、账号状态、邮箱、手机等敏感字段；
+   * 用户管理页的完整数据仍走 list()（admin:user）。
+   */
+  async listDirectory(): Promise<
+    { name: string; openId: string; teacherType: string; campus: string; roles: string[] }[]
+  > {
+    const raw = await this.fetchAll();
+    const out = raw.map((r) => {
+      const f = this.flat(r);
+      const roles = f['系统角色'];
+      return {
+        name: String(f['姓名'] ?? '').trim(),
+        openId: String(f['飞书 Open ID'] ?? '').trim(),
+        teacherType: String(f['教师类型'] ?? '').trim(),
+        campus: String(f['默认校区'] ?? '').trim(),
+        roles: Array.isArray(roles) ? roles.map((x) => String(x)) : roles ? [String(roles)] : [],
+      };
+    });
+    return out
+      .filter((u) => u.name && u.openId)
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  }
+
   async list(
     user: SessionUser,
     query: { q?: string; pageSize?: string; pageToken?: string } = {},

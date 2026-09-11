@@ -56,15 +56,13 @@ export function AutomationForm({ initial, onDone }: { initial?: Partial<Auto>; o
   useEffect(() => {
     let alive = true;
     const collected: UserOption[] = [];
-    const fetchPage = async (token?: string): Promise<void> => {
-      const params: Record<string, string | undefined> = { pageSize: '100' };
-      if (token) params.pageToken = token;
-      const p = await api.listUsers(params);
-      for (const u of p.items) {
-        const openId = String(u['飞书 Open ID'] ?? '');
-        if (openId) collected.push({ openId, name: String(u['姓名'] ?? ''), role: joinLabels(u['系统角色']) });
+    const fetchPage = async (): Promise<void> => {
+      // ⚠️ 用 /users/directory（全员可读）而不是 listUsers（需 admin:user），
+      // 否则非管理员配自动化时收件人选择器为空。
+      const list = await api.listUserDirectory();
+      for (const u of list) {
+        if (u.openId) collected.push({ openId: u.openId, name: u.name, role: joinLabels(u.roles) });
       }
-      if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
     };
     fetchPage()
       .then(() => {

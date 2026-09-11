@@ -2,7 +2,7 @@ import { Inject, Injectable, ForbiddenException, Logger } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
-import { TABLES } from '@acms/contracts';
+import { TABLES, USER_TABLE } from '@acms/contracts';
 import { BASE_CLIENT, getSqlStore } from '../base.provider.js';
 import { LoginLogService } from '../login-log/login-log.service.js';
 
@@ -13,7 +13,12 @@ function toPrincipal(user: SessionUser): Principal {
 /** 报表维度字段：保留真实值（分组统计与筛选需要） */
 const DIMENSION_FIELDS: readonly string[] = [
   '校区', '当前年级', '入学年级', '入学年份', '是否是新生', '性别',
+  // 2026-09-11 新增：学生结构概览要按这些维度统计
+  '班主任', '招生负责老师', '升学导师', '当前状态',
 ];
+
+/** 存的是 open_id、但报表里要显示姓名的人员字段 */
+const PERSON_FIELDS = new Set(['班主任', '招生负责老师', '升学导师']);
 
 /**
  * 参与「档案完整度」统计的字段。
@@ -39,10 +44,31 @@ function hasValue(v: unknown): boolean {
   return true;
 }
 
+/** 人员字段的取值可能是字符串 open_id、数组、或 [{ id, text }]，统一取出 id 列表 */
+function personIds(v: unknown): string[] {
+  if (v == null || v === '') return [];
+  if (Array.isArray(v)) return v.flatMap((x) => personIds(x));
+  if (typeof v === 'object') {
+    const o = v as { id?: string; open_id?: string; text?: string };
+    const id = o.id ?? o.open_id ?? '';
+    return id ? [String(id)] : [];
+  }
+  return [String(v)];
+}
+
+/** 人员字段显示名：能解析到姓名就显示姓名，否则原样回退（不隐藏、不报错） */
+function personLabel(v: unknown, names?: Map<string, string>): string {
+  const ids = personIds(v);
+  if (ids.length === 0) return '';
+  return ids.map((id) => names?.get(id) ?? id).join('、');
+}
+
 /** 只保留报表所需字段；非维度字段一律降级为「有无」占位符，避免泄露学生明细 */
-function project(fields: Record<string, unknown>): Record<string, unknown> {
+function project(fields: Record<string, unknown>, names?: Map<string, string>): Record<string, unknown> {
   const row: Record<string, unknown> = {};
-  for (const k of DIMENSION_FIELDS) row[k] = fields[k] ?? '';
+  for (const k of DIMENSION_FIELDS) {
+    row[k] = PERSON_FIELDS.has(k) ? personLabel(fields[k], names) : (fields[k] ?? '');
+  }
   for (const k of COMPLETENESS_FIELDS) {
     if (DIMENSION_FIELDS.includes(k)) continue;
     row[k] = hasValue(fields[k]) ? PLACEHOLDER : '';
@@ -71,6 +97,8 @@ function toEpochMs(v: unknown): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
+let nameCache: { at: number; map: Map<string, string> } | null = null;
+
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
@@ -81,6 +109,37 @@ export class ReportsService {
   ) {}
 
   /**
+   * open_id → 姓名映射（5 分钟内存缓存）。
+   * 学生档案里「班主任 / 招生负责老师 / 升学导师」存的是 open_id，
+   * 报表要显示姓名；直接展示 open_id 没人看得懂，展示失败又不能整个报表报错。
+   */
+  private async personNameMap(): Promise<Map<string, string>> {
+    if (nameCache && Date.now() - nameCache.at < 5 * 60 * 1000) return nameCache.map;
+    const map = new Map<string, string>();
+    try {
+      let token: string | undefined;
+      for (let i = 0; i < 10; i += 1) {
+        const page = await this.base.search(USER_TABLE.tableId, {
+          pageSize: 200,
+          ...(token ? { pageToken: token } : {}),
+        });
+        for (const r of page.items ?? []) {
+          const f = ((r as { fields?: Record<string, unknown> }).fields ?? r) as Record<string, unknown>;
+          const openId = String(f['飞书 Open ID'] ?? '');
+          const name = String(f['姓名'] ?? '');
+          if (openId && name) map.set(openId, name);
+        }
+        if (!page.hasMore || !page.pageToken) break;
+        token = page.pageToken;
+      }
+    } catch {
+      /* 解析失败就退回显示原值 */
+    }
+    nameCache = { at: Date.now(), map };
+    return map;
+  }
+
+  /**
    * 报表专用学生数据（权限点 `report:read`，与 `student:read` 解耦）。
    * 只返回维度字段真值 + 完整度占位符，不含姓名/联系方式等明细。
    */
@@ -88,6 +147,7 @@ export class ReportsService {
     if (!authorize(toPrincipal(user), 'report:read').allowed) {
       throw new ForbiddenException('FORBIDDEN:report:read');
     }
+    const names = await this.personNameMap();
     const out: Record<string, unknown>[] = [];
     let token: string | undefined;
     for (let i = 0; i < 20; i += 1) {

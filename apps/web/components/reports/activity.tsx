@@ -5,18 +5,6 @@ import { api, type ActivityPayload } from '../../lib/api';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-function today(): string {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-function daysAgo(n: number): string {
-  const d = new Date(Date.now() - n * 86_400_000);
-  const p = (x: number) => String(x).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
 function fmtTime(ms: number | null): string {
   if (!ms) return '—';
   const d = new Date(ms);
@@ -48,9 +36,7 @@ function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-export function ActivityPanel() {
-  const [from, setFrom] = useState(daysAgo(29));
-  const [to, setTo] = useState(today());
+export function ActivityPanel({ from, to }: { from: string; to: string }) {
   const [data, setData] = useState<ActivityPayload | null>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
@@ -70,7 +56,7 @@ export function ActivityPanel() {
   useEffect(() => {
     void load(from, to);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [from, to]);
 
   const maxHour = useMemo(() => Math.max(1, ...(data?.byHour ?? [0])), [data]);
   const maxCell = useMemo(
@@ -80,40 +66,6 @@ export function ActivityPanel() {
 
   return (
     <div>
-      {/* 时间范围 */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
-        <input type="date" className="form-input" value={from} onChange={(e) => setFrom(e.target.value)} style={{ fontSize: 'var(--font-sm)' }} />
-        <span style={{ color: 'var(--fg-tertiary)' }}>至</span>
-        <input type="date" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} style={{ fontSize: 'var(--font-sm)' }} />
-        <button className="btn btn-outline" disabled={loading} onClick={() => void load(from, to)}>
-          {loading ? '查询中…' : '查询'}
-        </button>
-        <button
-          className="btn btn-ghost"
-          onClick={() => {
-            const f = daysAgo(6);
-            const t = today();
-            setFrom(f);
-            setTo(t);
-            void load(f, t);
-          }}
-        >
-          近 7 天
-        </button>
-        <button
-          className="btn btn-ghost"
-          onClick={() => {
-            const f = daysAgo(29);
-            const t = today();
-            setFrom(f);
-            setTo(t);
-            void load(f, t);
-          }}
-        >
-          近 30 天
-        </button>
-      </div>
-
       {err ? (
         <div style={{ color: 'var(--fg-error)', fontSize: 'var(--font-sm)', marginBottom: '1rem' }}>{err}</div>
       ) : null}

@@ -3,16 +3,6 @@
 import { useEffect, useState } from 'react';
 import { api, type NoteStatsPayload } from '../../lib/api';
 
-function today(): string {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-function daysAgo(n: number): string {
-  const d = new Date(Date.now() - n * 86_400_000);
-  const p = (x: number) => String(x).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
 function fmtTime(ms: number | null): string {
   if (!ms) return '—';
   const d = new Date(ms);
@@ -93,9 +83,7 @@ function ConfigList({ items }: { items: { source: string; count: number }[] }) {
   );
 }
 
-export function NotesPanel() {
-  const [from, setFrom] = useState(daysAgo(29));
-  const [to, setTo] = useState(today());
+export function NotesPanel({ from, to, onSynced }: { from: string; to: string; onSynced?: () => void }) {
   const [data, setData] = useState<NoteStatsPayload | null>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
@@ -120,7 +108,10 @@ export function NotesPanel() {
     try {
       const r = await api.syncNoteSnapshot();
       setSyncMsg(r.ok ? `已同步 ${r.count} 篇笔记` : `同步失败：${r.message ?? '未知原因'}`);
-      if (r.ok) await load(from, to);
+      if (r.ok) {
+        await load(from, to);
+        onSynced?.();
+      }
     } catch (e) {
       setSyncMsg(`同步失败：${(e as Error).message}`);
     } finally {
@@ -131,41 +122,11 @@ export function NotesPanel() {
   useEffect(() => {
     void load(from, to);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [from, to]);
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
-        <input type="date" className="form-input" value={from} onChange={(e) => setFrom(e.target.value)} style={{ fontSize: 'var(--font-sm)' }} />
-        <span style={{ color: 'var(--fg-tertiary)' }}>至</span>
-        <input type="date" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} style={{ fontSize: 'var(--font-sm)' }} />
-        <button className="btn btn-outline" disabled={loading} onClick={() => void load(from, to)}>
-          {loading ? '查询中…' : '查询'}
-        </button>
-        <button
-          className="btn btn-ghost"
-          onClick={() => {
-            const f = daysAgo(6);
-            const t = today();
-            setFrom(f);
-            setTo(t);
-            void load(f, t);
-          }}
-        >
-          近 7 天
-        </button>
-        <button
-          className="btn btn-ghost"
-          onClick={() => {
-            const f = daysAgo(29);
-            const t = today();
-            setFrom(f);
-            setTo(t);
-            void load(f, t);
-          }}
-        >
-          近 30 天
-        </button>
         <button className="btn btn-primary" disabled={syncing} onClick={() => void sync()}>
           {syncing ? '同步中…' : '立即同步笔记'}
         </button>

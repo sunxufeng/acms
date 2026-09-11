@@ -89,9 +89,43 @@ export function StudentOverview({ rows }: { rows: Row[] }) {
           <BarRow key={k} label={tl(k)} value={c} max={maxC} suffix={tl('人')} />
         ))}
       </Panel>
+
+      {/* 六个业务维度：按当前年级 / 入学年份 / 班主任 / 招生负责老师 / 升学导师 / 当前状态 统计
+          （2026-09-11 新增，都随顶部查询条件联动） */}
+      {DIMENSION_PANELS.map(({ key, title }) => {
+        const dist = countBy(rows, key);
+        const max = Math.max(1, ...dist.map(([, c]) => c));
+        return (
+          <Panel key={key} title={tl(title)}>
+            {dist.length === 0 ? (
+              <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{tl('暂无数据')}</div>
+            ) : (
+              dist.map(([k, c]) => (
+                <BarRow
+                  key={k}
+                  label={k === '(空)' ? tl('未填写') : tl(k)}
+                  value={c}
+                  max={max}
+                  suffix={tl('人')}
+                />
+              ))
+            )}
+          </Panel>
+        );
+      })}
     </>
   );
 }
+
+/** 学生结构概览的维度统计面板（顺序即展示顺序） */
+const DIMENSION_PANELS: { key: string; title: string }[] = [
+  { key: '当前年级', title: '按当前年级' },
+  { key: '入学年份', title: '按入学年份' },
+  { key: '班主任', title: '按班主任' },
+  { key: '招生负责老师', title: '按招生负责老师' },
+  { key: '升学导师', title: '按升学导师' },
+  { key: '当前状态', title: '按当前状态' },
+];
 
 /* ── 2. 年级升级流向 ───────────────────────────── */
 export function GradeFlow({ rows }: { rows: Row[] }) {

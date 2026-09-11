@@ -1921,7 +1921,17 @@
     "👤 管理员": "👤 Admin",
     "🔍 搜索": "🔍 Search",
     "（字典「学生维度」加载中或为空）": "(Dictionary «Student Dimension» is loading or empty)",
-    "（无分组）": "(No Group)"
+    "（无分组）": "(No Group)",
+    "张可用": "Available reports",
+    "查询条件": "Filters",
+    "近 7 天": "Last 7 days",
+    "近 30 天": "Last 30 days",
+    "近 90 天": "Last 90 days",
+    "按当前年级": "By current grade",
+    "按班主任": "By homeroom teacher",
+    "按招生负责老师": "By admissions teacher",
+    "按升学导师": "By college counselor",
+    "按当前状态": "By current status"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

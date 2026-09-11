@@ -66,11 +66,21 @@ export const COLUMNS: CrudColumn[] = [
   },
   { key: '主持人', label: '主持人', width: '100px', form: true, type: 'person' },
   { key: '记录人', label: '记录人', width: '100px', list: false, form: true, type: 'person' },
-  { key: '参会人员', label: '参会人员', width: '160px', list: false, form: true, type: 'textarea' },
-  { key: '缺席人员', label: '缺席人员', width: '160px', list: false, form: true, type: 'textarea' },
-  { key: '列席人员', label: '列席人员', width: '160px', list: false, form: true, type: 'textarea' },
-  { key: '会议明细', label: '会议明细（MD 会议记录）', list: false, form: true, type: 'markdown' },
+  // 参会/缺席/列席都是「人名清单」，用单行输入框即可（textarea 太高，表单被拉得很长）
+  { key: '参会人员', label: '参会人员', width: '160px', list: false, form: true, type: 'text' },
+  { key: '缺席人员', label: '缺席人员', width: '160px', list: false, form: true, type: 'text' },
+  { key: '列席人员', label: '列席人员', width: '160px', list: false, form: true, type: 'text' },
+  // 会议总结放在会议明细之前：先看清结论，再看原始记录
   { key: '会议总结', label: '会议总结（纪要）', list: false, form: true, type: 'markdown' },
+  {
+    key: '会议明细',
+    label: '会议明细（MD 会议记录）',
+    list: false,
+    form: true,
+    type: 'markdown',
+    // 受写权限保护：无 create/update 权限者只能浏览，不显示 MD tab 与「MD导入」
+    mdProtected: true,
+  },
   { key: '待办事宜', label: '待办事宜', list: false, form: true, type: 'textarea' },
   {
     key: '状态',
@@ -92,6 +102,121 @@ export const COLUMNS: CrudColumn[] = [
     dictKey: '信息敏感级别',
   },
 ];
+
+/**
+ * 从「会议总结 / 会议明细」文本里抽取结构化字段，供**笔记转换预填**使用。
+ *
+ * 为什么用规则而不是调 AI：
+ *  - 转换是高频动作，每次都打一次模型既慢又费额度，还依赖用户自己的 AI 配置；
+ *  - Get笔记 的总结有稳定套路（「会议主题：」「参会人员：」这类标题行），规则命中率足够；
+ *  - 规则零依赖、可预测，抽错了用户一眼能看出来并在表单里改。
+ *
+ * ⚠️ 只填**表单里真实存在且当前为空**的字段，已有值（笔记映射写进来的）不覆盖。
+ */
+const FIELD_PATTERNS: { key: string; patterns: RegExp[] }[] = [
+  { key: '会议议题', patterns: [/会议议题\s*[:：]\s*(.+)/, /会议主题\s*[:：]\s*(.+)/, /议题\s*[:：]\s*(.+)/, /主题\s*[:：]\s*(.+)/] },
+  { key: '会议地点', patterns: [/会议地点\s*[:：]\s*(.+)/, /地点\s*[:：]\s*(.+)/] },
+  { key: '主持人', patterns: [/主持人\s*[:：]\s*(.+)/, /主持\s*[:：]\s*(.+)/] },
+  { key: '记录人', patterns: [/记录人\s*[:：]\s*(.+)/, /纪要员\s*[:：]\s*(.+)/] },
+  { key: '参会人员', patterns: [/参会人员\s*[:：]\s*(.+)/, /出席人员\s*[:：]\s*(.+)/, /参会\s*[:：]\s*(.+)/, /出席\s*[:：]\s*(.+)/] },
+  { key: '缺席人员', patterns: [/缺席人员\s*[:：]\s*(.+)/, /缺席\s*[:：]\s*(.+)/, /请假\s*[:：]\s*(.+)/] },
+  { key: '列席人员', patterns: [/列席人员\s*[:：]\s*(.+)/, /列席\s*[:：]\s*(.+)/] },
+];
+
+/** 行首可能是 Markdown 的 #、**、- 等符号，先清掉再匹配 */
+function cleanLine(line: string): string {
+  return line.replace(/^[\s>#\-*·]+/, '').replace(/\*\*/g, '').trim();
+}
+
+function firstMatch(text: string, patterns: RegExp[]): string {
+  for (const line of text.split(/\r?\n/)) {
+    const cleaned = cleanLine(line);
+    if (!cleaned) continue;
+    for (const re of patterns) {
+      const m = cleaned.match(re);
+      if (m?.[1]) {
+        const v = m[1].trim().replace(/\s{2,}/g, ' ');
+        // 截断到行尾多余的分隔符前，避免把后面半句话也吃进来
+        return v.split(/[；;]/)[0]?.trim() || v;
+      }
+    }
+  }
+  return '';
+}
+
+/** 抽取日期：2026-09-10 / 2026/9/10 / 2026年9月10日 */
+function pickDate(text: string): string {
+  const m =
+    text.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/) ??
+    text.match(/会议时间\s*[:：]\s*(20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2})/);
+  if (!m) return '';
+  const y = m[1] ?? '';
+  const mo = String(m[2] ?? '').padStart(2, '0');
+  const d = String(m[3] ?? '').padStart(2, '0');
+  return `${y}-${mo}-${d}`;
+}
+
+/** 抽取时刻：09:00 / 9点 / 9:30 */
+function pickTime(text: string, keywords: string[]): string {
+  for (const kw of keywords) {
+    const re = new RegExp(`${kw}\\s*[:：]?\\s*(?:20\\d{2}[-/.年]\\d{1,2}[-/.月]\\d{1,2}\\s*)?(\\d{1,2})\\s*[:：点時时]\\s*(\\d{2})?`);
+    const m = text.match(re);
+    if (m) {
+      const h = String(m[1] ?? '').padStart(2, '0');
+      const mi = String(m[2] ?? '00').padStart(2, '0');
+      return `${h}:${mi}`;
+    }
+  }
+  return '';
+}
+
+/**
+ * 从笔记转换预填的内容里解析会议字段。
+ * 解析源优先级：会议总结 > 会议明细（总结更凝练、字段名更规整）。
+ */
+export function parseMeetingFromSummary(values: Record<string, unknown>): Record<string, unknown> {
+  const src = String(values['会议总结'] ?? values['会议明细'] ?? '');
+  if (!src.trim()) return values;
+
+  const out: Record<string, unknown> = { ...values };
+  const has = (k: string) => {
+    const v = out[k];
+    return v != null && String(v).trim() !== '';
+  };
+
+  for (const { key, patterns } of FIELD_PATTERNS) {
+    if (has(key)) continue;
+    const v = firstMatch(src, patterns);
+    if (v) out[key] = v;
+  }
+
+  // 时间与时刻用「清掉 Markdown 记号」的文本匹配：
+  // 笔记里常写成 `- **开始时间**：09:00`，不清理的话 `**` 会卡在冒号位置导致漏抽。
+  const plain = src
+    .split(/\r?\n/)
+    .map(cleanLine)
+    .join('\n');
+
+  if (!has('会议时间')) {
+    const d = pickDate(plain);
+    if (d) out['会议时间'] = d;
+  }
+
+  // 起止时刻：拼成 datetime-local 能识别的 "YYYY-MM-DDTHH:mm"
+  const date = String(out['会议时间'] ?? pickDate(plain) ?? '').trim();
+  if (date) {
+    if (!has('开始时间')) {
+      const t = pickTime(plain, ['开始时间', '会议开始', '开始']);
+      if (t) out['开始时间'] = `${date}T${t}`;
+    }
+    if (!has('结束时间')) {
+      const t = pickTime(plain, ['结束时间', '会议结束', '结束']);
+      if (t) out['结束时间'] = `${date}T${t}`;
+    }
+  }
+
+  return out;
+}
 
 export function deptName(row: Record<string, unknown>): string {
   const v = row['部门'];

@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { COLUMNS, deptName } from './columns';
+import { COLUMNS, deptName, parseMeetingFromSummary } from './columns';
 
 function str(v: unknown): string {
   if (v == null) return '';
@@ -69,6 +69,10 @@ export default function MeetingMinutesPage() {
         subtitle="部门会议记录与决议闭环（组织管理域）"
         search={{ placeholder: '搜索会议议题…' }}
         columns={COLUMNS}
+        // 模块 key：让按钮级授权、导入按钮、以及「会议明细」的写权限保护都能生效
+        moduleKey="meetingMinutes"
+        // 从笔记转换进来时，按会议总结文案自动识别议题/地点/时间/人员等字段
+        enrichPrefill={parseMeetingFromSummary}
         statusField="状态"
         // 会议时间范围筛选（后端 rangeField='会议时间'，走 listDeep 内存过滤）
         rangeFilters={[{ key: 'meetingTime', label: '会议时间', fromParam: 'from', toParam: 'to' }]}

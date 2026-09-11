@@ -34,9 +34,11 @@ export default function MarkdownField({
   placeholder,
 }: MarkdownFieldProps) {
   const t = useTranslations('common');
-  const [tab, setTab] = useState<'md' | 'view'>('md');
-  const fileRef = useRef<HTMLInputElement>(null);
+  // ⚠️ 无编辑权限时默认落在「浏览」：会议明细这类受控字段，用户先看渲染结果，
+  //    而不是一进来就看到一个能点却只读的编辑框（体验上像坏了）。
   const editable = typeof onChange === 'function';
+  const [tab, setTab] = useState<'md' | 'view'>(editable ? 'md' : 'view');
+  const fileRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -60,6 +62,8 @@ export default function MarkdownField({
 
       <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-input, var(--bg-elevated))' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderBottom: '1px solid var(--border)', background: 'var(--bg-hover, rgba(127,127,127,0.06))' }}>
+          {/* 无编辑权限时整个 MD tab 都不出现，导入按钮同理（下面 editable 分支已控制） */}
+          {editable && (
           <button
             type="button"
             onClick={() => setTab('md')}
@@ -68,6 +72,7 @@ export default function MarkdownField({
           >
             {t('mdTabMd')}
           </button>
+          )}
           <button
             type="button"
             onClick={() => setTab('view')}
@@ -93,7 +98,7 @@ export default function MarkdownField({
           )}
         </div>
 
-        {tab === 'md' ? (
+        {editable && tab === 'md' ? (
           <textarea
             className="form-input"
             value={value}

@@ -61,6 +61,12 @@ export interface CrudColumn {
   quickFill?: 'wifi';
   /** 表单字段只读（渲染为 disabled）。用于「展示但不可编辑」的派生字段，如从详情接口回填的原始记录 */
   readonly?: boolean;
+  /**
+   * Markdown 字段受「模块写权限」保护：只有对该模块有 create / update 权限的人
+   * 才能切到 MD 编辑 tab 与使用「MD导入」；无权限者只能浏览渲染结果。
+   * 用于会议明细这类正式记录，避免被随意改写。（需要页面传 moduleKey 才生效）
+   */
+  mdProtected?: boolean;
 }
 
 /** 时间范围筛选（如审计日志按操作时间区间过滤） */
@@ -118,6 +124,12 @@ export interface CrudPageProps {
   editHref?: (id: string) => string;
   /** 点击 openRecord 列（如学生姓名）时跳转到只读详情页（行 id → href），而非打开编辑表单 */
   detailHref?: (id: string) => string;
+  /**
+   * 预填增强：笔记转换时，目标模块可据此从已预填的长文本里**再解析出其它字段**
+   * （如会议纪要按「会议总结」文案自动识别议题 / 地点 / 时间 / 主持人等）。
+   * 只在转换场景调用；解析是纯函数，抛错也不影响主流程。
+   */
+  enrichPrefill?: (values: Record<string, unknown>) => Record<string, unknown>;
   /** studentLink 列（关联学生姓名）点击跳转：传入行，返回目标 href（如学生档案页） */
   studentDetailHref?: (row: Record<string, unknown>) => string;
   /** 行级自定义操作按钮（如「AI 总结」）。run(row, reload) 执行后刷新列表；前端仅在非只读模式渲染 */
@@ -250,7 +262,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -621,7 +633,16 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     convertNoteRef.current = payload.noteId
       ? { noteId: String(payload.noteId), noteTitle: String(payload.noteTitle ?? ''), moduleLabel: payload.label }
       : null;
-    openCreate(payload.values ?? {});
+    // 预填增强：让目标模块从长文本里再解析出结构化字段（解析失败就退回原值）
+    let values = payload.values ?? {};
+    if (enrichPrefill) {
+      try {
+        values = enrichPrefill(values);
+      } catch {
+        /* 解析失败不影响预填 */
+      }
+    }
+    openCreate(values);
     // 必须在 openCreate 之后设：openCreate 会把它重置为 false
     strictRequiredRef.current = true;
     // 仅在挂载时执行一次：openCreate 每次渲染都是新函数，进依赖数组会反复触发
@@ -962,7 +983,17 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               }}
             />
           ) : c.type === 'markdown' ? (
-            <MarkdownField value={str(form[c.key])} onChange={c.readonly ? undefined : (v) => setForm((f) => ({ ...f, [c.key]: v }))} height={c.fieldHeight ?? 300} />
+            <MarkdownField
+              value={str(form[c.key])}
+              // 受保护字段：无模块写权限（create / update 都没有）时传 undefined →
+              // MarkdownField 进入只读浏览态，隐藏 MD tab 与导入按钮
+              onChange={
+                c.readonly || (c.mdProtected && !canCreate && !canUpdate)
+                  ? undefined
+                  : (v) => setForm((f) => ({ ...f, [c.key]: v }))
+              }
+              height={c.fieldHeight ?? 300}
+            />
           ) : c.type === 'select' ? (
             <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
               <option value="">{t('common.notFilled')}</option>

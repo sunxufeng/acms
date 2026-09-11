@@ -311,6 +311,7 @@ export class ReportsService {
     const converts: { module: string; at: number; by: string }[] = [];
     let convertRaw = 0;
     let convertSample: string[] | null = null;
+    let convertFirst: Record<string, unknown> | null = null;
     try {
       // 转换记录是 ACMS 自建/本地表，优先直连 PG（避免飞书路由不通导致静默空结果）
       const store = (getSqlStore() ?? this.base) as Pick<BaseClient, 'search'>;
@@ -324,6 +325,14 @@ export class ReportsService {
         for (const r of page.items ?? []) {
           const f = rowsOf(r);
           if (!convertSample) convertSample = Object.keys(f).slice(0, 8);
+          if (!convertFirst) {
+            convertFirst = {
+              raw: f['转换时间'],
+              type: typeof f['转换时间'],
+              num: Number(f['转换时间'] ?? 0),
+              keys: Object.keys(f),
+            };
+          }
           // ⚠️ 转换记录的时间字段叫「转换时间」（毫秒），不是审计的「创建时间」——
           // 取错字段会让转换次数恒为 0（2026-09-11 踩过）。
           const at = Number(f['转换时间'] ?? f['创建时间'] ?? f['created_at'] ?? 0);
@@ -396,7 +405,7 @@ export class ReportsService {
       byModule: [...byModuleMap.values()].sort((a, b) => b.count - a.count),
       byConverter: [...byConverterMap.values()].sort((a, b) => b.count - a.count),
       byDay: [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
-      _debug: { convertRaw, convertSample, fromMs, toMs },
+      _debug: { convertRaw, convertSample, convertFirst, fromMs, toMs },
     };
   }
 }

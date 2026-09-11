@@ -71,6 +71,19 @@ export function pickDate(text: string): string {
   return `${y}-${mo}-${d}`;
 }
 
+/**
+ * 带标签的日期抽取：先找「会议时间：2026-09-10」这种明确标注，找不到再退回
+ * 全文第一个日期。正文里常常混着别的日期（「上次会议 9/1…」），有标签时更准。
+ */
+export function pickDateWith(text: string, keywords?: string[]): string {
+  for (const kw of keywords ?? []) {
+    const re = new RegExp(`${kw}\\s*[:：]?\\s*(20\\d{2})[-/.年](\\d{1,2})[-/.月](\\d{1,2})`);
+    const m = text.match(re);
+    if (m) return `${m[1]}-${String(m[2] ?? '').padStart(2, '0')}-${String(m[3] ?? '').padStart(2, '0')}`;
+  }
+  return pickDate(text);
+}
+
 /** 抽取时刻：09:00 / 9点 / 9:30 → HH:mm */
 export function pickTime(text: string, keywords: string[]): string {
   for (const kw of keywords) {
@@ -106,6 +119,11 @@ export interface NoteAutoFillSpec {
   patterns?: { key: string; patterns: RegExp[] }[];
   /** 需要拼成 `YYYY-MM-DDTHH:mm` 的日期时间字段 */
   datetime?: { key: string; dateKeywords?: string[]; timeKeywords: string[] };
+  /**
+   * 纯日期字段（表单里 type='date' 的列，如会议「会议时间」）——只填 YYYY-MM-DD。
+   * 带时刻会让 <input type="date"> 渲染成空框，所以跟 datetime 分开处理。
+   */
+  dateKeys?: { key: string; keywords?: string[] }[];
   /** 时长（分钟）字段 */
   durationKey?: string;
   /** 起止时刻字段（拼到日期后面），如会议的开始/结束时间 */
@@ -142,9 +160,16 @@ export function enrichFromNotes(
     return out;
   }
 
-  // 2) 日期时间：datetime-local 需要 YYYY-MM-DDTHH:mm
+  // 2) 纯日期字段（type='date' 的列）
+  for (const dk of spec.dateKeys ?? []) {
+    if (has(dk.key)) continue;
+    const d = pickDateWith(plain, dk.keywords);
+    if (d) out[dk.key] = d;
+  }
+
+  // 3) 日期时间：datetime-local 需要 YYYY-MM-DDTHH:mm
   if (spec.datetime && !has(spec.datetime.key)) {
-    const d = pickDate(plain);
+    const d = pickDateWith(plain, spec.datetime.dateKeywords);
     if (d) {
       const t = pickTime(plain, spec.datetime.timeKeywords);
       // 补 T00:00：<input type="datetime-local"> 只接受 YYYY-MM-DDTHH:mm，
@@ -153,22 +178,23 @@ export function enrichFromNotes(
     }
   }
 
-  // 3) 起止时刻
+  // 4) 起止时刻：日期优先用已解析出的日期字段，保证与「会议时间」是同一天
+  const baseDate =
+    (spec.dateKeys?.[0] ? String(out[spec.dateKeys[0].key] ?? '') : '') || pickDate(plain);
   for (const r of spec.ranges ?? []) {
     if (has(r.key)) continue;
-    const date = pickDate(plain);
-    if (!date) continue;
+    if (!baseDate) continue;
     const t = pickTime(plain, r.timeKeywords);
-    if (t) out[r.key] = `${date}T${t}`;
+    if (t) out[r.key] = `${baseDate}T${t}`;
   }
 
-  // 4) 时长
+  // 5) 时长
   if (spec.durationKey && !has(spec.durationKey)) {
     const v = pickDuration(plain);
     if (v) out[spec.durationKey] = v;
   }
 
-  // 5) 固定默认值（登录用户名等）最后填，优先级最低但能兜底
+  // 6) 固定默认值（登录用户名等）最后填，优先级最低但能兜底
   for (const [k, v] of Object.entries(defaults)) {
     if (v && !has(k)) out[k] = v;
   }

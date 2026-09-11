@@ -90,6 +90,10 @@ export const TABLES = {
   noteSnapshot: { tableId: 'tblnotesnap000001', name: '笔记快照表' },
   /** 开放平台：外接系统的应用凭证（App ID / App Secret）。自建 SQL 表，启动期幂等建表。 */
   openPlatformApp: { tableId: 'tblopenapp000001', name: '开放平台应用表' },
+  /** 卫瓴SCRM 联系人（从开放平台同步过来的只读副本） */
+  weilingContact: { tableId: 'tblwlcontact0001', name: '卫瓴联系人表' },
+  /** 卫瓴SCRM 对象字段描述缓存（api_name → 中文名 + 枚举选项） */
+  weilingField: { tableId: 'tblwlfield000001', name: '卫瓴字段描述表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

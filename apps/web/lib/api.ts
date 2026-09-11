@@ -649,6 +649,22 @@ export const api = {
   updateDailyFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/daily-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveDailyFollowup: (id: string) => request<{ ok: boolean }>(`/daily-followups/${id}`, { method: 'DELETE' }),
 
+  /** 卫瓴SCRM 联系人（2026-09-11 新增）：只读，数据由后台从卫瓴同步 */
+  listWeilingContacts: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/weiling-contacts${q ? `?${q}` : ''}`);
+  },
+  getWeilingContact: (id: string) => request<Record<string, unknown>>(`/weiling-contacts/${id}`),
+  weilingFields: (refresh?: boolean) =>
+    request<{ api_name: string; view_name: string; property_type?: number; options?: { label: string; value: string }[] }[]>(
+      `/weiling/fields${refresh ? '?refresh=1' : ''}`,
+    ),
+  weilingSyncStatus: () => request<{ lastSyncAt: number; count: number; syncing: boolean }>('/weiling/sync-status'),
+  weilingSync: (full = true) =>
+    request<{ ok: boolean; count: number; message?: string }>(`/weiling/sync${full ? '' : '?full=0'}`, { method: 'POST' }),
+
   /** 开放平台：外接系统应用凭证（2026-09-11 新增）。App Secret 读取侧恒为掩码 ****** */
   listOpenPlatformApps: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();

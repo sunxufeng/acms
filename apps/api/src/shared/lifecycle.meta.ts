@@ -192,6 +192,19 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     searchFields: ['应用名称', '系统来源', 'App ID'],
     sortField: '更新时间',
   },
+  // ── 卫瓴联系人（2026-09-11 新增）：上游同步过来的只读副本 ──
+  {
+    path: 'weiling-contacts',
+    tableId: TABLES.weilingContact.tableId,
+    readPerm: 'weiling:read',
+    writePerm: 'weiling:write',
+    numbers: ['互动分'],
+    // 日期字段存的是毫秒时间戳（上游原始值），读取侧由前端格式化
+    searchFields: ['联系人姓名', '手机号', '企业名', '备注'],
+    // 创建时间范围筛选（前端 rangeFilters 传 from/to）
+    rangeField: '创建时间',
+    sortField: '创建时间',
+  },
 ];
 
 /** 系统配置表（M6 运营工作台补充）：key-value 配置，仅管理员可写 */

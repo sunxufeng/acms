@@ -345,6 +345,7 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'homepage-management', label: '工作台主题', enLabel: 'Dashboard Theme', href: '/homepage-management', icon: 'settings', section: '后台管理', order: 105, adminOnly: true },
     { key: 'homepage-settings', label: '登录页配置', enLabel: 'Login Page Config', href: '/homepage-settings', icon: 'settings', section: '后台管理', order: 110, adminOnly: true },
     { key: 'open-platform', label: '开放平台', enLabel: 'Open Platform', href: '/open-platform', icon: 'settings', section: '后台管理', order: 115, adminOnly: true, perm: 'openplatform:read' },
+    { key: 'weiling-contacts', label: '联系人管理', enLabel: 'Contacts', href: '/weiling-contacts', icon: 'userGroup', section: '招生管理', order: 10, perm: 'weiling:read' },
     { key: 'menu-settings', label: '菜单管理', enLabel: 'Menu Management', href: '/menu-settings', icon: 'dictionary', section: '后台管理', order: 120, adminOnly: true },
     { key: 'menu-groups-settings', label: '菜单分组', enLabel: 'Menu Groups', href: '/menu-groups-settings', icon: 'list', section: '后台管理', order: 122, adminOnly: true },
     { key: 'note-convert', label: '转换配置', enLabel: 'Note Convert', href: '/note-convert', icon: 'settings', section: '后台管理', order: 124, adminOnly: true },

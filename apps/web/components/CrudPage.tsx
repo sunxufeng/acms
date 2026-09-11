@@ -82,9 +82,11 @@ export interface RangeFilter {
 
 export interface CrudApi {
   list: (params: Record<string, string | undefined>) => Promise<Page<Record<string, unknown>>>;
-  create: (data: Record<string, unknown>) => Promise<unknown>;
-  update: (id: string, data: Record<string, unknown>) => Promise<unknown>;
-  archive: (id: string) => Promise<unknown>;
+  // ⚠️ 只读模块（如卫瓴联系人）只传 list：不传这三个就没有任何写入入口，
+  // 配合 readonly / hideCreate 使用，避免被迫传空实现。
+  create?: (data: Record<string, unknown>) => Promise<unknown>;
+  update?: (id: string, data: Record<string, unknown>) => Promise<unknown>;
+  archive?: (id: string) => Promise<unknown>;
   transition?: (id: string, to: string) => Promise<unknown>;
   /** 服务端批量导入（generic-crud 提供）：逐行 create。提供后工具栏显示「导入」按钮。 */
   importRows?: (rows: Record<string, unknown>[]) => Promise<{ ok: number; failed: number }>;
@@ -782,7 +784,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         else payload[c.key] = v === '' ? undefined : v;
       }
       if (editing?.mode === 'create') {
-        const created = (await api.create(payload)) as Record<string, unknown> | undefined;
+        const created = api.create
+          ? ((await api.create(payload)) as Record<string, unknown> | undefined)
+          : undefined;
         // 转换场景：把生成的业务记录 id 回填留痕，日后能直接跳到「转成的那条记录」。
         // 回填失败不影响业务记录本身 —— 它已经存下来了，所以这里静默降级。
         const logId = convertLogIdRef.current;
@@ -807,7 +811,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             convertLogIdRef.current = '';
           }
         }
-      } else if (editing?.row) await api.update(String(editing.row.id), payload);
+      } else if (editing?.row && api.update) await api.update(String(editing.row.id), payload);
       setEditing(null);
       await reload();
     } catch (e: unknown) {
@@ -818,6 +822,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   }
 
   async function remove(row: Record<string, unknown>) {
+    if (!api.archive) return;
     if (!confirm(t('crud.confirmDelete', { name: String(str(row[columns[0]?.key ?? 'id'])) }))) return;
     try {
       await api.archive(String(row.id));

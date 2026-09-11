@@ -72,6 +72,7 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'stageEvaluations', label: '阶段评价', path: '/stage-evaluations', aliases: ['/export/stageEvaluation'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'evaluation:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'alumniFollowups', label: '校友跟进', path: '/alumni-followups', aliases: ['/export/alumniFollowup'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'alumni:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'openPlatformApps', label: '开放平台', path: '/open-platform', legacyRead: 'openplatform:read', legacyWrite: 'openplatform:write', menuPermission: 'openplatform:read', actions: RECORD, genericCrud: true },
+  { key: 'weilingContacts', label: '联系人管理', path: '/weiling-contacts', legacyRead: 'weiling:read', legacyWrite: 'weiling:write', menuPermission: 'weiling:read', actions: READ, genericCrud: true },
   { key: 'reports', label: '报表管理', path: '/reports', legacyRead: 'report:read', legacyWrite: null, menuPermission: 'report:read', actions: READ },
   { key: 'mailAccounts', label: '邮件账户', path: '/mail-accounts', aliases: ['/export/mailAccount'], legacyRead: 'mail:read', legacyWrite: 'mail:write', menuPermission: 'mail:write', actions: RECORD },
   { key: 'mailArchive', label: '邮件归档', path: '/mail-archive', aliases: ['/export/mailArchive'], legacyRead: 'mail:read', legacyWrite: 'mail:write', menuPermission: 'mail:read', actions: [...READ, 'update', 'export'] },

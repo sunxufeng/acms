@@ -40,6 +40,7 @@ import { MailArchiveModule } from './mail-archive/mail-archive.module.js';
 import { GetnoteModule } from './getnote/getnote.module.js';
 import { NoteSnapshotModule } from './getnote/note-snapshot.module.js';
 import { OpenPlatformModule } from './open-platform/open-platform.module.js';
+import { WeilingModule } from './weiling/weiling.module.js';
 import { GetnoteSourceModule } from './getnote/sources.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.meta.js';
@@ -84,6 +85,7 @@ import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS } from './shared/lifecycle.m
     GetnoteModule,
     NoteSnapshotModule,
     OpenPlatformModule,
+    WeilingModule,
     GetnoteSourceModule,
     ReportsModule,
     FieldMaskModule,

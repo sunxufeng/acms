@@ -1,0 +1,128 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import CrudPage from '../../components/CrudPage';
+import type { CrudColumn } from '../../components/CrudPage';
+import { api } from '../../lib/api';
+import { COLUMNS } from './columns';
+
+type FieldDesc = {
+  api_name: string;
+  view_name: string;
+  options?: { label: string; value: string }[];
+};
+
+export default function WeilingContactsPage() {
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
+  const [status, setStatus] = useState<{ lastSyncAt: number; count: number } | null>(null);
+  const [options, setOptions] = useState<Record<string, string[]>>({});
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const s = await api.weilingSyncStatus();
+      setStatus({ lastSyncAt: s.lastSyncAt, count: s.count });
+    } catch {
+      /* 未授权时静默 */
+    }
+  }, []);
+
+  // 归属人没有枚举接口，从列表前几页取 distinct；阶段/渠道用字段描述的枚举
+  useEffect(() => {
+    void api.weilingFields().then((fields: FieldDesc[]) => {
+      const pick = (n: string) => (fields.find((f) => f.api_name === n)?.options ?? []).map((o) => o.label);
+      setOptions((prev) => ({ ...prev, 客户阶段: pick('customer_stage'), 来源渠道: pick('from_channel_id') }));
+    }).catch(() => undefined);
+    void (async () => {
+      try {
+        const names = new Set<string>();
+        let token: string | undefined;
+        for (let i = 0; i < 4; i += 1) {
+          const p = await api.listWeilingContacts({ pageSize: '100', pageToken: token });
+          for (const r of p.items) if (r['归属人']) names.add(String(r['归属人']));
+          if (!p.hasMore || !p.pageToken) break;
+          token = p.pageToken;
+        }
+        setOptions((prev) => ({ ...prev, 归属人: [...names].sort() }));
+      } catch {
+        /* 忽略 */
+      }
+    })();
+    void loadStatus();
+  }, [loadStatus]);
+
+  const columns: CrudColumn[] = useMemo(
+    () =>
+      COLUMNS.map((c) => (options[c.key]?.length ? { ...c, filterOptions: options[c.key] } : c)),
+    [options],
+  );
+
+  const sync = async () => {
+    setSyncing(true);
+    setSyncMsg('');
+    try {
+      const r = await api.weilingSync(true);
+      setSyncMsg(r.ok ? `已同步 ${r.count} 条联系人` : `同步失败：${r.message ?? '未知原因'}`);
+      if (r.ok) {
+        await loadStatus();
+        // 刷新列表：CrudPage 内部自管数据，这里用一次路由外的轻量手段 —— 重新取选项并强制重渲染
+        window.location.reload();
+      }
+    } catch (e) {
+      setSyncMsg(`同步失败：${(e as Error).message}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const lastSyncText = status?.lastSyncAt
+    ? new Date(status.lastSyncAt).toLocaleString('zh-CN', { hour12: false })
+    : '从未同步';
+
+  return (
+    <div>
+      {/* 同步条：数据来自卫瓴，需明确告知新鲜度 */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 12,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          marginBottom: '1rem',
+          padding: '10px 14px',
+          background: 'var(--bg-subtle, #faf9f6)',
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          fontSize: 'var(--font-sm)',
+          color: 'var(--fg-secondary)',
+        }}
+      >
+        <span>数据来源：卫瓴 SCRM（只读，不可修改）</span>
+        <span style={{ color: 'var(--fg-tertiary)' }}>最后同步：{lastSyncText}</span>
+        {status?.count ? <span style={{ color: 'var(--fg-tertiary)' }}>共 {status.count} 条</span> : null}
+        <button className="btn btn-primary btn-sm" disabled={syncing} onClick={() => void sync()} style={{ marginLeft: 'auto' }}>
+          {syncing ? '同步中…' : '立即同步'}
+        </button>
+        {syncMsg ? (
+          <span style={{ color: syncMsg.includes('失败') ? 'var(--fg-error)' : 'var(--fg-secondary)' }}>{syncMsg}</span>
+        ) : null}
+      </div>
+
+      <CrudPage
+        title="联系人管理"
+        subtitle="卫瓴 SCRM 联系人（只读副本，按天自动同步）"
+        search={{ placeholder: '搜索姓名 / 手机号 / 企业…' }}
+        columns={columns}
+        moduleKey="weilingContacts"
+        // 只读：数据来自卫瓴，这里不提供任何写入能力
+        readonly
+        hideCreate
+        detailHref={(id) => `/weiling-contacts/${id}`}
+        rangeFilters={[{ key: 'createTime', label: '创建时间', fromParam: 'from', toParam: 'to' }]}
+        api={{
+          list: (p) => api.listWeilingContacts(p),
+        }}
+      />
+    </div>
+  );
+}

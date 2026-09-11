@@ -53,12 +53,54 @@ function BarList({ items, unit }: { items: { label: string; count: number }[]; u
   );
 }
 
+function ConfigList({ items }: { items: { source: string; count: number }[] }) {
+  // 降序（后端已排，这里再兜一次，避免任何情况下顺序不一致）
+  const sorted = [...items].sort((a, b) => b.count - a.count);
+  const total = sorted.reduce((sum, i) => sum + i.count, 0);
+  if (sorted.length === 0) {
+    return <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>所选时间段内没有记录</div>;
+  }
+  const max = Math.max(...sorted.map((i) => i.count));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {sorted.map((i, idx) => (
+        <div key={i.source} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 16, fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', textAlign: 'right' }}>
+            {idx + 1}
+          </span>
+          <span
+            title={i.source}
+            style={{
+              width: 104,
+              fontSize: 'var(--font-xs)',
+              color: 'var(--fg-secondary)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {i.source}
+          </span>
+          <div style={{ flex: 1, height: 10, background: 'var(--bg-hover)', borderRadius: 5, overflow: 'hidden' }}>
+            <div style={{ width: `${(i.count / max) * 100}%`, height: '100%', background: 'var(--accent)' }} />
+          </div>
+          <span style={{ width: 84, textAlign: 'right', fontSize: 'var(--font-xs)' }}>
+            {i.count} 篇（{total > 0 ? Math.round((i.count / total) * 100) : 0}%）
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function NotesPanel() {
   const [from, setFrom] = useState(daysAgo(29));
   const [to, setTo] = useState(today());
   const [data, setData] = useState<NoteStatsPayload | null>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
 
   const load = async (f: string, t: string) => {
     setLoading(true);
@@ -69,6 +111,20 @@ export function NotesPanel() {
       setErr((e as Error).message || '加载失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const sync = async () => {
+    setSyncing(true);
+    setSyncMsg('');
+    try {
+      const r = await api.syncNoteSnapshot();
+      setSyncMsg(r.ok ? `已同步 ${r.count} 篇笔记` : `同步失败：${r.message ?? '未知原因'}`);
+      if (r.ok) await load(from, to);
+    } catch (e) {
+      setSyncMsg(`同步失败：${(e as Error).message}`);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -110,6 +166,14 @@ export function NotesPanel() {
         >
           近 30 天
         </button>
+        <button className="btn btn-primary" disabled={syncing} onClick={() => void sync()}>
+          {syncing ? '同步中…' : '立即同步笔记'}
+        </button>
+        {syncMsg ? (
+          <span style={{ fontSize: 'var(--font-sm)', color: syncMsg.includes('失败') ? 'var(--fg-error)' : 'var(--fg-secondary)' }}>
+            {syncMsg}
+          </span>
+        ) : null}
       </div>
 
       {err ? <div style={{ color: 'var(--fg-error)', fontSize: 'var(--font-sm)', marginBottom: '1rem' }}>{err}</div> : null}
@@ -148,8 +212,8 @@ export function NotesPanel() {
               <BarList items={data.byOwner.map((o) => ({ label: o.owner, count: o.newNotes }))} unit="篇" />
             </div>
             <div>
-              <div style={{ fontSize: 'var(--font-sm)', fontWeight: 500, marginBottom: 8 }}>按来源配置</div>
-              <BarList items={data.bySource.map((s) => ({ label: s.source, count: s.count }))} unit="篇" />
+              <div style={{ fontSize: 'var(--font-sm)', fontWeight: 500, marginBottom: 8 }}>按配置名称（笔记数）</div>
+              <ConfigList items={data.bySource} />
             </div>
             <div>
               <div style={{ fontSize: 'var(--font-sm)', fontWeight: 500, marginBottom: 8 }}>转换到哪些模块</div>

@@ -658,6 +658,8 @@ export class GetnoteService {
    * 配合下面的「过期先返回旧快照 + 后台刷新」，用户不再为刷新买单。
    */
   private static readonly ADMIN_SNAPSHOT_TTL = 600_000;
+  /** 上次落库时间：用于节流，避免管理员每次刷笔记页都写一遍库 */
+  private lastSnapshotPersistAt = 0;
   /** 单个配置最多拉多少页（每页 100 条），防止某个源数据巨量拖垮整次聚合 */
   private static readonly ADMIN_MAX_PAGES_PER_SOURCE = 10;
   /** 源之间的节流间隔。Get笔记 QPS 2，串行 + 250ms 留足余量 */
@@ -810,6 +812,13 @@ export class GetnoteService {
       void this.refreshAdminSnapshot(key, user);
     }
 
+    // 命中缓存也要补库：否则「快照一直有效 ⇒ 永远不落库」，报表会长期空着。
+    // 节流：距上次落库超过 10 分钟才写一次，避免频繁写库与无谓开销。
+    if (snap && Date.now() - this.lastSnapshotPersistAt > 10 * 60 * 1000) {
+      this.lastSnapshotPersistAt = Date.now();
+      void this.persistNoteSnapshot(snap.items);
+    }
+
     // 顺手回收其他管理员的过期快照：只按 openId 存，管理员多了不清理会一直占内存
     // （单份快照是完整笔记列表，N 个人就是 N 份全量）。
     for (const [k, v] of this.adminSnapshots) {
@@ -933,6 +942,31 @@ export class GetnoteService {
       this.logger.log(`笔记快照落库完成：${items.length} 条`);
     } catch (e) {
       this.logger.error(`笔记快照落库失败：${(e as Error).message.slice(0, 160)}`);
+    }
+  }
+
+  /**
+   * 主动把管理员视角的笔记同步到快照表（供笔记统计报表用）。
+   *
+   * 为什么需要这个方法：落库原本挂在「重新聚合笔记」之后，而聚合结果有内存/Redis 快照，
+   * 管理员日常打开笔记页往往直接命中缓存、根本不会重新拉取 ⇒ 快照表可能永远是空的
+   *（2026-09-11 实测就是这样）。所以必须给一个确定的触发入口。
+   *
+   * ⚠️ 会真实拉取一次上游（受 QPS 2 节流），所以不是高频操作：给报表页「立即同步」按钮用。
+   */
+  async syncSnapshot(user: SessionUser): Promise<{ ok: boolean; count: number; message?: string }> {
+    try {
+      const items = await this.collectAllNotes(user);
+      // 顺带刷新内存与 Redis 快照，避免下次进列表还拿到旧的
+      this.adminSnapshots.set(user.openId, { at: Date.now(), items });
+      void this.persistAdminSnapshot(user.openId, items);
+      await this.persistNoteSnapshot(items);
+      this.lastSnapshotPersistAt = Date.now();
+      return { ok: true, count: items.length };
+    } catch (e) {
+      const msg = (e as Error).message.slice(0, 160);
+      this.logger.warn(`笔记快照同步失败：${msg}`);
+      return { ok: false, count: 0, message: msg };
     }
   }
 

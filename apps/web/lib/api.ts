@@ -878,6 +878,8 @@ export const api = {
   systemStatus: () => request<SystemStatusPayload>('/system/status'),
 
   // ── 笔记统计（需 report:read 权限） ─────
+  syncNoteSnapshot: () =>
+    request<{ ok: boolean; count: number; message?: string }>('/getnote/sync-snapshot', { method: 'POST' }),
   noteStats: (params: { from?: string; to?: string } = {}) => {
     const qs = new URLSearchParams();
     if (params.from) qs.set('from', params.from);

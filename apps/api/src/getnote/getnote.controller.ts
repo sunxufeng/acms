@@ -35,6 +35,23 @@ export class GetnoteController {
       throw new HttpException(`FORBIDDEN:${perm}`, HttpStatus.FORBIDDEN);
   }
 
+  /**
+   * 把当前管理员视角的笔记同步进快照表（报表「笔记统计」的数据源）。
+   * 需要 admin:monitor 权限 —— 会真实拉一次上游（受 QPS 2 节流），不能谁都能点。
+   */
+  @Post('sync-snapshot')
+  syncSnapshot(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    if (
+      !authorize(
+        { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel },
+        'admin:monitor',
+      ).allowed
+    )
+      throw new HttpException('FORBIDDEN:admin:monitor', HttpStatus.FORBIDDEN);
+    return this.svc.syncSnapshot(user);
+  }
+
   // ── 用户凭证（API Key 一人一份） ────────────────────────────────────
 
   /** 当前用户的凭证状态 + 服务器 Client ID 是否已配。不返回任何明文。 */

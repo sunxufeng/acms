@@ -79,7 +79,7 @@ else
   if [ "$CURRENT" = "3001" ]; then TARGET_API=3002; TARGET_WEB=3102; else TARGET_API=3001; TARGET_WEB=3101; fi
   STANDBY_API=$CURRENT; STANDBY_WEB=$((CURRENT + 100))
   OLD_API=$CURRENT; OLD_WEB=$((CURRENT + 100))
-  echo "当前 slot=$CURRENT，目标 slot=$TARGET_API/$TARGET_WEB（旧 slot 作为 backup）"
+  echo "当前 slot=${CURRENT}，目标 slot=${TARGET_API}/${TARGET_WEB}（旧 slot 作为 backup）"
 fi
 
 # ---- 2) 上传构建产物 + systemd 模板 ----

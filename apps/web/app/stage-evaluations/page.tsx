@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { buildStageColumns } from './columns';
+import { buildStageColumns, parseStageEvalFromSummary } from './columns';
 import { buildSelectionContext, studentName } from '../../lib/aiContext';
 
 export default function StageEvaluationsPage() {
@@ -47,6 +47,7 @@ export default function StageEvaluationsPage() {
         subtitle={t('subtitleStage')}
         search={{ placeholder: t('searchStage') }}
         columns={COLUMNS}
+        enrichPrefill={parseStageEvalFromSummary}
         statusField="评价完整度"
         inlineEdit
         standaloneForm

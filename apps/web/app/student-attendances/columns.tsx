@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
 
 const 考勤状态_OPTS = ['正常', '异常'];
 const 时段_OPTS = ['上午', '下午', '晚间', '全天'];
@@ -23,3 +24,22 @@ export const COLUMNS: CrudColumn[] = [
   { key: '通知状态', label: '通知状态', width: '110px', filter: true, filterOptions: 通知状态_OPTS, form: true, type: 'select', options: 通知状态_OPTS, list: false },
   { key: '处理结果', label: '处理结果', form: true, type: 'textarea', list: false },
 ];
+
+/**
+ * 笔记转换预填：从「异常描述/处理结果」里解析出时间与负责人。
+ *
+ * 解析实现统一在 `lib/noteAutoFill.ts`（全站共用一套），这里只声明本模块的字段规则。
+ * ⚠️ 只填当前为空的字段，笔记映射已写入或用户已改的值不覆盖。
+ */
+const SPEC: NoteAutoFillSpec = {
+  sourceKeys: ['异常描述', '处理结果'],
+  // 班主任是固定岗位、不一定是录入人，所以不默认成登录用户
+  dateKeys: [{ key: '考勤日期', keywords: ['考勤日期', '日期', '时间'] }],
+};
+
+export function parseAttendanceFromSummary(
+  values: Record<string, unknown>,
+  ctx?: { userName?: string },
+): Record<string, unknown> {
+  return enrichFromNotes(values, SPEC, {});
+}

@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import CrudPage from '../../components/CrudPage';
 import { api } from '../../lib/api';
-import { COLUMNS } from './columns';
+import { COLUMNS, parseIdpFromSummary } from './columns';
 import PlanForm from '../../components/idp/PlanForm';
 
 export default function IdpPlansPage() {
@@ -14,6 +14,7 @@ export default function IdpPlansPage() {
       subtitle="IDP管理"
       search={{ placeholder: '搜索学生…' }}
       columns={COLUMNS}
+        enrichPrefill={parseIdpFromSummary}
       statusField="状态"
       inlineEdit
       standaloneForm

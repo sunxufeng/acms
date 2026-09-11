@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
 import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
 
 // 列表列顺序（listOrder）：学生 → 沟通主题 → 跟进时间 → 跟进状态 → 活动类型 → 负责人，
@@ -64,4 +65,33 @@ export function studentName(row: Record<string, unknown>): string {
     return String(v ?? '');
   };
   return tryKey('关联学生') || tryKey('关联学生编号');
+}
+
+/**
+ * 笔记转换预填：从「沟通总结/沟通明细」里解析出时间与负责人。
+ *
+ * 解析实现统一在 `lib/noteAutoFill.ts`（全站共用一套），这里只声明本模块的字段规则。
+ * ⚠️ 只填当前为空的字段，笔记映射已写入或用户已改的值不覆盖。
+ */
+const SPEC: NoteAutoFillSpec = {
+  sourceKeys: ['沟通总结', '沟通明细'],
+  patterns: [
+    {
+      key: '沟通主题',
+      patterns: [/沟通主题\s*[:：]\s*(.+)/, /主题\s*[:：]\s*(.+)/, /事由\s*[:：]\s*(.+)/, /跟进事项\s*[:：]\s*(.+)/],
+    },
+  ],
+  // 跟进时间是 datetime 字段
+  datetime: {
+    key: '跟进时间',
+    dateKeywords: ['跟进时间', '跟进日期', '沟通时间', '时间', '日期'],
+    timeKeywords: ['跟进时间', '沟通时间', '时间'],
+  },
+};
+
+export function parseSourceFollowupFromSummary(
+  values: Record<string, unknown>,
+  ctx?: { userName?: string },
+): Record<string, unknown> {
+  return enrichFromNotes(values, SPEC, { 跟进负责人: ctx?.userName ?? '' });
 }

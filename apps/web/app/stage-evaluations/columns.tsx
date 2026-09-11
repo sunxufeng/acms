@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
 
 const 评价周期_OPTS = ['期中', '期末', '年度'];
 const 评价等级_OPTS = ['优秀', '良好', '合格', '需改进'];
@@ -26,4 +27,22 @@ export function buildStageColumns(t: (key: string) => string): CrudColumn[] {
     { key: '复核日期', label: t('colReviewDate'), width: '120px', form: true, type: 'date', list: false },
     { key: '家长确认状态', label: t('colParentConfirm'), width: '110px', filter: true, filterOptions: 家长确认状态_OPTS, form: true, type: 'select', options: 家长确认状态_OPTS, list: false },
   ];
+}
+
+/**
+ * 笔记转换预填：从「评价内容/改进计划」里解析出时间与负责人。
+ *
+ * 解析实现统一在 `lib/noteAutoFill.ts`（全站共用一套），这里只声明本模块的字段规则。
+ * ⚠️ 只填当前为空的字段，笔记映射已写入或用户已改的值不覆盖。
+ */
+const SPEC: NoteAutoFillSpec = {
+  sourceKeys: ['评价内容', '改进计划'],
+  dateKeys: [{ key: '评价日期', keywords: ['评价日期', '评价时间', '日期', '时间'] }],
+};
+
+export function parseStageEvalFromSummary(
+  values: Record<string, unknown>,
+  ctx?: { userName?: string },
+): Record<string, unknown> {
+  return enrichFromNotes(values, SPEC, { 评价人: ctx?.userName ?? '' });
 }

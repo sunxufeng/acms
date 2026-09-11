@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { COLUMNS, studentName } from './columns';
+import { COLUMNS, studentName, parseSourceFollowupFromSummary } from './columns';
 
 function str(v: unknown): string {
   if (v == null) return '';
@@ -67,6 +67,7 @@ export default function SourceFollowupsPage() {
         subtitle="招生线索与跟进闭环（M1 学生域）"
         search={{ placeholder: '搜索学生姓名…' }}
         columns={COLUMNS}
+        enrichPrefill={parseSourceFollowupFromSummary}
         statusField="跟进状态"
         inlineEdit
         standaloneForm

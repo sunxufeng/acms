@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { buildGradeColumns } from './columns';
+import { buildGradeColumns, parseGradeFromSummary } from './columns';
 import { buildSelectionContext, studentName } from '../../lib/aiContext';
 
 export default function GradesPage() {
@@ -45,6 +45,7 @@ export default function GradesPage() {
         subtitle={t('subtitleGrades')}
         search={{ placeholder: t('searchGrades') }}
         columns={COLUMNS}
+        enrichPrefill={parseGradeFromSummary}
         statusField="成绩状态"
         inlineEdit
         standaloneForm

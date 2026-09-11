@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
 
 const 跟进方式_OPTS = ['电话', '微信', '邮件', '活动', '问卷', '其他'];
 const 校友阶段_OPTS = ['毕业当年', '升学阶段', '就业阶段', '长期校友'];
@@ -21,3 +22,21 @@ export const COLUMNS: CrudColumn[] = [
   { key: '下次跟进日期', label: '下次跟进', width: '120px', form: true, type: 'date', list: false },
   { key: '跟进状态', label: '跟进状态', width: '100px', filter: true, filterOptions: 跟进状态_OPTS, form: true, type: 'select', options: 跟进状态_OPTS, listOrder: 6 },
 ];
+
+/**
+ * 笔记转换预填：从「跟进事项/跟进备注」里解析出时间与负责人。
+ *
+ * 解析实现统一在 `lib/noteAutoFill.ts`（全站共用一套），这里只声明本模块的字段规则。
+ * ⚠️ 只填当前为空的字段，笔记映射已写入或用户已改的值不覆盖。
+ */
+const SPEC: NoteAutoFillSpec = {
+  sourceKeys: ['跟进事项', '跟进备注'],
+  dateKeys: [{ key: '跟进时间', keywords: ['跟进时间', '跟进日期', '时间', '日期'] }],
+};
+
+export function parseAlumniFromSummary(
+  values: Record<string, unknown>,
+  ctx?: { userName?: string },
+): Record<string, unknown> {
+  return enrichFromNotes(values, SPEC, { 跟进负责人: ctx?.userName ?? '' });
+}

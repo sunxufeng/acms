@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
 import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
 
 // IDP 方案列表仅展示：学生 / 学期 / 导师 / 状态 / 制定日期。
@@ -42,4 +43,23 @@ export function studentName(row: Record<string, unknown>): string {
   }
   if (v && typeof v === 'object') return String((v as { text?: string }).text ?? '');
   return String(v ?? '');
+}
+
+/**
+ * 笔记转换预填：从「展示内容/原始文档」里解析出时间与负责人。
+ *
+ * 解析实现统一在 `lib/noteAutoFill.ts`（全站共用一套），这里只声明本模块的字段规则。
+ * ⚠️ 只填当前为空的字段，笔记映射已写入或用户已改的值不覆盖。
+ */
+const SPEC: NoteAutoFillSpec = {
+  sourceKeys: ['展示内容', '原始文档'],
+  // 导师是师生既定关系，不默认成登录用户
+  dateKeys: [{ key: '制定日期', keywords: ['制定日期', '日期', '时间'] }],
+};
+
+export function parseIdpFromSummary(
+  values: Record<string, unknown>,
+  ctx?: { userName?: string },
+): Record<string, unknown> {
+  return enrichFromNotes(values, SPEC, {});
 }

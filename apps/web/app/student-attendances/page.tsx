@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { COLUMNS } from './columns';
+import { COLUMNS, parseAttendanceFromSummary } from './columns';
 import { buildSelectionContext, studentName } from '../../lib/aiContext';
 
 export default function StudentAttendancesPage() {
@@ -45,6 +45,7 @@ export default function StudentAttendancesPage() {
         subtitle="日常出勤与异常记录（M1 学生域）"
         search={{ placeholder: '搜索学生姓名 / 学年 / 班级…' }}
         columns={COLUMNS}
+        enrichPrefill={parseAttendanceFromSummary}
         statusField="考勤状态"
         inlineEdit
         standaloneForm

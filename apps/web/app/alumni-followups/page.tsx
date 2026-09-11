@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { COLUMNS } from './columns';
+import { COLUMNS, parseAlumniFromSummary } from './columns';
 import { buildSelectionContext, studentName } from '../../lib/aiContext';
 
 export default function AlumniFollowupsPage() {
@@ -44,6 +44,7 @@ export default function AlumniFollowupsPage() {
         subtitle="毕业校友去向追踪与关系维护（M1 学生域）"
         search={{ placeholder: '搜索学生姓名…' }}
         columns={COLUMNS}
+        enrichPrefill={parseAlumniFromSummary}
         statusField="跟进状态"
         inlineEdit
         standaloneForm

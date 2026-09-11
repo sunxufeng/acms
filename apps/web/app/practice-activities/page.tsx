@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { buildPracticeColumns } from './columns';
+import { buildPracticeColumns, parsePracticeFromSummary } from './columns';
 import { buildSelectionContext, studentName } from '../../lib/aiContext';
 
 export default function PracticeActivitiesPage() {
@@ -45,6 +45,7 @@ export default function PracticeActivitiesPage() {
         subtitle={t('subtitlePractice')}
         search={{ placeholder: t('searchPractice') }}
         columns={COLUMNS}
+        enrichPrefill={parsePracticeFromSummary}
         statusField="安全确认状态"
         inlineEdit
         standaloneForm

@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
 
 const 学科_OPTS = ['语文', '数学', '英语', '科学', '历史'];
 const 课堂表现_OPTS = ['优秀', '良好', '合格', '需改进'];
@@ -25,4 +26,22 @@ export function buildGradeColumns(t: (key: string) => string): CrudColumn[] {
     { key: '任课教师', label: t('colCourseTeacher'), width: '100px', listOrder: 5 },
     { key: '成绩状态', label: t('colGradeStatus'), width: '100px', filter: true, filterOptions: 成绩状态_OPTS, form: true, type: 'select', options: 成绩状态_OPTS, listOrder: 6 },
   ];
+}
+
+/**
+ * 笔记转换预填：从「课堂表现/教师评语」里解析出时间与负责人。
+ *
+ * 解析实现统一在 `lib/noteAutoFill.ts`（全站共用一套），这里只声明本模块的字段规则。
+ * ⚠️ 只填当前为空的字段，笔记映射已写入或用户已改的值不覆盖。
+ */
+const SPEC: NoteAutoFillSpec = {
+  sourceKeys: ['课堂表现', '教师评语'],
+  dateKeys: [{ key: '考核日期', keywords: ['考核日期', '考试日期', '考试', '日期', '时间'] }],
+};
+
+export function parseGradeFromSummary(
+  values: Record<string, unknown>,
+  ctx?: { userName?: string },
+): Record<string, unknown> {
+  return enrichFromNotes(values, SPEC, {});
 }

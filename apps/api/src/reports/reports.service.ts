@@ -237,4 +237,142 @@ export class ReportsService {
       modules,
     };
   }
+  /**
+   * 笔记统计（权限点 `report:read`）。
+   *
+   * 数据来源：
+   *  - **新增笔记** = 笔记快照表（管理员视角聚合时顺带落库，含上游的笔记创建时间）
+   *  - **转换次数** = 笔记转换记录表（谁把笔记转成了业务记录、转到了哪个模块）
+   *
+   * ⚠️ 快照只在管理员浏览笔记页时更新（复用已拉到的快照，不额外消耗上游 QPS 2 额度），
+   * 所以「新增笔记」的覆盖度取决于管理员最近是否打开过笔记页。
+   */
+  async notes(user: SessionUser, query: { from?: string; to?: string } = {}) {
+    if (!authorize(toPrincipal(user), 'report:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:report:read');
+    }
+
+    const startOf = (d: string): number | null => {
+      const t = new Date(`${d}T00:00:00`).getTime();
+      return Number.isNaN(t) ? null : t;
+    };
+    const endOf = (d: string): number | null => {
+      const t = new Date(`${d}T23:59:59.999`).getTime();
+      return Number.isNaN(t) ? null : t;
+    };
+    const dayKey = (t: number): string => {
+      const d = new Date(t);
+      const p = (n: number) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    };
+    const now = Date.now();
+    const fromMs = (query.from ? startOf(query.from) : null) ?? now - 29 * 86_400_000;
+    const toMs = (query.to ? endOf(query.to) : null) ?? now;
+
+    const rowsOf = (r: unknown): Record<string, unknown> =>
+      ((r as { fields?: Record<string, unknown> }).fields ?? {}) as Record<string, unknown>;
+
+    // 1) 笔记快照
+    const snapshots: { createdAt: number; owner: string; source: string; title: string }[] = [];
+    let syncedAt: number | null = null;
+    try {
+      let token: string | undefined;
+      for (let i = 0; i < 20; i += 1) {
+        const page = await this.base.search(TABLES.noteSnapshot.tableId, {
+          pageSize: 500,
+          ...(token ? { pageToken: token } : {}),
+        });
+        for (const r of page.items ?? []) {
+          const f = rowsOf(r);
+          const created = Number(f['笔记创建时间'] ?? 0);
+          const synced = Number(f['同步时间'] ?? 0);
+          if (synced && (!syncedAt || synced > syncedAt)) syncedAt = synced;
+          if (created >= fromMs && created <= toMs) {
+            snapshots.push({
+              createdAt: created,
+              owner: String(f['归属人'] ?? '未归属'),
+              source: String(f['来源配置'] ?? ''),
+              title: String(f['标题'] ?? ''),
+            });
+          }
+        }
+        if (!page.hasMore || !page.pageToken) break;
+        token = page.pageToken;
+      }
+    } catch {
+      /* 快照表不可读时只统计转换 */
+    }
+
+    // 2) 转换记录（按创建时间落在区间内）
+    const converts: { module: string; at: number }[] = [];
+    try {
+      let token: string | undefined;
+      for (let i = 0; i < 20; i += 1) {
+        const page = await this.base.search(TABLES.noteConvertLog.tableId, {
+          pageSize: 500,
+          ...(token ? { pageToken: token } : {}),
+        });
+        for (const r of page.items ?? []) {
+          const f = rowsOf(r);
+          const at = Number(f['创建时间'] ?? f['created_at'] ?? 0);
+          if (at >= fromMs && at <= toMs) {
+            converts.push({ module: String(f['目标模块'] ?? f['moduleLabel'] ?? ''), at });
+          }
+        }
+        if (!page.hasMore || !page.pageToken) break;
+        token = page.pageToken;
+      }
+    } catch {
+      /* 转换记录不可读时忽略 */
+    }
+
+    // 聚合
+    const byOwnerMap = new Map<string, { owner: string; newNotes: number }>();
+    const bySourceMap = new Map<string, { source: string; count: number }>();
+    const byDayMap = new Map<string, { date: string; newNotes: number; converts: number }>();
+    const byModuleMap = new Map<string, { module: string; count: number }>();
+
+    for (const s of snapshots) {
+      const o = byOwnerMap.get(s.owner) ?? { owner: s.owner, newNotes: 0 };
+      o.newNotes += 1;
+      byOwnerMap.set(s.owner, o);
+
+      const src = s.source || '未标注';
+      const sc = bySourceMap.get(src) ?? { source: src, count: 0 };
+      sc.count += 1;
+      bySourceMap.set(src, sc);
+
+      const dk = dayKey(s.createdAt);
+      const d = byDayMap.get(dk) ?? { date: dk, newNotes: 0, converts: 0 };
+      d.newNotes += 1;
+      byDayMap.set(dk, d);
+    }
+    for (const c of converts) {
+      const m = c.module || '未标注';
+      const mc = byModuleMap.get(m) ?? { module: m, count: 0 };
+      mc.count += 1;
+      byModuleMap.set(m, mc);
+
+      const dk = dayKey(c.at);
+      const d = byDayMap.get(dk) ?? { date: dk, newNotes: 0, converts: 0 };
+      d.converts += 1;
+      byDayMap.set(dk, d);
+    }
+
+    return {
+      from: dayKey(fromMs),
+      to: dayKey(toMs),
+      /** 快照最后同步时间（null 表示还没落过库） */
+      syncedAt,
+      summary: {
+        newNotes: snapshots.length,
+        converts: converts.length,
+        owners: byOwnerMap.size,
+      },
+      byOwner: [...byOwnerMap.values()].sort((a, b) => b.newNotes - a.newNotes),
+      bySource: [...bySourceMap.values()].sort((a, b) => b.count - a.count),
+      byModule: [...byModuleMap.values()].sort((a, b) => b.count - a.count),
+      byDay: [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    };
+  }
 }

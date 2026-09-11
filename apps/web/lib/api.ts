@@ -877,6 +877,15 @@ export const api = {
   // ── 系统监控（需 admin:monitor 权限） ─────
   systemStatus: () => request<SystemStatusPayload>('/system/status'),
 
+  // ── 笔记统计（需 report:read 权限） ─────
+  noteStats: (params: { from?: string; to?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    const q = qs.toString();
+    return request<NoteStatsPayload>(`/reports/notes${q ? `?${q}` : ''}`);
+  },
+
   // ── 活跃时段统计（需 report:read 权限） ─────
   activity: (params: { from?: string; to?: string } = {}) => {
     const qs = new URLSearchParams();
@@ -1196,6 +1205,19 @@ export interface PermissionsPayload {
   /** 可见菜单白名单（restricted=false 时不限制） */
   myMenus?: string[];
   myMenuRestricted?: boolean;
+}
+
+/** 笔记统计：新增笔记来自笔记快照表，转换次数来自笔记转换记录表 */
+export interface NoteStatsPayload {
+  from: string;
+  to: string;
+  /** 快照最后同步时间（null = 还没落过库） */
+  syncedAt: number | null;
+  summary: { newNotes: number; converts: number; owners: number };
+  byOwner: { owner: string; newNotes: number }[];
+  bySource: { source: string; count: number }[];
+  byModule: { module: string; count: number }[];
+  byDay: { date: string; newNotes: number; converts: number }[];
 }
 
 /** 活跃时段统计：登录 = 登录日志，操作 = 审计日志里的写操作（创建/更新/删除） */

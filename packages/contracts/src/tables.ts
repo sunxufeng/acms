@@ -83,6 +83,11 @@ export const TABLES = {
   // 所以这里自建一张 SQL 表，由 SessionService.create 成功后 fire-and-forget 写入。
   // ⚠️ 合成 tableId，仅本地使用，无需 TABLE_ID_MAP 映射。
   loginLog: { tableId: 'tbllogin000000001', name: '登录日志表' },
+  // 笔记快照表（2026-09-11 新增）：笔记本体在 Get笔记 外部 API（每次实时拉、QPS 2），
+  // 无法直接做时间段统计。这里把管理员聚合到的笔记落一份，供「笔记统计报表」查本地。
+  // ⚠️ 不额外消耗上游额度：复用已经拉到的管理员快照，fire-and-forget 写入。
+  // 记录 id = 笔记 ID（上游 note_id）。
+  noteSnapshot: { tableId: 'tblnotesnap000001', name: '笔记快照表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

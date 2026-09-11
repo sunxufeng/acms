@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import type { BaseClient } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
+import { getSqlStore } from '../base.provider.js';
 import { toText } from '@acms/base-adapter';
 import type { SessionUser, NoteConvertLogItem, NoteConfigMapItem } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
@@ -84,6 +85,19 @@ export interface GetnoteTag {
   id?: string;
   name?: string;
   type?: 'ai' | 'manual' | 'system';
+}
+
+/** Get笔记 的时间字段可能是 ISO 字符串或秒级时间戳，统一成毫秒；无法解析返回 0 */
+function toEpochMs(v: unknown): number {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return v > 1e11 ? v : v * 1000;
+  const s = String(v).trim();
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    return n > 1e11 ? n : n * 1000;
+  }
+  const t = new Date(s).getTime();
+  return Number.isNaN(t) ? 0 : t;
 }
 
 export interface GetnoteNote {
@@ -785,6 +799,7 @@ export class GetnoteService {
         snap = { at: Date.now(), items };
         this.adminSnapshots.set(key, snap);
         void this.persistAdminSnapshot(key, items);
+        void this.persistNoteSnapshot(items);
         this.logger.log(`管理员笔记快照首次构建：${items.length} 条，耗时 ${Date.now() - t0}ms`);
       }
     } else if (now - snap.at > GetnoteService.ADMIN_SNAPSHOT_TTL) {
@@ -877,6 +892,50 @@ export class GetnoteService {
   }
 
   /** 后台重建管理员笔记快照。同一管理员并发请求只会触发一轮聚合。 */
+  /**
+   * 把管理员聚合到的笔记落一份到自建 SQL 表，供「笔记统计报表」使用。
+   *
+   * 为什么需要：笔记本体在 Get笔记 外部 API，只拉不存、限流 QPS 2 ——
+   * 直接查上游做「某段时间新增多少笔记」既慢又不可回溯。
+   * ⚠️ 这里**不额外消耗上游额度**：复用已经拉到的管理员快照，fire-and-forget 写入，
+   * 失败只记日志，绝不影响笔记列表本身的返回。
+   */
+  private async persistNoteSnapshot(items: GetnoteNote[]): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql || items.length === 0) return;
+    const tableId = TABLES.noteSnapshot.tableId;
+    try {
+      // 先拿现有 id 集合：已存在的走 update，新的走 createWithId（用笔记 ID 当主键）
+      const existing = new Set<string>();
+      let token: string | undefined;
+      for (let i = 0; i < 20; i += 1) {
+        const page = await sql.search(tableId, { pageSize: 500, ...(token ? { pageToken: token } : {}) });
+        for (const r of page.items ?? []) existing.add(String((r as unknown as { id?: string }).id ?? ''));
+        if (!page.hasMore || !page.pageToken) break;
+        token = page.pageToken;
+      }
+      for (const n of items) {
+        const id = String(n.note_id ?? n.id ?? '');
+        if (!id) continue;
+        const fields = {
+          笔记ID: id,
+          标题: String(n.title ?? ''),
+          归属人: String(n._owner ?? ''),
+          来源配置: String(n._sourceName ?? ''),
+          来源配置ID: String(n._sourceRecordId ?? ''),
+          笔记创建时间: toEpochMs(n.created_at),
+          笔记更新时间: toEpochMs(n.updated_at),
+          同步时间: Date.now(),
+        };
+        if (existing.has(id)) await sql.update(tableId, id, fields);
+        else await sql.createWithId(tableId, id, fields);
+      }
+      this.logger.log(`笔记快照落库完成：${items.length} 条`);
+    } catch (e) {
+      this.logger.error(`笔记快照落库失败：${(e as Error).message.slice(0, 160)}`);
+    }
+  }
+
   private async refreshAdminSnapshot(key: string, user: SessionUser): Promise<void> {
     if (this.adminSnapshotInflight.has(key)) return;
     this.adminSnapshotInflight.add(key);
@@ -885,6 +944,7 @@ export class GetnoteService {
       const items = await this.collectAllNotes(user);
       this.adminSnapshots.set(key, { at: Date.now(), items });
       void this.persistAdminSnapshot(key, items);
+      void this.persistNoteSnapshot(items);
       this.logger.log(`管理员笔记快照后台刷新完成：${items.length} 条，耗时 ${Date.now() - t0}ms`);
     } catch (e) {
       // 刷新失败时保留旧快照继续可用，不打断用户当前浏览

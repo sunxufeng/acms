@@ -23,6 +23,12 @@ export class ReportsController {
     return this.svc.studentRows(userOf(req));
   }
 
+  /** 笔记统计：新增笔记（快照表）+ 转换次数（转换记录表） */
+  @Get('notes')
+  notes(@Req() req: Request, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.notes(userOf(req), { from, to });
+  }
+
   /** 活跃时段统计：登录日志（登录时点）+ 审计日志（写操作） */
   @Get('activity')
   activity(@Req() req: Request, @Query('from') from?: string, @Query('to') to?: string) {

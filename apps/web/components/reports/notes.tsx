@@ -219,6 +219,10 @@ export function NotesPanel() {
               <div style={{ fontSize: 'var(--font-sm)', fontWeight: 500, marginBottom: 8 }}>转换到哪些模块</div>
               <BarList items={data.byModule.map((m) => ({ label: m.module, count: m.count }))} unit="次" />
             </div>
+            <div>
+              <div style={{ fontSize: 'var(--font-sm)', fontWeight: 500, marginBottom: 8 }}>谁转得最多（转换次数）</div>
+              <BarList items={data.byConverter.map((c) => ({ label: c.converter, count: c.count }))} unit="次" />
+            </div>
           </div>
 
           {data.byDay.length > 0 ? (

@@ -1219,6 +1219,7 @@ export interface NoteStatsPayload {
   byOwner: { owner: string; newNotes: number }[];
   bySource: { source: string; count: number }[];
   byModule: { module: string; count: number }[];
+  byConverter: { converter: string; count: number }[];
   byDay: { date: string; newNotes: number; converts: number }[];
 }
 

@@ -304,7 +304,7 @@ export class ReportsService {
     }
 
     // 2) 转换记录（按创建时间落在区间内）
-    const converts: { module: string; at: number }[] = [];
+    const converts: { module: string; at: number; by: string }[] = [];
     try {
       let token: string | undefined;
       for (let i = 0; i < 20; i += 1) {
@@ -314,9 +314,15 @@ export class ReportsService {
         });
         for (const r of page.items ?? []) {
           const f = rowsOf(r);
-          const at = Number(f['创建时间'] ?? f['created_at'] ?? 0);
+          // ⚠️ 转换记录的时间字段叫「转换时间」（毫秒），不是审计的「创建时间」——
+          // 取错字段会让转换次数恒为 0（2026-09-11 踩过）。
+          const at = Number(f['转换时间'] ?? f['创建时间'] ?? f['created_at'] ?? 0);
           if (at >= fromMs && at <= toMs) {
-            converts.push({ module: String(f['目标模块'] ?? f['moduleLabel'] ?? ''), at });
+            converts.push({
+              module: String(f['目标模块'] ?? f['模块KEY'] ?? ''),
+              by: String(f['转换人'] ?? ''),
+              at,
+            });
           }
         }
         if (!page.hasMore || !page.pageToken) break;
@@ -331,6 +337,7 @@ export class ReportsService {
     const bySourceMap = new Map<string, { source: string; count: number }>();
     const byDayMap = new Map<string, { date: string; newNotes: number; converts: number }>();
     const byModuleMap = new Map<string, { module: string; count: number }>();
+    const byConverterMap = new Map<string, { converter: string; count: number }>();
 
     for (const s of snapshots) {
       const o = byOwnerMap.get(s.owner) ?? { owner: s.owner, newNotes: 0 };
@@ -348,6 +355,11 @@ export class ReportsService {
       byDayMap.set(dk, d);
     }
     for (const c of converts) {
+      const who = c.by || '未标注';
+      const bc = byConverterMap.get(who) ?? { converter: who, count: 0 };
+      bc.count += 1;
+      byConverterMap.set(who, bc);
+
       const m = c.module || '未标注';
       const mc = byModuleMap.get(m) ?? { module: m, count: 0 };
       mc.count += 1;
@@ -372,6 +384,7 @@ export class ReportsService {
       byOwner: [...byOwnerMap.values()].sort((a, b) => b.newNotes - a.newNotes),
       bySource: [...bySourceMap.values()].sort((a, b) => b.count - a.count),
       byModule: [...byModuleMap.values()].sort((a, b) => b.count - a.count),
+      byConverter: [...byConverterMap.values()].sort((a, b) => b.count - a.count),
       byDay: [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
     };
   }

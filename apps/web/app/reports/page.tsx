@@ -13,6 +13,7 @@ import {
   val,
   type Row,
 } from '../../components/reports/panels';
+import { ActivityPanel } from '../../components/reports/activity';
 
 interface ReportDef {
   key: string;
@@ -30,6 +31,7 @@ const REPORTS: ReportDef[] = [
   { key: 'gradeFlow', label: '年级升级流向', desc: '入学年级与当前年级对比，看学生升级流动', dims: '条形图 · 变化表', ready: true },
   { key: 'trend', label: '入学趋势', desc: '按入学年份/学期看招生规模变化', dims: '柱状图 · 导出', ready: true },
   { key: 'completeness', label: '档案完整度', desc: '按字段统计缺失率，定位待补录的字段与学生', dims: '缺失排行 · 导出', ready: true },
+  { key: 'activity', label: '活跃时段', desc: '按人统计什么时间登录、什么时间有操作', dims: '人 × 小时热力 · 趋势', ready: true },
   { key: 'attendance', label: '考勤分析', desc: '出勤率、迟到/请假/缺勤次数排行与趋势', source: '考勤记录表', ready: false, href: '/student-attendances' },
   { key: 'grades', label: '学业成绩', desc: '按学科/学期统计均分、及格率、等级分布', source: '学业成绩表', ready: false, href: '/grades' },
   { key: 'comms', label: '家校沟通', desc: '沟通次数、闭环率、超期未闭环预警', source: '家校沟通表', ready: false, href: '/home-school-comms' },
@@ -124,6 +126,7 @@ export default function ReportsPage() {
           {active === 'gradeFlow' ? <GradeFlow rows={rows} /> : null}
           {active === 'trend' ? <EnrollmentTrend rows={rows} /> : null}
           {active === 'completeness' ? <ProfileCompleteness rows={rows} /> : null}
+          {active === 'activity' ? <ActivityPanel /> : null}
           {!activeReport.ready ? (
             <EmptyReport name={tl(activeReport.label)} source={tl(activeReport.source ?? '')} href={activeReport.href} />
           ) : null}

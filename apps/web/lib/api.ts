@@ -876,6 +876,15 @@ export const api = {
 
   // ── 系统监控（需 admin:monitor 权限） ─────
   systemStatus: () => request<SystemStatusPayload>('/system/status'),
+
+  // ── 活跃时段统计（需 report:read 权限） ─────
+  activity: (params: { from?: string; to?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    const q = qs.toString();
+    return request<ActivityPayload>(`/reports/activity${q ? `?${q}` : ''}`);
+  },
   createRole: (data: { key: string; label?: string; permissions: string[]; maxDataLevel: string; menus?: string[] }) =>
     request<RoleManagementPayload>('/role-management', { method: 'POST', body: JSON.stringify(data) }),
   updateRole: (key: string, data: { label?: string; permissions?: string[]; maxDataLevel?: string; menus?: string[] }) =>
@@ -1187,6 +1196,32 @@ export interface PermissionsPayload {
   /** 可见菜单白名单（restricted=false 时不限制） */
   myMenus?: string[];
   myMenuRestricted?: boolean;
+}
+
+/** 活跃时段统计：登录 = 登录日志，操作 = 审计日志里的写操作（创建/更新/删除） */
+export interface ActivityPayload {
+  from: string;
+  to: string;
+  summary: {
+    activeUsers: number;
+    logins: number;
+    actions: number;
+    activeDays: number;
+    peakHour: number;
+  };
+  byHour: number[];
+  byUser: {
+    name: string;
+    logins: number;
+    actions: number;
+    activeDays: number;
+    firstAt: number | null;
+    lastAt: number | null;
+    hours: number[];
+    peakHour: number;
+  }[];
+  byDay: { date: string; logins: number; actions: number }[];
+  modules: { module: string; count: number }[];
 }
 
 /** 系统监控快照：任一分区采集失败时该分区为 null 或 ok:false，页面降级显示「不可用」 */

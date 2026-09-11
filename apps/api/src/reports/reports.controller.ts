@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import type { SessionUser } from '@acms/contracts';
 import { SessionGuard } from '../auth/session.guard.js';
@@ -21,5 +21,11 @@ export class ReportsController {
   @Get('students')
   students(@Req() req: Request) {
     return this.svc.studentRows(userOf(req));
+  }
+
+  /** 活跃时段统计：登录日志（登录时点）+ 审计日志（写操作） */
+  @Get('activity')
+  activity(@Req() req: Request, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.activity(userOf(req), { from, to });
   }
 }

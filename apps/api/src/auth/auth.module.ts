@@ -6,11 +6,14 @@ import { SessionGuard } from './session.guard.js';
 import { LoginRateLimitGuard, RateLimitService } from './rate-limit.guard.js';
 import { redisProvider, REDIS } from '../redis.provider.js';
 import { baseClientProvider, BASE_CLIENT } from '../base.provider.js';
+import { LoginLogModule } from '../login-log/login-log.module.js';
+import { LoginLogService } from '../login-log/login-log.service.js';
 
 @Global()
 @Module({
+  imports: [LoginLogModule],
   controllers: [AuthController],
-  providers: [redisProvider, baseClientProvider, AuthService, SessionService, SessionGuard, RateLimitService, LoginRateLimitGuard],
-  exports: [REDIS, BASE_CLIENT, SessionService, SessionGuard, RateLimitService],
+  providers: [redisProvider, baseClientProvider, AuthService, SessionService, SessionGuard, RateLimitService, LoginRateLimitGuard, LoginLogService],
+  exports: [REDIS, BASE_CLIENT, SessionService, SessionGuard, RateLimitService, LoginLogService],
 })
 export class AuthModule {}

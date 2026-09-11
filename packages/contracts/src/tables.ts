@@ -78,6 +78,11 @@ export const TABLES = {
   // 与部门表同为该校自建 SQL 表（不走飞书 Base），由 SqlStore.ensureTable 幂等首建 t_tblmtg0000000001。
   // ⚠️ 合成 tableId，仅本地使用，无需 TABLE_ID_MAP 映射。
   meetingMinutes: { tableId: 'tblmtg0000000001', name: '会议纪要表' },
+  // 登录日志表（2026-09-11 新增）：统计「谁在什么时间用了系统」。
+  // 会话只在 Redis（1 小时过期、不落库），没有任何可回溯的登录记录，
+  // 所以这里自建一张 SQL 表，由 SessionService.create 成功后 fire-and-forget 写入。
+  // ⚠️ 合成 tableId，仅本地使用，无需 TABLE_ID_MAP 映射。
+  loginLog: { tableId: 'tbllogin000000001', name: '登录日志表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

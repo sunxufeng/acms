@@ -144,11 +144,12 @@ export class WeilingService implements OnModuleInit {
             property_type: Number(f.property_type ?? 0),
             options: JSON.stringify(f.options ?? []),
           };
-          // 用 api_name 当主键：先尝试更新，不存在再建（省一次查询，字段数近百）
+          // 用 api_name 当主键。⚠️ 先 create 再 update（SqlStore.update 对不存在的
+          // 记录不抛异常，反过来写会导致一条都存不进去）
           try {
-            await sql.update(TABLES.weilingField.tableId, f.api_name, payload);
-          } catch {
             await sql.createWithId(TABLES.weilingField.tableId, f.api_name, payload);
+          } catch {
+            await sql.update(TABLES.weilingField.tableId, f.api_name, payload);
           }
         }
       } catch (e) {
@@ -224,22 +225,36 @@ export class WeilingService implements OnModuleInit {
       for (const id of staffIds) nameMap.set(id, await this.staffName(id));
 
       // 落库
+      // ⚠️ 顺序必须是「先 create，冲突了再 update」：SqlStore.update 对不存在的
+      // 记录不会抛异常（只是影响 0 行），如果反过来写，新建记录会被静默吞掉 ——
+      // 表现就是「同步报告成功 N 条，库里却是空的」（2026-09-12 踩过）。
       let written = 0;
       for (const c of rows) {
         const id = String(c['contact_id'] ?? '');
         if (!id) continue;
         const f = this.flatten(c, nameMap);
         try {
-          await sql.update(TABLES.weilingContact.tableId, id, f);
-        } catch {
           await sql.createWithId(TABLES.weilingContact.tableId, id, f);
+        } catch {
+          await sql.update(TABLES.weilingContact.tableId, id, f);
         }
         written += 1;
       }
+      // 落库后回查真实条数：防止「调用都成功但没写进去」的静默失败被当成成功
+      let inDb = written;
+      try {
+        const check = await sql.search(TABLES.weilingContact.tableId, { pageSize: 1 });
+        inDb = Number(check.total ?? written) || written;
+      } catch {
+        /* 回查失败不影响返回 */
+      }
       this.lastSyncAt = Date.now();
-      this.lastSyncCount = written;
-      this.logger.log(`卫瓴联系人同步完成：${written} 条（拉取 ${total}）`);
-      return { ok: true, count: written };
+      this.lastSyncCount = inDb;
+      this.logger.log(`卫瓴联系人同步完成：写入 ${written} 条，库内共 ${inDb} 条（拉取 ${total}）`);
+      if (written > 0 && inDb === 0) {
+        return { ok: false, count: 0, message: '写入调用全部返回成功，但库中查不到记录，请检查数据表' };
+      }
+      return { ok: true, count: inDb };
     } catch (e) {
       const msg = (e as Error).message.slice(0, 200);
       this.logger.warn(`卫瓴联系人同步失败：${msg}`);

@@ -31,8 +31,10 @@ export const COLUMNS: CrudColumn[] = [
   { key: '沟通时间', label: '观察时间', width: '150px', form: true, type: 'datetime' },
   { key: '沟通附件清单', label: '附件', width: '180px', list: false, form: true, type: 'attachment' },
   { key: '沟通时长(分钟)', label: '时长(分钟)', width: '130px', list: false, form: true, type: 'number' },
-  { key: '沟通明细', label: '观察明细（MD）', list: false, form: true, type: 'markdown' },
   { key: '沟通总结', label: '观察总结（MD）', list: false, form: true, type: 'markdown' },
+  { key: '沟通明细', label: '观察明细（MD）', list: false, form: true, type: 'markdown',
+    // 原始记录属正式留痕，用专项权限控制：无 md:edit 只能浏览，无 md:import 不显示导入按钮
+    mdEditPerm: 'md:edit', mdImportPerm: 'md:import' },
   { key: '沟通人备注', label: '观察人备注', list: false, form: true, type: 'markdown' },
   { key: '待办事项', label: '待办事宜', list: false, form: true, type: 'textarea' },
   { key: '责任人', label: '责任人', width: '110px', list: false, form: true, type: 'person' },

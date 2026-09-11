@@ -140,6 +140,13 @@ export const PERMISSIONS = [
   'aiagent:read',
   'aiskill:read',
   'aiusage:read',
+  // 明细（Markdown 原始记录）专项权限：比模块读写权限更严格，
+  // 用于会议纪要的「会议明细」、家校沟通/日常跟进等的「沟通明细」。
+  //  - md:edit   允许在 MD tab 里编辑明细
+  //  - md:import 允许用「MD导入」按钮从本地文件覆盖明细
+  // 两个都没有时仍可**浏览**渲染结果，只是不能改。
+  'md:edit',
+  'md:import',
   ...MODULE_PERMISSIONS,
 ] as const;
 
@@ -173,6 +180,7 @@ export const DOMAIN_LABELS: Record<string, string> = {
   mail: '邮件归档',
   getnote: '我的笔记/知识库',
   report: '报表',
+  md: '明细（原始记录）',
   // 菜单级域（标签直接用菜单名，便于按菜单名搜索授权）
   dashboard: '工作概览',
   portal: '学生门户',
@@ -218,6 +226,8 @@ const PERMISSION_LABEL_OVERRIDES: Record<string, string> = {
   'student360:read': '学生全景·查看',
   'observation:read': '学生观察·查看',
   'meeting:read': '会议纪要·查看',
+  'md:edit': '明细·编辑（可输入）',
+  'md:import': '明细·MD导入',
   'idp:read': 'IDP管理·查看',
   'dailyfollowup:read': '日常跟进·查看',
   'studentattendance:read': '学生考勤·查看',
@@ -283,7 +293,7 @@ export const DOMAIN_ORDER = [
   'student', 'followup', 'attendance', 'billing', 'partnership', 'finance',
   'notification', 'grade', 'activity', 'communication', 'evaluation', 'alumni',
   'teacher', 'course', 'venue', 'schedule', 'export', 'admin', 'config', 'ai',
-  'mail', 'getnote', 'report',
+  'mail', 'getnote', 'report', 'md',
   // 菜单级域：排在资源域之后
   'dashboard', 'portal', 'student360', 'observation', 'meeting', 'idp', 'dailyfollowup',
   'studentattendance', 'teaching', 'settlement', 'adjustment',

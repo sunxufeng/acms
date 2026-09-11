@@ -62,11 +62,13 @@ export interface CrudColumn {
   /** 表单字段只读（渲染为 disabled）。用于「展示但不可编辑」的派生字段，如从详情接口回填的原始记录 */
   readonly?: boolean;
   /**
-   * Markdown 字段受「模块写权限」保护：只有对该模块有 create / update 权限的人
-   * 才能切到 MD 编辑 tab 与使用「MD导入」；无权限者只能浏览渲染结果。
-   * 用于会议明细这类正式记录，避免被随意改写。（需要页面传 moduleKey 才生效）
+   * Markdown 明细字段的专项权限（比模块读写权限更严格）：
+   *  - mdEditPerm：有此权限才能在 MD tab 输入；没有则只能浏览渲染结果
+   *  - mdImportPerm：有此权限才显示「MD导入」按钮（用于从本地文件整篇覆盖）
+   * 不配则不限制（保持原有行为）。
    */
-  mdProtected?: boolean;
+  mdEditPerm?: string;
+  mdImportPerm?: string;
 }
 
 /** 时间范围筛选（如审计日志按操作时间区间过滤） */
@@ -985,13 +987,14 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           ) : c.type === 'markdown' ? (
             <MarkdownField
               value={str(form[c.key])}
-              // 受保护字段：无模块写权限（create / update 都没有）时传 undefined →
-              // MarkdownField 进入只读浏览态，隐藏 MD tab 与导入按钮
+              // 明细专项权限：没配权限点就不限制；配了则必须持有才能输入 / 导入。
+              // 两者都无权限时仍可浏览渲染结果，只是改不了。
               onChange={
-                c.readonly || (c.mdProtected && !canCreate && !canUpdate)
+                c.readonly || (c.mdEditPerm && !perms.includes(c.mdEditPerm))
                   ? undefined
                   : (v) => setForm((f) => ({ ...f, [c.key]: v }))
               }
+              canImport={c.mdImportPerm ? perms.includes(c.mdImportPerm) : undefined}
               height={c.fieldHeight ?? 300}
             />
           ) : c.type === 'select' ? (

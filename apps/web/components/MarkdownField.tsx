@@ -15,6 +15,9 @@ export interface MarkdownFieldProps {
   label?: string;
   /** 可选：编辑区占位提示；不传则用 i18n 默认文案 */
   placeholder?: string;
+  /** 是否显示「MD导入」按钮（默认跟随 editable）。与编辑权限分开控制，
+   *  便于做到「可以手改但不许整篇导入覆盖」这类组合。 */
+  canImport?: boolean;
 }
 
 /**
@@ -32,11 +35,13 @@ export default function MarkdownField({
   height = 320,
   label,
   placeholder,
+  canImport,
 }: MarkdownFieldProps) {
   const t = useTranslations('common');
   // ⚠️ 无编辑权限时默认落在「浏览」：会议明细这类受控字段，用户先看渲染结果，
   //    而不是一进来就看到一个能点却只读的编辑框（体验上像坏了）。
   const editable = typeof onChange === 'function';
+  const importable = editable && (canImport ?? true);
   const [tab, setTab] = useState<'md' | 'view'>(editable ? 'md' : 'view');
   const fileRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -82,7 +87,7 @@ export default function MarkdownField({
             {t('mdTabView')}
           </button>
           <div style={{ flex: 1 }} />
-          {editable && (
+          {importable && (
             <>
               <button type="button" className="btn btn-outline btn-sm" onClick={() => fileRef.current?.click()}>
                 {t('mdImport')}

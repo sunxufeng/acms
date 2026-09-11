@@ -78,8 +78,10 @@ export const COLUMNS: CrudColumn[] = [
     list: false,
     form: true,
     type: 'markdown',
-    // 受写权限保护：无 create/update 权限者只能浏览，不显示 MD tab 与「MD导入」
-    mdProtected: true,
+    // 原始记录属正式留痕，用**专项权限**控制（比模块读写权限更严格）：
+    // 无 md:edit 只能浏览，无 md:import 不显示「MD导入」按钮
+    mdEditPerm: 'md:edit',
+    mdImportPerm: 'md:import',
   },
   { key: '待办事宜', label: '待办事宜', list: false, form: true, type: 'textarea' },
   {
@@ -126,6 +128,27 @@ const FIELD_PATTERNS: { key: string; patterns: RegExp[] }[] = [
 /** 行首可能是 Markdown 的 #、**、- 等符号，先清掉再匹配 */
 function cleanLine(line: string): string {
   return line.replace(/^[\s>#\-*·]+/, '').replace(/\*\*/g, '').trim();
+}
+
+/**
+ * 把 Markdown 表格行 `| 会议议题 | 秋季教学安排 |` 还原成 `会议议题：秋季教学安排`。
+ * Get笔记 / AI 总结常用两列表格罗列会议要素，不做这层转换会整片漏抽。
+ */
+function normalizeTableLines(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((raw) => {
+      const line = raw.trim();
+      if (!line.startsWith('|')) return raw;
+      const cells = line
+        .split('|')
+        .slice(1, -1)
+        .map((c) => c.trim())
+        .filter((c) => !/^:?-{2,}:?$/.test(c)); // 去掉 |---|---| 分隔行
+      if (cells.length >= 2 && cells[0] && cells[1]) return `${cells[0]}：${cells[1]}`;
+      return raw;
+    })
+    .join('\n');
 }
 
 function firstMatch(text: string, patterns: RegExp[]): string {
@@ -191,11 +214,19 @@ export function parseMeetingFromSummary(values: Record<string, unknown>): Record
   }
 
   // 时间与时刻用「清掉 Markdown 记号」的文本匹配：
-  // 笔记里常写成 `- **开始时间**：09:00`，不清理的话 `**` 会卡在冒号位置导致漏抽。
-  const plain = src
+  // 笔记里常写成 `- **开始时间**：09:00`，不清理的话 `**` 会卡在冒号位置导致漏抽；
+  // 再叠一层表格行还原，兼容 `| 开始时间 | 09:00 |` 的写法。
+  const plain = normalizeTableLines(src)
     .split(/\r?\n/)
     .map(cleanLine)
     .join('\n');
+
+  // 表格还原后可能才出现字段行，所以再补抽一轮（只填空字段）
+  for (const { key, patterns } of FIELD_PATTERNS) {
+    if (has(key)) continue;
+    const v = firstMatch(plain, patterns);
+    if (v) out[key] = v;
+  }
 
   if (!has('会议时间')) {
     const d = pickDate(plain);

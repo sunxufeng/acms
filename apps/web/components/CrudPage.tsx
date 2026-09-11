@@ -14,6 +14,7 @@ import MapPicker from './MapPicker';
 import Combobox from './Combobox';
 import Pagination from './Pagination';
 import { takeConvertPayload, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../lib/noteConvert';
+import { currentUserName } from '../lib/noteAutoFill';
 // 仅用于转换场景的留痕回填（把新建出的业务记录 id 写回「笔记转换记录」）。
 // 注意组件内已有名为 api 的 prop，所以全局 api 必须起别名，否则会遮蔽。
 import { api as globalApi } from '../lib/api';
@@ -131,7 +132,10 @@ export interface CrudPageProps {
    * （如会议纪要按「会议总结」文案自动识别议题 / 地点 / 时间 / 主持人等）。
    * 只在转换场景调用；解析是纯函数，抛错也不影响主流程。
    */
-  enrichPrefill?: (values: Record<string, unknown>) => Record<string, unknown>;
+  enrichPrefill?: (
+    values: Record<string, unknown>,
+    ctx: { userName: string },
+  ) => Record<string, unknown>;
   /** studentLink 列（关联学生姓名）点击跳转：传入行，返回目标 href（如学生档案页） */
   studentDetailHref?: (row: Record<string, unknown>) => string;
   /** 行级自定义操作按钮（如「AI 总结」）。run(row, reload) 执行后刷新列表；前端仅在非只读模式渲染 */
@@ -666,18 +670,22 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     convertNoteRef.current = payload.noteId
       ? { noteId: String(payload.noteId), noteTitle: String(payload.noteTitle ?? ''), moduleLabel: payload.label }
       : null;
-    // 预填增强：让目标模块从长文本里再解析出结构化字段（解析失败就退回原值）
-    let values = payload.values ?? {};
-    if (enrichPrefill) {
-      try {
-        values = enrichPrefill(values);
-      } catch {
-        /* 解析失败不影响预填 */
+    // 预填增强：让目标模块从长文本里再解析出结构化字段（解析失败就退回原值）。
+    // 先取登录用户名：沟通人/观察人这类字段的默认值就是当前用户（笔记谁录的，跟进人就是谁）。
+    void (async () => {
+      let values = payload.values ?? {};
+      if (enrichPrefill) {
+        const userName = await currentUserName();
+        try {
+          values = enrichPrefill(values, { userName });
+        } catch {
+          /* 解析失败不影响预填 */
+        }
       }
-    }
-    openCreate(values);
-    // 必须在 openCreate 之后设：openCreate 会把它重置为 false
-    strictRequiredRef.current = true;
+      openCreate(values);
+      // 必须在 openCreate 之后设：openCreate 会把它重置为 false
+      strictRequiredRef.current = true;
+    })();
     // 仅在挂载时执行一次：openCreate 每次渲染都是新函数，进依赖数组会反复触发
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { COMM_SPEC, enrichFromNotes } from '../../lib/noteAutoFill';
 import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
 
 // 列表仅展示：学生 / 沟通人 / 沟通方式 / 沟通主题，外加组件自动的「操作」列。
@@ -48,4 +49,16 @@ export function studentName(row: Record<string, unknown>): string {
   }
   if (v && typeof v === 'object') return String((v as { text?: string }).text ?? '');
   return String(v ?? '');
+}
+
+/**
+ * 笔记转换落地时从「沟通总结」里再解析出结构化字段：
+ *   沟通时间 / 沟通时长 / 沟通主题，沟通人默认取当前登录用户（笔记谁录的，跟进人就是谁）。
+ *   只填空字段，笔记映射已写入的值不覆盖。
+ */
+export function parseFollowupFromSummary(
+  values: Record<string, unknown>,
+  ctx?: { userName?: string },
+): Record<string, unknown> {
+  return enrichFromNotes(values, COMM_SPEC, { 沟通人: ctx?.userName ?? '' });
 }

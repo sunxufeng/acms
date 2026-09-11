@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { COLUMNS, studentName } from './columns';
+import { COLUMNS, studentName, parseObservationFromSummary } from './columns';
 
 function str(v: unknown): string {
   if (v == null) return '';
@@ -69,6 +69,7 @@ export default function StudentObservationsPage() {
         subtitle="学生日常观察记录与待办闭环"
         search={{ placeholder: '搜索学生…' }}
         columns={COLUMNS}
+        enrichPrefill={parseObservationFromSummary}
         statusField="闭环状态"
         inlineEdit
         standaloneForm

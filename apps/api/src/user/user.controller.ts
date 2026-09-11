@@ -14,6 +14,13 @@ export class UsersController {
     return this.svc.list(req.user, q);
   }
 
+  /** ⚠️ 必须声明在 @Get(':id') 之前，否则 'names' 会被当成 id。
+   *  人员姓名列表（全员可读），供主持人/记录人等下拉使用。 */
+  @Get('names')
+  listNames() {
+    return this.svc.listNames();
+  }
+
   @Get(':id')
   get(@Req() req: Request & { user: SessionUser }, @Param('id') id: string) {
     return this.svc.get(req.user, id);

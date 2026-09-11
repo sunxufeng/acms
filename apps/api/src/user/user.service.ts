@@ -61,6 +61,22 @@ export class UsersService {
     return out;
   }
 
+  /**
+   * 人员姓名列表（供表单下拉选「主持人 / 记录人 / 沟通人」等）。
+   *
+   * ⚠️ 为什么不用 list()：list() 要求 admin:user，而填这些字段的是一线老师/教务，
+   * 他们拿不到就会看到空下拉（2026-09-11 实测：Emily 的 /users 直接 403）。
+   * 姓名属于内部业务数据、本来就在各处流转，全员可读是合理的；
+   * 这里**只返回姓名**，不吐 Open ID / 角色 / 密级等敏感字段。
+   */
+  async listNames(): Promise<string[]> {
+    const raw = await this.fetchAll();
+    const names = raw
+      .map((r) => String(this.flat(r)['姓名'] ?? '').trim())
+      .filter(Boolean);
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  }
+
   async list(
     user: SessionUser,
     query: { q?: string; pageSize?: string; pageToken?: string } = {},

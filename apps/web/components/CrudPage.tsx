@@ -284,6 +284,12 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
    * 保存成功后要把生成的业务记录 id 回填过去。
    */
   const convertLogIdRef = useRef('');
+  /**
+   * 本次转换的**来源笔记**。非空表示「是从笔记转进来的」，保存成功后除了回填留痕，
+   * 还要把笔记关联到新生成的业务记录上 —— 否则详情页的「关联笔记」面板查不到任何东西，
+   * 来源就断了（2026-09-11 实测：convert-log 写了，但 /getnote/links 返回 []）。
+   */
+  const convertNoteRef = useRef<{ noteId: string; noteTitle: string; moduleLabel: string } | null>(null);
   /** 用 ref 持有 onRowsLoaded：调用方常传内联函数，直接进依赖数组会每次渲染都触发 */
   const onRowsLoadedRef = useRef(onRowsLoaded);
   onRowsLoadedRef.current = onRowsLoaded;
@@ -480,12 +486,10 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     const fetchPage = async (token?: string): Promise<void> => {
       const params: Record<string, string | undefined> = { pageSize: '100' };
       if (token) params.pageToken = token;
-      const p = await apiClient.listUsers(params);
-      for (const u of p.items) {
-        const name = String(u['姓名'] ?? '');
-        if (name) collected.push(name);
-      }
-      if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
+      // ⚠️ 用 /users/names（全员可读）而不是 listUsers（需 admin:user）：
+      // 一线老师/教务没有 admin:user，用后者会 403、下拉永远为空（2026-09-11 实测）。
+      const names = await apiClient.listUserNames();
+      for (const n of names) if (n) collected.push(n);
     };
     fetchPage()
       .then(() => { if (alive) setUserNames(Array.from(new Set(collected))); })
@@ -614,12 +618,27 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     } catch { /* ignore */ }
     if (!payload) return;
     convertLogIdRef.current = payload.logId ?? '';
+    convertNoteRef.current = payload.noteId
+      ? { noteId: String(payload.noteId), noteTitle: String(payload.noteTitle ?? ''), moduleLabel: payload.label }
+      : null;
     openCreate(payload.values ?? {});
     // 必须在 openCreate 之后设：openCreate 会把它重置为 false
     strictRequiredRef.current = true;
     // 仅在挂载时执行一次：openCreate 每次渲染都是新函数，进依赖数组会反复触发
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * 猜一条记录的可读标题（写关联表时作为 entityName，仅用于事后核对）。
+   * 各模块标题字段不统一，按常见度依次尝试，都没有就留空。
+   */
+  function titleOf(values: Record<string, unknown>): string {
+    for (const k of ['会议议题', '沟通主题', '标题', '名称', '学生姓名', '活动名称']) {
+      const v = values[k];
+      if (v != null && String(v).trim()) return String(v).trim();
+    }
+    return '';
+  }
 
   function openEdit(row: Record<string, unknown>) {
     const init: Record<string, unknown> = {};
@@ -711,6 +730,18 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             try {
               await globalApi.linkNoteConvert(logId, newId);
             } catch { /* 留痕回填失败不阻断业务 */ }
+            // 同时把笔记关联到这条新记录：详情页「关联笔记」面板与笔记侧都靠这张关联表反查，
+            // 只写留痕会导致查无关联、来源不可追溯。关联是全量覆盖式写入，
+            // 新建场景这条笔记就是唯一来源，直接传 [note]。
+            const note = convertNoteRef.current;
+            if (note?.noteId) {
+              try {
+                await globalApi.replaceGetnoteLinks(note.moduleLabel, newId, titleOf(payload), [
+                  { noteId: note.noteId, title: note.noteTitle },
+                ]);
+              } catch { /* 关联失败不阻断业务 */ }
+              convertNoteRef.current = null;
+            }
             convertLogIdRef.current = '';
           }
         }

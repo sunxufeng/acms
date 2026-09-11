@@ -791,6 +791,9 @@ export const api = {
   },
 
   // ── 用户管理（需 admin:user 权限） ───────────
+  /** 人员姓名列表：全员可读、只返回姓名，供主持人/记录人等下拉使用
+   *  （listUsers 需要 admin:user，普通角色会 403 导致下拉为空） */
+  listUserNames: () => request<string[]>('/users/names'),
   listUsers: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);

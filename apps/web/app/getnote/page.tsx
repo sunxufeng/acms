@@ -406,6 +406,15 @@ export default function GetnotePage() {
   const [convertLogs, setConvertLogs] = useState<Record<string, NoteConvertLogItem[]>>({});
   /** 正在查询中的笔记 id 集合，避免翻页时重复并发请求 */
   const convertLogsBusy = useRef<Set<string>>(new Set());
+  /**
+   * 「来源 / 配置名称」筛选用的全量行缓存。
+   *
+   * 这两个筛选项上游接口不支持，只能翻页收集全部笔记后在内存里筛 —— 每次切换配置名称
+   * 都要重跑一遍翻页（最多 10 次往返）＋重拉归属映射，用户体感就是「切一下卡好几秒」。
+   * 缓存后切换只在内存里过滤，秒出。取 5 分钟 TTL 兼顾新鲜度。
+   */
+  const allRowsCacheRef = useRef<{ at: number; rows: Record<string, unknown>[] } | null>(null);
+  const ALL_ROWS_CACHE_TTL = 5 * 60 * 1000;
 
   /**
    * 知识库配置列表：给「配置名称」列当筛选项，同时提供 配置id → 当前名称 的查表
@@ -1111,22 +1120,33 @@ export default function GetnotePage() {
              * ⚠️ 配置名称不在笔记对象里（Get笔记 没有这个字段），要先拿归属映射才能筛。
              */
             if (src || cfg) {
-              let cursor = '';
-              const all: Record<string, unknown>[] = [];
-              for (let i = 0; i < SOURCE_FILTER_MAX_PAGES; i++) {
-                const r = await api.listGetnote(cursor ? { pageToken: cursor } : {});
-                all.push(...(r.items ?? []));
-                if (!r.hasMore || !r.pageToken) break;
-                cursor = r.pageToken;
+              // 命中缓存就直接用，不再翻页收集（切换配置名称时省掉整轮往返）
+              const cached = allRowsCacheRef.current;
+              let rows: Record<string, unknown>[];
+              if (cached && Date.now() - cached.at < ALL_ROWS_CACHE_TTL) {
+                rows = cached.rows;
+              } else {
+                let cursor = '';
+                const all: Record<string, unknown>[] = [];
+                for (let i = 0; i < SOURCE_FILTER_MAX_PAGES; i++) {
+                  const r = await api.listGetnote(cursor ? { pageToken: cursor } : {});
+                  all.push(...(r.items ?? []));
+                  if (!r.hasMore || !r.pageToken) break;
+                  cursor = r.pageToken;
+                }
+                rows = all.map(toRow);
+                allRowsCacheRef.current = { at: Date.now(), rows };
               }
-              const rows = all.map(toRow);
-              // 用到配置名称筛选时才查归属：一次拿全（内部分批），顺带存起来供列渲染
+              // 用到配置名称筛选时才查归属；只补「还没查过的」笔记，不整表重拉
               let map: Record<string, NoteConfigMapItem> = configMap;
               if (cfg) {
-                map = await fetchConfigMap(
-                  rows.map((r) => String(r.id ?? '')).filter(Boolean),
-                );
-                setConfigMap(map); // 筛选结果是全量，整体替换即可
+                const ids = rows.map((r) => String(r.id ?? '')).filter(Boolean);
+                const missing = ids.filter((id) => !map[id]);
+                if (missing.length) {
+                  const extra = await fetchConfigMap(missing);
+                  map = { ...map, ...extra };
+                  setConfigMap(map);
+                }
               }
               const items = rows.filter((r) => {
                 if (src && r['来源'] !== src) return false;

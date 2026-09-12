@@ -5,6 +5,7 @@ import { TABLES, USER_TABLE } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { REDIS } from '../redis.provider.js';
 import { encryptSecret, decryptSecret, SECRET_MASK } from '../shared/secret-cipher.js';
+import type { ProxyConfig } from './ai-proxy.util.js';
 import { currentActor, runAs, systemActor } from '../shared/actor-context.js';
 
 /**
@@ -31,6 +32,13 @@ const DEFAULT_RPM = 60;
 const DEFAULT_CONCURRENCY = 8;
 /** 连续失败多少次判定上游异常 */
 const UNHEALTHY_AFTER = 3;
+/** 收到 429 但没有 reset 头时的兜底冷却（毫秒）。sub2api 默认 5s，上限 2h */
+const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 5_000;
+const MAX_RATE_LIMIT_COOLDOWN_MS = 2 * 60 * 60 * 1000;
+/** 收到 529（上游过载）后的冷却：sub2api 用 10 分钟 */
+const OVERLOAD_COOLDOWN_MS = 10 * 60 * 1000;
+/** 鉴权类错误（401/403）后的临时摘除时长：sub2api 同为 10 分钟 */
+const AUTH_COOLDOWN_MS = 10 * 60 * 1000;
 /** 单个上游转发的超时（毫秒）。与 acapi 一致：120s */
 const UPSTREAM_TIMEOUT_MS = 120_000;
 /** 一次请求最多尝试几个上游（按优先级降级） */
@@ -59,6 +67,10 @@ export interface AiUsageRecord {
 
 export interface RouteTarget {
   upstreamId: string;
+  /** 账号级并发上限（0 = 不限）；抢槽失败就换下一个候选 */
+  concurrency?: number;
+  /** 该账号使用的代理 id（空 = 直连） */
+  proxyId?: string;
   upstreamName: string;
   provider: string;
   baseUrl: string;
@@ -95,6 +107,7 @@ export class AiRouteService implements OnModuleInit {
       TABLES.aiApiKey,
       TABLES.aiUsage,
       TABLES.aiOpLog,
+      TABLES.aiProxy,
     ];
     for (const t of list) await sql.ensureTable(t.tableId, t.name, []);
     this.tablesReady = true;
@@ -306,11 +319,17 @@ export class AiRouteService implements OnModuleInit {
 
   // ── 模型路由 ────────────────────────────────────────────────────
   /**
-   * 选上游：逻辑模型 → 该分组下的候选上游 → 按优先级取最优 → 同级按权重随机。
-   * 过滤条件（原版只有前两条）：分组一致、上游启用、健康状态不是「异常」。
-   * 返回**按优先级排好的候选列表**，调用方可逐个降级重试。
+   * 选上游（对齐 sub2api 的调度链路）。
+   *
+   * 过滤顺序：模型路由命中 → 账号属于该分组（**多对多**，一个账号可服务多个分组）
+   *          → 调度状态机（停用/手动停调/过期/限流冷却/过载冷却/临时摘除/连续失败）
+   *          → 利润门（成本倍率不达标的账号不进候选池）→ 分组侧账号类型过滤。
+   * 排序：路由优先级（数值小优先）→ 负载率（低优先）→ 同分随机。
+   *
+   * 返回**已排好序的候选**；并发抢槽由调用方逐个尝试（抢不到就换下一个，不排队）。
    */
-  async selectRoutes(model: string, groupId: string): Promise<RouteTarget[]> {
+  async selectCandidates(model: string, groupId: string, group: Record<string, unknown>): Promise<RouteTarget[]> {
+    const now = Date.now();
     const routes = (await this.all(TABLES.aiModelRoute.tableId)).filter(
       (r) => String(r.f['逻辑模型'] ?? '') === model && String(r.f['状态'] ?? '') === '启用',
     );
@@ -318,57 +337,241 @@ export class AiRouteService implements OnModuleInit {
 
     const upstreams = await this.all(TABLES.aiUpstream.tableId);
     const byId = new Map(upstreams.map((u) => [u.id, u]));
-    const usable: { route: { id: string; f: Record<string, unknown> }; up: { id: string; f: Record<string, unknown> } }[] = [];
-    for (const r of routes) {
-      const upId = String(r.f['上游账号'] ?? '').split(',')[0]?.trim() ?? '';
+    const onlySubscription = String(group['仅允许订阅账号'] ?? '否') === '是';
+
+    const cand: { id: string; f: Record<string, unknown>; prio: number; r: Record<string, unknown> }[] = [];
+    const seen = new Set<string>();
+    for (const rt of routes) {
+      const upId = toList(rt.f['上游账号'])[0] ?? '';
       const up = byId.get(upId);
       if (!up) continue;
-      if (String(up.f['状态'] ?? '') !== '启用') continue;
-      if (String(up.f['所属分组'] ?? '') !== groupId) continue;
-      const health = String(up.f['健康状态'] ?? '正常');
-      if (health === '异常') continue; // 连续失败超阈值，先不给它流量
-      usable.push({ route: r, up });
+      if (seen.has(up.id)) continue;
+      // 多分组：账号的「所属分组」是数组，包含当前分组才可用
+      if (!toList(up.f['所属分组']).includes(groupId)) continue;
+      if (!this.schedulableReason(up.f, now).ok) continue;
+      if (!this.profitEligible(group, up.f)) continue;
+      // 分组侧账号过滤：只允许订阅类账号（sub2api 的 require_oauth_only）
+      if (onlySubscription && String(up.f['鉴权方式'] ?? '') === 'API Key') continue;
+      seen.add(up.id);
+      cand.push({ id: up.id, f: up.f, prio: Number(rt.f['优先级'] ?? 100), r: rt.f });
     }
-    if (!usable.length) return [];
+    if (!cand.length) return [];
 
-    // 优先级升序（数值小的先用），同优先级内按权重加权随机
-    const tiers: typeof usable[] = [];
-    let remaining = [...usable];
-    while (remaining.length) {
-      const p = Math.min(...remaining.map((x) => Number(x.route.f['优先级'] ?? 100)));
-      const tier = remaining.filter((x) => Number(x.route.f['优先级'] ?? 100) === p);
-      tiers.push(tier);
-      remaining = remaining.filter((x) => Number(x.route.f['优先级'] ?? 100) !== p);
+    const conc = await this.currentConcurrency(cand.map((c) => c.id));
+    const scored = cand.map((c) => ({
+      ...c,
+      load: this.loadRate(conc.get(c.id) ?? 0, c.f),
+      jitter: Math.random(),
+    }));
+    scored.sort((a, b) => a.prio - b.prio || a.load - b.load || a.jitter - b.jitter);
+
+    return scored.map(({ id, f, r }) => ({
+      routeId: String(r['id'] ?? ''),
+      upstreamId: id,
+      upstreamName: String(f['名称'] ?? ''),
+      provider: String(f['供应商'] ?? 'openai'),
+      baseUrl: String(f['BaseURL'] ?? '').replace(/\/+$/, ''),
+      authType: String(f['鉴权方式'] ?? 'API Key'),
+      credential: this.upstreamCredential(f),
+      upstreamModel: String(r['上游模型'] ?? model),
+      concurrency: Number(f['并发上限'] ?? 0) || 0,
+      proxyId: toList(f['代理'])[0] ?? '',
+    }));
+  }
+
+  /** 抢账号槽位：false 表示该账号已满，调用方应换下一个候选 */
+  async tryAcquireAccount(target: RouteTarget): Promise<boolean> {
+    return this.acquireAccountSlot(target.upstreamId, target.concurrency ?? 0);
+  }
+
+  async releaseAccount(target: RouteTarget): Promise<void> {
+    await this.releaseAccountSlot(target.upstreamId);
+  }
+
+ // ── 调度状态机（对齐 sub2api）────────────────────────────────────
+  /**
+   * 一个账号此刻能不能被调度。
+   *
+   * 判据（全部满足才可调度）：
+   *   状态=启用 ＋ 可调度=是 ＋ 未过期（或过期不自动暂停）＋ 三种冷却都到期 ＋ 未达并发上限
+   *
+   * 关键设计：限流/过载/临时不可调度**不用人工解锁** —— 网关收到 429/529/401 时写入一个
+   * 「解除时间」，这里只比大小。到期自然恢复，避免"摘了忘了放回来"。
+   */
+  // ── 代理 ────────────────────────────────────────────────────────
+  /** 代理配置缓存：60 秒，避免每个请求都查库 */
+  private proxyCache = new Map<string, { at: number; cfg: ProxyConfig | null }>();
+
+  /** 取代理配置（密码解密）。找不到/已停用/字段不全 → null（直连） */
+  async getProxy(id: string): Promise<ProxyConfig | null> {
+    if (!id) return null;
+    const hit = this.proxyCache.get(id);
+    if (hit && Date.now() - hit.at < 60_000) return hit.cfg;
+    const f = await this.one(TABLES.aiProxy.tableId, id);
+    const host = String(f?.['主机'] ?? '').trim();
+    const port = Number(f?.['端口'] ?? 0);
+    if (!f || String(f['状态'] ?? '') !== '启用' || !host || !port) {
+      this.proxyCache.set(id, { at: Date.now(), cfg: null });
+      return null;
     }
-    // 每层内部按权重加权随机（权重默认 1）
-    const ordered: typeof usable = [];
-    for (const tier of tiers) {
-      const pool = [...tier];
-      while (pool.length) {
-        const total = pool.reduce((s, x) => s + Math.max(1, Number(x.route.f['权重'] ?? x.up.f['权重'] ?? 1)), 0);
-        let pick = Math.random() * total;
-        let idx = 0;
-        for (let i = 0; i < pool.length; i += 1) {
-          pick -= Math.max(1, Number(pool[i]!.route.f['权重'] ?? pool[i]!.up.f['权重'] ?? 1));
-          if (pick <= 0) {
-            idx = i;
-            break;
-          }
-        }
-        ordered.push(pool.splice(idx, 1)[0]!);
+    let password = '';
+    const enc = String(f['密码'] ?? '');
+    if (enc && enc !== SECRET_MASK) {
+      try {
+        password = decryptSecret(enc);
+      } catch {
+        password = '';
       }
     }
+    const cfg: ProxyConfig = {
+      protocol: String(f['协议'] ?? 'http'),
+      host,
+      port,
+      username: String(f['用户名'] ?? ''),
+      password,
+    };
+    this.proxyCache.set(id, { at: Date.now(), cfg });
+    return cfg;
+  }
 
-    return ordered.map(({ route, up }) => ({
-      routeId: route.id,
-      upstreamId: up.id,
-      upstreamName: String(up.f['名称'] ?? ''),
-      provider: String(up.f['供应商'] ?? 'openai'),
-      baseUrl: String(up.f['BaseURL'] ?? '').replace(/\/+$/, ''),
-      authType: String(up.f['鉴权方式'] ?? 'API Key'),
-      credential: this.upstreamCredential(up.f),
-      upstreamModel: String(route.f['上游模型'] ?? model),
-    }));
+  schedulableReason(f: Record<string, unknown>, now = Date.now()): { ok: boolean; reason: string } {
+    if (String(f['状态'] ?? '') !== '启用') return { ok: false, reason: '已停用' };
+    if (String(f['可调度'] ?? '是') !== '是') return { ok: false, reason: '手动停止调度' };
+    const exp = Number(f['过期时间'] ?? 0);
+    if (exp && now > exp && String(f['过期自动暂停'] ?? '是') === '是') {
+      return { ok: false, reason: '账号已过期' };
+    }
+    const rate = Number(f['限流解除时间'] ?? 0);
+    if (rate && now < rate) return { ok: false, reason: `限流冷却中（至 ${new Date(rate).toLocaleTimeString('zh-CN')}）` };
+    const over = Number(f['过载解除时间'] ?? 0);
+    if (over && now < over) return { ok: false, reason: `上游过载冷却中（至 ${new Date(over).toLocaleTimeString('zh-CN')}）` };
+    const tmp = Number(f['临时不可调度解除时间'] ?? 0);
+    if (tmp && now < tmp) return { ok: false, reason: String(f['临时不可调度原因'] ?? '临时不可调度') };
+    if (String(f['健康状态'] ?? '正常') === '异常') return { ok: false, reason: '连续失败已标记异常' };
+    return { ok: true, reason: '' };
+  }
+
+  /** 429：写限流解除时间。有上游 reset 头就用真实值，否则兜底冷却（不摘账号） */
+  async markRateLimited(upstreamId: string, resetAt?: number): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql || !upstreamId) return;
+    const now = Date.now();
+    const at = resetAt && resetAt > now ? Math.min(resetAt, now + MAX_RATE_LIMIT_COOLDOWN_MS) : now + DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+    await runAs(systemActor('ai-route', '系统 · AI 路由'), () =>
+      sql.update(TABLES.aiUpstream.tableId, upstreamId, { 限流解除时间: at, 最后失败信息: '429 限流' }),
+    ).catch(() => undefined);
+  }
+
+  /** 529：上游过载，冷却 10 分钟 */
+  async markOverloaded(upstreamId: string): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql || !upstreamId) return;
+    await runAs(systemActor('ai-route', '系统 · AI 路由'), () =>
+      sql.update(TABLES.aiUpstream.tableId, upstreamId, {
+        过载解除时间: Date.now() + OVERLOAD_COOLDOWN_MS,
+        最后失败信息: '529 上游过载',
+      }),
+    ).catch(() => undefined);
+  }
+
+  /** 401/403：临时摘除（保持启用，等人工修好凭证或刷新 token） */
+  async markTempUnschedulable(upstreamId: string, reason: string, ms = AUTH_COOLDOWN_MS): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql || !upstreamId) return;
+    await runAs(systemActor('ai-route', '系统 · AI 路由'), () =>
+      sql.update(TABLES.aiUpstream.tableId, upstreamId, {
+        临时不可调度解除时间: Date.now() + ms,
+        临时不可调度原因: reason.slice(0, 120),
+        最后失败信息: reason.slice(0, 200),
+      }),
+    ).catch(() => undefined);
+  }
+
+  /** 重置状态：清掉三种冷却与失败计数（排障用的一键恢复） */
+  async resetAccountState(upstreamId: string): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql) throw new Error('未配置数据库连接');
+    const f = await this.one(TABLES.aiUpstream.tableId, upstreamId);
+    if (!f) throw new Error('上游账号不存在');
+    await sql.update(TABLES.aiUpstream.tableId, upstreamId, {
+      限流解除时间: 0,
+      过载解除时间: 0,
+      临时不可调度解除时间: 0,
+      临时不可调度原因: '',
+      连续失败次数: 0,
+      健康状态: '正常',
+      最后失败信息: '',
+    });
+    await this.writeOpLog('重置账号状态', '上游账号', String(f['名称'] ?? ''), {});
+  }
+
+  // ── 账号级并发抢槽（Redis）：抢不到就换账号，而不是排队 ──
+  private async acquireAccountSlot(id: string, limit: number): Promise<boolean> {
+    if (!(limit > 0)) return true;
+    try {
+      const key = `ai:aconc:${id}`;
+      const cur = await this.redis.incr(key);
+      await this.redis.expire(key, 300);
+      if (cur > limit) {
+        await this.redis.decr(key).catch(() => undefined);
+        return false;
+      }
+      return true;
+    } catch {
+      return true; // Redis 异常一律放行（fail-open）
+    }
+  }
+
+  private async releaseAccountSlot(id: string): Promise<void> {
+    await this.redis.decr(`ai:aconc:${id}`).catch(() => undefined);
+  }
+
+  /** 负载率 = 当前并发 × 100 / 有效负载因子（sub2api 口径；排队数这里用 0，我们抢不到就换号） */
+  private loadRate(current: number, f: Record<string, unknown>): number {
+    const factor = Number(f['负载因子'] ?? 0) || Number(f['并发上限'] ?? 0) || 1;
+    return Math.round((current * 100) / Math.max(1, factor));
+  }
+
+  /** 当前并发（读 Redis；仅用于排序与展示，拿不到按 0 算） */
+  private async currentConcurrency(ids: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    try {
+      const vals = await this.redis.mget(...ids.map((i) => `ai:aconc:${i}`));
+      ids.forEach((id, i) => out.set(id, Number(vals[i] ?? 0) || 0));
+    } catch {
+      /* 忽略 */
+    }
+    return out;
+  }
+
+  /** 利润门（sub2api）：账号成本倍率 U ≤ 分组倍率 D ×(1 − 毛利率 − 安全缓冲) 才准入 */
+  private profitEligible(group: Record<string, unknown>, account: Record<string, unknown>): boolean {
+    if (String(group['启用利润控制'] ?? '否') !== '是') return true;
+    const margin = Number(group['最低毛利率'] ?? 0);
+    const buffer = Number(group['安全缓冲'] ?? 0);
+    if (!(margin > 0)) return true;
+    if (margin + buffer >= 1) return false; // 配置本身不合法 → 拒绝（宁可少用也不亏）
+    const D = Number(group['价格倍率'] ?? 1) || 1;
+    const U = Number(account['账号成本倍率'] ?? 1);
+    if (!Number.isFinite(U) || U < 0) return false;
+    const threshold = D * (1 - margin - buffer);
+    return U <= threshold + 1e-9;
+  }
+
+  /** 高峰时段倍率（sub2api）：[peak_start, peak_end) 区间内额外乘一次 */
+  effectiveMultiplier(group: Record<string, unknown>, now = new Date()): number {
+    const base = Number(group['价格倍率'] ?? 1) || 1;
+    if (String(group['启用高峰倍率'] ?? '否') !== '是') return base;
+    const start = String(group['高峰开始'] ?? '');
+    const end = String(group['高峰结束'] ?? '');
+    const peak = Number(group['高峰倍率'] ?? 1) || 1;
+    if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return base;
+    const cur = now.getHours() * 60 + now.getMinutes();
+    const toMin = (s: string) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3, 5));
+    const a = toMin(start);
+    const b = toMin(end);
+    if (b <= a) return base; // 不支持跨天，配置非法时按不启用处理
+    return cur >= a && cur < b ? base * peak : base;
   }
 
   /** 列出所有启用的逻辑模型（网关 /v1/models 用，方便使用方确认该填什么模型名） */
@@ -380,6 +583,18 @@ export class AiRouteService implements OnModuleInit {
   }
 
   // ── 配额与限流 ──────────────────────────────────────────────────
+  /**
+   * 用分组白名单收敛模型列表（/v1/models 用）。
+   * 白名单非空时只保留命中项（支持 `xxx*` 前缀通配），与请求准入用同一套判定。
+   */
+  filterModelsByWhitelist(group: Record<string, unknown>, models: string[]): string[] {
+    const list = toList(group['可用模型']);
+    if (!list.length) return models;
+    return models.filter((m) =>
+      list.some((w) => w === m || (w.endsWith('*') && m.startsWith(w.slice(0, -1)))),
+    );
+  }
+
   /** 模型白名单（分组维度）：配了就必须命中，原版有字段但不校验 */
   assertModelAllowed(group: Record<string, unknown>, model: string): void {
     const list = Array.isArray(group['可用模型'])
@@ -390,15 +605,31 @@ export class AiRouteService implements OnModuleInit {
     if (!hit) throw new GatewayError('model_not_allowed', `分组未开放模型 ${model}`, 403);
   }
 
-  /** 分组月配额：跨月自动重置（分组上带「用量月份」标记） */
+  /**
+   * 三级限额（日 / 周 / 月 USD，对齐 sub2api）。任一档超了就拒绝，0 或空表示该档不限。
+   * 跨档自动归零：字段上记「用量日 / 用量周 / 用量月份」，对不上就视为 0。
+   */
   async assertGroupQuota(group: Record<string, unknown>, groupId: string): Promise<void> {
-    const quota = Number(group['月配额USD'] ?? 0);
-    if (!(quota > 0)) return;
-    const month = new Date().toISOString().slice(0, 7);
-    const usedMonth = String(group['用量月份'] ?? '');
-    const used = usedMonth === month ? Number(group['本月已用USD'] ?? 0) : 0;
-    if (used >= quota) {
-      throw new GatewayError('quota_exceeded', `分组本月额度已用尽（${used.toFixed(2)}/${quota} USD）`, 429);
+    const now = Date.now();
+    const dayKey = new Date(now).toISOString().slice(0, 10);
+    const weekKey = isoWeek(now);
+    const monthKey = new Date(now).toISOString().slice(0, 7);
+    const tiers: [string, string, string, number][] = [
+      ['日限额USD', '今日已用USD', '用量日', dayKey === String(group['用量日'] ?? '') ? 1 : 0],
+      ['周限额USD', '本周已用USD', '用量周', weekKey === String(group['用量周'] ?? '') ? 1 : 0],
+      ['月配额USD', '本月已用USD', '用量月份', monthKey === String(group['用量月份'] ?? '') ? 1 : 0],
+    ];
+    for (const [limitField, usedField, , fresh] of tiers) {
+      const limit = Number(group[limitField] ?? 0);
+      if (!(limit > 0)) continue;
+      const used = fresh ? Number(group[usedField] ?? 0) : 0;
+      if (used >= limit) {
+        throw new GatewayError(
+          'quota_exceeded',
+          `分组${limitField.replace('USD', '')}额度已用尽（${used.toFixed(4)}/${limit} USD）`,
+          429,
+        );
+      }
     }
   }
 
@@ -479,27 +710,38 @@ export class AiRouteService implements OnModuleInit {
   }
 
   /**
-   * 额度累加：直接走 SQL 表达式自增，避免「读-改-写」丢更新。
-   * 宽表里金额存成 jsonb 的数字，用 (data->>'已用额度USD')::numeric + $n 回写。
+   * 额度累加：key 的累计额度 + 分组的日/周/月三级用量。
+   *
+   * 一律走 SQL 表达式自增（SqlStore.addNumber）—— 读-改-写在并发下会丢更新。
+   * 三级用量各自带「归属标记」（用量日/用量周/用量月份），对不上就先把总量重置为本次金额。
    */
   private async addUsageToKey(keyId: string, cost: number, groupId: string): Promise<void> {
     const sql = getSqlStore();
     if (!sql || !keyId) return;
-    const month = new Date().toISOString().slice(0, 7);
+    const now = Date.now();
+    const day = new Date(now).toISOString().slice(0, 10);
+    const week = isoWeek(now);
+    const month = new Date(now).toISOString().slice(0, 7);
+
     await sql.addNumber(TABLES.aiApiKey.tableId, keyId, '已用额度USD', cost).catch(() => undefined);
-    await sql.addNumber(TABLES.aiApiKey.tableId, keyId, '本月已用USD', cost).catch(() => undefined);
-    // 分组本月用量：跨月先归零再累加
+
     const group = await this.one(TABLES.aiRouteGroup.tableId, groupId);
-    if (group) {
-      const sameMonth = String(group['用量月份'] ?? '') === month;
-      if (sameMonth) {
-        await sql.addNumber(TABLES.aiRouteGroup.tableId, groupId, '本月已用USD', cost).catch(() => undefined);
+    if (!group) return;
+    const bump = async (usedField: string, markField: string, mark: string): Promise<void> => {
+      if (String(group[markField] ?? '') === mark) {
+        await sql.addNumber(TABLES.aiRouteGroup.tableId, groupId, usedField, cost).catch(() => undefined);
       } else {
+        // 跨档：把该档用量重置为本次金额，并记上新的归属标记
         await sql
-          .update(TABLES.aiRouteGroup.tableId, groupId, { 本月已用USD: cost, 用量月份: month })
+          .update(TABLES.aiRouteGroup.tableId, groupId, { [usedField]: cost, [markField]: mark })
           .catch(() => undefined);
+        group[usedField] = cost;
+        group[markField] = mark;
       }
-    }
+    };
+    await bump('今日已用USD', '用量日', day);
+    await bump('本周已用USD', '用量周', week);
+    await bump('本月已用USD', '用量月份', month);
   }
 
   /** 上游调用成败要回写健康状态（原版 health/failCount 是死字段，这里真做） */
@@ -718,3 +960,27 @@ function priceOf(model: string): { in: number; out: number } {
 }
 
 export { priceOf, KEY_PREFIX, UPSTREAM_TIMEOUT_MS, MAX_ATTEMPTS };
+
+/** 宽表里的 multi 字段可能是数组、也可能被存成逗号分隔字符串，统一成数组 */
+function toList(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean);
+  if (v && typeof v === 'object') {
+    const o = v as { text?: string };
+    return o.text ? [o.text.trim()] : [];
+  }
+  return String(v ?? '')
+    .split(/[,，、]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+/** ISO 周标识（如 2026-W37），用于「周限额」的跨周归零判断 */
+function isoWeek(ms: number): string {
+  const d = new Date(ms);
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${t.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}

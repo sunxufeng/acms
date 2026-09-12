@@ -124,6 +124,7 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'aiApiKeys', label: 'AI 密钥', path: '/ai-api-keys', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'aiUsage', label: 'AI 用量明细', path: '/ai-usage', legacyRead: null, legacyWrite: null, menuPermission: null, actions: READ, genericCrud: true },
   { key: 'aiOpLogs', label: 'AI 路由操作日志', path: '/ai-op-logs', legacyRead: null, legacyWrite: null, menuPermission: null, actions: READ, genericCrud: true },
+  { key: 'aiProxies', label: 'AI 上游代理', path: '/ai-proxies', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
 ];
 
 /** 返回值是 Permission 的子类型，供现有 authorize/hasPermission 直接使用。 */

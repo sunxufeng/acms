@@ -711,6 +711,18 @@ export const api = {
   aiUpstreamHealthCheck: () =>
     request<{ checked: number; ok: number; bad: number }>('/ai-upstreams/health-check', { method: 'POST' }),
 
+  /** 重置账号调度状态（清限流/过载/临时摘除冷却） */
+  resetAiUpstreamState: (id: string) =>
+    request<{ ok: boolean }>(`/ai-upstreams/${id}/reset-state`, { method: 'POST' }),
+
+  // ── AI 上游代理 ──
+  listAiProxies: (params: Record<string, string | undefined> = {}) =>
+    request<Page<Record<string, unknown>>>(`/ai-proxies${qs(params)}`),
+  createAiProxy: (d: Record<string, unknown>) => request('/ai-proxies', { method: 'POST', body: JSON.stringify(d) }),
+  updateAiProxy: (id: string, d: Record<string, unknown>) =>
+    request(`/ai-proxies/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+  deleteAiProxy: (id: string) => request(`/ai-proxies/${id}`, { method: 'DELETE' }),
+
   listAiModelRoutes: (params: Record<string, string | undefined> = {}) =>
     request<Page<Record<string, unknown>>>(`/ai-model-routes${qs(params)}`),
   createAiModelRoute: (d: Record<string, unknown>) =>

@@ -113,6 +113,8 @@ export const TABLES = {
   aiUsage: { tableId: 'tblairusage000001', name: 'AI用量明细表' },
   /** AI 路由操作日志：密钥代发/吊销、上游与分组变更等管理动作 */
   aiOpLog: { tableId: 'tblairop000000001', name: 'AI路由操作日志表' },
+  /** AI 上游代理：国内访问境外 API 时用（协议/主机/端口/账密 + 到期自动切备用） */
+  aiProxy: { tableId: 'tblairproxy000001', name: 'AI上游代理表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

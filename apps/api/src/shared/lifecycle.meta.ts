@@ -338,25 +338,41 @@ export const AI_ROUTE_METAS: RecordMeta[] = [
     // 两条路径判定完全一致，不会出现「回退时偷偷放行」
     readPerm: 'module:aiRouteGroups:read',
     writePerm: 'module:aiRouteGroups:update',
-    numbers: ['价格倍率', 'RPM上限', '并发上限', '月配额USD'],
+    // 三级限额（日/周/月，USD）：对齐 sub2api，0 或空表示该档不限
+    numbers: [
+      '价格倍率', 'RPM上限', '并发上限',
+      '日限额USD', '周限额USD', '月配额USD',
+      '今日已用USD', '本周已用USD', '本月已用USD',
+      '高峰倍率', '最低毛利率', '安全缓冲', '默认有效期天数', '显示排序',
+    ],
     multi: ['可用模型'],
     statusField: '状态',
     defaultStatus: '启用',
     searchField: '名称',
-    sortField: '更新时间',
+    sortField: '显示排序',
   },
   {
     path: 'ai-upstreams',
     tableId: TABLES.aiUpstream.tableId,
     readPerm: 'module:aiUpstreams:read',
     writePerm: 'module:aiUpstreams:update',
-    numbers: ['权重', '优先级', '连续失败次数'],
-    multi: ['可用模型'],
+    numbers: [
+      '权重', '优先级', '连续失败次数',
+      '并发上限', '负载因子', '账号成本倍率', '当前并发', '今日调用', '今日成本USD',
+    ],
+    // 一个上游账号可以同时服务多个分组（对齐 sub2api 的 account_groups 多对多）：
+    // 比如公司的 Claude 企业 key 同时给「招生组」「教学组」用。
+    multi: ['可用模型', '所属分组'],
     // 上游厂商密钥：AES-256-GCM 加密落库，读取一律回显掩码；
     // 要看明文走专用接口（会记操作日志），列表/导出/详情都拿不到明文。
     secretFields: ['凭证'],
-    linkFields: [{ field: '所属分组', table: TABLES.aiRouteGroup.tableId, nameField: '名称' }],
-    dateFields: ['最后检查时间'],
+    linkFields: [
+      { field: '所属分组', table: TABLES.aiRouteGroup.tableId, nameField: '名称' },
+      { field: '代理', table: TABLES.aiProxy.tableId, nameField: '名称' },
+    ],
+    // 调度状态机（对齐 sub2api）：限流/过载/临时不可调度都是「到期自动恢复」，
+    // 不需要人工解锁 —— 网关收到 429/529/401 时写入，判断时只要看有没有到期。
+    dateFields: ['最后检查时间', '限流解除时间', '过载解除时间', '临时不可调度解除时间', '过期时间'],
     statusField: '状态',
     defaultStatus: '启用',
     searchFields: ['名称', 'BaseURL'],
@@ -425,3 +441,19 @@ export const AI_ROUTE_METAS: RecordMeta[] = [
     rangeField: '操作时间',
   },
 ];
+
+/** AI 上游代理：国内直连不了境外 API 时用；记录 id 自增，密码走 secretFields 加密 */
+AI_ROUTE_METAS.push({
+  path: 'ai-proxies',
+  tableId: TABLES.aiProxy.tableId,
+  readPerm: 'module:aiProxies:read',
+  writePerm: 'module:aiProxies:update',
+  numbers: ['端口', '到期提醒天数'],
+  secretFields: ['密码'],
+  linkFields: [{ field: '备用代理', table: TABLES.aiProxy.tableId, nameField: '名称' }],
+  dateFields: ['到期时间'],
+  statusField: '状态',
+  defaultStatus: '启用',
+  searchField: '名称',
+  sortField: '更新时间',
+});

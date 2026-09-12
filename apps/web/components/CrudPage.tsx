@@ -45,6 +45,12 @@ export interface CrudColumn {
    * 提交时传 value；列表/详情显示的姓名由后端 linkFields 解析。
    */
   linkOptions?: { value: string; label: string }[];
+  /**
+   * 关联字段多选（如一个上游账号可属于多个分组）：
+   * 表单渲染成复选组，提交 id 数组；后端 multi 字段按数组存、linkFields 解析成名称。
+   * ⚠️ 必须同时在 RecordMeta 的 multi 里登记该字段，否则会被当成字符串写入。
+   */
+  linkMulti?: boolean;
   /** 候选项来自字典表（优先于 options；options 作为离线兜底） */
   dictKey?: string;
   required?: boolean;
@@ -797,7 +803,11 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         init[c.key] = (Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split('、').filter(Boolean));
       else if (c.type === 'tags')
         init[c.key] = Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split(/[\n,，]/).map((s) => s.trim()).filter(Boolean);
-      else if (c.type === 'studentLink' || c.type === 'weilingContact' || c.type === 'link') {
+      else if (c.type === 'link' && c.linkMulti) {
+        // 多选关联：__link 里是全部 id
+        const ids = row[c.key + '__link'];
+        init[c.key] = Array.isArray(ids) ? ids : [];
+      } else if (c.type === 'studentLink' || c.type === 'weilingContact' || c.type === 'link') {
         // 行中关联字段已被后端解析为可读名，但 __link 仍保留 record id —— 必须用 id 回填选择器，
         // 否则编辑时把「姓名」当 id 提交，保存后关联就断了。
         const linkIds = row[c.key + '__link'];
@@ -1155,6 +1165,52 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" />
           ) : c.type === 'weilingContact' ? (
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={weilingContactOptions} placeholder="输入联系人姓名或手机号筛选…" />
+          ) : c.type === 'link' && c.linkMulti ? (
+            (() => {
+              const cur = Array.isArray(form[c.key])
+                ? (form[c.key] as unknown[]).map(String)
+                : str(form[c.key]).split(',').map((x) => x.trim()).filter(Boolean);
+              return (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {(c.linkOptions ?? []).map((o) => {
+                    const on = cur.includes(o.value);
+                    return (
+                      <label
+                        key={o.value}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 10px',
+                          borderRadius: 999,
+                          border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                          background: on ? 'var(--accent-soft)' : 'transparent',
+                          fontSize: 'var(--font-sm)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              [c.key]: e.target.checked
+                                ? [...cur, o.value]
+                                : cur.filter((x) => x !== o.value),
+                            }))
+                          }
+                        />
+                        {o.label}
+                      </label>
+                    );
+                  })}
+                  {(c.linkOptions ?? []).length === 0 ? (
+                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>暂无可选项</span>
+                  ) : null}
+                </div>
+              );
+            })()
           ) : c.type === 'link' ? (
             <Combobox
               value={str(form[c.key])}

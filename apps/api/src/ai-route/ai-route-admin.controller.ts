@@ -54,6 +54,20 @@ export class AiRouteAdminController {
     return { credential };
   }
 
+  /**
+   * 重置账号调度状态：清掉限流/过载/临时摘除三种冷却与失败计数。
+   * 场景：上游 key 额度恢复、凭证已修好，不想等冷却自然到期。
+   */
+  @Post('ai-upstreams/:id/reset-state')
+  async resetState(
+    @Req() req: { user: SessionUser; headers: Record<string, string | string[] | undefined> },
+    @Param('id') id: string,
+  ) {
+    requireModule(req.user, 'aiUpstreams', 'update');
+    await this.svc.resetAccountState(id);
+    return { ok: true };
+  }
+
   /** 手动触发上游健康检查（定时任务也会跑，这里是「我改完上游想立刻验证」的入口） */
   @Post('ai-upstreams/health-check')
   async healthCheck(@Req() req: { user: SessionUser; headers: Record<string, string | string[] | undefined> }) {

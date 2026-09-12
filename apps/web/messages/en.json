@@ -204,7 +204,8 @@
     "aiModelRoutes": "Model Routes",
     "aiApiKeys": "API Keys",
     "aiUsage": "Usage",
-    "aiOpLogs": "Audit Log"
+    "aiOpLogs": "Audit Log",
+    "aiProxies": "Proxies"
   },
   "breadcrumb": {
     "dashboard": "Workspace",

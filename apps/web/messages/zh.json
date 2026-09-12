@@ -204,7 +204,8 @@
     "aiModelRoutes": "模型路由",
     "aiApiKeys": "API 密钥",
     "aiUsage": "用量统计",
-    "aiOpLogs": "审计日志"
+    "aiOpLogs": "审计日志",
+    "aiProxies": "上游代理"
   },
   "breadcrumb": {
     "dashboard": "工作台",

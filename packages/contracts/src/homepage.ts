@@ -361,6 +361,7 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     // 菜单可见性走 module:<key>:enter（无需 perm），接口权限同名。
     { key: 'aiRouteGroups', label: '分组管理', enLabel: 'Groups', href: '/ai-route-groups', icon: 'integration', section: 'AI 路由', order: 10, perm: '' },
     { key: 'aiUpstreams', label: '上游账号', enLabel: 'Upstreams', href: '/ai-upstreams', icon: 'bot', section: 'AI 路由', order: 20, perm: '' },
+    { key: 'aiProxies', label: '上游代理', enLabel: 'Proxies', href: '/ai-proxies', icon: 'location', section: 'AI 路由', order: 25, perm: '' },
     { key: 'aiModelRoutes', label: '模型路由', enLabel: 'Model Routes', href: '/ai-model-routes', icon: 'compass', section: 'AI 路由', order: 30, perm: '' },
     { key: 'aiApiKeys', label: 'API 密钥', enLabel: 'API Keys', href: '/ai-api-keys', icon: 'key', section: 'AI 路由', order: 40, perm: '' },
     { key: 'aiUsage', label: '用量统计', enLabel: 'Usage', href: '/ai-usage', icon: 'chart', section: 'AI 路由', order: 50, perm: '' },

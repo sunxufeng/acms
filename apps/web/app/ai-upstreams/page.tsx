@@ -11,7 +11,10 @@ import { api } from '../../lib/api';
  * `******`；要看明文必须点「查看凭证」（单独鉴权 + 记操作日志）。
  * 编辑时凭证留空/保持掩码 = 不修改，这是 secret-cipher 的约定。
  */
-function buildColumns(groupOptions: { value: string; label: string }[]): CrudColumn[] {
+function buildColumns(
+  groupOptions: { value: string; label: string }[],
+  proxyOptions: { value: string; label: string }[],
+): CrudColumn[] {
   return [
     { key: '名称', label: '账号名称', width: '150px', form: true, required: true, filter: true, filterType: 'text', listOrder: 1 },
     {
@@ -51,11 +54,17 @@ function buildColumns(groupOptions: { value: string; label: string }[]): CrudCol
     {
       key: '所属分组',
       label: '所属分组',
-      width: '130px',
+      width: '170px',
       form: true,
+      // 一个账号可同时服务多个分组（对齐 sub2api 的多对多）
       type: 'link',
+      linkMulti: true,
       linkOptions: groupOptions,
-      render: (v) => <span style={{ fontSize: 'var(--font-xs)' }}>{String(v ?? '—')}</span>,
+      render: (v) => {
+        const list = Array.isArray(v) ? v.map(String) : String(v ?? '').split(/[、,，]/).filter(Boolean);
+        if (!list.length) return <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-xs)' }}>未分组</span>;
+        return <span style={{ fontSize: 'var(--font-xs)' }}>{list.join('、')}</span>;
+      },
     },
     {
       key: '状态',
@@ -77,6 +86,36 @@ function buildColumns(groupOptions: { value: string; label: string }[]): CrudCol
         const s = String(v ?? '正常');
         const color = s === '正常' ? '#2c6b45' : s === '降级' ? '#7a5c10' : '#b3261e';
         return <span style={{ fontSize: 'var(--font-xs)', color }}>{s}</span>;
+      },
+    },
+    {
+      key: '调度',
+      label: '调度',
+      width: '150px',
+      // 三类冷却都是「到期自动恢复」，这里显示还剩多久（不用人工解锁）
+      render: (_v, row) => {
+        const now = Date.now();
+        if (String(row['状态'] ?? '') !== '启用') return <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>已停用</span>;
+        if (String(row['可调度'] ?? '是') !== '是') return <span style={{ fontSize: 'var(--font-xs)', color: '#7a5c10' }}>手动停调</span>;
+        const exp = Number(row['过期时间'] ?? 0);
+        if (exp && now > exp && String(row['过期自动暂停'] ?? '是') === '是')
+          return <span style={{ fontSize: 'var(--font-xs)', color: '#b3261e' }}>已过期</span>;
+        const cooling: [string, number][] = [
+          ['限流', Number(row['限流解除时间'] ?? 0)],
+          ['过载', Number(row['过载解除时间'] ?? 0)],
+          ['临时摘除', Number(row['临时不可调度解除时间'] ?? 0)],
+        ];
+        const hit = cooling.find(([, at]) => at && now < at);
+        if (hit) {
+          const left = Math.ceil((hit[1] - now) / 1000);
+          return (
+            <span style={{ fontSize: 'var(--font-xs)', color: '#7a5c10' }} title={String(row['临时不可调度原因'] ?? '')}>
+              {hit[0]}冷却 {left > 60 ? `${Math.ceil(left / 60)} 分` : `${left} 秒`}
+            </span>
+          );
+        }
+        if (String(row['健康状态'] ?? '') === '异常') return <span style={{ fontSize: 'var(--font-xs)', color: '#b3261e' }}>已标记异常</span>;
+        return <span style={{ fontSize: 'var(--font-xs)', color: '#2c6b45' }}>可调度</span>;
       },
     },
     { key: '权重', label: '权重', width: '70px', form: true, type: 'number' },
@@ -108,6 +147,23 @@ function buildColumns(groupOptions: { value: string; label: string }[]): CrudCol
       hint: '填 JSON，如 {"apiKey":"sk-xxx"}。列表只回显掩码，明文仅此处可写',
     },
     { key: '可用模型', label: '可用模型', list: false, form: true, type: 'tags' },
+    {
+      key: '代理',
+      label: '代理',
+      list: false,
+      form: true,
+      type: 'link',
+      linkOptions: proxyOptions,
+      hint: '国内直连不通时选一个代理；留空表示直连',
+    },
+    { key: '账号成本倍率', label: '账号成本倍率', list: false, form: true, type: 'number', hint: '上游成本口径（1 = 原价）；分组开启利润控制时用它做准入比较' },
+    { key: '并发上限', label: '并发上限', list: false, form: true, type: 'number', hint: '该账号同时处理多少请求；0 = 不限。满了就换下一个账号，不排队' },
+    { key: '负载因子', label: '负载因子', list: false, form: true, type: 'number', hint: '用于算负载率，留空则用并发上限；调大 = 允许更多并发' },
+    { key: '可调度', label: '可调度', list: false, form: true, type: 'select', dictKey: '是否可调度', hint: '关掉后该账号不再被调度（等价于临时下线，不影响已配置信息）' },
+    { key: '过期时间', label: '过期时间', list: false, form: true, type: 'date' },
+    { key: '过期自动暂停', label: '过期自动暂停', list: false, form: true, type: 'select', dictKey: '是否', hint: '到期后自动停止调度（默认是）' },
+    { key: '临时不可调度解除时间', label: '临时摘除至', list: false, form: true, type: 'datetime', readonly: true },
+    { key: '当前并发', label: '当前并发', width: '80px', render: (v) => <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{Number(v ?? 0)}</span> },
     { key: '鉴权方式', label: '鉴权方式', list: false, form: true, type: 'select', dictKey: '鉴权方式' },
     { key: '最后失败信息', label: '最近失败原因', width: '220px', render: (v) => <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{String(v ?? '—')}</span> },
   ];
@@ -115,19 +171,18 @@ function buildColumns(groupOptions: { value: string; label: string }[]): CrudCol
 
 export default function AiUpstreamsPage() {
   const [groups, setGroups] = useState<{ value: string; label: string }[]>([]);
+  const [proxies, setProxies] = useState<{ value: string; label: string }[]>([]);
   const [secret, setSecret] = useState<{ name: string; text: string } | null>(null);
   const [msg, setMsg] = useState('');
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    api
-      .listAiRouteGroups({ pageSize: '200' })
-      .then((p) => {
+    Promise.all([api.listAiRouteGroups({ pageSize: '200' }), api.listAiProxies({ pageSize: '200' })])
+      .then(([p, px]) => {
         if (!alive) return;
-        setGroups(
-          (p.items ?? []).map((g) => ({ value: String(g.id ?? g['id'] ?? ''), label: String(g['名称'] ?? '') })),
-        );
+        setGroups((p.items ?? []).map((g) => ({ value: String(g.id ?? ''), label: String(g['名称'] ?? '') })));
+        setProxies((px.items ?? []).map((x) => ({ value: String(x.id ?? ''), label: String(x['名称'] ?? '') })));
       })
       .catch(() => undefined);
     return () => {
@@ -135,7 +190,18 @@ export default function AiUpstreamsPage() {
     };
   }, []);
 
-  const columns = useMemo(() => buildColumns(groups), [groups]);
+  const columns = useMemo(() => buildColumns(groups, proxies), [groups, proxies]);
+
+  /** 重置调度状态：清掉限流/过载/临时摘除冷却（key 恢复额度、凭证修好后用） */
+  const resetState = useCallback(async (row: Record<string, unknown>) => {
+    if (!window.confirm(`确认重置「${String(row['名称'] ?? '')}」的调度状态？将清除限流/过载/临时摘除冷却与失败计数。`)) return;
+    try {
+      await api.resetAiUpstreamState(String(row.id ?? ''));
+      setMsg('已重置调度状态');
+    } catch (e) {
+      setMsg(`重置失败：${(e as Error).message}`);
+    }
+  }, []);
 
   /** 查看凭证明文：列表里永远只有掩码，这里是唯一入口，后端会记操作日志 */
   const showSecret = useCallback(async (row: Record<string, unknown>) => {
@@ -180,7 +246,10 @@ export default function AiUpstreamsPage() {
         statusField="状态"
         inlineEdit
         standaloneForm
-        rowExtraActions={[{ label: '查看凭证', run: (row) => showSecret(row) }]}
+        rowExtraActions={[
+          { label: '查看凭证', run: (row) => showSecret(row) },
+          { label: '重置状态', run: (row) => resetState(row) },
+        ]}
         extraActions={[
           { label: checking ? '体检中…' : '立即体检', run: () => runHealthCheck() },
         ]}

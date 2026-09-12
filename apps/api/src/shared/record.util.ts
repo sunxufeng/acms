@@ -61,14 +61,17 @@ export function toFlatRecord(
   for (const [k, v] of Object.entries(rec.fields)) {
     // 审计字段以物理列为准，data 里的同名历史值一律忽略（历史值已由回填脚本迁走）
     if (isAuditField(k) && !keepBusinessFields.has(k)) continue;
-    if (multiFields.has(k)) obj[k] = toStringArray(v);
-    else if (linkFields.has(k)) {
+    // ⚠️ link 分支必须优先于 multi 判断：
+    // 字段同时登记在 linkFields 与 multi 时（如 AI 路由的「所属分组」既要多选、又要显示分组名），
+    // 若先走 multi 分支就不会注入 __link，resolveLinks 拿不到 id，列表里会直接显示一串 record id。
+    if (linkFields.has(k)) {
       // type=18 关联字段返回值形如 [{ record_ids:[id], table_id, text:null, ... }]
       // 先暂存 id（解析后由 BaseRecordService.resolveLinks 替换为可读名），并附 __link 数组供前端跳转
       const ids = linkIds(v);
       obj[k] = ids.join('、');
       (obj as Record<string, unknown>)[k + '__link'] = ids;
-    } else if (readonly.has(k)) obj[k] = toText(v);
+    } else if (multiFields.has(k)) obj[k] = toStringArray(v);
+    else if (readonly.has(k)) obj[k] = toText(v);
     else obj[k] = toText(v);
   }
   // 注入审计四件套（唯一真源：PG 物理列）。人显示解析后的姓名，DB 里存的仍是 openId

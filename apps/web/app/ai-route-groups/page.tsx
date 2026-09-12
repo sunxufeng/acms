@@ -64,6 +64,32 @@ const COLUMNS: CrudColumn[] = [
   { key: '并发上限', label: '并发上限', width: '90px', form: true, type: 'number' },
   { key: '月配额USD', label: '月配额 USD', width: '110px', form: true, type: 'number' },
   {
+    key: '日限额USD',
+    label: '日限额 USD',
+    width: '100px',
+    form: true,
+    type: 'number',
+    hint: '0 或留空 = 不限；按自然日自动归零',
+  },
+  {
+    key: '周限额USD',
+    label: '周限额 USD',
+    width: '100px',
+    form: true,
+    type: 'number',
+    hint: '0 或留空 = 不限；按 ISO 周自动归零',
+  },
+  {
+    key: '今日已用USD',
+    label: '今日 / 本周',
+    width: '150px',
+    render: (v, row) => (
+      <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
+        ${Number(v ?? 0).toFixed(4)} / ${Number(row['本周已用USD'] ?? 0).toFixed(4)}
+      </span>
+    ),
+  },
+  {
     key: '本月已用USD',
     label: '本月已用',
     width: '110px',
@@ -84,6 +110,24 @@ const COLUMNS: CrudColumn[] = [
     },
   },
   { key: '描述', label: '描述', list: false, form: true, type: 'textarea' },
+
+  // ── 计费策略 ──
+  { key: '启用高峰倍率', label: '启用高峰倍率', list: false, form: true, type: 'select', dictKey: '是否', hint: '开启后，在下面的时段内再乘一次高峰倍率' },
+  { key: '高峰开始', label: '高峰开始', list: false, form: true, type: 'text', hint: 'HH:MM，如 14:00（含）；不支持跨天' },
+  { key: '高峰结束', label: '高峰结束', list: false, form: true, type: 'text', hint: 'HH:MM，如 22:00（不含）；必须大于开始时间' },
+  { key: '高峰倍率', label: '高峰倍率', list: false, form: true, type: 'number', hint: '高峰时段叠加倍率，如 1.5' },
+
+  // ── 利润控制（对齐 sub2api）：只让成本倍率达标的账号进候选池 ──
+  { key: '启用利润控制', label: '启用利润控制', list: false, form: true, type: 'select', dictKey: '是否', hint: '按毛利率筛掉不赚钱的上游账号' },
+  { key: '最低毛利率', label: '最低毛利率', list: false, form: true, type: 'number', hint: '小数，0.3 = 30%。准入条件：账号成本倍率 ≤ 分组倍率 ×(1 − 毛利率 − 缓冲)' },
+  { key: '安全缓冲', label: '安全缓冲', list: false, form: true, type: 'number', hint: '与毛利率相加后一起扣除，默认 0' },
+
+  // ── 账号过滤与其它 ──
+  { key: '仅允许订阅账号', label: '仅允许订阅账号', list: false, form: true, type: 'select', dictKey: '是否', hint: '开启后 API Key 类型的上游账号不会被本分组选中' },
+  { key: '专属分组', label: '专属分组', list: false, form: true, type: 'select', dictKey: '是否', hint: '标记为专属（内部用途区分）' },
+  { key: '订阅类型', label: '订阅类型', list: false, form: true, type: 'select', dictKey: '订阅类型' },
+  { key: '默认有效期天数', label: '默认有效期天数', list: false, form: true, type: 'number', hint: '发密钥时默认给多少天有效期' },
+  { key: '显示排序', label: '显示排序', width: '90px', form: true, type: 'number', hint: '数值越小越靠前' },
 ];
 
 export default function AiRouteGroupsPage() {

@@ -28,7 +28,7 @@ export class WeilingController {
   @Get('sync-status')
   syncStatus(@Req() req: Request) {
     WeilingController.requireRead((req as Request & { user: SessionUser }).user);
-    return { ...this.svc.syncStatus(), progress: this.svc.progressStatus() };
+    return { ...this.svc.syncStatus(), progress: this.svc.progressStatus(), lost: this.svc.lostStatus() };
   }
 
   /** 招生分析（报表用）：多维度聚合，支持按人/渠道/阶段/时间筛选 */
@@ -60,6 +60,19 @@ export class WeilingController {
       throw new HttpException('FORBIDDEN:weiling:sync', HttpStatus.FORBIDDEN);
     }
     return this.svc.syncProgress(full !== '0');
+  }
+
+  /**
+   * 同步流失状态（后台异步，用 sync-status 的 lost 字段看进度）。
+   * 流失状态只在客户接口 `/openapi/customer/get` 里有，联系人接口不返回。
+   */
+  @Post('sync-lost')
+  syncLost(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'weiling:sync').allowed) {
+      throw new HttpException('FORBIDDEN:weiling:sync', HttpStatus.FORBIDDEN);
+    }
+    return this.svc.syncLost();
   }
 
   /** 重算与 ACMS 学生档案的疑似匹配（不访问上游，只扫本地库） */

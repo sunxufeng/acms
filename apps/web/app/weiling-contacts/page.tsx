@@ -18,6 +18,9 @@ export default function WeilingContactsPage() {
   const [status, setStatus] = useState<{ lastSyncAt: number; count: number } | null>(null);
   const [pgMsg, setPgMsg] = useState('');
   const [pgRunning, setPgRunning] = useState(false);
+  const [lostMsg, setLostMsg] = useState('');
+  const [lostRunning, setLostRunning] = useState(false);
+  const [lostProgress, setLostProgress] = useState<{ scanned: number; total: number } | null>(null);
   const [options, setOptions] = useState<Record<string, string[]>>({});
   /**
    * 报表下钻进来的隐藏条件（没有对应筛选控件，用户看不到就会以为「筛选没生效」）。
@@ -112,6 +115,45 @@ export default function WeilingContactsPage() {
     }
   };
 
+  /**
+   * 流失状态同步：走的是卫瓴**客户**接口（联系人接口不返回这个字段），
+   * 逐个联系人查，约 5 分钟。后台跑，这里只负责启动 + 轮询进度。
+   */
+  const syncLost = async () => {
+    setLostRunning(true);
+    setLostMsg('');
+    setLostProgress({ scanned: 0, total: 0 });
+    try {
+      const r = await api.syncWeilingLost();
+      if (!r.ok) {
+        setLostMsg(`启动失败：${r.message ?? ''}`);
+        setLostRunning(false);
+        return;
+      }
+      // 轮询进度（与跟进记录同步同一套做法）
+      for (let i = 0; i < 240; i += 1) {
+        await new Promise((res) => setTimeout(res, 3000));
+        const s = await api.weilingSyncStatus();
+        const l = s.lost;
+        if (!l) continue;
+        setLostProgress({ scanned: l.scanned, total: l.total });
+        if (!l.running) {
+          setLostMsg(`完成：已流失 ${l.lost}、未流失 ${l.kept}${l.skipped ? `、查不到 ${l.skipped}` : ''}${l.error ? `（${l.error}）` : ''}`);
+          setLostRunning(false);
+          setLostProgress(null);
+          return;
+        }
+      }
+      setLostMsg('仍在后台进行中，稍后刷新查看');
+      setLostRunning(false);
+      setLostProgress(null);
+    } catch (e) {
+      setLostMsg(`启动失败：${(e as Error).message}`);
+      setLostRunning(false);
+      setLostProgress(null);
+    }
+  };
+
   const lastSyncText = status?.lastSyncAt
     ? new Date(status.lastSyncAt).toLocaleString('zh-CN', { hour12: false })
     : '从未同步';
@@ -144,6 +186,11 @@ export default function WeilingContactsPage() {
         >
           {pgRunning ? '同步中…' : '同步跟进记录'}
         </button>
+        <button className="btn btn-outline btn-sm" disabled={lostRunning} onClick={() => void syncLost()}>
+          {lostRunning
+            ? `同步流失状态 ${lostProgress?.total ? `${lostProgress.scanned}/${lostProgress.total}` : '…'}`
+            : '同步流失状态'}
+        </button>
         <button className="btn btn-primary btn-sm" disabled={syncing} onClick={() => void sync()} style={{ marginLeft: 'auto' }}>
           {syncing ? '同步中…' : '立即同步'}
         </button>
@@ -152,6 +199,9 @@ export default function WeilingContactsPage() {
         ) : null}
         {pgMsg ? (
           <span style={{ color: pgMsg.includes('失败') ? 'var(--fg-error)' : 'var(--fg-secondary)' }}>{pgMsg}</span>
+        ) : null}
+        {lostMsg ? (
+          <span style={{ color: lostMsg.includes('失败') ? 'var(--fg-error)' : 'var(--fg-secondary)' }}>{lostMsg}</span>
         ) : null}
       </div>
 

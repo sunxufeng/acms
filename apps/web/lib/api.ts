@@ -669,13 +669,31 @@ export const api = {
     request<{ ok: boolean; started: boolean; message?: string }>(`/weiling/sync-progress${full ? '' : '?full=0'}`, {
       method: 'POST',
     }),
+  syncWeilingLost: () =>
+    request<{ ok: boolean; started: boolean; message?: string }>('/weiling/sync-lost', { method: 'POST' }),
   weilingAnalyze: (params: { from?: string; to?: string; owner?: string; channel?: string; stage?: string } = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
     const q = qs.toString();
     return request<unknown>(`/weiling/analyze${q ? `?${q}` : ''}`);
   },
-  weilingSyncStatus: () => request<{ lastSyncAt: number; count: number; syncing: boolean }>('/weiling/sync-status'),
+  weilingSyncStatus: () =>
+    request<{
+      lastSyncAt: number;
+      count: number;
+      syncing: boolean;
+      progress?: { running: boolean; done: boolean; scanned: number; contacts: number; records: number; error: string };
+      lost?: {
+        running: boolean;
+        done: boolean;
+        total: number;
+        scanned: number;
+        lost: number;
+        kept: number;
+        skipped: number;
+        error: string;
+      };
+    }>('/weiling/sync-status'),
   weilingSync: (full = true) =>
     request<{ ok: boolean; count: number; message?: string }>(`/weiling/sync${full ? '' : '?full=0'}`, { method: 'POST' }),
 

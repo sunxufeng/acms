@@ -59,6 +59,32 @@ export const COLUMNS: CrudColumn[] = [
   { key: '来源渠道', label: '来源渠道', width: '150px', filter: true },
   { key: '互动分', label: '互动分', width: '80px' },
   {
+    key: '流失状态',
+    label: '流失状态',
+    width: '90px',
+    filter: true,
+    filterOptions: ['已流失', '未流失'],
+    render: (v) => {
+      const s = String(v ?? '');
+      if (!s) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+      const lost = s === '已流失';
+      return (
+        <span
+          title="来自卫瓴客户接口（客户维度的流失标记）；关联不到企业微信客户的联系人查不到，显示 —"
+          style={{
+            fontSize: 'var(--font-xs)',
+            padding: '1px 6px',
+            borderRadius: 8,
+            background: lost ? '#fdecea' : '#eaf5ee',
+            color: lost ? '#b3261e' : '#2c6b45',
+          }}
+        >
+          {s}
+        </span>
+      );
+    },
+  },
+  {
     key: '跟进次数',
     label: '跟进次数',
     width: '90px',
@@ -144,7 +170,7 @@ export const COLUMNS: CrudColumn[] = [
 
 /** 详情页展示顺序（分组标题 → 字段） */
 export const DETAIL_GROUPS: { title: string; keys: string[] }[] = [
-  { title: '基本信息', keys: ['联系人姓名', '手机号', '邮箱', '状态', '客户阶段', '归属人'] },
+  { title: '基本信息', keys: ['联系人姓名', '手机号', '邮箱', '状态', '客户阶段', '归属人', '流失状态'] },
   { title: '关联匹配', keys: ['关联学生', '匹配置信度', '匹配依据'] },
   { title: '来源', keys: ['来源渠道', '来源组件', '落地页', '创建时间', '领取时间'] },
   { title: '跟进', keys: ['首次跟进时间', '最近跟进时间', '互动分', '跟进次数', '标签'] },

@@ -80,6 +80,18 @@ export class WeilingService implements OnModuleInit {
     at: number;
     error: string;
   } = { running: false, done: false, scanned: 0, contacts: 0, records: 0, at: 0, error: '' };
+  /** 流失状态同步进度（后台任务，逐个联系人查客户接口） */
+  private lostSync: {
+    running: boolean;
+    done: boolean;
+    total: number;
+    scanned: number;
+    lost: number;
+    kept: number;
+    skipped: number;
+    at: number;
+    error: string;
+  } = { running: false, done: false, total: 0, scanned: 0, lost: 0, kept: 0, skipped: 0, at: 0, error: '' };
 
   async onModuleInit() {
     // 启动后延迟 1 分钟做一次同步（让其它模块先就绪），之后每天一次
@@ -286,6 +298,8 @@ export class WeilingService implements OnModuleInit {
       this.lastSyncCount = inDb;
       // 同步完顺带重算与学生的匹配（内部自己吞异常，不影响同步结果）
       void this.matchStudents();
+      // 顺带更新流失状态（要走客户接口，约 5 分钟；异步跑，有并发保护）
+      void this.syncLost();
       this.logger.log(`卫瓴联系人同步完成：写入 ${written} 条，库内共 ${inDb} 条（拉取 ${total}）`);
       if (written > 0 && inDb === 0) {
         return { ok: false, count: 0, message: '写入调用全部返回成功，但库中查不到记录，请检查数据表' };
@@ -493,6 +507,87 @@ export class WeilingService implements OnModuleInit {
 
   progressStatus() {
     return { ...this.progressSync };
+  }
+
+  lostStatus() {
+    return { ...this.lostSync };
+  }
+
+  /**
+   * 同步「流失状态」（后台异步，通过 lostStatus() 看进度）。
+   *
+   * ⚠️ 关键：流失状态**不在联系人接口**里 —— /openapi/contact/list 与
+   * /openapi/contact/get 都不返回，只有客户接口
+   * `/openapi/customer/get?customer_id=` 返回 lost_state（布尔）。
+   * 取值路径：联系人原始数据.related_customer[0].id → 客户接口。
+   * 没有关联企业微信客户的联系人查不到，保持为空（卫瓴后台同样显示为空）。
+   *
+   * 实测：3663 个联系人里约 2400 个有关联客户，串行 + 130ms 间隔约 5 分钟。
+   */
+  async syncLost(): Promise<{ ok: boolean; started: boolean; message?: string }> {
+    if (this.lostSync.running) return { ok: true, started: false, message: '流失状态同步正在进行中' };
+    const sql = getSqlStore();
+    if (!sql) return { ok: false, started: false, message: '未配置数据库连接' };
+
+    this.lostSync = { running: true, done: false, total: 0, scanned: 0, lost: 0, kept: 0, skipped: 0, at: Date.now(), error: '' };
+    void (async () => {
+      try {
+        // 1) 收集「联系人 id → 客户 id」
+        const pairs: { id: string; customerId: string }[] = [];
+        let token: string | undefined;
+        for (let p = 0; p < 40; p += 1) {
+          const res = await sql.search(TABLES.weilingContact.tableId, {
+            pageSize: 500,
+            ...(token ? { pageToken: token } : {}),
+          });
+          for (const r of res.items ?? []) {
+            const rec = r as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+            const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+            const id = String(rec.recordId ?? rec.id ?? '');
+            if (!id) continue;
+            const raw = parseCustom(f['原始数据']);
+            const rel = raw['related_customer'];
+            const cid = Array.isArray(rel) ? String((rel[0] as { id?: string })?.id ?? '') : '';
+            if (cid) pairs.push({ id, customerId: cid });
+          }
+          if (!res.hasMore || !res.pageToken) break;
+          token = res.pageToken;
+        }
+        this.lostSync.total = pairs.length;
+
+        // 2) 逐个查客户接口（同一客户去重，省请求）
+        const cache = new Map<string, boolean | null>();
+        for (const it of pairs) {
+          let lost = cache.get(it.customerId);
+          if (lost === undefined) {
+            try {
+              const d = await this.api<{ lost_state?: boolean }>('/openapi/customer/get', { customer_id: it.customerId });
+              lost = d?.lost_state === true;
+            } catch {
+              lost = null; // 单个客户查不到不影响整体
+            }
+            cache.set(it.customerId, lost);
+            await sleep(130); // 限流 500 次/分
+          }
+          if (lost === null) {
+            this.lostSync.skipped += 1;
+          } else {
+            await sql.update(TABLES.weilingContact.tableId, it.id, { 流失状态: lost ? '已流失' : '未流失' });
+            if (lost) this.lostSync.lost += 1;
+            else this.lostSync.kept += 1;
+          }
+          this.lostSync.scanned += 1;
+        }
+        this.lostSync.done = true;
+        this.logger.log(`流失状态同步完成：已流失 ${this.lostSync.lost}、未流失 ${this.lostSync.kept}、查不到 ${this.lostSync.skipped}`);
+      } catch (e) {
+        this.lostSync.error = (e as Error).message.slice(0, 200);
+        this.logger.warn(`流失状态同步失败：${this.lostSync.error}`);
+      } finally {
+        this.lostSync.running = false;
+      }
+    })();
+    return { ok: true, started: true };
   }
 
   // ── 与 ACMS 学生档案的「疑似匹配」──────────────────────────────

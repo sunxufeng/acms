@@ -120,6 +120,10 @@ export class StudentService {
     if (query.是否多胎家庭) conditions.push({ field: '是否多胎家庭', value: [query.是否多胎家庭] });
     if (query.入学级) conditions.push({ field: '入学级', value: [query.入学级] });
     if (query.毕业届) conditions.push({ field: '毕业届', value: [query.毕业届] });
+    // 报表下钻（学生结构概览 / 年级升级流向）：升学导师存 open_id、报表显示姓名，
+    // 前端跳转前已把姓名映射回 open_id；是否是新生值为「是 / 否」
+    if (query.升学导师) conditions.push({ field: '升学导师', value: [query.升学导师] });
+    if (query.是否是新生) conditions.push({ field: '是否是新生', value: [query.是否是新生] });
     // 注：当前状态真实选项仅为「在校/毕业/离校」，Base 中无「已归档」选项，
     // 故不再做 is_not 已归档 的服务端过滤（否则飞书报错 500）。列表默认展示全部，
     // 归档通过 archive() 将状态置为「离校」实现。
@@ -129,8 +133,8 @@ export class StudentService {
   /** 内存中执行非 q 的等值筛选（仅在 q 路径需要，因飞书不支持嵌套过滤组） */
   private matchesNonQ(s: StudentRecord, query: StudentFilterDto): boolean {
     const eq: Array<keyof StudentFilterDto> = [
-      '当前状态', '入学年级', '当前年级', '班主任', '招生负责老师', '校区',
-      '数据密级', '性别', '来源渠道', '生源跟进状态', '入学级', '毕业届',
+      '当前状态', '入学年级', '当前年级', '班主任', '招生负责老师', '升学导师', '校区',
+      '数据密级', '性别', '来源渠道', '生源跟进状态', '入学级', '毕业届', '是否是新生',
       '入学年份', '实际学制', '现居住省', '城市', '学生标签', '特长标签',
       '原学校类型', '合同状态', '付款状态', '家庭关键决策点',
       '综合评定等级', '签证情况',

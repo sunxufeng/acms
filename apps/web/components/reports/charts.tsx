@@ -10,10 +10,31 @@ import React from 'react';
  * 极小（学生 82 条），纯 div/SVG 足够，且样式与全站 CSS 变量天然一致。
  */
 
-/** 指标卡 */
-export function MetricCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+/** 指标卡。传入 onClick 时整卡可点（报表下钻） */
+export function MetricCard({
+  label,
+  value,
+  sub,
+  onClick,
+  hint,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  onClick?: () => void;
+  hint?: string;
+}) {
   return (
-    <div style={{ background: 'var(--bg-subtle)', borderRadius: 8, padding: '14px 16px' }}>
+    <div
+      onClick={onClick}
+      title={hint}
+      style={{
+        background: 'var(--bg-subtle)',
+        borderRadius: 8,
+        padding: '14px 16px',
+        cursor: onClick ? 'pointer' : 'default',
+      }}
+    >
       <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.25 }}>
         {value}
@@ -42,17 +63,39 @@ export function BarRow({
   max,
   compare,
   suffix,
+  onClick,
 }: {
   label: string;
   value: number;
   max: number;
   compare?: number;
   suffix?: string;
+  /** 传入时整行可点（报表下钻到对应人员的列表） */
+  onClick?: () => void;
 }) {
   const pct = (n: number) => (max > 0 ? Math.max(1.5, Math.round((n / max) * 100)) : 0);
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '110px minmax(0,1fr) 96px', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-      <div style={{ fontSize: 'var(--font-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>
+    <div
+      onClick={onClick}
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '110px minmax(0,1fr) 96px',
+        gap: 10,
+        alignItems: 'center',
+        marginBottom: 10,
+        cursor: onClick ? 'pointer' : 'default',
+      }}
+    >
+      <div
+        style={{
+          fontSize: 'var(--font-sm)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          color: onClick ? 'var(--accent)' : undefined,
+        }}
+        title={onClick ? `${label}（点击查看名单）` : label}
+      >
         {label}
       </div>
       <div>
@@ -69,14 +112,35 @@ export function BarRow({
   );
 }
 
-/** 纵向柱状图 */
-export function ColumnChart({ data, height = 140 }: { data: { label: string; value: number }[]; height?: number }) {
+/** 纵向柱状图。传入 onPick 时点击某根柱子触发（报表下钻） */
+export function ColumnChart({
+  data,
+  height = 140,
+  onPick,
+}: {
+  data: { label: string; value: number }[];
+  height?: number;
+  onPick?: (label: string) => void;
+}) {
   const max = Math.max(1, ...data.map((d) => d.value));
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height, borderBottom: '1px solid var(--border)' }}>
         {data.map((d) => (
-          <div key={d.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+          <div
+            key={d.label}
+            onClick={onPick ? () => onPick(d.label) : undefined}
+            title={onPick ? `${d.label}（点击查看名单）` : undefined}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+              gap: 4,
+              cursor: onPick ? 'pointer' : 'default',
+            }}
+          >
             <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{d.value}</div>
             <div
               style={{
@@ -129,14 +193,20 @@ export function EmptyData({ title, hint, href }: { title: string; hint: string; 
   );
 }
 
-/** 简单表格 */
+/** 简单表格。传入 clickableCols 时，指定列的单元格可点（报表下钻） */
 export function SimpleTable({
   head,
   rows,
+  clickableCols,
+  onCellClick,
 }: {
   head: string[];
   rows: (string | number)[][];
+  /** 可点击的列下标；不传则整表不可点 */
+  clickableCols?: number[];
+  onCellClick?: (rowIndex: number, colIndex: number) => void;
 }) {
+  const can = (j: number) => !!onCellClick && !!clickableCols?.includes(j);
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-sm)' }}>
@@ -153,7 +223,18 @@ export function SimpleTable({
           {rows.map((r, i) => (
             <tr key={i}>
               {r.map((c, j) => (
-                <td key={j} style={{ padding: '6px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
+                <td
+                  key={j}
+                  onClick={can(j) ? () => onCellClick?.(i, j) : undefined}
+                  style={{
+                    padding: '6px 10px',
+                    borderBottom: '1px solid var(--border)',
+                    whiteSpace: 'nowrap',
+                    cursor: can(j) ? 'pointer' : undefined,
+                    color: can(j) ? 'var(--accent)' : undefined,
+                  }}
+                  title={can(j) ? `${c}（点击查看名单）` : undefined}
+                >
                   {c}
                 </td>
               ))}

@@ -19,6 +19,25 @@ const COLS = [
   { key: '当前状态', label: 'common.status', width: '100px' },
 ];
 
+/**
+ * 报表下钻允许透传的查询条件（与后端 StudentFilterDto 的字段一致）。
+ * 报表点某个维度值 → 跳 /students?字段=值，本页把这些条件合并进筛选。
+ */
+const DRILL_KEYS = [
+  '当前状态', '入学年级', '当前年级', '班主任', '招生负责老师', '升学导师',
+  '来源渠道', '生源跟进状态', '入学年份', 'Arete毕业届', '校区', '性别',
+  '是否是新生', '数据密级',
+];
+
+/**
+ * URL 传进来要转成数组的键：多选筛选器（回显需要数组）与人员字段（存 open_id 数组）。
+ * 升学导师页面上没有筛选控件，但存储同样是 open_id，走数组分支才会做姓名还原。
+ */
+const DRILL_MULTI_KEYS = ['当前状态', '班主任', '招生负责老师', '升学导师'];
+
+/** 其中页面上没有对应筛选控件的键 —— 下钻进来时用户看不到条件，必须显式提示 */
+const DRILL_HIDDEN_KEYS = ['校区', '性别', '升学导师', '是否是新生', '数据密级'];
+
 function str(v: unknown): string {
   if (v == null) return '';
   if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' ? x : String((x as { text?: string })?.text ?? ''))).join('、');
@@ -195,6 +214,10 @@ export default function StudentsPage() {
   /** 教师用户（班主任 / 招生负责老师 下拉框数据源） */
   const [headTeacherOptions, setHeadTeacherOptions] = useState<string[]>([]);
   const [recruitOptions, setRecruitOptions] = useState<string[]>([]);
+  /** 通讯录映射是否已就绪（下钻筛选要等它，见下方 effect） */
+  const [userReady, setUserReady] = useState(false);
+  /** 来自报表下钻、但页面上没有筛选控件的条件（提示给用户，避免误以为筛选没生效） */
+  const [drillChips, setDrillChips] = useState<{ label: string; value: string }[]>([]);
   /** 姓名 → 飞书 Open ID 映射（学生字段存的是 Open ID，筛选时需还原） */
   const nameToOpenId = useRef<Record<string, string>>({});
   useEffect(() => {
@@ -218,11 +241,37 @@ export default function StudentsPage() {
         setHeadTeacherOptions(named.filter((u) => u.teacherType === '班主任').map((u) => u.name));
         setRecruitOptions(named.filter((u) => u.teacherType === '招生老师').map((u) => u.name));
       })
-      .catch(() => {});
+      .catch(() => {})
+      // 映射成功与否都要放行下钻：否则拿不到通讯录时页面永远卡在「无筛选」状态
+      .finally(() => {
+        if (alive) setUserReady(true);
+      });
     return () => {
       alive = false;
     };
   }, []);
+
+  /**
+   * 从报表下钻进来时把 URL 上的查询条件写进筛选（学生结构概览 / 年级升级流向等）。
+   *
+   * ⚠️ 必须等通讯录映射就绪（userReady）再写：班主任 / 招生负责老师 / 升学导师 在学生表里
+   * 存的是 open_id，映射没建好就提交筛选，会把姓名当 open_id 传过去，结果恒为空列表。
+   */
+  useEffect(() => {
+    if (!userReady) return;
+    const qs = new URLSearchParams(window.location.search);
+    if (!Array.from(qs.keys()).length) return;
+    const next: Record<string, string | string[]> = {};
+    const chips: { label: string; value: string }[] = [];
+    for (const k of DRILL_KEYS) {
+      const v = qs.get(k);
+      if (!v) continue;
+      next[k] = DRILL_MULTI_KEYS.includes(k) ? v.split(',').filter(Boolean) : v;
+      if (DRILL_HIDDEN_KEYS.includes(k)) chips.push({ label: k, value: v });
+    }
+    if (Object.keys(next).length) setFilters((f) => ({ ...f, ...next }));
+    setDrillChips(chips);
+  }, [userReady]);
 
   const buildParams = useCallback(
     (token?: string): Record<string, string | undefined> => {
@@ -234,12 +283,16 @@ export default function StudentsPage() {
       if (q) params.q = q;
       for (const [k, v] of Object.entries(filters)) {
         if (Array.isArray(v) && v.length) {
-          // 班主任 / 招生负责老师 存的是 Open ID，下拉选的是姓名，需还原
-          const ids = ['班主任', '招生负责老师'].includes(k)
+          // 班主任 / 招生负责老师 / 升学导师 存的是 Open ID，下拉（或报表下钻）给的是姓名，需还原
+          const ids = ['班主任', '招生负责老师', '升学导师'].includes(k)
             ? v.map((name) => nameToOpenId.current[name] ?? name).filter(Boolean)
             : v;
           if (ids.length) params[k] = ids.join(',');
-        } else if (typeof v === 'string' && v) params[k] = v;
+        } else if (typeof v === 'string' && v) {
+          // 人员字段即使只有一个值也要还原成 open_id（报表下钻可能只传一个姓名）
+          const personKeys = ['班主任', '招生负责老师', '升学导师'];
+          params[k] = personKeys.includes(k) ? (nameToOpenId.current[v] ?? v) : v;
+        }
       }
       if (token) params.pageToken = token;
       return params;
@@ -508,6 +561,41 @@ export default function StudentsPage() {
           options={dicts['Arete毕业届'] ?? ['第1届', '第2届', '第3届', '第4届', '第5届', '第6届']}
         />
       </form>
+
+      {/* 来自报表的下钻条件（页面上没有对应筛选控件，不提示的话用户会以为筛选没生效） */}
+      {drillChips.length > 0 ? (
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            marginBottom: '0.75rem',
+            padding: '8px 12px',
+            background: 'var(--bg-subtle)',
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            fontSize: 'var(--font-sm)',
+            color: 'var(--fg-secondary)',
+          }}
+        >
+          <span style={{ color: 'var(--fg-tertiary)' }}>{c('drillFromReport')}</span>
+          {drillChips.map((x) => (
+            <span
+              key={x.label}
+              style={{ padding: '2px 8px', borderRadius: 8, background: 'var(--bg-hover)', fontSize: 'var(--font-xs)' }}
+            >
+              {x.label}：{x.value}
+            </span>
+          ))}
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => window.location.assign('/students')}
+          >
+            {c('clear')}
+          </button>
+        </div>
+      ) : null}
 
       {/* ── Error / Loading ──────────────────── */}
       {error && <p className="msg-error">{c('loadFailed')}</p>}

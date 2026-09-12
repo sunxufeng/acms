@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
 import {
@@ -11,6 +12,7 @@ import {
   StudentOverview,
   distinct,
   val,
+  type Drill,
   type Row,
 } from '../../components/reports/panels';
 import { ActivityPanel } from '../../components/reports/activity';
@@ -72,6 +74,7 @@ function daysAgo(n: number): string {
 
 export default function ReportsPage() {
   const tl = useTl();
+  const router = useRouter();
   const [all, setAll] = useState<Row[] | null>(null);
   const [filters, setFilters] = useState<Record<string, string>>({});
   // 时间类报表（笔记统计 / 活跃时段）共用的查询条件
@@ -104,6 +107,18 @@ export default function ReportsPage() {
 
   const total = all?.length ?? 0;
   const activeReport = REPORTS.find((r) => r.key === active) ?? null;
+
+  /**
+   * 下钻到学生列表（报表里凡是有「人数」的地方都能点进去看名单）。
+   * 必须带上报表当前的查询条件，否则列表会显示全部学生 —— 报表里的数字是
+   * 「筛选后的这批人」，下钻也该是同一批。
+   */
+  const drill: Drill = (extra) => {
+    const merged: Record<string, string> = {};
+    for (const k of FILTER_KEYS) if (filters[k]) merged[k] = filters[k];
+    for (const [k, v] of Object.entries(extra)) if (v) merged[k] = v;
+    router.push(`/students?${new URLSearchParams(merged).toString()}`);
+  };
 
   const selectStyle: React.CSSProperties = { minWidth: 130, fontSize: 'var(--font-sm)' };
 
@@ -173,9 +188,9 @@ export default function ReportsPage() {
       ) : activeReport ? (
         /* 报表详情 */
         <div>
-          {active === 'overview' ? <StudentOverview rows={rows} /> : null}
-          {active === 'gradeFlow' ? <GradeFlow rows={rows} /> : null}
-          {active === 'trend' ? <EnrollmentTrend rows={rows} /> : null}
+          {active === 'overview' ? <StudentOverview rows={rows} drill={drill} /> : null}
+          {active === 'gradeFlow' ? <GradeFlow rows={rows} drill={drill} /> : null}
+          {active === 'trend' ? <EnrollmentTrend rows={rows} drill={drill} /> : null}
           {active === 'completeness' ? <ProfileCompleteness rows={rows} /> : null}
           {active === 'weiling' ? <WeilingPanel /> : null}
           {active === 'notes' ? <NotesPanel from={from} to={to} /> : null}

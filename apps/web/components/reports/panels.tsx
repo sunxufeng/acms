@@ -5,6 +5,15 @@ import { BarRow, ColumnChart, EmptyData, MetricCard, MetricRow, Panel, SimpleTab
 
 export type Row = Record<string, unknown>;
 
+/**
+ * 下钻：跳到学生列表并带上筛选条件（由 reports/page.tsx 注入，负责继承报表顶部的查询条件）。
+ * 统一约定 —— 报表里凡是有「人数」的地方都能点进去看这批人是谁。
+ */
+export type Drill = (params: Record<string, string>) => void;
+
+/** 分组值里代表「未填写」的占位，这类值不去定义下钻（列表没有「空值」筛选语义） */
+const EMPTY_KEY = '(空)';
+
 /** 取字段文本（多选/数组统一用「、」连接） */
 export function val(r: Row, k: string): string {
   const v = r?.[k];
@@ -57,7 +66,7 @@ function ExportBtn({ filename, head, rows }: { filename: string; head: string[];
 }
 
 /* ── 1. 学生结构概览 ───────────────────────────── */
-export function StudentOverview({ rows }: { rows: Row[] }) {
+export function StudentOverview({ rows, drill }: { rows: Row[]; drill?: Drill }) {
   const tl = useTl();
   const total = rows.length;
   const gender = countBy(rows, '性别');
@@ -72,21 +81,46 @@ export function StudentOverview({ rows }: { rows: Row[] }) {
   return (
     <>
       <MetricRow>
-        <MetricCard label={tl('在校学生')} value={total} />
+        <MetricCard
+          label={tl('在校学生')}
+          value={total}
+          onClick={drill ? () => drill({}) : undefined}
+          hint={drill ? '查看当前条件下的学生名单' : undefined}
+        />
         <MetricCard label={tl('男生 / 女生')} value={male} sub={`/ ${female}`} />
-        <MetricCard label={tl('新生占比')} value={total ? Math.round((fresh / total) * 100) : 0} sub="%" />
+        <MetricCard
+          label={tl('新生占比')}
+          value={total ? Math.round((fresh / total) * 100) : 0}
+          sub="%"
+          onClick={drill ? () => drill({ 是否是新生: '是' }) : undefined}
+          hint={drill ? '查看新生名单' : undefined}
+        />
         <MetricCard label={tl('年级数')} value={grades} />
       </MetricRow>
 
       <Panel title={tl('性别分布')}>
         {gender.map(([k, c]) => (
-          <BarRow key={k} label={tl(k)} value={c} max={maxG} suffix={tl('人')} />
+          <BarRow
+            key={k}
+            label={tl(k)}
+            value={c}
+            max={maxG}
+            suffix={tl('人')}
+            onClick={drill && k !== EMPTY_KEY ? () => drill({ 性别: k }) : undefined}
+          />
         ))}
       </Panel>
 
       <Panel title={tl('校区分布')}>
         {campus.map(([k, c]) => (
-          <BarRow key={k} label={tl(k)} value={c} max={maxC} suffix={tl('人')} />
+          <BarRow
+            key={k}
+            label={tl(k)}
+            value={c}
+            max={maxC}
+            suffix={tl('人')}
+            onClick={drill && k !== EMPTY_KEY ? () => drill({ 校区: k }) : undefined}
+          />
         ))}
       </Panel>
 
@@ -103,10 +137,11 @@ export function StudentOverview({ rows }: { rows: Row[] }) {
               dist.map(([k, c]) => (
                 <BarRow
                   key={k}
-                  label={k === '(空)' ? tl('未填写') : tl(k)}
+                  label={k === EMPTY_KEY ? tl('未填写') : tl(k)}
                   value={c}
                   max={max}
                   suffix={tl('人')}
+                  onClick={drill && k !== EMPTY_KEY ? () => drill({ [key]: k }) : undefined}
                 />
               ))
             )}
@@ -128,11 +163,11 @@ const DIMENSION_PANELS: { key: string; title: string }[] = [
 ];
 
 /* ── 2. 年级升级流向 ───────────────────────────── */
-export function GradeFlow({ rows }: { rows: Row[] }) {
+export function GradeFlow({ rows, drill }: { rows: Row[]; drill?: Drill }) {
   const tl = useTl();
   const entry = new Map(countBy(rows, '入学年级'));
   const cur = new Map(countBy(rows, '当前年级'));
-  const keys = [...new Set([...entry.keys(), ...cur.keys()])].filter((k) => k !== '(空)');
+  const keys = [...new Set([...entry.keys(), ...cur.keys()])].filter((k) => k !== EMPTY_KEY);
   const ordered = keys.sort((a, b) => (cur.get(b) ?? 0) - (cur.get(a) ?? 0));
   const max = Math.max(1, ...ordered.map((k) => Math.max(entry.get(k) ?? 0, cur.get(k) ?? 0)));
 
@@ -148,9 +183,17 @@ export function GradeFlow({ rows }: { rows: Row[] }) {
       <Panel title={tl('入学年级 → 当前年级')}>
         <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginBottom: 10 }}>
           {tl('浅色为入学时')} · {tl('深色为当前')}
+          {drill ? ` · ${tl('点击查看该年级当前名单')}` : ''}
         </div>
         {ordered.map((k) => (
-          <BarRow key={k} label={tl(k)} value={cur.get(k) ?? 0} compare={entry.get(k) ?? 0} max={max} />
+          <BarRow
+            key={k}
+            label={tl(k)}
+            value={cur.get(k) ?? 0}
+            compare={entry.get(k) ?? 0}
+            max={max}
+            onClick={drill ? () => drill({ 当前年级: k }) : undefined}
+          />
         ))}
       </Panel>
 
@@ -158,16 +201,30 @@ export function GradeFlow({ rows }: { rows: Row[] }) {
         title={tl('年级人数变化')}
         extra={<ExportBtn filename="grade-flow.csv" head={[tl('年级'), tl('入学人数'), tl('当前人数'), tl('变化')]} rows={table} />}
       >
-        <SimpleTable head={[tl('年级'), tl('入学人数'), tl('当前人数'), tl('变化')]} rows={table} />
+        {/* 第 1 列（年级）与第 3 列（当前人数）都是「当前年级」，第 2 列（入学人数）按「入学年级」下钻 */}
+        <SimpleTable
+          head={[tl('年级'), tl('入学人数'), tl('当前人数'), tl('变化')]}
+          rows={table}
+          clickableCols={drill ? [0, 1, 2] : undefined}
+          onCellClick={
+            drill
+              ? (i, j) => {
+                  const grade = String(table[i]?.[0] ?? '');
+                  if (!grade) return;
+                  drill(j === 1 ? { 入学年级: grade } : { 当前年级: grade });
+                }
+              : undefined
+          }
+        />
       </Panel>
     </>
   );
 }
 
 /* ── 3. 入学趋势 ───────────────────────────────── */
-export function EnrollmentTrend({ rows }: { rows: Row[] }) {
+export function EnrollmentTrend({ rows, drill }: { rows: Row[]; drill?: Drill }) {
   const tl = useTl();
-  const byYear = countBy(rows, '入学年份').filter(([k]) => k !== '(空)');
+  const byYear = countBy(rows, '入学年份').filter(([k]) => k !== EMPTY_KEY);
   const data = byYear.map(([label, value]) => ({ label, value }));
 
   return (
@@ -176,7 +233,10 @@ export function EnrollmentTrend({ rows }: { rows: Row[] }) {
       extra={<ExportBtn filename="enrollment-trend.csv" head={[tl('入学年份'), tl('人数')]} rows={byYear} />}
     >
       {data.length ? (
-        <ColumnChart data={data} />
+        <ColumnChart
+          data={data}
+          onPick={drill ? (label) => drill({ 入学年份: label }) : undefined}
+        />
       ) : (
         <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{tl('暂无数据')}</div>
       )}

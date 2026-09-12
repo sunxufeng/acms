@@ -213,6 +213,10 @@ export interface StudentFilterDto {
   城市?: string;
   入学年份?: string;
   实际学制?: string;
+  /** 报表「学生结构概览 / 年级升级流向」下钻用：姓名（前端先映射回 open_id） */
+  升学导师?: string;
+  /** 报表「新生占比」下钻用：值是「是 / 否」 */
+  是否是新生?: string;
   学生标签?: string;
   特长标签?: string;
   原学校类型?: string;

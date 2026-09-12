@@ -63,6 +63,27 @@ interface Data {
   trend: { month: string; newCount: number; dealCount: number }[];
   health: Item[];
   follow?: Follow;
+  lost?: Lost;
+}
+
+/**
+ * 流失分析。
+ * 口径：流失率的分母只算「查得到流失状态」的（已流失 + 未流失）；
+ * 没关联企业微信客户、查不到流失状态的单列在 noData，不进分母 ——
+ * 否则数据缺失会被当成「没流失」，把流失率系统性拉低。
+ */
+interface LostDimItem {
+  name: string;
+  lost: number;
+  kept: number;
+  valid: number;
+  rate: number;
+}
+interface Lost {
+  summary: { lost: number; kept: number; noData: number; valid: number; rate: number };
+  byChannel: LostDimItem[];
+  byOwner: LostDimItem[];
+  byStage: LostDimItem[];
 }
 
 function daysAgo(n: number): string {
@@ -142,6 +163,13 @@ export function WeilingPanel() {
     byFollower: [],
     trend: [],
   };
+  // 同上：流失分析是后加的区块，缓存里可能还没有
+  const lost: Lost = data.lost ?? {
+    summary: { lost: 0, kept: 0, noData: 0, valid: 0, rate: 0 },
+    byChannel: [],
+    byOwner: [],
+    byStage: [],
+  };
 
   return (
     <div>
@@ -194,6 +222,8 @@ export function WeilingPanel() {
           { label: '归属人数', value: data.summary.owners },
           { label: '跟进记录', value: data.summary.followRecords ?? 0 },
           { label: '人均跟进次数', value: Number(data.summary.followAvg ?? 0).toFixed(1) },
+          { label: '已流失', value: lost.summary.lost },
+          { label: '流失率', value: `${lost.summary.rate.toFixed(1)}%` },
         ].map((k) => (
           <div key={k.label} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-elevated,#fff)' }}>
             <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{k.label}</div>
@@ -479,6 +509,92 @@ export function WeilingPanel() {
           </>
         )}
       </Section>
+
+      {/* ⑫ 流失分析 */}
+      <Section title="⑫ 流失分析（流失率按渠道 / 归属人，点击下钻）">
+        {lost.summary.valid === 0 ? (
+          <div style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>
+            暂无流失数据（需在联系人列表点「同步流失状态」后才能统计）
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10, fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
+              <span>
+                已流失 <b style={{ color: 'var(--fg-primary,#1a1a1a)' }}>{lost.summary.lost}</b>
+              </span>
+              <span>
+                未流失 <b style={{ color: 'var(--fg-primary,#1a1a1a)' }}>{lost.summary.kept}</b>
+              </span>
+              <span>
+                流失率 <b style={{ color: '#b3261e' }}>{lost.summary.rate.toFixed(1)}%</b>
+              </span>
+              <span title="没关联企业微信客户、查不到流失状态，不计入流失率的分母">
+                未关联（不计）{lost.summary.noData}
+              </span>
+            </div>
+            <LostTable rows={lost.byChannel} title="按来源渠道" dimKey="来源渠道" drill={drill} />
+            <LostTable rows={lost.byOwner} title="按归属人" dimKey="归属人" drill={drill} />
+            <LostTable rows={lost.byStage} title="按客户阶段" dimKey="客户阶段" drill={drill} />
+          </>
+        )}
+      </Section>
+    </div>
+  );
+}
+
+/**
+ * 流失率表：点维度值 → 下钻到「该维度 + 已流失」的名单。
+ * 流失率用条形表示，条越长越该警惕。
+ */
+function LostTable({
+  rows,
+  title,
+  dimKey,
+  drill,
+}: {
+  rows: LostDimItem[];
+  title: string;
+  dimKey: string;
+  drill: (params: Record<string, string>) => void;
+}) {
+  if (rows.length === 0) return null;
+  const maxRate = Math.max(1, ...rows.map((r) => r.rate));
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginBottom: 4 }}>{title}</div>
+      <table style={{ width: '100%', fontSize: 'var(--font-sm)', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ color: 'var(--fg-tertiary)', textAlign: 'left' }}>
+            <th style={th}>{title.replace('按', '')}</th>
+            <th style={thN}>已流失</th>
+            <th style={thN}>未流失</th>
+            <th style={thN}>流失率</th>
+            <th style={{ width: 150, padding: '6px 0' }} />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.name} style={{ borderTop: '1px solid var(--border)' }}>
+              <td style={td}>
+                <button className="link-btn" onClick={() => drill({ [dimKey]: r.name, 流失状态: '已流失' })}>
+                  {r.name}
+                </button>
+              </td>
+              <td style={tdN}>{r.lost}</td>
+              <td style={tdN}>{r.kept}</td>
+              <td style={tdN}>{r.rate.toFixed(1)}%</td>
+              <td style={{ padding: '6px 0' }}>
+                <div style={{ height: 8, background: 'var(--bg-hover)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div
+                    style={{ width: `${(r.rate / maxRate) * 100}%`, height: '100%', background: '#b3261e' }}
+                    title={`流失率 ${r.rate.toFixed(1)}%（${r.lost}/${r.valid}）`}
+                  />
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -462,6 +462,8 @@ export class WeilingService implements OnModuleInit {
         }
         this.progressSync.done = true;
         this.progressSync.at = Date.now();
+        // 报表是 5 分钟缓存：跟进数据变了必须立刻失效，否则报表数字与列表对不上
+        analyzeCache.clear();
         this.logger.log(`跟进记录同步完成：${this.progressSync.records} 条 / ${this.progressSync.contacts} 个联系人`);
       } catch (e) {
         this.progressSync.error = (e as Error).message.slice(0, 200);
@@ -579,6 +581,8 @@ export class WeilingService implements OnModuleInit {
           this.lostSync.scanned += 1;
         }
         this.lostSync.done = true;
+        // 同上：流失状态变了要让报表缓存立刻失效
+        analyzeCache.clear();
         this.logger.log(`流失状态同步完成：已流失 ${this.lostSync.lost}、未流失 ${this.lostSync.kept}、查不到 ${this.lostSync.skipped}`);
       } catch (e) {
         this.lostSync.error = (e as Error).message.slice(0, 200);
@@ -999,6 +1003,50 @@ export class WeilingService implements OnModuleInit {
       followAvg: followSummary.avgPerContact,
     };
 
+    // ── ⑫ 流失分析（流失率按渠道 / 归属人 / 阶段）────────────────
+    // 口径：分母只算「查得到流失状态」的（已流失 + 未流失）；
+    // 没关联企业微信客户、查不到流失状态的单独列出，不能算进流失率 ——
+    // 否则会把「数据缺失」当成「没流失」，把流失率系统性拉低。
+    const lostDim = (key: string) => {
+      const m = new Map<string, { lost: number; kept: number }>();
+      for (const r of filtered) {
+        const k = String(r[key] ?? '');
+        const lv = String(r['流失状态'] ?? '');
+        if (!k || (lv !== '已流失' && lv !== '未流失')) continue;
+        const e = m.get(k) ?? { lost: 0, kept: 0 };
+        if (lv === '已流失') e.lost += 1;
+        else e.kept += 1;
+        m.set(k, e);
+      }
+      return [...m.entries()]
+        .map(([name, v]) => ({
+          name,
+          lost: v.lost,
+          kept: v.kept,
+          valid: v.lost + v.kept,
+          rate: v.lost + v.kept ? (v.lost / (v.lost + v.kept)) * 100 : 0,
+        }))
+        .filter((x) => x.valid > 0)
+        .sort((a, b) => b.lost - a.lost || b.valid - a.valid);
+    };
+    let lostAll = 0;
+    let keptAll = 0;
+    let noLostData = 0;
+    for (const r of filtered) {
+      const lv = String(r['流失状态'] ?? '');
+      if (lv === '已流失') lostAll += 1;
+      else if (lv === '未流失') keptAll += 1;
+      else noLostData += 1;
+    }
+    const lostValid = lostAll + keptAll;
+    const lostSummary = {
+      lost: lostAll,
+      kept: keptAll,
+      noData: noLostData,
+      valid: lostValid,
+      rate: lostValid ? (lostAll / lostValid) * 100 : 0,
+    };
+
     const data = {
       summary,
       stage,
@@ -1010,6 +1058,12 @@ export class WeilingService implements OnModuleInit {
       trend,
       health,
       follow: { summary: followSummary, byFollower, trend: followTrend },
+      lost: {
+        summary: lostSummary,
+        byChannel: lostDim('来源渠道').slice(0, 15),
+        byOwner: lostDim('归属人').slice(0, 15),
+        byStage: lostDim('客户阶段').slice(0, 10),
+      },
     };
     analyzeCache.set(cacheKey, { at: Date.now(), data });
     return data;

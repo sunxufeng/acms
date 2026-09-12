@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
-import { COLUMNS, DETAIL_GROUPS, fmtTs } from '../columns';
+import { COLUMNS, DETAIL_GROUPS, STATUS_TEXT, fmtTs } from '../columns';
 
 type FieldDesc = {
   api_name: string;
@@ -51,9 +51,9 @@ function friendly(k: string, v: unknown): { text: string; full?: string } | null
     case 'related_customer':
       return arr.length ? { text: `${arr.length} 个关联客户`, full: JSON.stringify(v) } : { text: '—' };
     case 'status': {
-      // 实测：1=正常、4=其它（卫瓴未给出完整枚举，未知值原样显示）
-      const map: Record<string, string> = { '1': '正常', '4': '其它' };
-      return { text: map[String(v)] ?? String(v) };
+      // 卫瓴未给出该字段枚举，1/4 的含义是按分布推测的（详见 columns.tsx 的 STATUS_TEXT）
+      const text = STATUS_TEXT[String(v)];
+      return text ? { text: `${text}（${String(v)}）` } : { text: String(v) };
     }
     // 这两项在上方「来源」与「自定义字段」区块已经翻译展示过，这里只留入口，避免重复堆 JSON
     case 'contact_custom':

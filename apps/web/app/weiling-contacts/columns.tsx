@@ -34,6 +34,17 @@ export function fmtDate(v: unknown): string {
 }
 
 /**
+ * 卫瓴联系人 status 的显示文案。
+ *
+ * ⚠️ 卫瓴字段描述接口（95 个字段）里**没有 status**，拿不到官方枚举。
+ * 这里按数据分布推测：1 = 正常（3600 条，98%）、4 = 其它（63 条，都是 6–8 月创建、
+ * 多半从未跟进的老线索）。因此显示时**保留原始数字**，便于日后与卫瓴官方口径对账。
+ * 另：「流失状态」是独立字段 `lost_state`（官方枚举 0=未流失 / 1,2,3=已流失），
+ * 与 status 无关，且目前全库为空。
+ */
+export const STATUS_TEXT: Record<string, string> = { '1': '正常', '4': '其它' };
+
+/**
  * 卫瓴联系人列定义。
  *
  * ⚠️ 全部只读：不设 form，页面也不传 create/update/archive，
@@ -80,12 +91,19 @@ export const COLUMNS: CrudColumn[] = [
   {
     key: '状态',
     label: '状态',
-    width: '90px',
+    width: '100px',
     filter: true,
+    // 下拉用原始值（1/4）提交，显示成中文 —— 反过来的话筛选会把「正常」当值传，匹配不上
+    filterOptions: ['1', '4'],
     render: (v) => {
-      // 实测：status 1=正常(1471)、4=其它(29)；未明确语义，先如实展示
       const s = String(v ?? '');
-      return <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-secondary)' }}>{s || '—'}</span>;
+      if (!s) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+      const text = STATUS_TEXT[s];
+      return (
+        <span style={{ fontSize: 'var(--font-xs)', color: text === '其它' ? 'var(--fg-tertiary)' : 'var(--fg-secondary)' }}>
+          {text ? `${text}（${s}）` : s}
+        </span>
+      );
     },
   },
   {

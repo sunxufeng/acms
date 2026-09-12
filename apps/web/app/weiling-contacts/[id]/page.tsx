@@ -13,6 +13,80 @@ type FieldDesc = {
   options?: { label: string; value: string }[];
 };
 
+/**
+ * 卫瓴原始字段里几个「结构化但不可读」的值，转成人话。
+ * 上游给的是 JSON（如 contact_ways 只有 [{"type":0}] —— 表示没留联系方式），
+ * 直接把 JSON 贴在「联系方式」下面，很容易被误读成「系统把手机号弄丢了」。
+ *
+ * ⚠️ user_list / owner_id 里存的是**卫瓴自己的成员 ID**（如 Xw07O44g…），
+ * 与 ACMS 通讯录的飞书 open_id 不是一套，拿通讯录去映射必然落空 ——
+ * 所以这类只显示条数与 ID 原文，不假装能解析成姓名。
+ */
+function friendly(k: string, v: unknown): { text: string; full?: string } | null {
+  const arr = Array.isArray(v) ? v : [];
+  const pick = (key: string) =>
+    arr.map((x) => String((x as Record<string, unknown>)?.[key] ?? '')).filter(Boolean);
+  switch (k) {
+    case 'contact_ways': {
+      const ways = pick('contact_way');
+      return ways.length ? { text: ways.join('、') } : { text: '未留联系方式' };
+    }
+    case 'business_list': {
+      const names = pick('business_name');
+      return names.length ? { text: names.join('、') } : { text: '—' };
+    }
+    case 'tag_group_list': {
+      const out: string[] = [];
+      for (const g of arr) {
+        const o = g as { group_name?: string; tag_info?: { tag_name?: string; name?: string }[] };
+        const gn = String(o.group_name ?? '');
+        const tags = (o.tag_info ?? []).map((t) => String(t?.tag_name ?? t?.name ?? '')).filter(Boolean);
+        out.push(tags.length ? `${gn}：${tags.join('、')}` : gn);
+      }
+      const names = out.filter(Boolean);
+      return names.length ? { text: names.join('；') } : { text: '—' };
+    }
+    case 'user_list':
+      return arr.length ? { text: `${arr.length} 个卫瓴成员`, full: JSON.stringify(v) } : { text: '—' };
+    case 'related_customer':
+      return arr.length ? { text: `${arr.length} 个关联客户`, full: JSON.stringify(v) } : { text: '—' };
+    case 'status': {
+      // 实测：1=正常、4=其它（卫瓴未给出完整枚举，未知值原样显示）
+      const map: Record<string, string> = { '1': '正常', '4': '其它' };
+      return { text: map[String(v)] ?? String(v) };
+    }
+    // 这两项在上方「来源」与「自定义字段」区块已经翻译展示过，这里只留入口，避免重复堆 JSON
+    case 'contact_custom':
+      return { text: '见「自定义字段」区块', full: JSON.stringify(v) };
+    case 'contact_source':
+      return { text: '见「来源」区块', full: JSON.stringify(v) };
+    default:
+      return null;
+  }
+}
+
+/** 单个原始字段值：长文本默认截断，可点开看完整内容 */
+function RawCell({ text, full }: { text: string; full?: string }) {
+  const [open, setOpen] = useState(false);
+  const src = full ?? text;
+  const needBtn = src.length > 120 || (full ? full.length > text.length : false);
+  const shown = open ? src : src.length > 160 ? `${src.slice(0, 160)}…` : src;
+  return (
+    <div style={{ fontSize: 'var(--font-sm)', wordBreak: 'break-all' }}>
+      {shown || '—'}
+      {needBtn ? (
+        <button
+          className="link-btn"
+          style={{ marginLeft: 6, fontSize: 'var(--font-xs)' }}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? '收起' : '展开'}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function WeilingContactDetailPage() {
   const t = useTranslations('common');
   const params = useParams();
@@ -20,6 +94,8 @@ export default function WeilingContactDetailPage() {
   const id = String(params.id);
   const [record, setRecord] = useState<Record<string, unknown> | null>(null);
   const [fields, setFields] = useState<FieldDesc[]>([]);
+  /** 原始字段区块默认折叠：它是「供核对」的原始数据，不该抢走上半页的注意力 */
+  const [rawOpen, setRawOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -83,7 +159,7 @@ export default function WeilingContactDetailPage() {
       .catch(() => setProgress([]));
   }, [id, record]);
 
-  // 卫瓴原始 JSON（41 个字段）：摊平字段只是其中一部分，这里把原始全量也渲染出来，
+  // 卫瓴原始 JSON：摊平字段只是其中一部分，这里把原始全量也渲染出来，
   // 保证「系统里存的所有信息」都能在详情页查到，而不是只展示同步时挑的那几个。
   const rawEntries = useMemo(() => {
     let obj: Record<string, unknown> = {};
@@ -97,6 +173,9 @@ export default function WeilingContactDetailPage() {
       .filter(([, v]) => v !== null && v !== '' && !(Array.isArray(v) && v.length === 0))
       .map(([k, v]) => {
         const label = dict.name.get(k) ?? k;
+        // 结构化字段先转成人话（联系方式/标签/商机/成员/状态…），转不了再走通用规则
+        const nice = friendly(k, v);
+        if (nice) return { key: k, label, text: nice.text, full: nice.full };
         // 枚举值翻译（卫瓴：label 是数字键、value 是显示文本）
         const m = dict.opt.get(k);
         let text: string;
@@ -136,7 +215,8 @@ export default function WeilingContactDetailPage() {
   if (!record) return <div className="page-header"><p style={{ color: 'var(--fg-tertiary)' }}>记录不存在</p></div>;
 
   const labelOf = (k: string) => COLUMNS.find((c) => c.key === k)?.label ?? k;
-  const isTs = (k: string) => /时间$/.test(k) && k !== '匹配时间';
+  // 所有「xx时间」都是毫秒戳，一律格式化（之前把「匹配时间」排除在外，导致它显示成一串数字）
+  const isTs = (k: string) => /时间$/.test(k);
   const studentId = String(record['关联学生ID'] ?? '');
   const score = Number(record['匹配置信度'] ?? 0);
 
@@ -310,40 +390,48 @@ export default function WeilingContactDetailPage() {
         <h2 style={{ fontSize: 'var(--font-md)', fontWeight: 600, margin: '0 0 0.75rem' }}>
           卫瓴原始字段
           <span style={{ marginLeft: 8, fontSize: 'var(--font-xs)', fontWeight: 400, color: 'var(--fg-tertiary)' }}>
-            共 {rawEntries.length} 项（已翻译为中文，空值已隐藏）
+            共 {rawEntries.length} 项 · 上游原始数据（供核对，已翻译中文、空值已隐藏）
           </span>
+          <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} onClick={() => setRawOpen((v) => !v)}>
+            {rawOpen ? '收起' : '展开'}
+          </button>
         </h2>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-            gap: '12px 24px',
-            padding: '16px',
-            background: 'var(--bg-elevated, #fff)',
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-          }}
-        >
-          {rawEntries.map((r) => (
-            <div key={r.key} style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginBottom: 2 }}>
-                {r.label}
-                <span style={{ opacity: 0.55 }}> · {r.key}</span>
+        {rawOpen ? (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: '12px 24px',
+              padding: '16px',
+              background: 'var(--bg-elevated, #fff)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+            }}
+          >
+            {rawEntries.map((r) => (
+              <div key={r.key} style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginBottom: 2 }}>
+                  {r.label}
+                  <span style={{ opacity: 0.55 }}> · {r.key}</span>
+                </div>
+                <RawCell text={r.text} full={r.full} />
               </div>
-              <div
-                title={r.text}
-                style={{
-                  fontSize: 'var(--font-sm)',
-                  wordBreak: 'break-all',
-                  maxHeight: 60,
-                  overflow: 'hidden',
-                }}
-              >
-                {r.text.length > 160 ? `${r.text.slice(0, 160)}…` : r.text || '—'}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div
+            style={{
+              padding: '12px 16px',
+              background: 'var(--bg-subtle)',
+              border: '1px dashed var(--border)',
+              borderRadius: 10,
+              color: 'var(--fg-tertiary)',
+              fontSize: 'var(--font-sm)',
+            }}
+          >
+            已折叠。上方分组展示的是常用字段；这里保留卫瓴回传的全部 {rawEntries.length} 个原始字段，需要核对时再展开。
+          </div>
+        )}
       </div>
 
       {customRows.length > 0 ? (

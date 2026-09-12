@@ -632,7 +632,8 @@ export class WeilingService implements OnModuleInit {
     const fromMs = params.from ? new Date(`${params.from}T00:00:00`).getTime() : 0;
     const toMs = params.to ? new Date(`${params.to}T23:59:59`).getTime() : Number.MAX_SAFE_INTEGER;
 
-    const rows: Record<string, unknown>[] = [];
+    // 连同 recordId 一起收集：跟进分析要按 contact_id 把跟进记录挂回线索
+    const rows: { id: string; f: Record<string, unknown> }[] = [];
     let token: string | undefined;
     for (let p = 0; p < 80; p += 1) {
       const res = await sql.search(TABLES.weilingContact.tableId, {
@@ -642,14 +643,14 @@ export class WeilingService implements OnModuleInit {
       for (const r of res.items ?? []) {
         const rec = r as { recordId?: string; id?: string; fields?: Record<string, unknown> };
         const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
-        rows.push(f);
+        rows.push({ id: String(rec.recordId ?? rec.id ?? ''), f });
       }
       if (!res.hasMore || !res.pageToken) break;
       token = res.pageToken;
     }
 
     // 筛选
-    const filtered = rows.filter((r) => {
+    const picked = rows.filter(({ f: r }) => {
       const ct = toEpochMsLocal(r['创建时间']);
       if (fromMs && ct && ct < fromMs) return false;
       if (toMs < Number.MAX_SAFE_INTEGER && ct && ct > toMs) return false;
@@ -658,6 +659,8 @@ export class WeilingService implements OnModuleInit {
       if (params.客户阶段 && String(r['客户阶段'] ?? '') !== params.客户阶段) return false;
       return true;
     });
+    const filtered = picked.map((r) => r.f);
+    const filteredIds = new Set(picked.map((r) => r.id).filter(Boolean));
 
     const DEAL = '成交客户';
     const isDeal = (r: Record<string, unknown>) => String(r['客户阶段'] ?? '') === DEAL;
@@ -788,6 +791,85 @@ export class WeilingService implements OnModuleInit {
     }
     health.push({ name: '从未跟进', count: never });
 
+    // ⑨ 跟进分析（数据来自卫瓴「跟进记录」表的同步结果）
+    // 口径：只统计当前筛选命中的线索，且跟进时间落在筛选区间内。
+    // ⚠️ 跟进记录是后台异步同步的（3663 个联系人逐个拉），未同步完时数字会偏小。
+    const progRaw: { contact: string; time: number; user: string }[] = [];
+    {
+      let pt: string | undefined;
+      for (let p = 0; p < 40; p += 1) {
+        const res = await sql.search(TABLES.weilingProgress.tableId, {
+          pageSize: 500,
+          ...(pt ? { pageToken: pt } : {}),
+        });
+        for (const r of res.items ?? []) {
+          const rec = r as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+          const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+          const cid = String(f['关联联系人ID'] ?? '');
+          if (!cid) continue;
+          const uid = String(f['跟进人ID'] ?? '');
+          progRaw.push({
+            contact: cid,
+            time: toEpochMsLocal(f['跟进时间']),
+            user: String(f['跟进人'] ?? '') || (uid ? uid.slice(0, 8) : '未知'),
+          });
+        }
+        if (!res.hasMore || !res.pageToken) break;
+        pt = res.pageToken;
+      }
+    }
+    const progs = progRaw.filter(
+      (p) => filteredIds.has(p.contact) && p.time > 0 && p.time >= fromMs && p.time <= toMs,
+    );
+
+    // 跟进人维度：记录数 / 覆盖线索数 / 近 30 天 / 人均（该跟进人对单个线索的平均跟进次数）
+    const followerMap = new Map<string, { records: number; contacts: Set<string>; last30: number }>();
+    const progByContact = new Map<string, number>();
+    for (const p of progs) {
+      progByContact.set(p.contact, (progByContact.get(p.contact) ?? 0) + 1);
+      const e = followerMap.get(p.user) ?? { records: 0, contacts: new Set<string>(), last30: 0 };
+      e.records += 1;
+      e.contacts.add(p.contact);
+      if (p.time > now - 30 * 86_400_000) e.last30 += 1;
+      followerMap.set(p.user, e);
+    }
+    const byFollower = [...followerMap.entries()]
+      .map(([name, v]) => ({
+        name,
+        records: v.records,
+        contacts: v.contacts.size,
+        last30: v.last30,
+        avg: v.contacts.size ? v.records / v.contacts.size : 0,
+      }))
+      .sort((a, b) => b.records - a.records)
+      .slice(0, 15);
+
+    // 跟进趋势：按月（记录数 + 当月被跟进的线索数）
+    const progTrendMap = new Map<string, { records: number; contacts: Set<string> }>();
+    for (const p of progs) {
+      const d = new Date(p.time);
+      const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const e = progTrendMap.get(m) ?? { records: 0, contacts: new Set<string>() };
+      e.records += 1;
+      e.contacts.add(p.contact);
+      progTrendMap.set(m, e);
+    }
+    const followTrend = [...progTrendMap.entries()]
+      .map(([month, v]) => ({ month, records: v.records, contacts: v.contacts.size }))
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .slice(-12);
+
+    const contactsWithProg = progByContact.size;
+    const followSummary = {
+      records: progs.length,
+      contacts: contactsWithProg,
+      coverage: filtered.length ? (contactsWithProg / filtered.length) * 100 : 0,
+      avgPerContact: contactsWithProg ? progs.length / contactsWithProg : 0,
+      last30: progs.filter((p) => p.time > now - 30 * 86_400_000).length,
+      activeFollowers: followerMap.size,
+      synced: progRaw.length,
+    };
+
     // 汇总
     const monthStart = new Date();
     monthStart.setDate(1);
@@ -801,9 +883,22 @@ export class WeilingService implements OnModuleInit {
       dealRate: filtered.length ? (deal / filtered.length) * 100 : 0,
       matched,
       owners: owners.length,
+      followRecords: progs.length,
+      followAvg: followSummary.avgPerContact,
     };
 
-    const data = { summary, stage, owners, channels, components, funnels, pipeline, trend, health };
+    const data = {
+      summary,
+      stage,
+      owners,
+      channels,
+      components,
+      funnels,
+      pipeline,
+      trend,
+      health,
+      follow: { summary: followSummary, byFollower, trend: followTrend },
+    };
     analyzeCache.set(cacheKey, { at: Date.now(), data });
     return data;
   }

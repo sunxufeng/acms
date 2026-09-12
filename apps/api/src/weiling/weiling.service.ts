@@ -341,11 +341,19 @@ export class WeilingService implements OnModuleInit {
           pageSize: 100,
           ...(token ? { pageToken: token } : {}),
         });
+        if (page === 0) {
+          const first = (res.items ?? [])[0] as Record<string, unknown> | undefined;
+          this.logger.log(
+            `匹配：首页 ${(res.items ?? []).length} 条，样本键=${first ? Object.keys(first).slice(0, 8).join(',') : '无'}`,
+          );
+        }
         for (const r of res.items ?? []) {
-          const f = ((r as { fields?: Record<string, unknown> }).fields ?? r) as Record<string, unknown>;
-          const id = String((r as { id?: string }).id ?? '');
-          if (!id) continue;
+          const rec = r as { id?: string; recordId?: string; fields?: Record<string, unknown> };
+          const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+          // id 可能挂在 record 上，也可能在扁平字段里（不同读取路径结构不一致，都兜住）
+          const id = String(rec.id ?? rec.recordId ?? f['id'] ?? f['contact_id'] ?? '');
           total += 1;
+          if (!id) continue;
           const hit = bestMatch(f, students);
           const patch: Record<string, unknown> = {
             关联学生: hit?.name ?? '',

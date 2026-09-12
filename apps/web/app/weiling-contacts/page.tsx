@@ -19,6 +19,28 @@ export default function WeilingContactsPage() {
   const [pgMsg, setPgMsg] = useState('');
   const [pgRunning, setPgRunning] = useState(false);
   const [options, setOptions] = useState<Record<string, string[]>>({});
+  /**
+   * 报表下钻进来的隐藏条件（没有对应筛选控件，用户看不到就会以为「筛选没生效」）。
+   * 这里把读数显示出来，并提供一键清除。
+   */
+  const [drillChips, setDrillChips] = useState<{ label: string; value: string }[]>([]);
+  const DRILL_LABELS: Record<string, string> = {
+    来源组件: '来源组件',
+    follower: '跟进人',
+    最近跟进时间_from: '最近跟进起',
+    最近跟进时间_to: '最近跟进止',
+    dim: '自定义字段',
+    dimval: '字段值',
+  };
+  useEffect(() => {
+    const qs = new URLSearchParams(window.location.search);
+    const chips: { label: string; value: string }[] = [];
+    for (const [k, label] of Object.entries(DRILL_LABELS)) {
+      const v = qs.get(k);
+      if (v) chips.push({ label, value: v });
+    }
+    setDrillChips(chips);
+  }, []);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -133,6 +155,43 @@ export default function WeilingContactsPage() {
         ) : null}
       </div>
 
+      {drillChips.length > 0 ? (
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            marginBottom: '0.75rem',
+            padding: '8px 12px',
+            background: 'var(--bg-subtle, #faf9f6)',
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            fontSize: 'var(--font-sm)',
+            color: 'var(--fg-secondary)',
+          }}
+        >
+          <span style={{ color: 'var(--fg-tertiary)' }}>来自报表的下钻条件：</span>
+          {drillChips.map((c) => (
+            <span
+              key={c.label}
+              style={{ padding: '2px 8px', borderRadius: 8, background: 'var(--bg-hover)', fontSize: 'var(--font-xs)' }}
+            >
+              {c.label}：{c.value}
+            </span>
+          ))}
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              // 直接整页刷新：CrudPage 的筛选状态也要一起清掉
+              window.location.assign('/weiling-contacts');
+            }}
+          >
+            清除
+          </button>
+        </div>
+      ) : null}
+
       <CrudPage
         title="联系人管理"
         subtitle="卫瓴 SCRM 联系人（只读副本，按天自动同步）"
@@ -144,6 +203,8 @@ export default function WeilingContactsPage() {
         hideCreate
         detailHref={(id) => `/weiling-contacts/${id}`}
         rangeFilters={[{ key: 'createTime', label: '创建时间', fromParam: 'from', toParam: 'to' }]}
+        // 报表下钻用的隐藏条件：没有筛选控件，但必须透传给列表接口
+        passthroughParams={['来源组件', 'dim', 'dimval', 'follower', '最近跟进时间_from', '最近跟进时间_to']}
         api={{
           list: (p) => api.listWeilingContacts(p),
         }}

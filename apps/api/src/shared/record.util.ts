@@ -49,11 +49,18 @@ export function toFlatRecord(
   readonly: Set<string>,
   multiFields: Set<string>,
   linkFields: Set<string> = new Set(),
+  /**
+   * 业务字段优先于审计字段的白名单（默认空）。
+   * 外部同步进来的表（如卫瓴联系人）会自己带「创建时间」这种上游业务时间，
+   * 它的含义是「线索什么时候进来的」，跟本系统落库时间完全不是一回事 ——
+   * 若被审计值覆盖，按创建时间筛选就变成了「按同步时间筛选」。
+   */
+  keepBusinessFields: Set<string> = new Set(),
 ): { id: string } & Record<string, unknown> {
   const obj: { id: string } & Record<string, unknown> = { id: rec.recordId };
   for (const [k, v] of Object.entries(rec.fields)) {
     // 审计字段以物理列为准，data 里的同名历史值一律忽略（历史值已由回填脚本迁走）
-    if (isAuditField(k)) continue;
+    if (isAuditField(k) && !keepBusinessFields.has(k)) continue;
     if (multiFields.has(k)) obj[k] = toStringArray(v);
     else if (linkFields.has(k)) {
       // type=18 关联字段返回值形如 [{ record_ids:[id], table_id, text:null, ... }]
@@ -66,10 +73,10 @@ export function toFlatRecord(
   }
   // 注入审计四件套（唯一真源：PG 物理列）。人显示解析后的姓名，DB 里存的仍是 openId
   if (rec.audit) {
-    obj['创建人'] = rec.audit.createdByName;
-    obj['创建时间'] = rec.audit.createdAt;
-    obj['更新人'] = rec.audit.updatedByName;
-    obj['更新时间'] = rec.audit.updatedAt;
+    if (!keepBusinessFields.has('创建人')) obj['创建人'] = rec.audit.createdByName;
+    if (!keepBusinessFields.has('创建时间')) obj['创建时间'] = rec.audit.createdAt;
+    if (!keepBusinessFields.has('更新人')) obj['更新人'] = rec.audit.updatedByName;
+    if (!keepBusinessFields.has('更新时间')) obj['更新时间'] = rec.audit.updatedAt;
   }
   return obj;
 }

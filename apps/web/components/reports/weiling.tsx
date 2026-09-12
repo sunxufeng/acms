@@ -11,12 +11,17 @@ interface Item {
   deal?: number;
   dealRate?: number;
   follow30?: number;
+  /** 下钻用的原始键（自定义字段枚举值） */
+  raw?: string;
+  /** 下钻用的时间区间（YYYY-MM-DD，跟进健康度） */
+  from?: string;
+  to?: string;
 }
 interface FunnelDim {
   name: string;
   apiName: string;
   covered: number;
-  items: { name: string; count: number }[];
+  items: { name: string; count: number; raw?: string }[];
 }
 interface FollowItem {
   name: string;
@@ -54,7 +59,7 @@ interface Data {
   channels: Item[];
   components: Item[];
   funnels: FunnelDim[];
-  pipeline: { name: string; yes: number; answered: number }[];
+  pipeline: { name: string; apiName?: string; yes: number; answered: number; raw?: string }[];
   trend: { month: string; newCount: number; dealCount: number }[];
   health: Item[];
   follow?: Follow;
@@ -69,6 +74,12 @@ function today(): string {
   const d = new Date();
   const p = (x: number) => String(x).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+/** 月份（YYYY-MM）→ 该月首末日，用于趋势柱下钻 */
+function monthRange(month: string): { from: string; to: string } {
+  const [y, m] = month.split('-');
+  const last = new Date(Number(y), Number(m), 0).getDate();
+  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, '0')}` };
 }
 
 export function WeilingPanel() {
@@ -92,9 +103,20 @@ export function WeilingPanel() {
       .finally(() => setLoading(false));
   }, [from, to, owner, channel, stage]);
 
-  const drill = (params: Record<string, string>) => {
-    const qs = new URLSearchParams(params);
-    router.push(`/weiling-contacts?${qs.toString()}`);
+  /**
+   * 下钻到联系人列表。
+   * ⚠️ 必须带上报表当前的筛选（时间区间 + 已选维度），否则列表页会显示全量联系人 ——
+   * 用户点某根柱子想看的是「这批人」，不是所有人。extra 里的空值不传。
+   */
+  const drill = (extra: Record<string, string>) => {
+    const merged: Record<string, string> = {};
+    if (from) merged.from = from;
+    if (to) merged.to = to;
+    if (owner) merged['归属人'] = owner;
+    if (channel) merged['来源渠道'] = channel;
+    if (stage) merged['客户阶段'] = stage;
+    for (const [k, v] of Object.entries(extra)) if (v) merged[k] = v;
+    router.push(`/weiling-contacts?${new URLSearchParams(merged).toString()}`);
   };
 
   const opts = useMemo(
@@ -249,7 +271,8 @@ export function WeilingPanel() {
             {data.components.map((c) => (
               <tr key={c.name} style={{ borderTop: '1px solid var(--border)' }}>
                 <td style={{ ...td, maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.name}>
-                  <button className="link-btn" onClick={() => drill({ q: c.name })}>{c.name}</button>
+                  {/* ⚠️ 之前传的是 q（关键字），而 q 只搜姓名/手机/企业/备注，搜不到组件名 */}
+                  <button className="link-btn" onClick={() => drill({ 来源组件: c.name })}>{c.name}</button>
                 </td>
                 <td style={tdN}>{c.total}</td>
                 <td style={tdN}>{c.deal}</td>
@@ -269,7 +292,14 @@ export function WeilingPanel() {
                 {f.name}
                 <span style={{ fontWeight: 400, color: 'var(--fg-tertiary)', marginLeft: 6 }}>（{f.covered} 条有值）</span>
               </div>
-              <BarList items={f.items.map((i) => ({ name: i.name, count: i.count }))} max={Math.max(1, ...f.items.map((i) => i.count))} onPick={() => undefined} />
+              <BarList
+                items={f.items.map((i) => ({ name: i.name, count: i.count, raw: i.raw }))}
+                max={Math.max(1, ...f.items.map((i) => i.count))}
+                // 自定义字段不是列表列，用 dim/dimval 让后端在「自定义字段」JSON 里匹配原始键
+                onPick={(_n, item) => {
+                  if (item?.raw) drill({ dim: f.apiName, dimval: item.raw });
+                }}
+              />
             </div>
           ))}
         </div>
@@ -279,7 +309,21 @@ export function WeilingPanel() {
       <Section title="⑥ 转化后半段（到访 → 缴费 → 面试 → Offer）">
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {data.pipeline.map((p) => (
-            <div key={p.name} style={{ flex: '1 1 150px', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-elevated,#fff)' }}>
+            <div
+              key={p.name}
+              onClick={() => {
+                if (p.apiName && p.raw) drill({ dim: p.apiName, dimval: p.raw });
+              }}
+              style={{
+                flex: '1 1 150px',
+                padding: '10px 12px',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                background: 'var(--bg-elevated,#fff)',
+                cursor: p.apiName && p.raw ? 'pointer' : 'default',
+              }}
+              title={p.apiName && p.raw ? `查看「${p.name}」的线索名单` : undefined}
+            >
               <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{p.name}</div>
               <div style={{ fontSize: 18, fontWeight: 600 }}>{p.yes}</div>
               <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>已填 {p.answered}</div>
@@ -291,10 +335,15 @@ export function WeilingPanel() {
       {/* ⑦ 趋势 */}
       <Section title="⑦ 新增线索 / 成交趋势（按月）">
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 130 }}>
-          {data.trend.map((t) => {
-            const max = Math.max(1, ...data.trend.map((x) => x.newCount));
-            return (
-              <div key={t.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+              {data.trend.map((t) => {
+                const max = Math.max(1, ...data.trend.map((x) => x.newCount));
+                return (
+                  <div
+                    key={t.month}
+                    onClick={() => drill(monthRange(t.month))}
+                    title={`查看 ${t.month} 新增的线索`}
+                    style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, cursor: 'pointer' }}
+                  >
                 <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{t.newCount}</div>
                 <div style={{ width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: 92 }}>
                   <div style={{ height: `${(t.newCount / max) * 88}px`, background: 'var(--accent)', borderRadius: '3px 3px 0 0' }} />
@@ -312,7 +361,15 @@ export function WeilingPanel() {
 
       {/* ⑧ 跟进健康度 */}
       <Section title="⑧ 跟进健康度（最近跟进距今，点击下钻）">
-        <BarList items={data.health} max={Math.max(1, ...data.health.map((h) => Number(h.count ?? 0)))} onPick={() => undefined} />
+        <BarList
+          items={data.health}
+          max={Math.max(1, ...data.health.map((h) => Number(h.count ?? 0)))}
+          onPick={(_n, item) => {
+            // 「从未跟进」没有时间区间，不可下钻
+            if (!item?.from && !item?.to) return;
+            drill({ 最近跟进时间_from: item.from ?? '', 最近跟进时间_to: item.to ?? '' });
+          }}
+        />
       </Section>
 
       {/* ⑨ 跟进分析 · 概览 */}
@@ -356,7 +413,10 @@ export function WeilingPanel() {
             <tbody>
               {follow.byFollower.map((p) => (
                 <tr key={p.name} style={{ borderTop: '1px solid var(--border)' }}>
-                  <td style={td}>{p.name}</td>
+                  <td style={td}>
+                    {/* 跟进人不是联系人字段（联系人只有归属人），后端按跟进记录反查其跟进过的线索 */}
+                    <button className="link-btn" onClick={() => drill({ follower: p.name })}>{p.name}</button>
+                  </td>
                   <td style={tdN}>{p.records}</td>
                   <td style={tdN}>{p.contacts}</td>
                   <td style={tdN}>{p.avg.toFixed(1)}</td>
@@ -389,7 +449,12 @@ export function WeilingPanel() {
               {follow.trend.map((t) => {
                 const max = Math.max(1, ...follow.trend.map((x) => x.records));
                 return (
-                  <div key={t.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                  <div
+                    key={t.month}
+                    onClick={() => drill({ 最近跟进时间_from: monthRange(t.month).from, 最近跟进时间_to: monthRange(t.month).to })}
+                    title={`查看 ${t.month} 有跟进的线索`}
+                    style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, cursor: 'pointer' }}
+                  >
                     <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{t.records}</div>
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: 92 }}>
                       <div style={{ height: `${(t.records / max) * 88}px`, background: 'var(--accent)', borderRadius: '3px 3px 0 0' }} />
@@ -435,7 +500,8 @@ function BarList({
 }: {
   items: Item[];
   max: number;
-  onPick?: (name: string) => void;
+  /** 第二参数带上整条数据：下钻常需要原始键 / 时间区间，光有名字不够 */
+  onPick?: (name: string, item: Item) => void;
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -448,7 +514,7 @@ function BarList({
               style={{ width: 130, fontSize: 'var(--font-xs)', color: 'var(--fg-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {onPick ? (
-                <button className="link-btn" onClick={() => onPick(i.name)}>{i.name}</button>
+                <button className="link-btn" onClick={() => onPick(i.name, i)}>{i.name}</button>
               ) : (
                 i.name
               )}

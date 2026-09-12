@@ -109,6 +109,12 @@ export interface CrudPageProps {
   rangeFilters?: RangeFilter[];
   /** 全局关键字搜索框：发送 q 参数，由后端 searchField 决定检索字段（支持关联字段跨表解析后模糊匹配） */
   search?: { placeholder: string };
+  /**
+   * 允许从 URL 直接读进来并透传给 list 的查询参数名（报表下钻用）。
+   * 这些条件没有对应的筛选控件（如「来源组件」「跟进人」「自定义字段」），
+   * 只作为隐藏查询条件生效，URL 上没有时完全不参与。
+   */
+  passthroughParams?: string[];
   /** 新建/编辑使用页内表单（非弹出框） */
   inlineEdit?: boolean;
   /** 新建/编辑时使用独立页面风格，隐藏列表页标题、操作与筛选区 */
@@ -278,7 +284,7 @@ const modalStyle: React.CSSProperties = {
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -290,6 +296,27 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const fallbackRef = useRef<Record<string, unknown>[] | null>(null); // 后端一次性返回全部时的前端切片兜底
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState<Record<string, string>>({});
+  /**
+   * 报表下钻：URL 上带的筛选条件在挂载时写入筛选状态。
+   * 只认四类参数 —— 列筛选键、时间区间参数、关键字 q、以及调用方声明的透传参数，
+   * 其它参数一律忽略；URL 上没有参数时完全不改行为，所以其它模块不受影响。
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const qs = new URLSearchParams(window.location.search);
+    if (!Array.from(qs.keys()).length) return;
+    const colKeys = new Set(columns.filter((c) => c.filter).map((c) => c.filterParam ?? c.key));
+    const rangeKeys = new Set((rangeFilters ?? []).flatMap((r) => [r.fromParam, r.toParam]));
+    const passKeys = new Set(passthroughParams ?? []);
+    const init: Record<string, string> = {};
+    for (const [k, v] of Array.from(qs.entries())) {
+      if (!v) continue;
+      if ((k === 'q' && search) || colKeys.has(k) || rangeKeys.has(k) || passKeys.has(k)) init[k] = v;
+    }
+    if (Object.keys(init).length) setFilters((prev) => ({ ...prev, ...init }));
+    // 只在挂载时读一次：之后用户手动改筛选不应被 URL 覆盖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [editing, setEditing] = useState<null | { mode: 'create' | 'edit'; row?: Record<string, unknown> }>(null);
   const [form, setForm] = useState<Record<string, unknown>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -406,6 +433,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const apiRef = useRef(api); apiRef.current = api;
   const filtersRef = useRef(filters); filtersRef.current = filters;
   const rangeRef = useRef(rangeFilters); rangeRef.current = rangeFilters;
+  const passRef = useRef(passthroughParams); passRef.current = passthroughParams;
 
   const buildParams = useCallback(
     (token?: string): Record<string, string | undefined> => {
@@ -418,6 +446,10 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       for (const rf of rangeRef.current ?? []) {
         if (f[rf.fromParam]) params[rf.fromParam] = f[rf.fromParam];
         if (f[rf.toParam]) params[rf.toParam] = f[rf.toParam];
+      }
+      // 无筛选控件的隐藏条件（报表下钻），原样透传
+      for (const k of passRef.current ?? []) {
+        if (f[k]) params[k] = f[k];
       }
       if (f.q) params.q = f.q;
       if (token) params.pageToken = token;

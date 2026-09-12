@@ -709,7 +709,8 @@ export class WeilingService implements OnModuleInit {
 
     // ⑤ 招生漏斗自定义维度（取覆盖率高的几个）
     const customDim = (apiName: string) => {
-      const m = new Map<string, number>();
+      // value 同时记原始键：报表下钻时按原始键匹配（存的是枚举键，显示的是中文）
+      const m = new Map<string, { count: number; raws: Set<string> }>();
       const opts = optOf.get(apiName);
       let covered = 0;
       for (const r of filtered) {
@@ -719,14 +720,19 @@ export class WeilingService implements OnModuleInit {
         const vals = Array.isArray(raw) ? raw : [raw];
         for (const v of vals) {
           const label = opts?.get(String(v)) ?? String(v);
-          m.set(label, (m.get(label) ?? 0) + 1);
+          const e = m.get(label) ?? { count: 0, raws: new Set<string>() };
+          e.count += 1;
+          e.raws.add(String(v));
+          m.set(label, e);
         }
       }
       return {
         name: nameOf.get(apiName) ?? apiName,
         apiName,
         covered,
-        items: [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+        items: [...m.entries()]
+          .map(([name, v]) => ({ name, count: v.count, raw: [...v.raws].join(',') }))
+          .sort((a, b) => b.count - a.count),
       };
     };
     const funnels = ['xsdx', 'yxd', 'zxzlx', 'yxlxgb'].map(customDim).filter((d) => d.covered > 0);
@@ -743,14 +749,18 @@ export class WeilingService implements OnModuleInit {
       const opts = optOf.get(s.apiName);
       let yes = 0;
       let answered = 0;
+      const rawYes = new Set<string>();
       for (const r of filtered) {
         const raw = parseCustom(r['自定义字段'])[s.apiName];
         if (raw == null || raw === '') continue;
         answered += 1;
         const label = opts?.get(String(raw)) ?? String(raw);
-        if (label === s.yes) yes += 1;
+        if (label === s.yes) {
+          yes += 1;
+          rawYes.add(String(raw));
+        }
       }
-      return { name: s.name, yes, answered };
+      return { name: s.name, apiName: s.apiName, yes, answered, raw: [...rawYes].join(',') };
     });
 
     // ⑦ 按月趋势
@@ -771,14 +781,21 @@ export class WeilingService implements OnModuleInit {
       .slice(-12);
 
     // ⑧ 跟进健康度
+    const ymd = (ms: number) => new Date(ms).toISOString().slice(0, 10);
     const buckets = [
-      { name: '7 天内', max: 7 },
-      { name: '30 天内', max: 30 },
-      { name: '90 天内', max: 90 },
-      { name: '90 天以上', max: Number.MAX_SAFE_INTEGER },
+      { name: '7 天内', min: 0, max: 7 },
+      { name: '30 天内', min: 7, max: 30 },
+      { name: '90 天内', min: 30, max: 90 },
+      { name: '90 天以上', min: 90, max: Number.MAX_SAFE_INTEGER },
     ];
     let never = 0;
-    const health = buckets.map((b) => ({ name: b.name, count: 0 }));
+    // from/to 供报表下钻（按「最近跟进时间」区间过滤）：最新一档不设上界、最老一档不设下界
+    const health = buckets.map((b) => ({
+      name: b.name,
+      count: 0,
+      from: b.max === Number.MAX_SAFE_INTEGER ? '' : ymd(now - b.max * 86_400_000),
+      to: b.min === 0 ? '' : ymd(now - b.min * 86_400_000),
+    }));
     for (const r of filtered) {
       const t = toEpochMsLocal(r['最近跟进时间']);
       if (!t) {
@@ -789,7 +806,7 @@ export class WeilingService implements OnModuleInit {
       const idx = buckets.findIndex((b) => days <= b.max);
       if (idx >= 0) health[idx] = { ...health[idx]!, count: health[idx]!.count + 1 };
     }
-    health.push({ name: '从未跟进', count: never });
+    health.push({ name: '从未跟进', count: never, from: '', to: '' });
 
     // ⑨ 跟进分析（数据来自卫瓴「跟进记录」表的同步结果）
     // 口径：只统计当前筛选命中的线索，且跟进时间落在筛选区间内。

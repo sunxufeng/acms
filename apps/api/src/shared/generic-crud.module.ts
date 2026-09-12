@@ -31,6 +31,18 @@ function toEpochMs(v: unknown): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
+/** 把「可能是 JSON 字符串」的值解析成对象；解析不了返回空对象。用于自定义字段这类整包 JSON 列 */
+function parseJsonObject(v: unknown): Record<string, unknown> {
+  if (v && typeof v === 'object') return v as Record<string, unknown>;
+  if (typeof v !== 'string' || !v.trim()) return {};
+  try {
+    const p = JSON.parse(v);
+    return p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 export interface RecordMeta {
   /** 路由前缀，如 'source-followups' */
   path: string;
@@ -72,6 +84,24 @@ export interface RecordMeta {
    * 用于开放平台外接系统凭证，避免明文出现在列表、备份与日志里。
    */
   secretFields?: string[];
+  /**
+   * 需要跨表/自定义逻辑才能判断的筛选参数名（仅 listDeep 内存过滤阶段生效）。
+   * 列在这里的参数不会被当成「字段名等值匹配」，交由 deepFilter 处理。
+   */
+  deepParams?: string[];
+  /**
+   * 自定义深度筛选钩子：返回 false 表示剔除该行，其它值（含 undefined）表示保留。
+   * 只在 URL/查询里出现 deepParams 中的参数时才有必要实现。
+   */
+  deepFilter?: (
+    row: Record<string, unknown>,
+    query: Record<string, string | undefined>,
+  ) => boolean | undefined | null | Promise<boolean | undefined | null>;
+  /**
+   * 审计四件套中「以业务字段为准」的字段名（如卫瓴的「创建时间」= 线索进入时间）。
+   * 不配置时保持默认行为：审计字段一律以 PG 物理列（落库时间）为准。
+   */
+  auditOverride?: string[];
 }
 
 function toPrincipal(user: SessionUser): Principal {
@@ -124,6 +154,9 @@ export class BaseRecordService {
   private linkSet() {
     return new Set((this.meta.linkFields ?? []).map((l) => l.field));
   }
+  private auditOverrideSet() {
+    return new Set(this.meta.auditOverride ?? []);
+  }
 
   /** 模块级权限映射：generic-crud 现在按 module:<key>:<action> 鉴权，做到「按钮隐藏＝接口也拦」。 */
   private get mod() {
@@ -147,7 +180,14 @@ export class BaseRecordService {
   async list(user: SessionUser, query: Record<string, string | undefined>) {
     this.require(user, 'read');
     // 审计日志：按操作人(模糊)/业务模块(模糊)/操作类型(精确)/时间范围 筛选，内存过滤
-    if (BaseRecordService.DEEP_PARAMS.some((k) => query[k])) {
+    // ⚠️ 以下几种也必须走内存过滤，否则会被主分支当成「字段名等值匹配」直接筛空：
+    //  - `<字段>_from/_to` 时间区间、dim/dimval 自定义字段、meta.deepParams（如 follower）
+    const hasDeep =
+      BaseRecordService.DEEP_PARAMS.some((k) => query[k]) ||
+      Object.keys(query).some((k) => /_(from|to)$/.test(k)) ||
+      !!(query.dim && query.dimval) ||
+      (this.meta.deepParams ?? []).some((k) => query[k]);
+    if (hasDeep) {
       return this.listDeep(query);
     }
     // 关联字段（link）作为搜索目标时，飞书服务端 contains 对关联字段无效 → 走内存按解析文本过滤
@@ -188,7 +228,7 @@ export class BaseRecordService {
       filter: buildFilter(conditions),
       sort,
     });
-    const items = res.items.map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet()));
+    const items = res.items.map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet()));
     await this.resolveLinks(items);
     const masked = this.mod ? this.mask.maskMany(user, this.mod.key, items) : items;
     if (this.meta.secretFields?.length) masked.forEach((r) => this.maskSecrets(r));
@@ -204,7 +244,7 @@ export class BaseRecordService {
   private async listByLinkSearch(query: Record<string, string | undefined>) {
     const sf = this.meta.searchField!;
     const q = String(query.q).toLowerCase();
-    const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet()));
+    const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet()));
     await this.resolveLinks(rows);
     const filtered = rows.filter((r) => String(r[sf] ?? '').toLowerCase().includes(q));
     if (this.meta.secretFields?.length) filtered.forEach((r) => this.maskSecrets(r));
@@ -263,14 +303,16 @@ export class BaseRecordService {
   /** 扩展筛选（仅审计日志使用）：拉全量后在内存做 模糊/精确/时间区间 过滤，保证 total 准确 */
   private async listDeep(query: Record<string, string | undefined>) {
     const rangeField = this.meta.rangeField ?? this.meta.dateFields?.[0];
-    const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet()));
+    const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet()));
     let filtered = rows;
     if (rangeField && (query.from || query.to)) {
       const from = query.from ? new Date(query.from + 'T00:00:00').getTime() : -Infinity;
       const to = query.to ? new Date(query.to + 'T23:59:59.999').getTime() : Infinity;
       filtered = filtered.filter((r) => {
-        const t = Number(r[rangeField]);
-        return Number.isFinite(t) && t >= from && t <= to;
+        // ⚠️ 必须用 toEpochMs：时间字段可能是 ISO 字符串（卫瓴「创建时间」就是），
+        // 直接 Number() 会得到 NaN，整个区间筛选静默返回 0 条。
+        const t = toEpochMs(r[rangeField]);
+        return t !== null && t >= from && t <= to;
       });
     }
     if (query.actor) {
@@ -284,6 +326,49 @@ export class BaseRecordService {
     if (query.action) {
       filtered = filtered.filter((r) => String(r['操作类型'] ?? '') === query.action);
     }
+
+    // 字段级时间区间：参数名约定 `<字段名>_from` / `<字段名>_to`。
+    // 报表下钻要按「最近跟进时间」这类非默认时间字段过滤，不想为单个模块往通用层
+    // 塞专用参数名，所以用后缀约定表达（例：最近跟进时间_from=2026-09-01）。
+    const fieldRanges = new Map<string, { from: number; to: number }>();
+    // ⚠️ 要跳过的是「带后缀的参数名」本身（如 最近跟进时间_from），不是字段名 ——
+    // 只跳过字段名的话，下面的等值过滤还会拿参数名去匹配，结果被筛成 0 条。
+    const fieldRangeKeys: string[] = [];
+    for (const [k, v] of Object.entries(query)) {
+      if (!v) continue;
+      const m = /^(.+)_(from|to)$/.exec(k);
+      if (!m) continue;
+      const field = m[1] as string;
+      const kind = m[2] as string;
+      fieldRangeKeys.push(k);
+      const t = new Date(kind === 'to' ? `${v}T23:59:59.999` : `${v}T00:00:00`).getTime();
+      if (!Number.isFinite(t)) continue;
+      const e = fieldRanges.get(field) ?? { from: -Infinity, to: Infinity };
+      if (kind === 'to') e.to = t;
+      else e.from = t;
+      fieldRanges.set(field, e);
+    }
+    for (const [field, r] of fieldRanges) {
+      filtered = filtered.filter((row) => {
+        const t = toEpochMs(row[field]);
+        return t !== null && t >= r.from && t <= r.to;
+      });
+    }
+
+    // 自定义字段（JSON 列）下钻：dim=字段 api_name，dimval=原始值（多个用逗号分隔）。
+    // 卫瓴联系人把上游 95 个自定义字段整包存在「自定义字段」列里，无法作为独立列筛选，
+    // 报表要下钻看名单只能这样匹配。
+    if (query.dim && query.dimval) {
+      const dim = String(query.dim);
+      const wants = new Set(String(query.dimval).split(',').map((s) => s.trim()).filter(Boolean));
+      filtered = filtered.filter((r) => {
+        const raw = parseJsonObject(r['自定义字段'])[dim];
+        if (raw == null || raw === '') return false;
+        const vals = Array.isArray(raw) ? raw : [raw];
+        return vals.some((x) => wants.has(String(x)));
+      });
+    }
+
     // 其余查询参数按字段等值过滤（如会议纪要按「会议类型 / 状态 / 部门」筛选）。
     // 只跳过 DEEP_PARAMS 与分页/排序参数，保证审计日志的既有行为完全不变。
     const skip = new Set<string>([
@@ -293,6 +378,11 @@ export class BaseRecordService {
       'sortBy',
       'sortOrder',
       'q',
+      'dim',
+      'dimval',
+      // `<字段>_from/_to` 已按时间区间处理过，不能再当字段名做等值匹配（会直接筛空）
+      ...fieldRangeKeys,
+      ...(this.meta.deepParams ?? []),
     ]);
     for (const [k, v] of Object.entries(query)) {
       if (!v || skip.has(k)) continue;
@@ -313,8 +403,18 @@ export class BaseRecordService {
         );
       }
     }
+    // 跨表/自定义筛选（如卫瓴按跟进人反查跟进记录）：返回 false 才剔除
+    if (this.meta.deepFilter) {
+      const kept: typeof filtered = [];
+      for (const r of filtered) {
+        const res = await this.meta.deepFilter(r, query);
+        if (res !== false) kept.push(r);
+      }
+      filtered = kept;
+    }
     if (rangeField) {
-      filtered.sort((x, y) => Number(y[rangeField]) - Number(x[rangeField]));
+      // 同 rangeField 过滤：时间可能是 ISO 字符串，Number() 会得 NaN 让排序失效
+      filtered.sort((x, y) => (toEpochMs(y[rangeField]) ?? 0) - (toEpochMs(x[rangeField]) ?? 0));
     }
     return { items: filtered, total: filtered.length, hasMore: false, pageToken: undefined };
   }
@@ -336,7 +436,7 @@ export class BaseRecordService {
     this.require(user, 'read');
     const rec = await this.base.get(this.tableId, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
-    const flat = toFlatRecord(rec, this.readonlySet(), this.multiSet(), this.linkSet());
+    const flat = toFlatRecord(rec, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet());
     await this.resolveLinks([flat]);
     const out = this.mod ? this.mask.mask(user, this.mod.key, flat) : flat;
     return this.maskSecrets(out);
@@ -447,7 +547,7 @@ export class BaseRecordService {
   async exportCsv(user: SessionUser): Promise<{ csv: string; filename: string }> {
     this.require(user, 'export');
     const rows = await this.fetchAll();
-    const flatRows = rows.map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet()));
+    const flatRows = rows.map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet()));
     const maskedRows = this.mod
       ? flatRows.map((r) => this.mask.mask(user, this.mod!.key, r))
       : flatRows;

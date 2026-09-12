@@ -8,9 +8,50 @@
  */
 import { TABLES } from '@acms/contracts';
 import type { RecordMeta } from './generic-crud.module.js';
+import { getSqlStore } from '../base.provider.js';
 
 const PERM_R = 'student:read';
 const PERM_W = 'student:write';
+
+/**
+ * 按「跟进人」反查其跟进过的联系人 id 集合（卫瓴跟进记录表）。
+ *
+ * 跟进人不是联系人表上的字段（联系人只有「归属人」），所以报表里点某个跟进人
+ * 想看他跟进过的线索，只能先从跟进记录表算出 id 集合再回连。
+ * 结果缓存 10 分钟 —— 跟进记录是异步同步的，实时性要求不高，但要避免每次翻页都扫全表。
+ */
+const followerCache = new Map<string, { at: number; ids: Set<string> }>();
+const FOLLOWER_TTL_MS = 10 * 60 * 1000;
+
+async function contactIdsOfFollower(name: string): Promise<Set<string>> {
+  const hit = followerCache.get(name);
+  if (hit && Date.now() - hit.at < FOLLOWER_TTL_MS) return hit.ids;
+  const ids = new Set<string>();
+  const sql = getSqlStore();
+  if (sql) {
+    let token: string | undefined;
+    for (let p = 0; p < 40; p += 1) {
+      const res = await sql.search(TABLES.weilingProgress.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of res.items ?? []) {
+        const rec = r as { recordId?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        const who = String(f['跟进人'] ?? '');
+        if (!who) continue;
+        // 卫瓴员工名形如「致极学院-曹老师｜Dainel」，报表传的是完整名，用包含关系兜底
+        if (who !== name && !who.includes(name) && !name.includes(who)) continue;
+        const cid = String(f['关联联系人ID'] ?? '');
+        if (cid) ids.add(cid);
+      }
+      if (!res.hasMore || !res.pageToken) break;
+      token = res.pageToken;
+    }
+  }
+  followerCache.set(name, { at: Date.now(), ids });
+  return ids;
+}
 
 export const LIFECYCLE_METAS: RecordMeta[] = [
   {
@@ -202,8 +243,19 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     // 日期字段存的是毫秒时间戳（上游原始值），读取侧由前端格式化
     searchFields: ['联系人姓名', '手机号', '企业名', '备注'],
     // 创建时间范围筛选（前端 rangeFilters 传 from/to）
+    // ⚠️ 卫瓴的「创建时间」是线索进入时间，不能被落库时间覆盖，否则按创建时间筛选
+    // 会变成「按同步时间筛选」（所有记录挤在同步那天）。
+    auditOverride: ['创建时间'],
     rangeField: '创建时间',
     sortField: '创建时间',
+    // 报表「按跟进人排行」下钻：follower=跟进人姓名 → 反查其跟进过的联系人
+    deepParams: ['follower'],
+    deepFilter: async (row, query) => {
+      const who = String(query['follower'] ?? '').trim();
+      if (!who) return undefined;
+      const ids = await contactIdsOfFollower(who);
+      return ids.has(String(row['id'] ?? ''));
+    },
   },
 ];
 

@@ -1,18 +1,33 @@
 import type { CrudColumn } from '../../components/CrudPage';
 
-/** 毫秒时间戳 → 本地日期时间文本 */
+/**
+ * 时间字段 → 毫秒。
+ * ⚠️ 同一个字段读出来形态不一致：有的给毫秒数字，有的给 ISO 字符串
+ * （实测「创建时间」返回 2026-09-11T23:49:06.809Z，「最近跟进时间」返回 1787547970000），
+ * 只按数字解析的话前者会显示成「—」。
+ */
+function toMs(v: unknown): number {
+  if (typeof v === 'number') return v;
+  const s = String(v ?? '').trim();
+  if (!s) return 0;
+  if (/^\d+$/.test(s)) return Number(s);
+  const t = new Date(s).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/** → 本地日期时间文本 */
 export function fmtTs(v: unknown): string {
-  const n = typeof v === 'number' ? v : Number(v ?? 0);
-  if (!n || Number.isNaN(n)) return '—';
+  const n = toMs(v);
+  if (!n) return '—';
   const d = new Date(n);
   const p = (x: number) => String(x).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/** 毫秒时间戳 → 日期（YYYY-MM-DD） */
+/** → 日期（YYYY-MM-DD） */
 export function fmtDate(v: unknown): string {
-  const n = typeof v === 'number' ? v : Number(v ?? 0);
-  if (!n || Number.isNaN(n)) return '—';
+  const n = toMs(v);
+  if (!n) return '—';
   const d = new Date(n);
   const p = (x: number) => String(x).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;

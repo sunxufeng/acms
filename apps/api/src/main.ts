@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import type { NextFunction, Request, Response } from 'express';
 import { NestFactory } from '@nestjs/core';
+import { RequestMethod } from '@nestjs/common';
 import { AppModule } from './app.module.js';
 import { securityMiddleware } from './security/security.middleware.js';
 import { AllExceptionsFilter } from './common/exception.filter.js';
@@ -119,7 +120,16 @@ async function bootstrap(): Promise<void> {
   // 故关闭 Nest 内置 parser，改用下方零依赖的自实现解析。
   const app = await NestFactory.create(AppModule, { bodyParser: false });
   app.use(createBodyParser(BODY_LIMIT_BYTES));
-  app.setGlobalPrefix('api/v1');
+  // 后台接口统一挂 api/v1；AI 路由网关（/v1/chat/completions 等）**必须**走厂商原生路径，
+  // 否则使用方的 OpenAI / Anthropic SDK 没法直接对接 —— 这里显式排除，见 ai-gateway.controller。
+  app.setGlobalPrefix('api/v1', {
+    exclude: [
+      { path: 'v1/chat/completions', method: RequestMethod.POST },
+      { path: 'v1/messages', method: RequestMethod.POST },
+      { path: 'v1/embeddings', method: RequestMethod.POST },
+      { path: 'v1/models', method: RequestMethod.GET },
+    ],
+  });
   app.enableCors({
     origin: process.env.WEB_ORIGIN?.split(',') ?? ['http://localhost:3100'],
     credentials: true,

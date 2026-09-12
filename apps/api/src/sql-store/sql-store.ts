@@ -421,6 +421,37 @@ export class SqlStore implements DataStore {
     );
   }
 
+  /**
+   * 数字字段原子自增（delta 可为负）。
+   *
+   * 为什么必须用 SQL 表达式而不是「读出来加一下再写回」：
+   * 累加类字段（额度、计数、用量）在并发下读-改-写必然丢更新 —— 两个请求都读到 100、
+   * 各自写 110，最后只累加了一次。这里交给 Postgres 的 jsonb_set 在一条语句里完成。
+   * 字段不存在或不是数字时按 0 起算（coalesce）。
+   */
+  async addNumber(
+    tableId: string,
+    recordId: string,
+    field: string,
+    delta: number,
+    decimals = 6,
+  ): Promise<void> {
+    const t = sqlTableName(tableId);
+    await this.pool.query(
+      `UPDATE ${t}
+          SET data = jsonb_set(
+                data,
+                ARRAY[$2::text],
+                to_jsonb(round(coalesce(nullif(data->>$2, '')::numeric, 0) + $3::numeric, $5::int)),
+                true
+              ),
+              updated_at = now(),
+              updated_by = $4
+        WHERE id = $1`,
+      [recordId, field, delta, this.actorId(), decimals],
+    );
+  }
+
   async delete(tableId: string, recordId: string): Promise<void> {
     const t = sqlTableName(tableId);
     await this.pool.query(`DELETE FROM ${t} WHERE id = $1`, [recordId]);

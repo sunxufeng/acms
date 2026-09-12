@@ -181,6 +181,15 @@ export interface StudentRecord {
   [key: string]: unknown;
 }
 
+
+/** 查询参数拼接（AI 路由模块用；空值不传） */
+function qs(params: Record<string, string | undefined>): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') sp.set(k, v);
+  const s = sp.toString();
+  return s ? `?${s}` : '';
+}
+
 export const api = {
   /** 当前会话用户 */
   me: () => request<SessionUser>('/auth/me'),
@@ -677,6 +686,63 @@ export const api = {
     const q = qs.toString();
     return request<unknown>(`/weiling/analyze${q ? `?${q}` : ''}`);
   },
+  // ── AI 路由（acapi 网关移植）────────────────────────────────
+  // 六张表都由 generic-crud 承载，路径即 RecordMeta.path；另加 4 个专用接口。
+  listAiRouteGroups: (params: Record<string, string | undefined> = {}) =>
+    request<Page<Record<string, unknown>>>(`/ai-route-groups${qs(params)}`),
+  getAiRouteGroup: (id: string) => request<Record<string, unknown>>(`/ai-route-groups/${id}`),
+  createAiRouteGroup: (d: Record<string, unknown>) =>
+    request('/ai-route-groups', { method: 'POST', body: JSON.stringify(d) }),
+  updateAiRouteGroup: (id: string, d: Record<string, unknown>) =>
+    request(`/ai-route-groups/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+  deleteAiRouteGroup: (id: string) => request(`/ai-route-groups/${id}`, { method: 'DELETE' }),
+
+  listAiUpstreams: (params: Record<string, string | undefined> = {}) =>
+    request<Page<Record<string, unknown>>>(`/ai-upstreams${qs(params)}`),
+  getAiUpstream: (id: string) => request<Record<string, unknown>>(`/ai-upstreams/${id}`),
+  createAiUpstream: (d: Record<string, unknown>) => request('/ai-upstreams', { method: 'POST', body: JSON.stringify(d) }),
+  updateAiUpstream: (id: string, d: Record<string, unknown>) =>
+    request(`/ai-upstreams/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+  deleteAiUpstream: (id: string) => request(`/ai-upstreams/${id}`, { method: 'DELETE' }),
+  /** 查看上游凭证明文（会记操作日志）。列表永远只有掩码 ****** */
+  revealAiUpstreamSecret: (id: string) =>
+    request<{ credential: Record<string, string> }>(`/ai-upstreams/${id}/secret`, { method: 'POST' }),
+  /** 立即体检所有启用上游（探测 /models） */
+  aiUpstreamHealthCheck: () =>
+    request<{ checked: number; ok: number; bad: number }>('/ai-upstreams/health-check', { method: 'POST' }),
+
+  listAiModelRoutes: (params: Record<string, string | undefined> = {}) =>
+    request<Page<Record<string, unknown>>>(`/ai-model-routes${qs(params)}`),
+  createAiModelRoute: (d: Record<string, unknown>) =>
+    request('/ai-model-routes', { method: 'POST', body: JSON.stringify(d) }),
+  updateAiModelRoute: (id: string, d: Record<string, unknown>) =>
+    request(`/ai-model-routes/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+  deleteAiModelRoute: (id: string) => request(`/ai-model-routes/${id}`, { method: 'DELETE' }),
+
+  listAiApiKeys: (params: Record<string, string | undefined> = {}) =>
+    request<Page<Record<string, unknown>>>(`/ai-api-keys${qs(params)}`),
+  /** 代发密钥：返回体里的 key 是明文，只此一次 */
+  mintAiApiKey: (d: Record<string, unknown>) =>
+    request<{ id: string; key: string; prefix: string }>('/ai-api-keys/mint', {
+      method: 'POST',
+      body: JSON.stringify(d),
+    }),
+  revokeAiApiKey: (id: string) => request<{ ok: boolean }>(`/ai-api-keys/${id}/revoke`, { method: 'POST' }),
+
+  listAiUsage: (params: Record<string, string | undefined> = {}) =>
+    request<Page<Record<string, unknown>>>(`/ai-usage${qs(params)}`),
+  aiUsageStats: (params: Record<string, string | undefined> = {}) =>
+    request<{
+      totals: { calls: number; promptTokens: number; completionTokens: number; totalTokens: number; costUsd: number };
+      byModel: { name: string; calls: number; tokens: number; costUsd: number }[];
+      byUser: { name: string; calls: number; tokens: number; costUsd: number }[];
+      byDay: { day: string; calls: number; tokens: number; costUsd: number }[];
+      truncated: boolean;
+    }>(`/ai-usage/stats${qs(params)}`),
+
+  listAiOpLogs: (params: Record<string, string | undefined> = {}) =>
+    request<Page<Record<string, unknown>>>(`/ai-op-logs${qs(params)}`),
+
   weilingSyncStatus: () =>
     request<{
       lastSyncAt: number;

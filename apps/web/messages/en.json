@@ -146,7 +146,8 @@
     "智能助手": "AI Assistant",
     "后台管理": "Administration",
     "知识库": "Knowledge Base",
-    "报表管理": "Reports"
+    "报表管理": "Reports",
+    "AI 路由": "AI Gateway"
   },
   "nav": {
     "dashboard": "Overview",
@@ -197,7 +198,13 @@
     "toggleSidebar": "Toggle sidebar",
     "reports": "Reports",
     "open-platform": "Open Platform",
-    "weiling-contacts": "Contacts"
+    "weiling-contacts": "Contacts",
+    "aiRouteGroups": "Groups",
+    "aiUpstreams": "Upstreams",
+    "aiModelRoutes": "Model Routes",
+    "aiApiKeys": "API Keys",
+    "aiUsage": "Usage",
+    "aiOpLogs": "Audit Log"
   },
   "breadcrumb": {
     "dashboard": "Workspace",

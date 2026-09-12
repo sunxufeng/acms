@@ -19,7 +19,7 @@ import { currentUserName } from '../lib/noteAutoFill';
 // 注意组件内已有名为 api 的 prop，所以全局 api 必须起别名，否则会遮蔽。
 import { api as globalApi } from '../lib/api';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags' | 'password' | 'weilingContact';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags' | 'password' | 'weilingContact' | 'link';
 
 export interface CrudColumn {
   key: string;
@@ -39,6 +39,12 @@ export interface CrudColumn {
   listOrder?: number;
   type?: CrudFieldType;
   options?: string[];
+  /**
+   * 关联字段（type: 'link'）的候选项：value 是目标表的 record id，label 是展示名。
+   * 与 options（string[]）分开，避免动到既有模块的 select 行为。
+   * 提交时传 value；列表/详情显示的姓名由后端 linkFields 解析。
+   */
+  linkOptions?: { value: string; label: string }[];
   /** 候选项来自字典表（优先于 options；options 作为离线兜底） */
   dictKey?: string;
   required?: boolean;
@@ -791,7 +797,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         init[c.key] = (Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split('、').filter(Boolean));
       else if (c.type === 'tags')
         init[c.key] = Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split(/[\n,，]/).map((s) => s.trim()).filter(Boolean);
-      else if (c.type === 'studentLink' || c.type === 'weilingContact') {
+      else if (c.type === 'studentLink' || c.type === 'weilingContact' || c.type === 'link') {
         // 行中关联字段已被后端解析为可读名，但 __link 仍保留 record id —— 必须用 id 回填选择器，
         // 否则编辑时把「姓名」当 id 提交，保存后关联就断了。
         const linkIds = row[c.key + '__link'];
@@ -1149,6 +1155,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" />
           ) : c.type === 'weilingContact' ? (
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={weilingContactOptions} placeholder="输入联系人姓名或手机号筛选…" />
+          ) : c.type === 'link' ? (
+            <Combobox
+              value={str(form[c.key])}
+              onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))}
+              options={c.linkOptions ?? []}
+              placeholder={`输入${c.label}筛选…`}
+            />
           ) : c.type === 'department' ? (
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={departmentOptions} placeholder="输入部门名称筛选…" />
           ) : c.type === 'parent' ? (

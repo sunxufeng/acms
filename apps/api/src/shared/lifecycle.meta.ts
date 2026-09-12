@@ -6,7 +6,7 @@
  *  - readonly:   不可写字段（人员/附件/多选/勾选），避免飞书类型校验失败
  *  - statusField/ defaultStatus: 状态展示与新建默认
  */
-import { TABLES } from '@acms/contracts';
+import { TABLES, USER_TABLE } from '@acms/contracts';
 import type { RecordMeta } from './generic-crud.module.js';
 import { getSqlStore } from '../base.provider.js';
 
@@ -315,6 +315,112 @@ export const AUDIT_METAS: RecordMeta[] = [
     writePerm: 'audit:write',
     readonly: ['操作时间', '操作人', '操作类型', '业务模块', '记录标识', '摘要', '详情'],
     searchField: '业务模块',
+    sortField: '操作时间',
+    rangeField: '操作时间',
+  },
+];
+
+/**
+ * ── AI 路由（从 acapi 多租户网关移植，2026-09-12）────────────────────
+ * 六张自建 SQL 表，启动期由 AiRouteModule 幂等建表。
+ * 通用 CRUD 只覆盖「管理面」；真正的转发在 ai-gateway.controller（/v1/*，独立路径）。
+ *
+ * ⚠️ 两张表故意全字段只读：
+ *  - ai-api-keys：密钥只能经专用接口代发/吊销。记录 id **就是密钥的 SHA-256 哈希**
+ *    （靠主键保证唯一 + 校验 O(1)），走通用 CRUD 的新增会生成随机 id，破坏这个不变量。
+ *  - ai-usage / ai-op-logs：由网关与日志服务写入，页面只读。
+ */
+export const AI_ROUTE_METAS: RecordMeta[] = [
+  {
+    path: 'ai-route-groups',
+    tableId: TABLES.aiRouteGroup.tableId,
+    // readPerm/writePerm 只是「模块资源未命中」时的回退值；这里直接写模块权限点，
+    // 两条路径判定完全一致，不会出现「回退时偷偷放行」
+    readPerm: 'module:aiRouteGroups:read',
+    writePerm: 'module:aiRouteGroups:update',
+    numbers: ['价格倍率', 'RPM上限', '并发上限', '月配额USD'],
+    multi: ['可用模型'],
+    statusField: '状态',
+    defaultStatus: '启用',
+    searchField: '名称',
+    sortField: '更新时间',
+  },
+  {
+    path: 'ai-upstreams',
+    tableId: TABLES.aiUpstream.tableId,
+    readPerm: 'module:aiUpstreams:read',
+    writePerm: 'module:aiUpstreams:update',
+    numbers: ['权重', '优先级', '连续失败次数'],
+    multi: ['可用模型'],
+    // 上游厂商密钥：AES-256-GCM 加密落库，读取一律回显掩码；
+    // 要看明文走专用接口（会记操作日志），列表/导出/详情都拿不到明文。
+    secretFields: ['凭证'],
+    linkFields: [{ field: '所属分组', table: TABLES.aiRouteGroup.tableId, nameField: '名称' }],
+    dateFields: ['最后检查时间'],
+    statusField: '状态',
+    defaultStatus: '启用',
+    searchFields: ['名称', 'BaseURL'],
+    sortField: '更新时间',
+  },
+  {
+    path: 'ai-model-routes',
+    tableId: TABLES.aiModelRoute.tableId,
+    readPerm: 'module:aiModelRoutes:read',
+    writePerm: 'module:aiModelRoutes:update',
+    numbers: ['优先级', '权重'],
+    // 逻辑模型 → 某上游账号上的实际模型名；同一组合的唯一性在 service 层校验
+    linkFields: [{ field: '上游账号', table: TABLES.aiUpstream.tableId, nameField: '名称' }],
+    statusField: '状态',
+    defaultStatus: '启用',
+    searchFields: ['逻辑模型', '上游模型'],
+    sortField: '更新时间',
+  },
+  {
+    path: 'ai-api-keys',
+    tableId: TABLES.aiApiKey.tableId,
+    readPerm: 'module:aiApiKeys:read',
+    writePerm: 'module:aiApiKeys:update',
+    // 新建只能走 /ai-api-keys/mint（记录 id 必须是哈希，通用新增会生成随机 id）；
+    // 已有的密钥允许改「名称 / 额度 / IP 白名单 / 有效期 / 状态」，其余是生成结果或系统累加值，只读。
+    readonly: ['密钥前缀', '所属用户', '所属分组', '已用额度USD', '本月已用USD', '最后使用时间'],
+    numbers: ['配额USD', '已用额度USD', '本月已用USD'],
+    multi: ['IP白名单'],
+    linkFields: [
+      { field: '所属用户', table: USER_TABLE.tableId, nameField: '姓名' },
+      { field: '所属分组', table: TABLES.aiRouteGroup.tableId, nameField: '名称' },
+    ],
+    dateFields: ['过期时间', '最后使用时间'],
+    statusField: '状态',
+    searchFields: ['名称', '密钥前缀'],
+    sortField: '更新时间',
+  },
+  {
+    path: 'ai-usage',
+    tableId: TABLES.aiUsage.tableId,
+    readPerm: 'module:aiUsage:read',
+    writePerm: 'module:aiUsage:update',
+    readonly: [
+      '密钥名称', '所属用户', '所属分组', '上游账号', '逻辑模型', '上游模型',
+      '输入Token', '输出Token', '总Token', '成本USD', '耗时ms', '状态', '错误信息', '客户端IP', '接口', '调用时间',
+    ],
+    numbers: ['输入Token', '输出Token', '总Token', '成本USD', '耗时ms'],
+    dateFields: ['调用时间'],
+    // 「调用时间」是网关写入的业务时间，必须优先于审计落库时间
+    auditOverride: ['调用时间'],
+    statusField: '状态',
+    searchFields: ['逻辑模型', '上游模型', '密钥名称'],
+    sortField: '调用时间',
+    rangeField: '调用时间',
+  },
+  {
+    path: 'ai-op-logs',
+    tableId: TABLES.aiOpLog.tableId,
+    readPerm: 'module:aiOpLogs:read',
+    writePerm: 'module:aiOpLogs:update',
+    readonly: ['操作人', '动作', '对象类型', '对象名称', '详情', '客户端IP', '操作时间'],
+    dateFields: ['操作时间'],
+    auditOverride: ['操作时间'],
+    searchField: '对象名称',
     sortField: '操作时间',
     rangeField: '操作时间',
   },

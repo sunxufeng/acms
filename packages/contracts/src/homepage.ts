@@ -282,6 +282,7 @@ export const SECTION_EN_LABELS: Record<string, string> = {
   知识库: 'Knowledge Base',
   报表管理: 'Reports',
   组织管理: 'Organization',
+  'AI 路由': 'AI Gateway',
 };
 
 /** 默认导航菜单（与当前 AppShell 硬编码菜单保持一致，用于回退） */
@@ -354,6 +355,16 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
   // ── 组织管理（2026-09-10 新增）：只读同步飞书通讯录部门树，全员可见 ──
   { key: 'department-management', label: '部门管理', enLabel: 'Departments', href: '/department-management', icon: 'compass', section: '组织管理', order: 10, perm: '' },
   { key: 'meetingMinutes', label: '会议纪要', enLabel: 'Meeting Minutes', href: '/meeting-minutes', icon: 'notifications', section: '组织管理', order: 20, perm: 'meeting:read' },
+
+    // ── AI 路由（acapi 网关移植，2026-09-12）────────────────────────
+    // 一套自建的大模型调用网关：上游是各家厂商的真实账号，对外发我们自己的密钥。
+    // 菜单可见性走 module:<key>:enter（无需 perm），接口权限同名。
+    { key: 'aiRouteGroups', label: '分组管理', enLabel: 'Groups', href: '/ai-route-groups', icon: 'integration', section: 'AI 路由', order: 10, perm: '' },
+    { key: 'aiUpstreams', label: '上游账号', enLabel: 'Upstreams', href: '/ai-upstreams', icon: 'bot', section: 'AI 路由', order: 20, perm: '' },
+    { key: 'aiModelRoutes', label: '模型路由', enLabel: 'Model Routes', href: '/ai-model-routes', icon: 'compass', section: 'AI 路由', order: 30, perm: '' },
+    { key: 'aiApiKeys', label: 'API 密钥', enLabel: 'API Keys', href: '/ai-api-keys', icon: 'key', section: 'AI 路由', order: 40, perm: '' },
+    { key: 'aiUsage', label: '用量统计', enLabel: 'Usage', href: '/ai-usage', icon: 'chart', section: 'AI 路由', order: 50, perm: '' },
+    { key: 'aiOpLogs', label: '审计日志', enLabel: 'Audit Log', href: '/ai-op-logs', icon: 'audit', section: 'AI 路由', order: 60, perm: '' },
   ],
 };
 

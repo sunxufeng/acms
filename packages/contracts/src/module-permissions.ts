@@ -113,6 +113,17 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   // 组织管理 / 部门管理：只读同步飞书通讯录部门树，全员可见（菜单 perm 空）。
   // 无写权限点；同步动作由后端身份 system:department-sync 执行，不暴露给普通用户。
   { key: 'departments', label: '部门管理', path: '/department-management', legacyRead: 'department:read', legacyWrite: null, menuPermission: null, actions: READ },
+
+  // ── AI 路由（acapi 多租户网关移植，2026-09-12）────────────────────
+  // 五张可写表用 RECORD（含批量导入导出），用量明细与操作日志只读（READ）。
+  // 权限点走 module:<key>:<action> 新体系，不设 legacy 点。
+  // ⚠️ path 必须与 lifecycle.meta.ts 里 RecordMeta.path 完全一致，否则鉴权会静默回退。
+  { key: 'aiRouteGroups', label: 'AI 路由分组', path: '/ai-route-groups', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'aiUpstreams', label: 'AI 上游账号', path: '/ai-upstreams', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'aiModelRoutes', label: 'AI 模型路由', path: '/ai-model-routes', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'aiApiKeys', label: 'AI 密钥', path: '/ai-api-keys', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'aiUsage', label: 'AI 用量明细', path: '/ai-usage', legacyRead: null, legacyWrite: null, menuPermission: null, actions: READ, genericCrud: true },
+  { key: 'aiOpLogs', label: 'AI 路由操作日志', path: '/ai-op-logs', legacyRead: null, legacyWrite: null, menuPermission: null, actions: READ, genericCrud: true },
 ];
 
 /** 返回值是 Permission 的子类型，供现有 authorize/hasPermission 直接使用。 */

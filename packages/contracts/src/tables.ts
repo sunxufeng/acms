@@ -96,6 +96,23 @@ export const TABLES = {
   weilingField: { tableId: 'tblwlfield000001', name: '卫瓴字段描述表' },
   /** 卫瓴跟进记录（按联系人同步，附在联系人详情里展示） */
   weilingProgress: { tableId: 'tblwlprogress0001', name: '卫瓴跟进记录表' },
+
+  // ── AI 路由（从 acapi 多租户网关移植，2026-09-12）─────────────────
+  // 自建 SQL 表，启动期幂等建表。六张表构成一条链路：
+  //   分组（上游池 + 倍率 + 配额）→ 上游账号（真实 key）→ 模型路由（逻辑模型 → 上游模型）
+  //   → API 密钥（发给使用方，绑定分组）→ 用量明细（每次调用一条）→ 操作日志（管理动作留痕）
+  /** AI 路由分组：一组上游账号的集合，决定价格倍率、RPM/并发上限、月配额、可用模型 */
+  aiRouteGroup: { tableId: 'tblairgroup000001', name: 'AI路由分组表' },
+  /** AI 上游账号：真实的厂商账号（含加密存储的 key） */
+  aiUpstream: { tableId: 'tblairupstream001', name: 'AI上游账号表' },
+  /** AI 模型路由：逻辑模型名 → 某上游账号上的实际模型名 */
+  aiModelRoute: { tableId: 'tblairroute000001', name: 'AI模型路由表' },
+  /** AI 密钥：发给使用方的密钥。⚠️ 记录 id 就是密钥的 SHA-256 哈希（主键天然唯一，校验 O(1)） */
+  aiApiKey: { tableId: 'tblairkey00000001', name: 'AI密钥表' },
+  /** AI 用量明细：每次调用一条（高频写入） */
+  aiUsage: { tableId: 'tblairusage000001', name: 'AI用量明细表' },
+  /** AI 路由操作日志：密钥代发/吊销、上游与分组变更等管理动作 */
+  aiOpLog: { tableId: 'tblairop000000001', name: 'AI路由操作日志表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

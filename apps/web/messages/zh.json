@@ -146,7 +146,8 @@
     "智能助手": "智能助手",
     "后台管理": "后台管理",
     "知识库": "知识库",
-    "报表管理": "报表管理"
+    "报表管理": "报表管理",
+    "AI 路由": "AI 路由"
   },
   "nav": {
     "dashboard": "概览",
@@ -197,7 +198,13 @@
     "toggleSidebar": "切换侧边栏",
     "reports": "报表管理",
     "open-platform": "开放平台",
-    "weiling-contacts": "联系人管理"
+    "weiling-contacts": "联系人管理",
+    "aiRouteGroups": "分组管理",
+    "aiUpstreams": "上游账号",
+    "aiModelRoutes": "模型路由",
+    "aiApiKeys": "API 密钥",
+    "aiUsage": "用量统计",
+    "aiOpLogs": "审计日志"
   },
   "breadcrumb": {
     "dashboard": "工作台",

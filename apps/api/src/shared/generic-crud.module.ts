@@ -62,7 +62,9 @@ export interface RecordMeta {
    * 也能在新建时拿到初始值，而不是等到定时任务第一次跑才有值。
    * 用户显式传了同名字段则不覆盖。
    */
-  defaults?: Record<string, unknown>;
+  defaults?:
+    | Record<string, unknown>
+    | ((fields: Record<string, unknown>) => Record<string, unknown>);
   /** 状态字段（展示 + 可编辑） */
   statusField?: string;
   defaultStatus?: string;
@@ -552,8 +554,12 @@ export class BaseRecordService {
     if (this.meta.statusField && !fields[this.meta.statusField] && this.meta.defaultStatus) {
       fields[this.meta.statusField] = this.meta.defaultStatus;
     }
-    // 模块级默认值：放在 writeFields 之后，才能给 readonly 的系统字段一个初始值
-    for (const [k, v] of Object.entries(this.meta.defaults ?? {})) {
+    // 模块级默认值：放在 writeFields 之后，才能给 readonly 的系统字段一个初始值。
+    // 传函数时按**已写入的字段**推导（如「调度状态」要由 状态/可调度/过期时间 决定，
+    // 直接写死 '可调度' 会在用户显式停调时给出一致性错误的初始值）。
+    const defs =
+      typeof this.meta.defaults === 'function' ? this.meta.defaults(fields) : (this.meta.defaults ?? {});
+    for (const [k, v] of Object.entries(defs)) {
       if (!(k in fields)) fields[k] = v;
     }
     const recordId = await this.base.create(this.tableId, fields);

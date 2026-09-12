@@ -7,6 +7,7 @@
  *  - statusField/ defaultStatus: 状态展示与新建默认
  */
 import { TABLES, USER_TABLE } from '@acms/contracts';
+import { scheduleStateOf } from '../ai-route/schedule-state.js';
 import type { RecordMeta } from './generic-crud.module.js';
 import { getSqlStore } from '../base.provider.js';
 
@@ -400,12 +401,16 @@ export const AI_ROUTE_METAS: RecordMeta[] = [
     defaultStatus: '启用',
     // 新建即给系统字段一个初始值：否则「调度状态」要等下一次每分钟刷新才有值，
     // 期间列表显示空白、按状态筛选也筛不到这条新记录。
-    defaults: {
-      调度状态: '可调度',
-      健康状态: '正常',
-      可调度: '是',
-      过期自动暂停: '是',
-      账号成本倍率: 1,
+    defaults: (f) => {
+      // 注意 可调度 / 过期自动暂停 / 账号成本倍率 自己也是默认值，要先合并出「最终形态」
+      // 再据此推导「调度状态」—— 否则用户显式停调时，调度状态会被写成「可调度」。
+      const base = {
+        可调度: f['可调度'] ?? '是',
+        过期自动暂停: f['过期自动暂停'] ?? '是',
+        账号成本倍率: f['账号成本倍率'] ?? 1,
+        健康状态: '正常',
+      };
+      return { ...base, 调度状态: scheduleStateOf({ ...f, ...base }) };
     },
     searchFields: ['名称', 'BaseURL', '备注'],
     sortField: '更新时间',

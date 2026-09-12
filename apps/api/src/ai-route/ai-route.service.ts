@@ -6,6 +6,7 @@ import { getSqlStore } from '../base.provider.js';
 import { REDIS } from '../redis.provider.js';
 import { encryptSecret, decryptSecret, SECRET_MASK } from '../shared/secret-cipher.js';
 import type { ProxyConfig } from './ai-proxy.util.js';
+import { accountQuotaReason, scheduleStateOf, utcDay, utcMonth } from './schedule-state.js';
 import { currentActor, runAs, systemActor } from '../shared/actor-context.js';
 
 /**
@@ -550,18 +551,9 @@ export class AiRouteService implements OnModuleInit {
    * 准确的换算；我们换成自己的日 / 月额度，同样是回答「这个号还能用多少」，
    * 但口径可控、超限行为明确（跳过该账号，换下一个）。
    */
+  /** 账号额度是否已用尽（判据与 lifecycle.meta 的新建默认值共用同一实现，见 schedule-state.ts） */
   accountQuotaReason(f: Record<string, unknown>, now = Date.now()): string {
-    const tiers: [string, string, string, string][] = [
-      ['日额度USD', '今日已用USD', '统计日', utcDay(now)],
-      ['月额度USD', '本月已用USD', '用量月份', utcMonth(now)],
-    ];
-    for (const [limitField, usedField, markField, mark] of tiers) {
-      const limit = Number(f[limitField] ?? 0);
-      if (!(limit > 0)) continue;
-      const used = String(f[markField] ?? '') === mark ? Number(f[usedField] ?? 0) : 0;
-      if (used >= limit) return `${limitField.replace('USD', '')}已用尽（${used.toFixed(4)} / ${limit}）`;
-    }
-    return '';
+    return accountQuotaReason(f, now);
   }
 
   /** 账号级模型白名单：配了就必须命中（支持 `xxx*` 尾部通配），否则这个账号不接该模型 */
@@ -629,16 +621,7 @@ export class AiRouteService implements OnModuleInit {
 
   /** 一个账号此刻的调度状态（枚举值，与字典「调度状态」一致） */
   scheduleStateOf(f: Record<string, unknown>, now = Date.now()): string {
-    if (String(f['状态'] ?? '') !== '启用') return '已停用';
-    if (String(f['可调度'] ?? '是') !== '是') return '手动停调';
-    const exp = Number(f['过期时间'] ?? 0);
-    if (exp && now > exp && String(f['过期自动暂停'] ?? '是') === '是') return '已过期';
-    if (Number(f['限流解除时间'] ?? 0) > now) return '限流冷却';
-    if (Number(f['过载解除时间'] ?? 0) > now) return '过载冷却';
-    if (Number(f['临时不可调度解除时间'] ?? 0) > now) return '临时摘除';
-    if (this.accountQuotaReason(f, now)) return '额度用尽';
-    if (String(f['健康状态'] ?? '正常') === '异常') return '已标记异常';
-    return '可调度';
+    return scheduleStateOf(f, now);
   }
 
   /**
@@ -1402,16 +1385,6 @@ function isoWeek(ms: number): string {
   const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
   const week = Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   return `${t.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
-}
-
-/** UTC 日标记（YYYY-MM-DD），用于账号「今日用量」的跨天归零判断 */
-function utcDay(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
-}
-
-/** UTC 月标记（YYYY-MM），用于账号「本月用量」的跨月归零判断 */
-function utcMonth(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 7);
 }
 
 /** 白名单匹配：精确命中，或规则以 `*` 结尾时按前缀命中（如 `gpt-4o*`） */

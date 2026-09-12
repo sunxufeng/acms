@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { Fragment, useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { usePermissions } from '../lib/permissions';
 import { useRouter } from 'next/navigation';
@@ -82,6 +82,30 @@ export interface CrudColumn {
    */
   mdEditPerm?: string;
   mdImportPerm?: string;
+  /**
+   * 自定义表单控件：替代 columns 自动生成的控件（下拉/输入框…），
+   * 但**仍然复用** CrudPage 的必填校验、提交、错误处理与密级遮蔽。
+   * 用于卡片选择器、多值编辑器这类声明式字段表达不了的控件。
+   */
+  renderField?: (ctx: {
+    value: unknown;
+    onChange: (v: unknown) => void;
+    /** 当前表单全部字段值（用于字段联动，如按 BaseURL 探测上游模型） */
+    form: Record<string, unknown>;
+    /** 正在编辑的原始行（新建时为 null）。渲染值已被解析/掩码，需要 id 这类原始字段时用它 */
+    row: Record<string, unknown> | null;
+    column: CrudColumn;
+  }) => React.ReactNode;
+  /**
+   * 表单分区标题：与上一列的分区名不同时会插入一条分区标题（跨整行）。
+   * 让长表单能按「基本信息 / 模型限制 / 调度与额度」分块，而不是几十个字段平铺。
+   */
+  section?: string;
+  /**
+   * 行内开关：单元格渲染成开关，点击即回调 CrudPage 的 onInlineSwitch。
+   * 典型用途：上游账号的「可调度」—— 列表上直接停调/恢复，不必进编辑页。
+   */
+  inlineSwitch?: { onValue: string; offValue: string; onHint?: string; offHint?: string };
 }
 
 /** 时间范围筛选（如审计日志按操作时间区间过滤） */
@@ -194,6 +218,25 @@ export interface CrudPageProps {
    * ⚠️ 传内联函数不会导致重复触发（内部用 ref 持有，只依赖 items 变化）。
    */
   onRowsLoaded?: (rows: Record<string, unknown>[]) => void;
+  /**
+   * 批量操作（需同时开启 selection）：有选中行时，列表上方出现批量操作栏，
+   * 带「本页全选 / 全选所有结果 / 清除选择」与这里定义的动作。
+   * run 收到的是**跨页合并后的全部已选行**；confirm 里写 `{n}` 会被替换成条数。
+   */
+  bulkActions?: {
+    label: string;
+    run: (rows: Record<string, unknown>[], reload: () => void) => void | Promise<void>;
+    /** 危险动作（红色按钮 + 需确认） */
+    danger?: boolean;
+    /** 执行前确认文案；不传则直接执行（danger 为真时默认给一个确认） */
+    confirm?: string;
+  }[];
+  /** 列显示设置：工具栏出现「列设置」，可勾选显示哪些列（按 moduleKey 记忆到浏览器） */
+  columnSettings?: boolean;
+  /** 自动刷新：给出可选间隔秒数（如 [5,10,15,30]），开启后按所选间隔静默重载 */
+  autoRefresh?: number[];
+  /** 行内开关（CrudColumn.inlineSwitch）的提交回调；next 是要写入的目标值 */
+  onInlineSwitch?: (row: Record<string, unknown>, next: string) => void | Promise<void>;
 }
 
 function str(v: unknown): string {
@@ -303,7 +346,7 @@ const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: '
  */
 let weilingContactCache: { value: string; label: string }[] | null = null;
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -378,6 +421,47 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
 
   /** 选择模式：已选行（跨页保留，以 row.id 为键） */
   const [selectedRows, setSelectedRows] = useState<Map<string, Record<string, unknown>>>(new Map());
+  /** 被用户在「列设置」里勾掉的列（按 moduleKey 记忆到浏览器） */
+  const [hiddenCols, setHiddenCols] = useState<string[]>([]);
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  /** 自动刷新间隔（秒），0 = 关闭 */
+  const [autoSec, setAutoSec] = useState(0);
+  const [bulkBusy, setBulkBusy] = useState('');
+  /** 行内开关的忙碌标记：key = `${行 id}:${字段}` */
+  const [switchBusy, setSwitchBusy] = useState('');
+  /** 自动刷新要判断「是否正在编辑」，用 ref 拿最新值，避免把 editing 塞进 interval 依赖 */
+  const editingRef = useRef(false);
+  useEffect(() => {
+    editingRef.current = Boolean(editing);
+  }, [editing]);
+
+  useEffect(() => {
+    if (!columnSettings || typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(`crud-cols:${moduleKey ?? title}`);
+      if (raw) setHiddenCols(JSON.parse(raw) as string[]);
+    } catch {
+      /* 历史坏数据忽略 */
+    }
+  }, [columnSettings, moduleKey, title]);
+
+  /** 勾选/取消某一列；不允许把所有列都藏掉（否则表格空白且无法恢复） */
+  const toggleCol = useCallback(
+    (key: string) => {
+      setHiddenCols((prev) => {
+        const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+        const visible = columns.filter((c) => c.list !== false);
+        if (visible.filter((c) => !next.includes(c.key)).length < 1) return prev;
+        try {
+          window.localStorage.setItem(`crud-cols:${moduleKey ?? title}`, JSON.stringify(next));
+        } catch {
+          /* 隐私模式下写不了，忽略 */
+        }
+        return next;
+      });
+    },
+    [columns, moduleKey, title],
+  );
   const onSelRef = useRef(onSelectionChange);
   onSelRef.current = onSelectionChange;
   useEffect(() => {
@@ -414,7 +498,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const filterCols = columns.filter((c) => c.filter);
   const formCols = columns.filter((c) => c.form);
   const listCols = columns
-    .filter((c) => c.list !== false)
+    .filter((c) => c.list !== false && !hiddenCols.includes(c.key))
     .sort((a, b) => (a.listOrder ?? Infinity) - (b.listOrder ?? Infinity));
   const showingInlineForm = Boolean(inlineEdit && editing);
   const showingStandaloneForm = Boolean(standaloneForm && editing);
@@ -535,6 +619,53 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   }, [fetchPage]);
 
   useEffect(() => { reload(); }, [filters, reload]);
+
+  /**
+   * 自动刷新：只在「页面可见 + 没打开表单」时轮询。
+   * 后台标签页与编辑中都不刷 —— 否则用户正在填表，一刷新列表把上下文打散。
+   */
+  useEffect(() => {
+    if (!autoSec || !autoRefresh?.length) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && !editingRef.current) void reload();
+    }, autoSec * 1000);
+    return () => window.clearInterval(timer);
+  }, [autoSec, autoRefresh, reload]);
+
+  /** 「全选所有结果」：按当前筛选把全部命中的行拉进已选（上限 500，够内部规模） */
+  const selectAllResults = useCallback(async () => {
+    try {
+      const res = await api.list({ ...buildParams(), pageSize: '500' });
+      setSelectedRows((prev) => {
+        const next = new Map(prev);
+        for (const r of res.items ?? []) next.set(String(r.id), r);
+        return next;
+      });
+    } catch {
+      /* 拉不到就保持现状，不弹错打断操作 */
+    }
+  }, [api, buildParams]);
+
+  /** 执行一个批量动作：确认 → 调回调 → 刷新 → 清空选择 */
+  const runBulk = useCallback(
+    async (a: NonNullable<CrudPageProps['bulkActions']>[number]) => {
+      const rows = Array.from(selectedRows.values());
+      if (!rows.length) return;
+      const text = (a.confirm ?? (a.danger ? `确认对选中的 {n} 项执行「${a.label}」？此操作不可撤销。` : '')).replace(
+        '{n}',
+        String(rows.length),
+      );
+      if (text && !window.confirm(text)) return;
+      setBulkBusy(a.label);
+      try {
+        await a.run(rows, () => reload());
+        setSelectedRows(new Map());
+      } finally {
+        setBulkBusy('');
+      }
+    },
+    [selectedRows, reload],
+  );
 
   // 字典表候选项（供带 dictKey 的字段使用），加载前用字段自带 options 兜底。
   // 同时拉取 /meta（含 resolve 映射），用于把存量旧值/别名解析为当前展示名。
@@ -1074,10 +1205,35 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
 
   const formFields = (
     <div className="form-grid">
-      {formCols.map((c) => (
-        <div key={c.key} className="form-label" style={c.type === 'textarea' || c.type === 'markdown' ? { gridColumn: '1 / -1' } : undefined}>
+      {formCols.map((c, ci) => (
+        <Fragment key={c.key}>
+        {/* 分区标题：与上一列分区不同时插入一行（跨整行），让长表单分块可读 */}
+        {c.section && c.section !== formCols[ci - 1]?.section ? (
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              marginTop: ci === 0 ? 0 : 'var(--space-md)',
+              paddingBottom: 6,
+              borderBottom: '1px solid var(--border)',
+              fontSize: 'var(--font-sm)',
+              fontWeight: 600,
+              color: 'var(--fg-secondary)',
+            }}
+          >
+            {tl(c.section)}
+          </div>
+        ) : null}
+        <div className="form-label" style={c.type === 'textarea' || c.type === 'markdown' || c.renderField ? { gridColumn: '1 / -1' } : undefined}>
           <span className="form-label-text">{tl(c.label)}{c.required && <span style={{ color: 'var(--danger)' }}> *</span>}</span>
-          {c.type === 'map' ? (
+          {c.renderField ? (
+            c.renderField({
+              value: form[c.key],
+              onChange: (v) => setForm((f) => ({ ...f, [c.key]: v })),
+              form,
+              row: editing?.row ?? null,
+              column: c,
+            })
+          ) : c.type === 'map' ? (
             <MapPicker
               lat={form[c.latKey ?? ''] as string | number}
               lng={form[c.lngKey ?? ''] as string | number}
@@ -1274,6 +1430,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           )}
           {c.hint && <p className="form-hint">{tl(c.hint)}</p>}
         </div>
+        </Fragment>
       ))}
     </div>
   );
@@ -1305,6 +1462,49 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             {extraLinks?.map((l) => (
               <Link key={l.href} href={l.href} className="btn btn-outline">{tl(l.label)}</Link>
             ))}
+            {autoRefresh?.length ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{t('crud.autoRefresh')}</span>
+                <select
+                  className="form-input"
+                  style={{ width: 104 }}
+                  value={String(autoSec)}
+                  onChange={(e) => setAutoSec(Number(e.target.value))}
+                >
+                  <option value="0">{t('crud.off')}</option>
+                  {autoRefresh.map((sec) => (
+                    <option key={sec} value={sec}>{sec} {t('crud.seconds')}</option>
+                  ))}
+                </select>
+              </span>
+            ) : null}
+            {columnSettings ? (
+              <span style={{ position: 'relative' }}>
+                <button className="btn btn-outline" onClick={() => setColMenuOpen((v) => !v)}>
+                  {t('crud.columns')}
+                </button>
+                {colMenuOpen ? (
+                  <span
+                    style={{
+                      position: 'absolute', right: 0, top: '100%', zIndex: 30, marginTop: 4,
+                      display: 'block', padding: 10, width: 210, maxHeight: 320, overflow: 'auto',
+                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                      borderRadius: 10, boxShadow: '0 6px 20px rgba(0,0,0,0.08)',
+                    }}
+                  >
+                    {columns.filter((c) => c.list !== false).map((c) => (
+                      <label
+                        key={c.key}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 'var(--font-sm)' }}
+                      >
+                        <input type="checkbox" checked={!hiddenCols.includes(c.key)} onChange={() => toggleCol(c.key)} />
+                        {tl(c.label)}
+                      </label>
+                    ))}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
             {canImport && (
               <>
                 <button className="btn btn-outline" disabled={loading || importing} onClick={() => fileInputRef.current?.click()}>
@@ -1436,6 +1636,43 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
 
       {!(inlineEdit && editing) && (
       <>{/* 编辑/新建（inline）时不显示列表，避免表单下方仍展示整张用户表 */}
+      {selection && bulkActions?.length ? (
+        <div
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            padding: '8px 12px', marginBottom: 8, borderRadius: 10,
+            border: '1px solid var(--border)', background: 'var(--bg-subtle)',
+          }}
+        >
+          <span style={{ fontSize: 'var(--font-sm)', fontWeight: 600 }}>
+            {t('crud.selectedCount', { count: selectedRows.size })}
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={togglePage}>
+            {allOnPageSelected ? t('crud.unselectPage') : t('crud.selectPage')}
+          </button>
+          <button className="btn btn-ghost btn-sm" disabled={Boolean(bulkBusy)} onClick={() => void selectAllResults()}>
+            {t('crud.selectAllResults', { count: total })}
+          </button>
+          {selectedRows.size ? (
+            <button className="btn btn-ghost btn-sm" onClick={() => setSelectedRows(new Map())}>
+              {t('crud.clearSelection')}
+            </button>
+          ) : null}
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {bulkActions.map((a) => (
+              <button
+                key={a.label}
+                className="btn btn-outline btn-sm"
+                style={a.danger ? { color: '#b3261e', borderColor: '#b3261e' } : undefined}
+                disabled={!selectedRows.size || Boolean(bulkBusy)}
+                onClick={() => void runBulk(a)}
+              >
+                {bulkBusy === a.label ? `${tl(a.label)}…` : tl(a.label)}
+              </button>
+            ))}
+          </span>
+        </div>
+      ) : null}
       <div className="data-table-wrap">
         <table className="data-table">
           <thead>
@@ -1477,7 +1714,46 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                       onClick={c.openRecord ? () => (detailHref ? router.push(detailHref(String(row.id))) : openEdit(row)) : undefined}
                       style={c.openRecord ? { cursor: 'pointer' } : undefined}
                     >
-                      {statusField === c.key && st
+                      {c.inlineSwitch ? (
+                        (() => {
+                          const cur = str(row[c.key]);
+                          const on = cur === c.inlineSwitch.onValue;
+                          const busy = switchBusy === `${String(row.id)}:${c.key}`;
+                          return (
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={on}
+                              disabled={busy || !onInlineSwitch}
+                              title={on ? c.inlineSwitch.onHint : c.inlineSwitch.offHint}
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!onInlineSwitch) return;
+                                const key = `${String(row.id)}:${c.key}`;
+                                setSwitchBusy(key);
+                                try {
+                                  await onInlineSwitch(row, on ? c.inlineSwitch!.offValue : c.inlineSwitch!.onValue);
+                                } finally {
+                                  setSwitchBusy('');
+                                }
+                              }}
+                              style={{
+                                width: 38, height: 20, borderRadius: 999, border: '1px solid transparent',
+                                background: on ? 'var(--accent)' : 'var(--border)',
+                                opacity: busy ? 0.5 : 1, cursor: onInlineSwitch ? 'pointer' : 'default',
+                                padding: 0, position: 'relative', transition: 'background .15s',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  position: 'absolute', top: 1, left: on ? 19 : 1, width: 16, height: 16,
+                                  borderRadius: '50%', background: '#fff', transition: 'left .15s',
+                                }}
+                              />
+                            </button>
+                          );
+                        })()
+                      ) : statusField === c.key && st
                         ? <span className={`status-dot ${statusClass ? statusClass(st) : ''}`}>{tl(st)}</span>
                         : c.type === 'attachment'
                           ? (() => {

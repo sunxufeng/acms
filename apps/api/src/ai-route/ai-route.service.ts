@@ -47,6 +47,13 @@ const MAX_ATTEMPTS = 3;
 export interface AiUsageRecord {
   /** 密钥哈希（= 密钥表主键），用于累加额度 */
   keyId: string;
+  /**
+   * 上游账号记录 id。用量明细里同时存「账号名」（给人看）与这个 id（给机器用）——
+   * 账号改名后按名称聚合会漏掉历史流水，按 id 聚合不会。
+   */
+  upstreamId?: string;
+  /** 上游在响应头里回传的请求标识（头名由账号上的「上游ID头名」指定），排障用 */
+  upstreamRequestId?: string;
   keyName: string;
   userId: string;
   groupId: string;
@@ -78,6 +85,10 @@ export interface RouteTarget {
   credential: Record<string, string>;
   upstreamModel: string;
   routeId: string;
+  /** 该账号配置的临时不可调度规则（原始串数组），网关按错误码+关键词匹配 */
+  tempRules: string[];
+  /** 上游请求标识所在响应头名（账号上配的「上游ID头名」），留空则不记录 */
+  upstreamIdHeader: string;
 }
 
 @Injectable()
@@ -121,6 +132,9 @@ export class AiRouteService implements OnModuleInit {
   }
 
   private rid(r: unknown): string {
+    // SqlStore.create 直接返回 id 字符串；search/get 返回 { recordId } 形态 —— 两种都要认，
+    // 否则「复制账号」会得到一个空 id（能建出来但后续按 id 查/删全落空）。
+    if (typeof r === 'string') return r;
     const rec = r as { recordId?: string; id?: string } | null;
     return String(rec?.recordId ?? rec?.id ?? '');
   }
@@ -348,6 +362,9 @@ export class AiRouteService implements OnModuleInit {
       if (seen.has(up.id)) continue;
       // 多分组：账号的「所属分组」是数组，包含当前分组才可用
       if (!toList(up.f['所属分组']).includes(groupId)) continue;
+      // 账号级模型白名单：配了就必须命中（尾部通配），否则这个号不接该模型
+      if (!this.accountModelAllowed(up.f, model)) continue;
+      // 调度状态机已含额度判断（停用/手动停调/过期/三种冷却/额度用尽/标记异常）
       if (!this.schedulableReason(up.f, now).ok) continue;
       if (!this.profitEligible(group, up.f)) continue;
       // 分组侧账号过滤：只允许订阅类账号（sub2api 的 require_oauth_only）
@@ -373,9 +390,12 @@ export class AiRouteService implements OnModuleInit {
       baseUrl: String(f['BaseURL'] ?? '').replace(/\/+$/, ''),
       authType: String(f['鉴权方式'] ?? 'API Key'),
       credential: this.upstreamCredential(f),
-      upstreamModel: String(r['上游模型'] ?? model),
+      // 上游模型名：模型路由的「上游模型」优先，其次账号级「模型映射」，最后原样透传
+      upstreamModel: this.resolveUpstreamModel(f, String(r['上游模型'] ?? ''), model),
       concurrency: Number(f['并发上限'] ?? 0) || 0,
       proxyId: toList(f['代理'])[0] ?? '',
+      tempRules: toList(f['临时不可调度规则']),
+      upstreamIdHeader: String(f['上游ID头名'] ?? '').trim(),
     }));
   }
 
@@ -447,6 +467,9 @@ export class AiRouteService implements OnModuleInit {
     if (over && now < over) return { ok: false, reason: `上游过载冷却中（至 ${new Date(over).toLocaleTimeString('zh-CN')}）` };
     const tmp = Number(f['临时不可调度解除时间'] ?? 0);
     if (tmp && now < tmp) return { ok: false, reason: String(f['临时不可调度原因'] ?? '临时不可调度') };
+    // 账号级额度（日 / 月）：用尽就不再往这个号上分流量，等同临时停调，下个档位自动恢复
+    const quota = this.accountQuotaReason(f, now);
+    if (quota) return { ok: false, reason: quota };
     if (String(f['健康状态'] ?? '正常') === '异常') return { ok: false, reason: '连续失败已标记异常' };
     return { ok: true, reason: '' };
   }
@@ -457,43 +480,49 @@ export class AiRouteService implements OnModuleInit {
     if (!sql || !upstreamId) return;
     const now = Date.now();
     const at = resetAt && resetAt > now ? Math.min(resetAt, now + MAX_RATE_LIMIT_COOLDOWN_MS) : now + DEFAULT_RATE_LIMIT_COOLDOWN_MS;
-    await runAs(systemActor('ai-route', '系统 · AI 路由'), () =>
-      sql.update(TABLES.aiUpstream.tableId, upstreamId, { 限流解除时间: at, 最后失败信息: '429 限流' }),
-    ).catch(() => undefined);
+    await runAs(systemActor('ai-route', '系统 · AI 路由'), async () => {
+      await sql.update(TABLES.aiUpstream.tableId, upstreamId, { 限流解除时间: at, 最后失败信息: '429 限流' });
+      const f = await this.one(TABLES.aiUpstream.tableId, upstreamId);
+      if (f) await sql.update(TABLES.aiUpstream.tableId, upstreamId, { 调度状态: this.scheduleStateOf(f) });
+    }).catch(() => undefined);
   }
 
   /** 529：上游过载，冷却 10 分钟 */
   async markOverloaded(upstreamId: string): Promise<void> {
     const sql = getSqlStore();
     if (!sql || !upstreamId) return;
-    await runAs(systemActor('ai-route', '系统 · AI 路由'), () =>
-      sql.update(TABLES.aiUpstream.tableId, upstreamId, {
+    await runAs(systemActor('ai-route', '系统 · AI 路由'), async () => {
+      await sql.update(TABLES.aiUpstream.tableId, upstreamId, {
         过载解除时间: Date.now() + OVERLOAD_COOLDOWN_MS,
         最后失败信息: '529 上游过载',
-      }),
-    ).catch(() => undefined);
+      });
+      const f = await this.one(TABLES.aiUpstream.tableId, upstreamId);
+      if (f) await sql.update(TABLES.aiUpstream.tableId, upstreamId, { 调度状态: this.scheduleStateOf(f) });
+    }).catch(() => undefined);
   }
 
   /** 401/403：临时摘除（保持启用，等人工修好凭证或刷新 token） */
   async markTempUnschedulable(upstreamId: string, reason: string, ms = AUTH_COOLDOWN_MS): Promise<void> {
     const sql = getSqlStore();
     if (!sql || !upstreamId) return;
-    await runAs(systemActor('ai-route', '系统 · AI 路由'), () =>
-      sql.update(TABLES.aiUpstream.tableId, upstreamId, {
+    await runAs(systemActor('ai-route', '系统 · AI 路由'), async () => {
+      await sql.update(TABLES.aiUpstream.tableId, upstreamId, {
         临时不可调度解除时间: Date.now() + ms,
         临时不可调度原因: reason.slice(0, 120),
         最后失败信息: reason.slice(0, 200),
-      }),
-    ).catch(() => undefined);
+      });
+      const f = await this.one(TABLES.aiUpstream.tableId, upstreamId);
+      if (f) await sql.update(TABLES.aiUpstream.tableId, upstreamId, { 调度状态: this.scheduleStateOf(f) });
+    }).catch(() => undefined);
   }
 
   /** 重置状态：清掉三种冷却与失败计数（排障用的一键恢复） */
-  async resetAccountState(upstreamId: string): Promise<void> {
+  async resetAccountState(upstreamId: string, quiet = false): Promise<void> {
     const sql = getSqlStore();
     if (!sql) throw new Error('未配置数据库连接');
     const f = await this.one(TABLES.aiUpstream.tableId, upstreamId);
     if (!f) throw new Error('上游账号不存在');
-    await sql.update(TABLES.aiUpstream.tableId, upstreamId, {
+    const patch = {
       限流解除时间: 0,
       过载解除时间: 0,
       临时不可调度解除时间: 0,
@@ -501,8 +530,386 @@ export class AiRouteService implements OnModuleInit {
       连续失败次数: 0,
       健康状态: '正常',
       最后失败信息: '',
+    };
+    await sql.update(TABLES.aiUpstream.tableId, upstreamId, patch);
+    await sql.update(TABLES.aiUpstream.tableId, upstreamId, {
+      调度状态: this.scheduleStateOf({ ...f, ...patch }),
+    }).catch(() => undefined);
+    // 批量重置时不逐条留痕，由 bulkAction 汇总写一条，避免 20 个账号刷 20 条日志
+    if (!quiet) await this.writeOpLog('重置账号状态', '上游账号', String(f['名称'] ?? ''), {});
+  }
+
+  // ── 账号级额度（日 / 月两级，对齐 sub2api 的「用量窗口」）──────────
+  /**
+   * 账号额度是否已用尽。返回空串表示可用。
+   *
+   * 口径与分组限额一致：0 或空 = 该档不限；跨档时先把用量视为 0
+   * （真正的归零由累加时写「统计日 / 用量月份」标记完成）。
+   *
+   * 与 sub2api 的差异：它的 5h / 7d 是**上游官方滚动窗口**，客户端无权干预、也拿不到
+   * 准确的换算；我们换成自己的日 / 月额度，同样是回答「这个号还能用多少」，
+   * 但口径可控、超限行为明确（跳过该账号，换下一个）。
+   */
+  accountQuotaReason(f: Record<string, unknown>, now = Date.now()): string {
+    const tiers: [string, string, string, string][] = [
+      ['日额度USD', '今日已用USD', '统计日', utcDay(now)],
+      ['月额度USD', '本月已用USD', '用量月份', utcMonth(now)],
+    ];
+    for (const [limitField, usedField, markField, mark] of tiers) {
+      const limit = Number(f[limitField] ?? 0);
+      if (!(limit > 0)) continue;
+      const used = String(f[markField] ?? '') === mark ? Number(f[usedField] ?? 0) : 0;
+      if (used >= limit) return `${limitField.replace('USD', '')}已用尽（${used.toFixed(4)} / ${limit}）`;
+    }
+    return '';
+  }
+
+  /** 账号级模型白名单：配了就必须命中（支持 `xxx*` 尾部通配），否则这个账号不接该模型 */
+  accountModelAllowed(f: Record<string, unknown>, model: string): boolean {
+    return matchesAny(toList(f['模型白名单']), model);
+  }
+
+  /**
+   * 决定发给上游的模型名。优先级（更具体的优先）：
+   *   1. 「模型路由」里为该「逻辑模型 × 账号」明确指定的「上游模型」
+   *   2. 账号级「模型映射」命中项（`请求模型 => 实际模型`，`from` 支持尾部通配）
+   *   3. 请求里的模型名原样透传
+   *
+   * 为什么模型路由优先：它是按「逻辑模型 × 账号」配的，粒度比账号级的「账号」更细，
+   * 说明有人为此模型专门指定过。账号级映射则是兜底（比如某个号的上游对同名模型
+   * 有自己的一套命名）。
+   */
+  resolveUpstreamModel(
+    account: Record<string, unknown>,
+    routeUpstreamModel: string,
+    requestModel: string,
+  ): string {
+    const routed = String(routeUpstreamModel ?? '').trim();
+    if (routed) return routed;
+    for (const e of toList(account['模型映射'])) {
+      const [from, to] = String(e).split('=>').map((x) => (x ?? '').trim());
+      if (!from || !to) continue;
+      if (from === requestModel) return to;
+      if (from.endsWith('*') && requestModel.startsWith(from.slice(0, -1))) return to;
+    }
+    return requestModel;
+  }
+
+  /**
+   * 临时不可调度规则命中判断（对齐 sub2api）。
+   *
+   * 规则格式：`错误码|关键词|时长分钟|描述`
+   *  - 错误码：可多个（逗号分隔），`*` 表示任意；也支持留空表示任意
+   *  - 关键词：可多个（逗号分隔，命中其一即可）；留空表示只看错误码
+   *  - 时长：分钟，1 ~ 1440，默认 10
+   * sub2api 的语义是「错误码与关键词必须同时满足」，这里保持一致。
+   */
+  matchTempRule(
+    rules: string[],
+    status: number,
+    bodyText: string,
+  ): { minutes: number; desc: string } | null {
+    const text = String(bodyText ?? '');
+    for (const raw of rules ?? []) {
+      const parts = String(raw).split('|').map((x) => (x ?? '').trim());
+      const codeRaw = parts[0] ?? '';
+      const kwRaw = parts[1] ?? '';
+      const minRaw = parts[2] ?? '';
+      const descRaw = parts[3] ?? '';
+      if (!codeRaw) continue;
+      const codes = codeRaw.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
+      if (!codes.some((c) => c === '*' || Number(c) === status)) continue;
+      const kws = kwRaw.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
+      if (kws.length && !kws.some((k) => text.includes(k))) continue;
+      const minutes = Math.max(1, Math.min(1440, Number(minRaw) || 10));
+      return { minutes, desc: (descRaw || `${codeRaw} 命中临时不可调度规则`).slice(0, 60) };
+    }
+    return null;
+  }
+
+  /** 一个账号此刻的调度状态（枚举值，与字典「调度状态」一致） */
+  scheduleStateOf(f: Record<string, unknown>, now = Date.now()): string {
+    if (String(f['状态'] ?? '') !== '启用') return '已停用';
+    if (String(f['可调度'] ?? '是') !== '是') return '手动停调';
+    const exp = Number(f['过期时间'] ?? 0);
+    if (exp && now > exp && String(f['过期自动暂停'] ?? '是') === '是') return '已过期';
+    if (Number(f['限流解除时间'] ?? 0) > now) return '限流冷却';
+    if (Number(f['过载解除时间'] ?? 0) > now) return '过载冷却';
+    if (Number(f['临时不可调度解除时间'] ?? 0) > now) return '临时摘除';
+    if (this.accountQuotaReason(f, now)) return '额度用尽';
+    if (String(f['健康状态'] ?? '正常') === '异常') return '已标记异常';
+    return '可调度';
+  }
+
+  /**
+   * 把每个账号的「调度状态」重算并落库。
+   *
+   * 为什么要落库而不是前端现算：按「限流冷却」「已过期」筛名单，前端只能筛当前页，
+   * 结果集和总数都是错的。落库后它就是一个普通字段，筛选、排序、导出全部成立。
+   * 只在状态变化时写库，避免每分钟一次写放大。
+   */
+  async refreshScheduleStates(): Promise<number> {
+    const sql = getSqlStore();
+    if (!sql) return 0;
+    const now = Date.now();
+    let changed = 0;
+    for (const { id, f } of await this.all(TABLES.aiUpstream.tableId)) {
+      const next = this.scheduleStateOf(f, now);
+      if (String(f['调度状态'] ?? '') === next) continue;
+      await runAs(systemActor('ai-route', '系统 · AI 路由'), () =>
+        sql.update(TABLES.aiUpstream.tableId, id, { 调度状态: next }),
+      ).catch(() => undefined);
+      changed += 1;
+    }
+    if (changed) this.logger.log(`AI 上游调度状态刷新：${changed} 个账号状态变化`);
+    return changed;
+  }
+
+  /** 账号用量累加（原子自增）：今日/本月成本 + 今日调用数与 Token，跨档写标记 */
+  private async addAccountUsage(upstreamId: string, cost: number, tokens: number): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql || !upstreamId) return;
+    const now = Date.now();
+    const day = utcDay(now);
+    const month = utcMonth(now);
+    const f = await this.one(TABLES.aiUpstream.tableId, upstreamId);
+    if (!f) return;
+    const sameDay = String(f['统计日'] ?? '') === day;
+    const sameMonth = String(f['用量月份'] ?? '') === month;
+    const patch: Record<string, unknown> = { 最近使用时间: now };
+    if (!sameDay) {
+      patch['统计日'] = day;
+      patch['今日已用USD'] = cost;
+      patch['今日调用数'] = 1;
+      patch['今日Token'] = tokens;
+    }
+    if (!sameMonth) {
+      patch['用量月份'] = month;
+      patch['本月已用USD'] = cost;
+    }
+    await runAs(systemActor('ai-route', '系统 · AI 路由'), async () => {
+      await sql.update(TABLES.aiUpstream.tableId, upstreamId, patch).catch(() => undefined);
+      if (sameDay) {
+        await sql.addNumber(TABLES.aiUpstream.tableId, upstreamId, '今日已用USD', cost).catch(() => undefined);
+        await sql.addNumber(TABLES.aiUpstream.tableId, upstreamId, '今日调用数', 1).catch(() => undefined);
+        await sql.addNumber(TABLES.aiUpstream.tableId, upstreamId, '今日Token', tokens).catch(() => undefined);
+      }
+      if (sameMonth) {
+        await sql.addNumber(TABLES.aiUpstream.tableId, upstreamId, '本月已用USD', cost).catch(() => undefined);
+      }
+    }).catch(() => undefined);
+  }
+
+  // ── 账号运维动作（列表行「测试连接 / 查看统计 / 复制 / 批量」）────────
+  /** 单账号测试连接：探测 `{BaseURL}/models`，回写健康状态并留痕 */
+  async testAccount(id: string): Promise<{
+    ok: boolean;
+    status: number;
+    latencyMs: number;
+    modelCount: number;
+    error: string;
+  }> {
+    const f = await this.one(TABLES.aiUpstream.tableId, id);
+    if (!f) throw new Error('上游账号不存在');
+    const baseUrl = String(f['BaseURL'] ?? '').replace(/\/+$/, '');
+    if (!baseUrl) throw new Error('该账号未配置 BaseURL');
+    const headers = this.buildAuthHeaders(String(f['供应商'] ?? 'OpenAI'), this.upstreamCredential(f));
+    const started = Date.now();
+    let ok = false;
+    let status = 0;
+    let modelCount = 0;
+    let error = '';
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 15_000);
+      const res = await fetch(`${baseUrl}/models`, { headers, signal: ctl.signal });
+      clearTimeout(timer);
+      status = res.status;
+      ok = res.ok;
+      if (res.ok) {
+        const body = (await res.json().catch(() => null)) as
+          | { data?: { id?: string }[]; models?: { name?: string }[] }
+          | null;
+        modelCount = (body?.data ?? body?.models ?? []).length;
+      } else {
+        error = `HTTP ${res.status}`;
+      }
+    } catch (e) {
+      error = (e as Error).message.slice(0, 160);
+    }
+    const latencyMs = Date.now() - started;
+    await this.markUpstreamResult(id, ok, error);
+    await this.writeOpLog('测试连接', '上游账号', String(f['名称'] ?? ''), { ok, status, latencyMs });
+    return { ok, status, latencyMs, modelCount, error };
+  }
+
+  /** 单账号用量统计（列表行「查看统计」）：按时间窗聚合该账号的调用流水 */
+  async accountStats(upstreamId: string): Promise<{
+    name: string;
+    windows: { label: string; calls: number; tokens: number; costUsd: number }[];
+    byModel: { model: string; calls: number; tokens: number; costUsd: number }[];
+    lastError: string;
+  }> {
+    const f = await this.one(TABLES.aiUpstream.tableId, upstreamId);
+    if (!f) throw new Error('上游账号不存在');
+    const name = String(f['名称'] ?? '');
+    const all = await this.all(TABLES.aiUsage.tableId, 200);
+    // ⚠️ 优先用「上游账号ID」匹配：账号改名后按名称匹配会漏掉历史流水
+    const mine = all.filter(
+      (u) => String(u.f['上游账号ID'] ?? '') === upstreamId || String(u.f['上游账号'] ?? '') === name,
+    );
+    const now = Date.now();
+    const from = (days: number): number => now - days * 86400_000;
+    const agg = (rows: typeof mine): { calls: number; tokens: number; costUsd: number } => ({
+      calls: rows.length,
+      tokens: rows.reduce((a, r) => a + Number(r.f['总Token'] ?? 0), 0),
+      costUsd: Math.round(rows.reduce((a, r) => a + Number(r.f['成本USD'] ?? 0), 0) * 1e6) / 1e6,
     });
-    await this.writeOpLog('重置账号状态', '上游账号', String(f['名称'] ?? ''), {});
+    const at = (r: (typeof mine)[number]): number => Number(r.f['调用时间'] ?? 0) || 0;
+    const day = utcDay(now);
+    const byModelMap = new Map<string, { calls: number; tokens: number; costUsd: number }>();
+    for (const r of mine) {
+      const k = String(r.f['上游模型'] ?? r.f['逻辑模型'] ?? '—');
+      const cur = byModelMap.get(k) ?? { calls: 0, tokens: 0, costUsd: 0 };
+      cur.calls += 1;
+      cur.tokens += Number(r.f['总Token'] ?? 0);
+      cur.costUsd = Math.round((cur.costUsd + Number(r.f['成本USD'] ?? 0)) * 1e6) / 1e6;
+      byModelMap.set(k, cur);
+    }
+    return {
+      name,
+      windows: [
+        { label: '今日', ...agg(mine.filter((r) => utcDay(at(r)) === day)) },
+        { label: '近 7 天', ...agg(mine.filter((r) => at(r) >= from(7))) },
+        { label: '近 30 天', ...agg(mine.filter((r) => at(r) >= from(30))) },
+        { label: '累计', ...agg(mine) },
+      ],
+      byModel: Array.from(byModelMap.entries())
+        .map(([model, v]) => ({ model, ...v }))
+        .sort((a, b) => b.calls - a.calls)
+        .slice(0, 20),
+      lastError: String(f['最后失败信息'] ?? ''),
+    };
+  }
+
+  /**
+   * 复制账号：凭证是密文，原样带过去即可（不用先解密再加密），只清掉运行时状态。
+   * 典型场景：同一厂商开了多个 key，配好一份后复制再改 key。
+   */
+  async duplicateAccount(id: string): Promise<{ id: string; name: string }> {
+    const sql = getSqlStore();
+    if (!sql) throw new Error('未配置数据库连接');
+    const f = await this.one(TABLES.aiUpstream.tableId, id);
+    if (!f) throw new Error('上游账号不存在');
+    const runtime = new Set([
+      '当前并发', '今日已用USD', '本月已用USD', '统计日', '用量月份', '今日调用数', '今日Token',
+      '最近使用时间', '调度状态', '最后失败信息', '连续失败次数', '最后检查时间',
+      '限流解除时间', '过载解除时间', '临时不可调度解除时间', '临时不可调度原因',
+    ]);
+    const fields: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(f)) if (!runtime.has(k)) fields[k] = v;
+    fields['名称'] = `${String(f['名称'] ?? '')} - 副本`;
+    fields['健康状态'] = '正常';
+    fields['可调度'] = '是';
+    fields['调度状态'] = '可调度';
+    const created = await runAs(systemActor('ai-route', '系统 · AI 路由'), () =>
+      sql.create(TABLES.aiUpstream.tableId, fields),
+    );
+    const rid = this.rid(created);
+    await this.writeOpLog('复制账号', '上游账号', String(f['名称'] ?? ''), { 新账号: fields['名称'] });
+    return { id: rid, name: String(fields['名称'] ?? '') };
+  }
+
+  /**
+   * 批量动作（列表页多选后执行）。
+   * 只保留幂等、可重复执行的动作；删除走这里但必须显式传 action='delete'。
+   */
+  async bulkAction(
+    action: string,
+    ids: string[],
+    patch: Record<string, unknown> = {},
+  ): Promise<{ ok: number; failed: number; message: string }> {
+    const sql = getSqlStore();
+    if (!sql) throw new Error('未配置数据库连接');
+    const allow = new Set(['enable-schedule', 'disable-schedule', 'reset-state', 'delete', 'patch']);
+    if (!allow.has(action)) throw new Error(`不支持的批量动作：${action}`);
+    const list = Array.isArray(ids) ? ids.filter(Boolean).slice(0, 500) : [];
+    if (!list.length) return { ok: 0, failed: 0, message: '没有选中的账号' };
+    // patch 只允许改这几个安全字段，避免批量把凭证/分组误清空
+    const patchable = new Set(['所属分组', '优先级', '权重', '并发上限', '负载因子', '账号成本倍率', '可用模型', '日额度USD', '月额度USD']);
+    const clean: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(patch)) if (patchable.has(k)) clean[k] = v;
+    let ok = 0;
+    let failed = 0;
+    for (const id of list) {
+      try {
+        if (action === 'delete') await sql.delete(TABLES.aiUpstream.tableId, id);
+        else if (action === 'reset-state') await this.resetAccountState(id, true);
+        else if (action === 'enable-schedule') {
+          await sql.update(TABLES.aiUpstream.tableId, id, { 可调度: '是', 调度状态: '可调度' });
+        } else if (action === 'disable-schedule') {
+          await sql.update(TABLES.aiUpstream.tableId, id, { 可调度: '否', 调度状态: '手动停调' });
+        } else if (action === 'patch') {
+          if (!Object.keys(clean).length) throw new Error('没有可批量修改的字段');
+          await sql.update(TABLES.aiUpstream.tableId, id, clean);
+        }
+        ok += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    await this.writeOpLog(`批量操作：${action}`, '上游账号', `${list.length} 个`, { action, patch: clean, ok, failed });
+    return { ok, failed, message: `成功 ${ok} 个${failed ? `，失败 ${failed} 个` : ''}` };
+  }
+
+  /**
+   * 从上游拉「支持模型」清单（表单里的「同步最新支持模型」）。
+   * 新建时账号还没落库，所以用表单里正在填的 BaseURL + 凭证去探测；
+   * 编辑时传 upstreamId，用库里存好的凭证。
+   */
+  async syncModelsPreview(input: {
+    baseUrl?: string;
+    provider?: string;
+    credential?: Record<string, string>;
+    upstreamId?: string;
+  }): Promise<{ models: string[]; source: string; warnings: string[] }> {
+    let credential = input.credential ?? {};
+    let provider = input.provider ?? 'OpenAI';
+    let baseUrl = String(input.baseUrl ?? '').replace(/\/+$/, '');
+    if (input.upstreamId) {
+      const f = await this.one(TABLES.aiUpstream.tableId, input.upstreamId);
+      if (f) {
+        credential = this.upstreamCredential(f);
+        provider = String(f['供应商'] ?? provider);
+        baseUrl = baseUrl || String(f['BaseURL'] ?? '').replace(/\/+$/, '');
+      }
+    }
+    if (!baseUrl) throw new GatewayError('bad_request', '请先填写 BaseURL 再同步模型', 400);
+    const headers = this.buildAuthHeaders(provider, credential);
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 15_000);
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/models`, { headers, signal: ctl.signal });
+    } catch (e) {
+      clearTimeout(timer);
+      throw new GatewayError('upstream_unreachable', `连不上上游：${(e as Error).message.slice(0, 120)}`, 502);
+    }
+    clearTimeout(timer);
+    if (!res.ok) throw new GatewayError('upstream_error', `上游返回 HTTP ${res.status}`, 502);
+    const body = (await res.json().catch(() => null)) as
+      | { data?: { id?: string }[]; models?: { name?: string; id?: string }[] }
+      | null;
+    const models = [
+      ...(body?.data ?? []).map((m) => String(m.id ?? '')),
+      ...(body?.models ?? []).map((m) => String(m.name ?? m.id ?? '')),
+    ].filter(Boolean);
+    const uniq = Array.from(new Set(models)).sort();
+    return {
+      models: uniq,
+      source: `${baseUrl}/models`,
+      warnings: uniq.length ? [] : ['上游返回里没解析到模型清单（该端点可能不提供 /models）'],
+    };
   }
 
   // ── 账号级并发抢槽（Redis）：抢不到就换账号，而不是排队 ──
@@ -689,6 +1096,8 @@ export class AiRouteService implements OnModuleInit {
           所属用户: rec.userId,
           所属分组: rec.groupId,
           上游账号: rec.upstreamName,
+          上游账号ID: rec.upstreamId ?? '',
+          上游请求ID: rec.upstreamRequestId ?? '',
           逻辑模型: rec.model,
           上游模型: rec.upstreamModel,
           输入Token: rec.promptTokens,
@@ -704,6 +1113,10 @@ export class AiRouteService implements OnModuleInit {
         });
       });
       await this.addUsageToKey(rec.keyId, rec.costUsd, rec.groupId);
+      // 账号级用量（额度判断依赖它）：今日/本月成本 + 今日调用数与 Token
+      if (rec.upstreamId) {
+        await this.addAccountUsage(rec.upstreamId, rec.costUsd, rec.totalTokens);
+      }
     } catch (e) {
       this.logger.warn(`用量落库失败：${(e as Error).message}`);
     }
@@ -753,14 +1166,20 @@ export class AiRouteService implements OnModuleInit {
       if (!f) return;
       const fail = ok ? 0 : Number(f['连续失败次数'] ?? 0) + 1;
       const health = ok ? '正常' : fail >= UNHEALTHY_AFTER ? '异常' : '降级';
-      await runAs(systemActor('ai-route', '系统 · AI 路由'), () =>
-        sql.update(TABLES.aiUpstream.tableId, upstreamId, {
+      await runAs(systemActor('ai-route', '系统 · AI 路由'), async () => {
+        await sql.update(TABLES.aiUpstream.tableId, upstreamId, {
           连续失败次数: fail,
           健康状态: health,
           最后检查时间: Date.now(),
           ...(errMsg ? { 最后失败信息: errMsg.slice(0, 200) } : {}),
-        }),
-      );
+        });
+        const after = await this.one(TABLES.aiUpstream.tableId, upstreamId);
+        if (after) {
+          await sql.update(TABLES.aiUpstream.tableId, upstreamId, {
+            调度状态: this.scheduleStateOf(after),
+          });
+        }
+      });
     } catch (e) {
       this.logger.warn(`回写上游健康状态失败：${(e as Error).message}`);
     }
@@ -983,4 +1402,22 @@ function isoWeek(ms: number): string {
   const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
   const week = Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   return `${t.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+/** UTC 日标记（YYYY-MM-DD），用于账号「今日用量」的跨天归零判断 */
+function utcDay(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** UTC 月标记（YYYY-MM），用于账号「本月用量」的跨月归零判断 */
+function utcMonth(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 7);
+}
+
+/** 白名单匹配：精确命中，或规则以 `*` 结尾时按前缀命中（如 `gpt-4o*`） */
+function matchesAny(patterns: string[], value: string): boolean {
+  if (!patterns.length) return true; // 没配白名单 = 不限制
+  return patterns.some((p) =>
+    p.endsWith('*') ? value.startsWith(p.slice(0, -1)) : p === value,
+  );
 }

@@ -75,6 +75,69 @@ export class AiRouteAdminController {
     return this.svc.healthCheckAll();
   }
 
+  /** 单账号测试连接：探测 `{BaseURL}/models`，比全量体检更精准的排障入口 */
+  @Post('ai-upstreams/:id/test')
+  async test(
+    @Req() req: { user: SessionUser; headers: Record<string, string | string[] | undefined> },
+    @Param('id') id: string,
+  ) {
+    requireModule(req.user, 'aiUpstreams', 'refresh');
+    return this.svc.testAccount(id);
+  }
+
+  /** 单账号用量统计：按今日 / 近 7 天 / 近 30 天 / 累计聚合调用流水 */
+  @Get('ai-upstreams/:id/stats')
+  async accountStats(
+    @Req() req: { user: SessionUser; headers: Record<string, string | string[] | undefined> },
+    @Param('id') id: string,
+  ) {
+    requireModule(req.user, 'aiUpstreams', 'read');
+    return this.svc.accountStats(id);
+  }
+
+  /** 复制账号：凭证（密文）原样带过去，只清运行时状态 */
+  @Post('ai-upstreams/:id/duplicate')
+  async duplicate(
+    @Req() req: { user: SessionUser; headers: Record<string, string | string[] | undefined> },
+    @Param('id') id: string,
+  ) {
+    requireModule(req.user, 'aiUpstreams', 'create');
+    return this.svc.duplicateAccount(id);
+  }
+
+  /**
+   * 批量动作（列表页多选后执行）。
+   * `patch` 只允许改安全字段（分组/优先级/权重/并发/额度等），由 service 白名单兜底 ——
+   * 批量误清空凭证或分组是不可接受的。
+   */
+  @Post('ai-upstreams/bulk')
+  async bulk(
+    @Req() req: { user: SessionUser; headers: Record<string, string | string[] | undefined> },
+    @Body() body: { action?: string; ids?: string[]; patch?: Record<string, unknown> },
+  ) {
+    const action = String(body?.action ?? '');
+    requireModule(req.user, 'aiUpstreams', action === 'delete' ? 'delete' : 'update');
+    return this.svc.bulkAction(action, (body?.ids ?? []).map(String), body?.patch ?? {});
+  }
+
+  /**
+   * 从上游同步「支持模型」清单（表单里的「同步最新支持模型」）。
+   * 新建时账号还没落库，所以允许直接传 BaseURL + 凭证去探测。
+   */
+  @Post('ai-upstreams/models/sync')
+  async syncModels(
+    @Req() req: { user: SessionUser; headers: Record<string, string | string[] | undefined> },
+    @Body() body: { baseUrl?: string; provider?: string; credential?: Record<string, string>; upstreamId?: string },
+  ) {
+    requireModule(req.user, 'aiUpstreams', 'read');
+    return this.svc.syncModelsPreview({
+      baseUrl: body?.baseUrl,
+      provider: body?.provider,
+      credential: body?.credential,
+      upstreamId: body?.upstreamId,
+    });
+  }
+
   /** 用量聚合（总数 / 按模型 / 按人 / 按天） */
   @Get('ai-usage/stats')
   async usageStats(

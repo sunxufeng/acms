@@ -32,5 +32,15 @@ export class AiRouteModule implements OnModuleInit {
         runAs(systemActor('ai-route', '系统 · AI 路由'), () => this.svc.healthCheckAll()).catch(() => undefined);
       },
     );
+
+    // 每分钟重算「调度状态」：三种冷却到期、额度跨天/跨月归零、账号过期，
+    // 这些都不需要人工解锁 —— 状态变了就落库，列表才能按状态筛出准确的名单。
+    new Cron(
+      '* * * * *',
+      { name: 'ai-upstream-schedule-state', protect: true },
+      () => {
+        this.svc.refreshScheduleStates().catch(() => undefined);
+      },
+    );
   }
 }

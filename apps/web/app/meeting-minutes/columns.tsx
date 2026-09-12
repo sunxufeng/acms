@@ -43,8 +43,11 @@ export const COLUMNS: CrudColumn[] = [
     },
   },
   { key: '会议类型', label: '会议类型', width: '110px', filter: true, form: true, type: 'select', dictKey: '会议类型', required: true },
-  { key: '会议议题', label: '会议议题', width: '180px', filter: true, filterType: 'text', form: true, required: true },
-  { key: '会议地点', label: '会议地点', width: '120px', filter: true, filterType: 'text', form: true },
+  // 筛选区去掉「会议议题」（自由文本，逐字筛命中率低、把筛选区撑得很长）；
+  // 列表列与表单字段都保留，仍可用顶部搜索框按关键字检索（q 走 searchFields）
+  { key: '会议议题', label: '会议议题', width: '180px', form: true, required: true },
+  // 筛选区去掉「会议地点」
+  { key: '会议地点', label: '会议地点', width: '120px', form: true },
   {
     key: '会议时间',
     label: '会议时间',

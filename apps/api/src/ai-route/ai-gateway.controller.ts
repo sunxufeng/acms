@@ -146,6 +146,8 @@ export class AiGatewayController {
               groupId: key.groupId,
               groupName: String(key.group['名称'] ?? ''),
               upstreamName: target.upstreamName,
+              upstreamId: target.upstreamId,
+              upstreamRequestId: usage.upstreamRequestId,
               model,
               upstreamModel: target.upstreamModel,
               promptTokens: usage.promptTokens,
@@ -192,6 +194,7 @@ export class AiGatewayController {
           groupId: key.groupId,
           groupName: String(key.group['名称'] ?? ''),
           upstreamName: chosen?.upstreamName ?? '',
+          upstreamId: chosen?.upstreamId ?? '',
           model,
           upstreamModel: chosen?.upstreamModel ?? '',
           promptTokens: 0,
@@ -215,6 +218,8 @@ export class AiGatewayController {
 
   /**
    * 按错误类型给账号上冷却（对齐 sub2api 的状态机）：
+   *  0. **该账号配置的「临时不可调度规则」优先** —— 错误码与关键词同时命中时，
+   *     按规则里写的时长摘除（这是「某个上游抽风就自动把它下线一会儿」的可配置兜底）
    *  429 → 只写「限流解除时间」（不摘账号，优先用上游的 reset 头）
    *  529 → 写「过载解除时间」
    *  401/403 → 临时摘除（凭证/权限问题，等人工处理或刷新 token）
@@ -222,6 +227,15 @@ export class AiGatewayController {
    */
   private async coolDown(target: RouteTarget, err: unknown): Promise<void> {
     if (err instanceof UpstreamHttpError) {
+      const hit = this.svc.matchTempRule(target.tempRules, err.status, err.detail);
+      if (hit) {
+        await this.svc.markTempUnschedulable(
+          target.upstreamId,
+          `命中临时不可调度规则：${hit.desc}（${hit.minutes} 分钟）`,
+          hit.minutes * 60_000,
+        );
+        return;
+      }
       if (err.status === 429) {
         await this.svc.markRateLimited(target.upstreamId, err.resetAt);
         return;
@@ -252,7 +266,12 @@ export class AiGatewayController {
     body: Record<string, unknown>,
     suffix: string,
     stream: boolean,
-  ): Promise<{ promptTokens: number; completionTokens: number; estimated: boolean }> {
+  ): Promise<{
+    promptTokens: number;
+    completionTokens: number;
+    estimated: boolean;
+    upstreamRequestId?: string;
+  }> {
     const url = `${target.baseUrl.replace(/\/+$/, '')}${suffix}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -290,11 +309,14 @@ export class AiGatewayController {
       }
     }
 
+    // 上游请求标识（头名由账号的「上游ID头名」指定）：排障时拿它去上游查这一笔
+    const upstreamRequestId = headerOf(upstream.headers, target.upstreamIdHeader);
+
     if (!stream) {
       const json = JSON.parse(await upstream.text()) as Record<string, unknown>;
       const u = usageOf(json);
       res.status(200).json(json);
-      return u;
+      return { ...u, upstreamRequestId };
     }
 
     // ── 流式：逐块透传 ────────────────────────────────────────────
@@ -318,10 +340,10 @@ export class AiGatewayController {
     res.end();
 
     const parsed = usageFromSse(raw);
-    if (parsed) return { ...parsed, estimated: false };
+    if (parsed) return { ...parsed, estimated: false, upstreamRequestId };
     // 拿不到 usage：按输出字节估算，明细里会写明是估算值
     const est = Math.max(1, Math.ceil(bytes / 4));
-    return { promptTokens: 0, completionTokens: est, estimated: true };
+    return { promptTokens: 0, completionTokens: est, estimated: true, upstreamRequestId };
   }
 }
 
@@ -431,4 +453,14 @@ function usageFromSse(raw: string): { promptTokens: number; completionTokens: nu
     }
   }
   return best;
+}
+
+/** 按头名取响应头（大小写不敏感）；头名为空或没取到返回 undefined */
+function headerOf(headers: Record<string, string>, name: string): string | undefined {
+  const key = String(name ?? '').trim().toLowerCase();
+  if (!key) return undefined;
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === key) return v;
+  }
+  return undefined;
 }

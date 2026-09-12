@@ -711,6 +711,41 @@ export const api = {
   aiUpstreamHealthCheck: () =>
     request<{ checked: number; ok: number; bad: number }>('/ai-upstreams/health-check', { method: 'POST' }),
 
+  /** 单账号测试连接（探测上游 /models），比全量体检更精准的排障入口 */
+  testAiUpstream: (id: string) =>
+    request<{ ok: boolean; status: number; latencyMs: number; modelCount: number; error: string }>(
+      `/ai-upstreams/${id}/test`,
+      { method: 'POST' },
+    ),
+  /** 单账号用量统计：今日 / 近 7 天 / 近 30 天 / 累计 + 按模型 */
+  aiUpstreamStats: (id: string) =>
+    request<{
+      name: string;
+      windows: { label: string; calls: number; tokens: number; costUsd: number }[];
+      byModel: { model: string; calls: number; tokens: number; costUsd: number }[];
+      lastError: string;
+    }>(`/ai-upstreams/${id}/stats`),
+  /** 复制账号（凭证密文原样带过去，只清运行时状态） */
+  duplicateAiUpstream: (id: string) =>
+    request<{ id: string; name: string }>(`/ai-upstreams/${id}/duplicate`, { method: 'POST' }),
+  /** 批量动作：enable-schedule / disable-schedule / reset-state / delete / patch */
+  bulkAiUpstream: (action: string, ids: string[], patch: Record<string, unknown> = {}) =>
+    request<{ ok: number; failed: number; message: string }>('/ai-upstreams/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ action, ids, patch }),
+    }),
+  /** 从上游同步「支持模型」清单（新建时用表单里正在填的 BaseURL + 凭证探测） */
+  aiUpstreamSyncModels: (body: {
+    baseUrl?: string;
+    provider?: string;
+    credential?: Record<string, string>;
+    upstreamId?: string;
+  }) =>
+    request<{ models: string[]; source: string; warnings: string[] }>('/ai-upstreams/models/sync', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   /** 重置账号调度状态（清限流/过载/临时摘除冷却） */
   resetAiUpstreamState: (id: string) =>
     request<{ ok: boolean }>(`/ai-upstreams/${id}/reset-state`, { method: 'POST' }),

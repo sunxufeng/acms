@@ -56,6 +56,13 @@ export interface RecordMeta {
   numbers?: string[];
   /** 多值字段 */
   multi?: string[];
+  /**
+   * 新建时的字段默认值（只作用于 create，update 不受影响）。
+   * ⚠️ 在 writeFields 之后套用 —— 这样即使字段登记在 readonly 里（如系统维护的「调度状态」），
+   * 也能在新建时拿到初始值，而不是等到定时任务第一次跑才有值。
+   * 用户显式传了同名字段则不覆盖。
+   */
+  defaults?: Record<string, unknown>;
   /** 状态字段（展示 + 可编辑） */
   statusField?: string;
   defaultStatus?: string;
@@ -185,10 +192,13 @@ export class BaseRecordService {
     const hasDeep =
       BaseRecordService.DEEP_PARAMS.some((k) => query[k]) ||
       Object.keys(query).some((k) => /_(from|to)$/.test(k)) ||
+      // `<字段>__has=<值>`：多值字段（jsonb 数组）的成员包含筛选。等值筛选对数组必然落空，
+      // 只能内存过滤。典型用途：上游账号按「所属分组」筛（一个账号可属于多个分组）。
+      Object.keys(query).some((k) => k.endsWith('__has') && query[k]) ||
       !!(query.dim && query.dimval) ||
       (this.meta.deepParams ?? []).some((k) => query[k]);
     if (hasDeep) {
-      return this.listDeep(query);
+      return this.listDeep(user, query);
     }
     // 关联字段（link）作为搜索目标时，飞书服务端 contains 对关联字段无效 → 走内存按解析文本过滤
     if (query.q && this.meta.searchField && this.linkSet().has(this.meta.searchField)) {
@@ -301,9 +311,12 @@ export class BaseRecordService {
   }
 
   /** 扩展筛选（仅审计日志使用）：拉全量后在内存做 模糊/精确/时间区间 过滤，保证 total 准确 */
-  private async listDeep(query: Record<string, string | undefined>) {
+  private async listDeep(user: SessionUser, query: Record<string, string | undefined>) {
     const rangeField = this.meta.rangeField ?? this.meta.dateFields?.[0];
     const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet()));
+    // ⚠️ 内存过滤路径也必须解析关联字段：主分支（服务端过滤）走的是 resolveLinks，
+    // 这条路径以前漏了 —— 结果 link 字段直接显示一串 record id，而且 `__has` 筛不到。
+    await this.resolveLinks(rows);
     let filtered = rows;
     if (rangeField && (query.from || query.to)) {
       const from = query.from ? new Date(query.from + 'T00:00:00').getTime() : -Infinity;
@@ -369,6 +382,29 @@ export class BaseRecordService {
       });
     }
 
+    // 多值字段的成员包含筛选：参数名约定 `<字段>__has=<值>`。
+    // 数组存的多值字段（如上游账号的「所属分组」）用等值筛选必然落空，只能这样匹配。
+    // 支持两类载体：jsonb 数组（multi 字段）与「、/,」分隔的字符串（link 解析后的展示值）。
+    const hasKeys: string[] = [];
+    for (const [k, v] of Object.entries(query)) {
+      if (!v || !k.endsWith('__has')) continue;
+      hasKeys.push(k);
+      const field = k.slice(0, -'__has'.length);
+      const want = String(v);
+      filtered = filtered.filter((r) => {
+        const raw = r[field];
+        // link 字段解析后：展示值是「A、B」字符串、原始 id 留在 `<字段>__link` 数组里。
+        // 两边都认，调用方传 id 或传名称都能筛到。
+        for (const a of [raw, r[field + '__link']]) {
+          if (Array.isArray(a) && a.some((x) => String(x) === want)) return true;
+        }
+        return String(raw ?? '')
+          .split(/[、,，]/)
+          .map((x) => x.trim())
+          .includes(want);
+      });
+    }
+
     // 其余查询参数按字段等值过滤（如会议纪要按「会议类型 / 状态 / 部门」筛选）。
     // 只跳过 DEEP_PARAMS 与分页/排序参数，保证审计日志的既有行为完全不变。
     const skip = new Set<string>([
@@ -382,6 +418,8 @@ export class BaseRecordService {
       'dimval',
       // `<字段>_from/_to` 已按时间区间处理过，不能再当字段名做等值匹配（会直接筛空）
       ...fieldRangeKeys,
+      // `<字段>__has` 同理，已按成员包含处理过
+      ...hasKeys,
       ...(this.meta.deepParams ?? []),
     ]);
     for (const [k, v] of Object.entries(query)) {
@@ -416,7 +454,11 @@ export class BaseRecordService {
       // 同 rangeField 过滤：时间可能是 ISO 字符串，Number() 会得 NaN 让排序失效
       filtered.sort((x, y) => (toEpochMs(y[rangeField]) ?? 0) - (toEpochMs(x[rangeField]) ?? 0));
     }
-    return { items: filtered, total: filtered.length, hasMore: false, pageToken: undefined };
+    // ⚠️ 同样必须与主分支一致地做「模块字段遮蔽 + 凭证掩码」：
+    // 漏掉这一步，任何走内存过滤的查询都会把 secretFields（如上游厂商密钥）原样吐出去。
+    const masked = this.mod ? this.mask.maskMany(user, this.mod.key, filtered) : filtered;
+    if (this.meta.secretFields?.length) masked.forEach((r) => this.maskSecrets(r));
+    return { items: masked, total: masked.length, hasMore: false, pageToken: undefined };
   }
 
   /** 拉取整表（上限 20000 行，足够内部审计日志规模） */
@@ -509,6 +551,10 @@ export class BaseRecordService {
     this.validateTimeRange(fields);
     if (this.meta.statusField && !fields[this.meta.statusField] && this.meta.defaultStatus) {
       fields[this.meta.statusField] = this.meta.defaultStatus;
+    }
+    // 模块级默认值：放在 writeFields 之后，才能给 readonly 的系统字段一个初始值
+    for (const [k, v] of Object.entries(this.meta.defaults ?? {})) {
+      if (!(k in fields)) fields[k] = v;
     }
     const recordId = await this.base.create(this.tableId, fields);
     this.emitAudit(user, '创建', recordId, Object.keys(fields).join(','));

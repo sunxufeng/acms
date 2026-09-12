@@ -498,7 +498,10 @@ function bestMatch(
       consider(s, 85, '家长电话');
     } else if (parentHit) {
       consider(s, 70, '家长姓名');
-    } else if (customName && nick.includes(customName) && customName.length >= 2) {
+    } else if (s.name.length >= 2 && nick.includes(s.name)) {
+      // ⚠️ 必须是「昵称里包含**这个学生**的姓名」，写成 nick.includes(customName)
+      // 就变成了「昵称包含自己的学生姓名」——恒真，会把一堆无关联系人都挂到
+      // 学生表第一个人身上（2026-09-12 踩过，几百条全匹配成同一个人）。
       consider(s, 55, '昵称包含学生姓名');
     }
   }

@@ -31,6 +31,16 @@ export class WeilingController {
     return this.svc.syncStatus();
   }
 
+  /** 重算与 ACMS 学生档案的疑似匹配（不访问上游，只扫本地库） */
+  @Post('match')
+  match(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'weiling:sync').allowed) {
+      throw new HttpException('FORBIDDEN:weiling:sync', HttpStatus.FORBIDDEN);
+    }
+    return this.svc.matchStudents();
+  }
+
   /** 手动触发同步（会真实拉取上游，限管理员：weiling:sync） */
   @Post('sync')
   sync(@Req() req: Request, @Query('full') full?: string) {

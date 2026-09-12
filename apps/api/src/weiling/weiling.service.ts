@@ -250,6 +250,8 @@ export class WeilingService implements OnModuleInit {
       }
       this.lastSyncAt = Date.now();
       this.lastSyncCount = inDb;
+      // 同步完顺带重算与学生的匹配（内部自己吞异常，不影响同步结果）
+      void this.matchStudents();
       this.logger.log(`卫瓴联系人同步完成：写入 ${written} 条，库内共 ${inDb} 条（拉取 ${total}）`);
       if (written > 0 && inDb === 0) {
         return { ok: false, count: 0, message: '写入调用全部返回成功，但库中查不到记录，请检查数据表' };
@@ -308,9 +310,195 @@ export class WeilingService implements OnModuleInit {
     };
   }
 
+  // ── 与 ACMS 学生档案的「疑似匹配」──────────────────────────────
+  /**
+   * 把卫瓴联系人与 ACMS 学生档案做**疑似**匹配，结果写回联系人表。
+   *
+   * 为什么是"疑似"：卫瓴里存的手机号大多是**家长**的，姓名也可能是
+   * 「XX妈妈」这种昵称，任何单一条件都可能误配。所以：
+   *  - 多条件各自给分，取最高可信的一条
+   *  - 同时记录匹配置信度与匹配依据，页面上明确标注「疑似」，由人确认
+   *
+   * 置信度口径：
+   *  - 98 学生姓名 + 手机/家长电话 双命中
+   *  - 90 学生姓名精确相等（卫瓴自定义字段「学生姓名」）
+   *  - 88 手机号 = 学生手机号；85 = 父亲/母亲电话
+   *  - 70 联系人昵称去掉「妈妈/爸爸/家长」后缀 = 父亲/母亲姓名
+   *  - 55 弱包含（昵称里出现学生姓名）
+   */
+  async matchStudents(): Promise<{ ok: boolean; matched: number; total: number; message?: string }> {
+    const sql = getSqlStore();
+    if (!sql) return { ok: false, matched: 0, total: 0, message: '未配置数据库连接' };
+    try {
+      const students = await this.fetchStudentIndex();
+      if (!students.length) return { ok: false, matched: 0, total: 0, message: '未读到学生档案' };
+
+      let total = 0;
+      let matched = 0;
+      let token: string | undefined;
+      for (let page = 0; page < 60; page += 1) {
+        const res = await sql.search(TABLES.weilingContact.tableId, {
+          pageSize: 100,
+          ...(token ? { pageToken: token } : {}),
+        });
+        for (const r of res.items ?? []) {
+          const f = ((r as { fields?: Record<string, unknown> }).fields ?? r) as Record<string, unknown>;
+          const id = String((r as { id?: string }).id ?? '');
+          if (!id) continue;
+          total += 1;
+          const hit = bestMatch(f, students);
+          const patch: Record<string, unknown> = {
+            关联学生: hit?.name ?? '',
+            关联学生ID: hit?.id ?? '',
+            匹配置信度: hit?.score ?? 0,
+            匹配依据: hit?.reason ?? '',
+            匹配时间: Date.now(),
+          };
+          if (hit) matched += 1;
+          try {
+            await sql.update(TABLES.weilingContact.tableId, id, patch);
+          } catch (e) {
+            this.logger.warn(`写入匹配结果失败 ${id}：${(e as Error).message.slice(0, 100)}`);
+          }
+        }
+        if (!res.hasMore || !res.pageToken) break;
+        token = res.pageToken;
+      }
+      this.logger.log(`卫瓴联系人匹配完成：${matched}/${total} 命中`);
+      return { ok: true, matched, total };
+    } catch (e) {
+      const msg = (e as Error).message.slice(0, 200);
+      this.logger.warn(`卫瓴联系人匹配失败：${msg}`);
+      return { ok: false, matched: 0, total: 0, message: msg };
+    }
+  }
+
+  /** 拉学生档案用于匹配的字段（一次性建索引，学生数通常几十到几百） */
+  private async fetchStudentIndex(): Promise<
+    { id: string; name: string; enName: string; formerName: string; mobile: string; parentMobiles: string[]; parentNames: string[] }[]
+  > {
+    const sql = getSqlStore();
+    const store = (sql ?? undefined) as { search?: (t: string, o: Record<string, unknown>) => Promise<{ items?: unknown[]; hasMore?: boolean; pageToken?: string }> } | undefined;
+    const out: {
+      id: string;
+      name: string;
+      enName: string;
+      formerName: string;
+      mobile: string;
+      parentMobiles: string[];
+      parentNames: string[];
+    }[] = [];
+    if (!store?.search) return out;
+    let token: string | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const page = await store.search(TABLES.studentProfile.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of page.items ?? []) {
+        const rec = r as { id?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        out.push({
+          id: String(rec.id ?? ''),
+          name: String(f['学生姓名'] ?? ''),
+          enName: String(f['英文名'] ?? ''),
+          formerName: String(f['曾用名'] ?? ''),
+          mobile: digitsOnly(f['学生手机号']),
+          parentMobiles: [digitsOnly(f['父亲电话']), digitsOnly(f['母亲电话'])].filter(Boolean),
+          parentNames: [String(f['父亲姓名'] ?? ''), String(f['母亲姓名'] ?? '')].filter(Boolean),
+        });
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return out;
+  }
+
   syncStatus() {
     return { lastSyncAt: this.lastSyncAt, count: this.lastSyncCount, syncing: this.syncing };
   }
+}
+
+// ── 匹配辅助 ──────────────────────────────────────────────────
+function digitsOnly(v: unknown): string {
+  return String(v ?? '').replace(/\D/g, '');
+}
+
+/** 取手机号后 11 位比较（兼容带区号/空格/86 前缀） */
+function normPhone(v: unknown): string {
+  const d = digitsOnly(v);
+  if (!d) return '';
+  return d.length > 11 ? d.slice(-11) : d;
+}
+
+type StudentIdx = {
+  id: string;
+  name: string;
+  enName: string;
+  formerName: string;
+  mobile: string;
+  parentMobiles: string[];
+  parentNames: string[];
+};
+
+function bestMatch(
+  contact: Record<string, unknown>,
+  students: StudentIdx[],
+): { id: string; name: string; score: number; reason: string } | null {
+  // 卫瓴侧：学生姓名（自定义字段 xsxm）、昵称、手机号
+  let customName = '';
+  try {
+    const cc = JSON.parse(String(contact['自定义字段'] ?? '{}')) as Record<string, unknown>;
+    customName = String(cc['xsxm'] ?? '');
+  } catch {
+    customName = '';
+  }
+  const nick = String(contact['联系人姓名'] ?? '');
+  const phones = String(contact['手机号'] ?? '')
+    .split(/[、,，\s]/)
+    .map(normPhone)
+    .filter((p) => p.length >= 7);
+
+  // 收集所有候选再取最高分（不用闭包累加变量：TS 会把闭包内赋值推断成 never）
+  const hits: { id: string; name: string; score: number; reason: string }[] = [];
+  const consider = (s: StudentIdx, score: number, reason: string) => {
+    hits.push({ id: s.id, name: s.name, score, reason });
+  };
+
+  for (const s of students) {
+    if (!s.name) continue;
+    // 1) 姓名精确（卫瓴的「学生姓名」自定义字段）
+    const nameHit = customName && (customName === s.name || customName === s.enName || customName === s.formerName);
+    // 2) 手机号
+    let phoneHit: 'self' | 'parent' | '' = '';
+    for (const p of phones) {
+      if (!p) continue;
+      if (s.mobile && normPhone(s.mobile) === p) phoneHit = 'self';
+      else if (s.parentMobiles.some((m) => normPhone(m) === p)) phoneHit = phoneHit === 'self' ? 'self' : 'parent';
+    }
+    // 3) 昵称 = 家长姓名（去掉「妈妈/爸爸/家长」等后缀）
+    const nickBase = nick.replace(/(妈妈|爸爸|母亲|父亲|家长|女士|先生|Mrs|Mr)$/g, '').trim();
+    const parentHit = nickBase.length >= 2 && s.parentNames.some((n) => n && n === nickBase);
+
+    if (nameHit && phoneHit) {
+      consider(s, phoneHit === 'self' ? 98 : 96, `学生姓名 + ${phoneHit === 'self' ? '学生手机' : '家长电话'}`);
+    } else if (nameHit) {
+      consider(s, 90, '学生姓名');
+    } else if (phoneHit === 'self') {
+      consider(s, 88, '学生手机号');
+    } else if (phoneHit === 'parent') {
+      consider(s, 85, '家长电话');
+    } else if (parentHit) {
+      consider(s, 70, '家长姓名');
+    } else if (customName && nick.includes(customName) && customName.length >= 2) {
+      consider(s, 55, '昵称包含学生姓名');
+    }
+  }
+  if (!hits.length) return null;
+  hits.sort((a, b) => b.score - a.score);
+  const top = hits[0];
+  // 最低 55 分才算匹配，低于此不写入，避免噪音
+  return top && top.score >= 55 ? top : null;
 }
 
 function safeParseOptions(v: unknown): { label: string; value: string }[] {

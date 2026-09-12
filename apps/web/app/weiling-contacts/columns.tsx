@@ -40,7 +40,8 @@ export function fmtDate(v: unknown): string {
  * 后端模块资源只登记了 READ —— 数据与接口层都没有写入入口。
  */
 export const COLUMNS: CrudColumn[] = [
-  { key: '联系人姓名', label: '联系人', width: '180px', filter: true, filterType: 'text' },
+  // openRecord + 页面 detailHref ⇒ 点击姓名进入只读详情页
+  { key: '联系人姓名', label: '联系人', width: '180px', filter: true, filterType: 'text', openRecord: true },
   { key: '手机号', label: '手机号', width: '140px' },
   { key: '归属人', label: '归属人', width: '160px', filter: true },
   { key: '客户阶段', label: '客户阶段', width: '110px', filter: true },
@@ -69,6 +70,31 @@ export const COLUMNS: CrudColumn[] = [
       return <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-secondary)' }}>{s || '—'}</span>;
     },
   },
+  {
+    key: '关联学生',
+    label: '疑似关联学生',
+    width: '170px',
+    filter: true,
+    filterType: 'text',
+    render: (v, row) => {
+      const name = String(v ?? '');
+      if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+      const score = Number(row['匹配置信度'] ?? 0);
+      const color = score >= 90 ? '#2c6b45' : score >= 70 ? '#7a5c10' : '#6b6b66';
+      const bg = score >= 90 ? '#eaf5ee' : score >= 70 ? '#fdf6e8' : '#f0efeb';
+      return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span>{name}</span>
+          <span
+            title={String(row['匹配依据'] ?? '')}
+            style={{ fontSize: 10, padding: '1px 5px', borderRadius: 8, background: bg, color, whiteSpace: 'nowrap' }}
+          >
+            {score}
+          </span>
+        </span>
+      );
+    },
+  },
   { key: '企业名', label: '企业', width: '180px', list: false },
   { key: '备注', label: '备注', width: '240px', list: false },
   { key: '标签', label: '标签', width: '240px', list: false },
@@ -83,6 +109,7 @@ export const COLUMNS: CrudColumn[] = [
 /** 详情页展示顺序（分组标题 → 字段） */
 export const DETAIL_GROUPS: { title: string; keys: string[] }[] = [
   { title: '基本信息', keys: ['联系人姓名', '手机号', '邮箱', '状态', '客户阶段', '归属人'] },
+  { title: '关联匹配', keys: ['关联学生', '匹配置信度', '匹配依据'] },
   { title: '来源', keys: ['来源渠道', '来源组件', '落地页', '创建时间', '领取时间'] },
   { title: '跟进', keys: ['首次跟进时间', '最近跟进时间', '互动分', '标签'] },
   { title: '企业与其它', keys: ['企业名', '备注', '其他信息'] },

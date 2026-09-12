@@ -88,8 +88,36 @@ export default function WeilingContactDetailPage() {
   if (!record) return <div className="page-header"><p style={{ color: 'var(--fg-tertiary)' }}>记录不存在</p></div>;
 
   const labelOf = (k: string) => COLUMNS.find((c) => c.key === k)?.label ?? k;
-  const isTs = (k: string) => /时间$/.test(k);
-  const val = (k: string) => (isTs(k) ? fmtTs(record[k]) : String(record[k] ?? '—') || '—');
+  const isTs = (k: string) => /时间$/.test(k) && k !== '匹配时间';
+  const studentId = String(record['关联学生ID'] ?? '');
+  const score = Number(record['匹配置信度'] ?? 0);
+
+  const val = (k: string): React.ReactNode => {
+    if (isTs(k)) return fmtTs(record[k]);
+    // 关联学生：可点进学生档案
+    if (k === '关联学生') {
+      const name = String(record['关联学生'] ?? '');
+      if (!name) return '—';
+      return studentId ? (
+        <Link href={`/students/${studentId}`} style={{ color: 'var(--accent)', fontWeight: 600 }}>
+          {name} →
+        </Link>
+      ) : (
+        name
+      );
+    }
+    if (k === '匹配置信度') {
+      if (!score) return '—';
+      const text = score >= 90 ? '高' : score >= 70 ? '中' : '低';
+      const color = score >= 90 ? '#2c6b45' : score >= 70 ? '#7a5c10' : '#6b6b66';
+      return (
+        <span style={{ color }}>
+          {score}（{text}）
+        </span>
+      );
+    }
+    return String(record[k] ?? '') || '—';
+  };
 
   return (
     <div>
@@ -115,7 +143,14 @@ export default function WeilingContactDetailPage() {
 
       {DETAIL_GROUPS.map((g) => (
         <div key={g.title} style={{ marginBottom: '1.5rem' }}>
-          <h2 style={{ fontSize: 'var(--font-md)', fontWeight: 600, margin: '0 0 0.75rem' }}>{g.title}</h2>
+          <h2 style={{ fontSize: 'var(--font-md)', fontWeight: 600, margin: '0 0 0.75rem' }}>
+            {g.title}
+            {g.title === '关联匹配' ? (
+              <span style={{ marginLeft: 8, fontSize: 'var(--font-xs)', fontWeight: 400, color: 'var(--fg-tertiary)' }}>
+                系统按姓名/手机号自动推测，属「疑似」关系，需人工确认
+              </span>
+            ) : null}
+          </h2>
           <div
             style={{
               display: 'grid',

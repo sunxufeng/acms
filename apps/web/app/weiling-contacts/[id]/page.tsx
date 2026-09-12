@@ -71,6 +71,40 @@ export default function WeilingContactDetailPage() {
     }
   }, [record, dict]);
 
+  // 卫瓴原始 JSON（41 个字段）：摊平字段只是其中一部分，这里把原始全量也渲染出来，
+  // 保证「系统里存的所有信息」都能在详情页查到，而不是只展示同步时挑的那几个。
+  const rawEntries = useMemo(() => {
+    let obj: Record<string, unknown> = {};
+    try {
+      obj = JSON.parse(String(record?.['原始数据'] ?? '{}')) as Record<string, unknown>;
+    } catch {
+      obj = {};
+    }
+    const isTimeKey = (k: string) => /(_time|_at)$/.test(k) || k === 'create_time';
+    return Object.entries(obj)
+      .filter(([, v]) => v !== null && v !== '' && !(Array.isArray(v) && v.length === 0))
+      .map(([k, v]) => {
+        const label = dict.name.get(k) ?? k;
+        // 枚举值翻译（卫瓴：label 是数字键、value 是显示文本）
+        const m = dict.opt.get(k);
+        let text: string;
+        if (isTimeKey(k) && (typeof v === 'number' || /^\d+$/.test(String(v)))) {
+          text = fmtTs(v);
+        } else if (typeof v === 'boolean') {
+          text = v ? '是' : '否';
+        } else if (m && (typeof v === 'string' || typeof v === 'number')) {
+          const vals = Array.isArray(v) ? v : [v];
+          text = vals.map((x) => m.get(String(x)) ?? String(x)).join('、');
+        } else if (typeof v === 'object') {
+          text = JSON.stringify(v);
+        } else {
+          text = String(v ?? '');
+        }
+        return { key: k, label, text };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+  }, [record, dict]);
+
   if (loading)
     return (
       <div className="empty-state" style={{ minHeight: '50vh' }}>
@@ -173,6 +207,47 @@ export default function WeilingContactDetailPage() {
           </div>
         </div>
       ))}
+
+      {/* 卫瓴原始字段全量（保证系统里存的每条信息都能查到） */}
+      <div style={{ marginBottom: '1.5rem' }}>
+        <h2 style={{ fontSize: 'var(--font-md)', fontWeight: 600, margin: '0 0 0.75rem' }}>
+          卫瓴原始字段
+          <span style={{ marginLeft: 8, fontSize: 'var(--font-xs)', fontWeight: 400, color: 'var(--fg-tertiary)' }}>
+            共 {rawEntries.length} 项（已翻译为中文，空值已隐藏）
+          </span>
+        </h2>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: '12px 24px',
+            padding: '16px',
+            background: 'var(--bg-elevated, #fff)',
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+          }}
+        >
+          {rawEntries.map((r) => (
+            <div key={r.key} style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginBottom: 2 }}>
+                {r.label}
+                <span style={{ opacity: 0.55 }}> · {r.key}</span>
+              </div>
+              <div
+                title={r.text}
+                style={{
+                  fontSize: 'var(--font-sm)',
+                  wordBreak: 'break-all',
+                  maxHeight: 60,
+                  overflow: 'hidden',
+                }}
+              >
+                {r.text.length > 160 ? `${r.text.slice(0, 160)}…` : r.text || '—'}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {customRows.length > 0 ? (
         <div style={{ marginBottom: '1.5rem' }}>

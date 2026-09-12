@@ -113,4 +113,5 @@ export const DETAIL_GROUPS: { title: string; keys: string[] }[] = [
   { title: '来源', keys: ['来源渠道', '来源组件', '落地页', '创建时间', '领取时间'] },
   { title: '跟进', keys: ['首次跟进时间', '最近跟进时间', '互动分', '标签'] },
   { title: '企业与其它', keys: ['企业名', '备注', '其他信息'] },
+  { title: '系统信息', keys: ['同步时间', '匹配时间'] },
 ];

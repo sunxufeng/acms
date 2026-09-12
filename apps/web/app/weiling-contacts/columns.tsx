@@ -48,6 +48,24 @@ export const COLUMNS: CrudColumn[] = [
   { key: '来源渠道', label: '来源渠道', width: '150px', filter: true },
   { key: '互动分', label: '互动分', width: '80px' },
   {
+    key: '跟进次数',
+    label: '跟进次数',
+    width: '90px',
+    render: (v) => {
+      const n = Number(v ?? 0);
+      return (
+        <span
+          style={{
+            fontSize: 'var(--font-xs)',
+            color: n > 0 ? 'var(--fg-secondary)' : 'var(--fg-tertiary)',
+          }}
+        >
+          {n > 0 ? `${n} 次` : '—'}
+        </span>
+      );
+    },
+  },
+  {
     key: '创建时间',
     label: '创建时间',
     width: '140px',
@@ -111,7 +129,7 @@ export const DETAIL_GROUPS: { title: string; keys: string[] }[] = [
   { title: '基本信息', keys: ['联系人姓名', '手机号', '邮箱', '状态', '客户阶段', '归属人'] },
   { title: '关联匹配', keys: ['关联学生', '匹配置信度', '匹配依据'] },
   { title: '来源', keys: ['来源渠道', '来源组件', '落地页', '创建时间', '领取时间'] },
-  { title: '跟进', keys: ['首次跟进时间', '最近跟进时间', '互动分', '标签'] },
+  { title: '跟进', keys: ['首次跟进时间', '最近跟进时间', '互动分', '跟进次数', '标签'] },
   { title: '企业与其它', keys: ['企业名', '备注', '其他信息'] },
   { title: '系统信息', keys: ['同步时间', '匹配时间'] },
 ];

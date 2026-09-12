@@ -661,6 +661,14 @@ export const api = {
     request<{ api_name: string; view_name: string; property_type?: number; options?: { label: string; value: string }[] }[]>(
       `/weiling/fields${refresh ? '?refresh=1' : ''}`,
     ),
+  getWeilingProgress: (contactId: string) =>
+    request<{ 跟进时间: number; 跟进人: string; 跟进内容: string; 图片: string; 附件: string }[]>(
+      `/weiling/progress?contactId=${encodeURIComponent(contactId)}`,
+    ),
+  syncWeilingProgress: (full = true) =>
+    request<{ ok: boolean; started: boolean; message?: string }>(`/weiling/sync-progress${full ? '' : '?full=0'}`, {
+      method: 'POST',
+    }),
   weilingAnalyze: (params: { from?: string; to?: string; owner?: string; channel?: string; stage?: string } = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);

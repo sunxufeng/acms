@@ -94,6 +94,8 @@ export const TABLES = {
   weilingContact: { tableId: 'tblwlcontact0001', name: '卫瓴联系人表' },
   /** 卫瓴SCRM 对象字段描述缓存（api_name → 中文名 + 枚举选项） */
   weilingField: { tableId: 'tblwlfield000001', name: '卫瓴字段描述表' },
+  /** 卫瓴跟进记录（按联系人同步，附在联系人详情里展示） */
+  weilingProgress: { tableId: 'tblwlprogress0001', name: '卫瓴跟进记录表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

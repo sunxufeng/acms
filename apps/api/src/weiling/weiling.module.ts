@@ -27,6 +27,7 @@ export class WeilingModule {
       try {
         await sql.ensureTable(TABLES.weilingContact.tableId, '卫瓴联系人表', []);
         await sql.ensureTable(TABLES.weilingField.tableId, '卫瓴字段描述表', []);
+        await sql.ensureTable(TABLES.weilingProgress.tableId, '卫瓴跟进记录表', []);
         console.log('[weiling] 卫瓴联系人表已就绪');
       } catch (e) {
         console.error('[weiling] 启动建表失败: ' + (e as Error).message);

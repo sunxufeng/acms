@@ -16,6 +16,8 @@ export default function WeilingContactsPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   const [status, setStatus] = useState<{ lastSyncAt: number; count: number } | null>(null);
+  const [pgMsg, setPgMsg] = useState('');
+  const [pgRunning, setPgRunning] = useState(false);
   const [options, setOptions] = useState<Record<string, string[]>>({});
 
   const loadStatus = useCallback(async () => {
@@ -75,6 +77,19 @@ export default function WeilingContactsPage() {
     }
   };
 
+  const syncProgress = async () => {
+    setPgRunning(true);
+    setPgMsg('已在后台开始同步（约需十几分钟），可稍后刷新查看');
+    try {
+      const r = await api.syncWeilingProgress(true);
+      if (!r.ok) setPgMsg(`启动失败：${r.message ?? ''}`);
+    } catch (e) {
+      setPgMsg(`启动失败：${(e as Error).message}`);
+    } finally {
+      setPgRunning(false);
+    }
+  };
+
   const lastSyncText = status?.lastSyncAt
     ? new Date(status.lastSyncAt).toLocaleString('zh-CN', { hour12: false })
     : '从未同步';
@@ -100,11 +115,21 @@ export default function WeilingContactsPage() {
         <span>数据来源：卫瓴 SCRM（只读，不可修改）</span>
         <span style={{ color: 'var(--fg-tertiary)' }}>最后同步：{lastSyncText}</span>
         {status?.count ? <span style={{ color: 'var(--fg-tertiary)' }}>共 {status.count} 条</span> : null}
+        <button
+          className="btn btn-outline btn-sm"
+          disabled={pgRunning}
+          onClick={() => void syncProgress()}
+        >
+          {pgRunning ? '同步中…' : '同步跟进记录'}
+        </button>
         <button className="btn btn-primary btn-sm" disabled={syncing} onClick={() => void sync()} style={{ marginLeft: 'auto' }}>
           {syncing ? '同步中…' : '立即同步'}
         </button>
         {syncMsg ? (
           <span style={{ color: syncMsg.includes('失败') ? 'var(--fg-error)' : 'var(--fg-secondary)' }}>{syncMsg}</span>
+        ) : null}
+        {pgMsg ? (
+          <span style={{ color: pgMsg.includes('失败') ? 'var(--fg-error)' : 'var(--fg-secondary)' }}>{pgMsg}</span>
         ) : null}
       </div>
 

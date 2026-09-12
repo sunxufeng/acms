@@ -71,6 +71,18 @@ export default function WeilingContactDetailPage() {
     }
   }, [record, dict]);
 
+  // 该联系人的跟进记录（按时间倒序）
+  const [progress, setProgress] = useState<
+    { 跟进时间: number; 跟进人: string; 跟进内容: string; 图片: string; 附件: string }[]
+  >([]);
+  useEffect(() => {
+    if (!record) return;
+    api
+      .getWeilingProgress(id)
+      .then((list) => setProgress(Array.isArray(list) ? list : []))
+      .catch(() => setProgress([]));
+  }, [id, record]);
+
   // 卫瓴原始 JSON（41 个字段）：摊平字段只是其中一部分，这里把原始全量也渲染出来，
   // 保证「系统里存的所有信息」都能在详情页查到，而不是只展示同步时挑的那几个。
   const rawEntries = useMemo(() => {
@@ -207,6 +219,91 @@ export default function WeilingContactDetailPage() {
           </div>
         </div>
       ))}
+
+      {/* 跟进记录：卫瓴里销售写的跟进内容，按时间倒序 */}
+      <div style={{ marginBottom: '1.5rem' }}>
+        <h2 style={{ fontSize: 'var(--font-md)', fontWeight: 600, margin: '0 0 0.75rem' }}>
+          跟进记录
+          <span style={{ marginLeft: 8, fontSize: 'var(--font-xs)', fontWeight: 400, color: 'var(--fg-tertiary)' }}>
+            共 {progress.length} 条
+          </span>
+        </h2>
+        {progress.length === 0 ? (
+          <div
+            style={{
+              padding: '16px',
+              background: 'var(--bg-elevated, #fff)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              color: 'var(--fg-tertiary)',
+              fontSize: 'var(--font-sm)',
+            }}
+          >
+            暂无跟进记录（若卫瓴侧已有跟进，可在列表页点「同步跟进记录」后再看）
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {progress.map((p, i) => (
+              <div
+                key={i}
+                style={{
+                  padding: '12px 14px',
+                  background: 'var(--bg-elevated, #fff)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 10,
+                  borderLeft: '3px solid var(--accent)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 10,
+                    alignItems: 'baseline',
+                    marginBottom: 6,
+                    fontSize: 'var(--font-xs)',
+                    color: 'var(--fg-tertiary)',
+                  }}
+                >
+                  <span style={{ fontWeight: 600, color: 'var(--fg-secondary)' }}>{p.跟进人 || '—'}</span>
+                  <span>{fmtTs(p.跟进时间)}</span>
+                </div>
+                <div style={{ fontSize: 'var(--font-sm)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+                  {p.跟进内容 || '—'}
+                </div>
+                {p.图片 ? (
+                  <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {p.图片.split(',').filter(Boolean).map((u) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={u}
+                        src={u}
+                        alt="跟进图片"
+                        style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {p.附件 ? (
+                  <div style={{ marginTop: 6, fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
+                    {(() => {
+                      try {
+                        const arr = JSON.parse(p.附件) as { name?: string; url?: string }[];
+                        return arr.map((f, j) => (
+                          <a key={j} href={f.url ?? '#'} target="_blank" rel="noreferrer" style={{ marginRight: 10 }}>
+                            📎 {f.name || '附件'}
+                          </a>
+                        ));
+                      } catch {
+                        return null;
+                      }
+                    })()}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* 卫瓴原始字段全量（保证系统里存的每条信息都能查到） */}
       <div style={{ marginBottom: '1.5rem' }}>

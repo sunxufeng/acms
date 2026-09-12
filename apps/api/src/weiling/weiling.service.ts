@@ -70,6 +70,16 @@ export class WeilingService implements OnModuleInit {
   private syncing = false;
   private lastSyncAt = 0;
   private lastSyncCount = 0;
+  /** 跟进记录同步进度（后台任务，轮询看进度） */
+  private progressSync: {
+    running: boolean;
+    done: boolean;
+    scanned: number;
+    contacts: number;
+    records: number;
+    at: number;
+    error: string;
+  } = { running: false, done: false, scanned: 0, contacts: 0, records: 0, at: 0, error: '' };
 
   async onModuleInit() {
     // 启动后延迟 1 分钟做一次同步（让其它模块先就绪），之后每天一次
@@ -332,6 +342,157 @@ export class WeilingService implements OnModuleInit {
       原始数据: JSON.stringify(c),
       同步时间: Date.now(),
     };
+  }
+
+  // ── 跟进记录（progress）─────────────────────────────────────
+  /**
+   * 同步卫瓴跟进记录。
+   *
+   * 接口：`GET /openapi/v2/progress/list?access_token=&id=<联系人ID>&type=0&cursor=`
+   *  - type：0 联系人 / 3 企业 / 6 群 / 7 商机，这里只要联系人的
+   *  - 列表只返回 progress_id / create_user_id / content(HTML) / remark(纯文本) / create_time
+   *  - 图片与附件要再按 progress_id 调 `/openapi/progress/get` 拿（每条一次请求）
+   *
+   * ⚠️ 量很大（3663 个联系人 + 约 2200 条记录逐个查附件 ≈ 六千次请求），
+   * 所以在限流内串行跑、后台执行，通过 progressStatus() 看进度，绝不阻塞请求。
+   */
+  async syncProgress(full = true): Promise<{ ok: boolean; started: boolean; message?: string }> {
+    if (this.progressSync.running) return { ok: true, started: false, message: '跟进记录同步正在进行中' };
+    const sql = getSqlStore();
+    if (!sql) return { ok: false, started: false, message: '未配置数据库连接' };
+
+    this.progressSync = { running: true, scanned: 0, contacts: 0, records: 0, done: false, at: 0, error: '' };
+    void (async () => {
+      try {
+        // 待扫描的联系人：全量 or 只扫最近 30 天有动静的
+        const ids: string[] = [];
+        const names = new Map<string, string>();
+        let token: string | undefined;
+        for (let p = 0; p < 80; p += 1) {
+          const res = await sql.search(TABLES.weilingContact.tableId, {
+            pageSize: 500,
+            ...(token ? { pageToken: token } : {}),
+          });
+          for (const r of res.items ?? []) {
+            const rec = r as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+            const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+            const id = String(rec.recordId ?? rec.id ?? '');
+            if (!id) continue;
+            if (!full) {
+              const t = toEpochMsLocal(f['最近跟进时间']);
+              if (!t || t < Date.now() - 30 * 86_400_000) continue;
+            }
+            ids.push(id);
+            names.set(id, String(f['联系人姓名'] ?? ''));
+          }
+          if (!res.hasMore || !res.pageToken) break;
+          token = res.pageToken;
+        }
+
+        for (const cid of ids) {
+          this.progressSync.scanned += 1;
+          try {
+            const data = await this.api<{ progress_list?: Record<string, unknown>[]; cursor?: string }>(
+              '/openapi/v2/progress/list',
+              { id: cid, type: '0' },
+            );
+            const list = data.progress_list ?? [];
+            if (!list.length) continue;
+            this.progressSync.contacts += 1;
+            for (const pg of list) {
+              const pid = String(pg['progress_id'] ?? '');
+              if (!pid) continue;
+              const uid = String(pg['create_user_id'] ?? '');
+              const uname = uid ? await this.staffName(uid) : '';
+              // 附件/图片：列表接口没有，按 id 再查一次
+              let images = '';
+              let files = '';
+              try {
+                const det = await this.api<Record<string, unknown>>('/openapi/progress/get', { progress_id: pid });
+                images = String(det['image_file'] ?? '');
+                files = JSON.stringify(det['attachment_file'] ?? []);
+              } catch {
+                /* 拿不到附件不影响记录本身 */
+              }
+              const row = {
+                关联联系人ID: cid,
+                关联联系人: names.get(cid) ?? '',
+                跟进时间: Number(pg['create_time'] ?? 0),
+                跟进人ID: uid,
+                跟进人: uname,
+                跟进内容: String(pg['remark'] ?? ''),
+                跟进内容原文: String(pg['content'] ?? ''),
+                图片: images,
+                附件: files && files !== '[]' ? files : '',
+                原始数据: JSON.stringify(pg),
+                同步时间: Date.now(),
+              };
+              try {
+                await sql.createWithId(TABLES.weilingProgress.tableId, pid, row);
+              } catch {
+                await sql.update(TABLES.weilingProgress.tableId, pid, row);
+              }
+              this.progressSync.records += 1;
+            }
+            // 顺带把「跟进次数」写回联系人，列表页要展示
+            try {
+              await sql.update(TABLES.weilingContact.tableId, cid, { 跟进次数: list.length });
+            } catch {
+              /* 忽略 */
+            }
+            // 限流保护：单 API 500 次/分，留足余量
+            await sleep(130);
+          } catch (e) {
+            this.logger.warn(`联系人 ${cid} 跟进记录拉取失败：${(e as Error).message.slice(0, 100)}`);
+          }
+        }
+        this.progressSync.done = true;
+        this.progressSync.at = Date.now();
+        this.logger.log(`跟进记录同步完成：${this.progressSync.records} 条 / ${this.progressSync.contacts} 个联系人`);
+      } catch (e) {
+        this.progressSync.error = (e as Error).message.slice(0, 200);
+        this.logger.warn(`跟进记录同步失败：${this.progressSync.error}`);
+      } finally {
+        this.progressSync.running = false;
+      }
+    })();
+
+    return { ok: true, started: true };
+  }
+
+  /** 按联系人取跟进记录（详情页用，按时间倒序） */
+  async progressOf(contactId: string): Promise<Record<string, unknown>[]> {
+    const sql = getSqlStore();
+    if (!sql || !contactId) return [];
+    const out: Record<string, unknown>[] = [];
+    let token: string | undefined;
+    for (let p = 0; p < 10; p += 1) {
+      const res = await sql.search(TABLES.weilingProgress.tableId, {
+        pageSize: 200,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of res.items ?? []) {
+        const rec = r as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        if (String(f['关联联系人ID'] ?? '') !== contactId) continue;
+        out.push({
+          id: String(rec.recordId ?? rec.id ?? ''),
+          跟进时间: f['跟进时间'],
+          跟进人: String(f['跟进人'] ?? '') || (f['跟进人ID'] ? String(f['跟进人ID']).slice(0, 8) : ''),
+          跟进内容: String(f['跟进内容'] ?? ''),
+          图片: String(f['图片'] ?? ''),
+          附件: String(f['附件'] ?? ''),
+        });
+      }
+      if (!res.hasMore || !res.pageToken) break;
+      token = res.pageToken;
+    }
+    out.sort((a, b) => Number(b['跟进时间'] ?? 0) - Number(a['跟进时间'] ?? 0));
+    return out;
+  }
+
+  progressStatus() {
+    return { ...this.progressSync };
   }
 
   // ── 与 ACMS 学生档案的「疑似匹配」──────────────────────────────
@@ -653,6 +814,10 @@ export class WeilingService implements OnModuleInit {
 }
 
 // ── 匹配辅助 ──────────────────────────────────────────────────
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 function digitsOnly(v: unknown): string {
   return String(v ?? '').replace(/\D/g, '');
 }

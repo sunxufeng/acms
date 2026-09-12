@@ -19,7 +19,7 @@ import { currentUserName } from '../lib/noteAutoFill';
 // 注意组件内已有名为 api 的 prop，所以全局 api 必须起别名，否则会遮蔽。
 import { api as globalApi } from '../lib/api';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags' | 'password';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags' | 'password' | 'weilingContact';
 
 export interface CrudColumn {
   key: string;
@@ -283,6 +283,13 @@ const modalStyle: React.CSSProperties = {
   width: 'min(880px, 100%)', boxShadow: 'var(--shadow-modal)',
 };
 const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' };
+
+/**
+ * 卫瓴联系人选项缓存（模块级）。
+ * 联系人 3663 条，一次要翻 8 页（pageSize 500）—— 进页面只拉一次，之后新建/编辑表单
+ * 与翻页都复用同一份，避免每次打开表单都打十几秒的请求。
+ */
+let weilingContactCache: { value: string; label: string }[] | null = null;
 
 export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
@@ -632,6 +639,43 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     });
   }, [items, studentCols, studentEnglishByName]);
 
+  // 卫瓴联系人候选项（招生跟进的「关联联系人」）：value=contact_id，label=姓名｜手机号。
+  // 存 id 而不是姓名：联系人有重名、也会改名，存 id 由后端解析显示才不会串。
+  const [weilingContactOptions, setWeilingContactOptions] = useState<{ value: string; label: string }[]>(
+    () => weilingContactCache ?? [],
+  );
+  useEffect(() => {
+    if (!columns.some((c) => c.type === 'weilingContact')) return;
+    if (weilingContactCache) {
+      setWeilingContactOptions(weilingContactCache);
+      return;
+    }
+    let alive = true;
+    const collected: { value: string; label: string }[] = [];
+    const fetchPage = async (token?: string): Promise<void> => {
+      const p = await apiClient.listWeilingContacts({ pageSize: '500', pageToken: token });
+      for (const r of p.items ?? []) {
+        const id = String(r['id'] ?? '');
+        const name = String(r['联系人姓名'] ?? '');
+        if (!id || !name) continue;
+        const phone = String(r['手机号'] ?? '');
+        collected.push({ value: id, label: phone ? `${name}｜${phone}` : name });
+      }
+      if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
+    };
+    fetchPage()
+      .then(() => {
+        if (!alive) return;
+        collected.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+        weilingContactCache = collected;
+        setWeilingContactOptions(collected);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [columns]);
+
   // 部门字段（department）候选项：从「组织管理 / 部门管理」读取已同步的飞书部门树
   // （已删除部门 status='invalid' 不出现在树中，这里也一并过滤掉）
   const [departmentOptions, setDepartmentOptions] = useState<{ value: string; label: string }[]>([]);
@@ -747,8 +791,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         init[c.key] = (Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split('、').filter(Boolean));
       else if (c.type === 'tags')
         init[c.key] = Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split(/[\n,，]/).map((s) => s.trim()).filter(Boolean);
-      else if (c.type === 'studentLink') {
-        // 行中关联字段已解析为姓名，但 __link 仍保留 record id，用 id 回填选择器
+      else if (c.type === 'studentLink' || c.type === 'weilingContact') {
+        // 行中关联字段已被后端解析为可读名，但 __link 仍保留 record id —— 必须用 id 回填选择器，
+        // 否则编辑时把「姓名」当 id 提交，保存后关联就断了。
         const linkIds = row[c.key + '__link'];
         init[c.key] = (Array.isArray(linkIds) && linkIds[0]) || '';
       } else init[c.key] = row[c.key] ?? '';
@@ -1102,6 +1147,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentOptions} placeholder="输入学生姓名筛选…" />
           ) : c.type === 'studentLink' ? (
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" />
+          ) : c.type === 'weilingContact' ? (
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={weilingContactOptions} placeholder="输入联系人姓名或手机号筛选…" />
           ) : c.type === 'department' ? (
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={departmentOptions} placeholder="输入部门名称筛选…" />
           ) : c.type === 'parent' ? (

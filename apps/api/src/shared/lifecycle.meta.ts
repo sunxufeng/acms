@@ -62,10 +62,17 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     dateFields: ['活动参与日期', '跟进时间', '下次跟进日期'],
     readonly: ['跟进负责人', '跟进附件', '关联学生编号'],
     studentMatch: { field: '关联学生', by: 'name' },
-    linkFields: [{ field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' }],
+    linkFields: [
+      { field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
+      // 招生阶段人还没入学，跟进对象是卫瓴线索（联系人）：前端提交 contact_id，
+      // 读取时由 generic-crud 解析成「联系人姓名」返回，列表/详情/导出都直接可读。
+      { field: '关联联系人', table: TABLES.weilingContact.tableId, nameField: '联系人姓名' },
+    ],
     statusField: '跟进状态',
     defaultStatus: '未跟进',
-    searchField: '关联学生',
+    // 跟进对象改为卫瓴联系人后，「关联学生」常常为空，只按它搜索会搜不到东西；
+    // 补上沟通主题作为检索入口（「关联联系人」是 link 字段，存的是 id，不适合模糊匹配）
+    searchFields: ['关联学生', '沟通主题'],
     sortField: '跟进时间',
   },
   {

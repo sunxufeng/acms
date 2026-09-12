@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { COLUMNS, studentName, parseSourceFollowupFromSummary } from './columns';
+import { COLUMNS, contactName, parseSourceFollowupFromSummary } from './columns';
 
 function str(v: unknown): string {
   if (v == null) return '';
@@ -19,23 +19,23 @@ export default function SourceFollowupsPage() {
   const ts = useTranslations('students');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
 
-  // 按学生聚合已选招生跟进记录，构建 AI 上下文
+  // 按联系人聚合已选招生跟进记录，构建 AI 上下文
   const context = useMemo(() => {
     if (selected.length === 0) return '（未选择招生跟进记录）';
-    const byStudent = new Map<string, Record<string, unknown>[]>();
+    const byContact = new Map<string, Record<string, unknown>[]>();
     for (const row of selected) {
-      const name = studentName(row) || ts('unknownStudent');
-      if (!byStudent.has(name)) byStudent.set(name, []);
-      byStudent.get(name)!.push(row);
+      const name = contactName(row) || ts('unknownContact');
+      if (!byContact.has(name)) byContact.set(name, []);
+      byContact.get(name)!.push(row);
     }
     const lines: string[] = [];
     lines.push(
       '你是 ACMS 招生跟进智能分析助手。用户从招生跟进列表勾选了若干条记录，请基于以下聚合信息回答关于招生意向、跟进进度、家长反馈、风险与下一步建议等问题。若信息不足请明确说明。',
     );
     lines.push('');
-    lines.push(`【已选招生跟进记录】（共 ${selected.length} 条，涉及 ${byStudent.size} 名学生）`);
-    for (const [name, rows] of byStudent) {
-      lines.push(`◆ 学生：${name}（${rows.length} 条）`);
+    lines.push(`【已选招生跟进记录】（共 ${selected.length} 条，涉及 ${byContact.size} 位联系人）`);
+    for (const [name, rows] of byContact) {
+      lines.push(`◆ 联系人：${name}（${rows.length} 条）`);
       for (const r of rows) {
         const parts = [
           `沟通主题：${str(r['沟通主题']) || '—'}`,
@@ -54,10 +54,10 @@ export default function SourceFollowupsPage() {
     return lines.join('\n');
   }, [selected]);
 
-  const studentCount = useMemo(() => new Set(selected.map((r) => studentName(r))).size, [selected]);
+  const contactCount = useMemo(() => new Set(selected.map((r) => contactName(r))).size, [selected]);
   const resetKey = useMemo(() => selected.map((r) => String(r.id)).sort().join(','), [selected]);
   const subject = selected.length
-    ? ts('aiSubjectSelected', { count: selected.length, students: studentCount })
+    ? ts('aiSubjectSelectedContact', { count: selected.length, contacts: contactCount })
     : ts('aiSubjectNone');
 
   return (
@@ -65,7 +65,7 @@ export default function SourceFollowupsPage() {
       <CrudPage
         title="招生跟进"
         subtitle="招生线索与跟进闭环（M1 学生域）"
-        search={{ placeholder: '搜索学生姓名…' }}
+        search={{ placeholder: '搜索学生姓名 / 沟通主题…' }}
         columns={COLUMNS}
         enrichPrefill={parseSourceFollowupFromSummary}
         statusField="跟进状态"

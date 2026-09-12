@@ -852,7 +852,9 @@
     "noStudentSelected": "No Student Selected",
     "loadingStudents": "Loading student list…",
     "filterByNamePlaceholder": "Type a student name to filter…",
-    "selected": "Selected: "
+    "selected": "Selected: ",
+    "unknownContact": "Unknown contact",
+    "aiSubjectSelectedContact": "Selected {count} records / {contacts} contacts"
   },
   "admin": {
     "titleRoleManagement": "Role Management",

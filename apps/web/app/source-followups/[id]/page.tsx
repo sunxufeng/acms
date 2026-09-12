@@ -32,11 +32,14 @@ export default function SourceFollowupDetailPage() {
   if (error) return <div className="page-header"><p className="msg-error">加载失败：{error}</p></div>;
   if (!record) return <div className="page-header"><p style={{ color: 'var(--fg-tertiary)' }}>{ts('notFound')}</p></div>;
 
-  const studentName = (() => {
-    const v = record['关联学生'] ?? record['关联学生编号'];
-    if (Array.isArray(v) && v.length) return String((v[0] as { text?: string })?.text ?? '');
-    if (v && typeof v === 'object') return String((v as { text?: string })?.text ?? '');
-    return String(v ?? '—');
+  /** 跟进对象优先显示联系人（招生阶段人还没入学），没有再回退学生 */
+  const subjectName = (() => {
+    const read = (v: unknown): string => {
+      if (Array.isArray(v) && v.length) return String((v[0] as { text?: string })?.text ?? '');
+      if (v && typeof v === 'object') return String((v as { text?: string })?.text ?? '');
+      return String(v ?? '');
+    };
+    return read(record['关联联系人']) || read(record['关联学生']) || read(record['关联学生编号']) || '—';
   })();
 
   return (
@@ -50,7 +53,7 @@ export default function SourceFollowupDetailPage() {
             </Link>
             <div>
               <div className="page-eyebrow">SOURCE-FOLLOWUP / {String(record['跟进编号'] ?? id.slice(0, 6))}</div>
-              <h1 className="page-title">招生跟进详情 · {studentName}</h1>
+              <h1 className="page-title">招生跟进详情 · {subjectName}</h1>
               <p className="page-subtitle">{ts('subtitleViewOnly')}</p>
             </div>
           </div>
@@ -64,7 +67,7 @@ export default function SourceFollowupDetailPage() {
       <CrudView columns={COLUMNS} record={record} />
 
       {/* ── 关联笔记（得到大脑） ─────────── */}
-      <NotePanel entityType="招生跟进" entityId={id} entityName={linkText(record['关联学生'])} />
+      <NotePanel entityType="招生跟进" entityId={id} entityName={linkText(record['关联联系人'] ?? record['关联学生'])} />
     </div>
   );
 }

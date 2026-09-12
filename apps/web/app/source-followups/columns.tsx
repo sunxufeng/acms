@@ -1,21 +1,43 @@
+import Link from 'next/link';
 import type { CrudColumn } from '../../components/CrudPage';
 import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
 import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
 
-// 列表列顺序（listOrder）：学生 → 沟通主题 → 跟进时间 → 跟进状态 → 活动类型 → 负责人，
+// 列表列顺序（listOrder）：联系人 → 沟通主题 → 跟进时间 → 跟进状态 → 活动类型 → 负责人，
 // 外加组件自动追加的「操作」列（含 AI 总结）。付款状态 在列表中隐藏（保留在表单）。
-// 学生列点击直接跳转「这一条招生跟进记录」的只读详情页（不再打开编辑表单）。
+// 联系人列点击跳转「联系人管理」的只读详情页（招生阶段人还没入学，对象是卫瓴线索）。
+// 「学生」改为非必填且从列表移除：确认入学后再回填，学生 360 聚合仍靠「关联学生编号」。
 // 其余字段设为 list:false，仅在新建/编辑表单中可用；新建/编辑表单参考家校沟通编辑页面。
 export const COLUMNS: CrudColumn[] = [
+  {
+    key: '关联联系人',
+    label: '联系人',
+    width: '200px',
+    form: true,
+    type: 'weilingContact',
+    required: true,
+    listOrder: 1,
+    render: (v, row) => {
+      const name = String(v ?? '');
+      if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+      // 后端已把 contact_id 解析成姓名，__link 里保留 id，用于跳联系人详情
+      const ids = row['关联联系人__link'] as string[] | undefined;
+      const id = Array.isArray(ids) ? ids[0] : '';
+      return id ? (
+        <Link href={`/weiling-contacts/${id}`} style={{ color: 'var(--accent)', fontWeight: 700 }}>{name}</Link>
+      ) : (
+        <span style={{ fontWeight: 700 }}>{name}</span>
+      );
+    },
+  },
   {
     key: '关联学生',
     label: '学生',
     width: '180px',
     form: true,
     type: 'student',
-    required: true,
-    openRecord: true,
-    listOrder: 1,
+    required: false,
+    list: false,
     render: (_v, row) => {
       const name = studentName(row);
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
@@ -30,7 +52,8 @@ export const COLUMNS: CrudColumn[] = [
   // ── 参考家校沟通编辑页面新增的字段 ──
   { key: '家长', label: '家长', width: '110px', list: false, form: true, type: 'parent', dependsOn: '关联学生', required: true },
   { key: '家长反馈态度', label: '家长反馈态度', width: '130px', list: false, filter: true, form: true, type: 'select', dictKey: '家长反馈态度' },
-  { key: '沟通主题', label: '沟通主题', width: '120px', form: true, listOrder: 2 },
+  // openRecord：首列已让给联系人（跳联系人详情），这里点击主题进入本条跟进的只读详情页
+  { key: '沟通主题', label: '沟通主题', width: '120px', form: true, listOrder: 2, openRecord: true },
   { key: '沟通总结', label: '沟通总结（报告）', list: false, form: true, type: 'markdown' },
   { key: '沟通明细', label: '沟通明细（MD 对话记录）', list: false, form: true, type: 'markdown',
     // 原始记录属正式留痕，用专项权限控制：无 md:edit 只能浏览，无 md:import 不显示导入按钮
@@ -52,6 +75,15 @@ export const COLUMNS: CrudColumn[] = [
   { key: '家长或学生诉求', label: '家长或学生诉求', list: false, form: true, type: 'textarea' },
   { key: '活动参与日期', label: '活动参与日期', list: false, form: true, type: 'date' },
 ];
+
+/** 关联联系人（后端已解析为姓名；拿不到时回退「关联学生」） */
+export function contactName(row: Record<string, unknown>): string {
+  const raw = row['关联联系人'];
+  const name = Array.isArray(raw)
+    ? String((raw[0] as { text?: string } | undefined)?.text ?? raw[0] ?? '')
+    : String(raw ?? '');
+  return name || studentName(row);
+}
 
 export function studentName(row: Record<string, unknown>): string {
   const tryKey = (k: string): string => {

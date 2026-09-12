@@ -852,7 +852,9 @@
     "noStudentSelected": "未选学生",
     "loadingStudents": "学生列表加载中…",
     "filterByNamePlaceholder": "输入学生姓名筛选…",
-    "selected": "已选："
+    "selected": "已选：",
+    "unknownContact": "未知联系人",
+    "aiSubjectSelectedContact": "已选 {count} 条 / {contacts} 位联系人"
   },
   "admin": {
     "titleRoleManagement": "角色管理",

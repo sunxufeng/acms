@@ -19,6 +19,30 @@ import { decryptSecret } from '../shared/secret-cipher.js';
  * 本模块全程只读 —— 不提供任何写卫瓴的接口（业务要求：只能看，不能改）。
  */
 
+
+let analyzeCache = new Map<string, { at: number; data: unknown }>();
+
+function parseCustom(v: unknown): Record<string, unknown> {
+  if (!v) return {};
+  if (typeof v === 'object') return v as Record<string, unknown>;
+  try {
+    const p = JSON.parse(String(v));
+    return p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** 时间字段 → 毫秒（兼容毫秒数字 / 数字串 / ISO 字符串） */
+function toEpochMsLocal(v: unknown): number {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return v;
+  const str = String(v).trim();
+  if (/^\d+$/.test(str)) return Number(str);
+  const t = new Date(str).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
 const HOST = 'https://openapi.weiling.cn';
 const TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 官方未明确有效期，按 2 小时刷新
 const FIELD_TTL_MS = 24 * 60 * 60 * 1000;
@@ -420,6 +444,207 @@ export class WeilingService implements OnModuleInit {
       token = page.pageToken;
     }
     return out;
+  }
+
+  // ── 招生分析（报表用）──────────────────────────────────────────
+  /**
+   * 卫瓴线索多维度聚合。一次扫全量在内存里算（3663 条约 4 秒），结果缓存 5 分钟。
+   * 之所以不用 SQL 聚合：SqlStore 只暴露 search，且维度涉及 JSON 自定义字段，
+   * 内存聚合更直观也更好扩展。
+   */
+  async analyze(params: { from?: string; to?: string; 归属人?: string; 来源渠道?: string; 客户阶段?: string } = {}) {
+    const cacheKey = JSON.stringify(params);
+    const hit = analyzeCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.data;
+
+    const sql = getSqlStore();
+    if (!sql) throw new Error('未配置数据库连接');
+    const fields = await this.fields();
+    const nameOf = new Map(fields.map((f) => [f.api_name, f.view_name]));
+    // 枚举：label 是数字键、value 是显示文本（卫瓴结构，跟直觉相反）
+    const optOf = new Map<string, Map<string, string>>();
+    for (const f of fields) {
+      if (f.options?.length) optOf.set(f.api_name, new Map(f.options.map((o) => [String(o.label), String(o.value)])));
+    }
+
+    // 时间范围（按创建时间）
+    const fromMs = params.from ? new Date(`${params.from}T00:00:00`).getTime() : 0;
+    const toMs = params.to ? new Date(`${params.to}T23:59:59`).getTime() : Number.MAX_SAFE_INTEGER;
+
+    const rows: Record<string, unknown>[] = [];
+    let token: string | undefined;
+    for (let p = 0; p < 80; p += 1) {
+      const res = await sql.search(TABLES.weilingContact.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of res.items ?? []) {
+        const rec = r as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        rows.push(f);
+      }
+      if (!res.hasMore || !res.pageToken) break;
+      token = res.pageToken;
+    }
+
+    // 筛选
+    const filtered = rows.filter((r) => {
+      const ct = toEpochMsLocal(r['创建时间']);
+      if (fromMs && ct && ct < fromMs) return false;
+      if (toMs < Number.MAX_SAFE_INTEGER && ct && ct > toMs) return false;
+      if (params.归属人 && String(r['归属人'] ?? '') !== params.归属人) return false;
+      if (params.来源渠道 && String(r['来源渠道'] ?? '') !== params.来源渠道) return false;
+      if (params.客户阶段 && String(r['客户阶段'] ?? '') !== params.客户阶段) return false;
+      return true;
+    });
+
+    const DEAL = '成交客户';
+    const isDeal = (r: Record<string, unknown>) => String(r['客户阶段'] ?? '') === DEAL;
+    const now = Date.now();
+
+    // ① 客户阶段漏斗（按招生顺序）
+    const STAGE_ORDER = ['潜在客户', '适龄客户', '面访客户', '面试客户', '成交客户'];
+    const stageCount = new Map<string, number>();
+    for (const r of filtered) {
+      const s = String(r['客户阶段'] ?? '') || '未标注';
+      stageCount.set(s, (stageCount.get(s) ?? 0) + 1);
+    }
+    const stage = [...stageCount.entries()]
+      .sort((a, b) => {
+        const ia = STAGE_ORDER.indexOf(a[0]);
+        const ib = STAGE_ORDER.indexOf(b[0]);
+        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+      })
+      .map(([name, count]) => ({ name, count }));
+
+    // ②③④ 分组维度（线索数 / 成交数 / 成交率）
+    const groupBy = (keyFn: (r: Record<string, unknown>) => string) => {
+      const m = new Map<string, { total: number; deal: number }>();
+      for (const r of filtered) {
+        const k = keyFn(r) || '未标注';
+        const e = m.get(k) ?? { total: 0, deal: 0 };
+        e.total += 1;
+        if (isDeal(r)) e.deal += 1;
+        m.set(k, e);
+      }
+      return [...m.entries()]
+        .map(([name, v]) => ({ name, total: v.total, deal: v.deal, dealRate: v.total ? (v.deal / v.total) * 100 : 0 }))
+        .sort((a, b) => b.total - a.total);
+    };
+    const owners = groupBy((r) => String(r['归属人'] ?? '')).map((o) => {
+      // 近 30 天跟进数
+      const follow30 = filtered.filter(
+        (r) =>
+          String(r['归属人'] ?? '') === o.name &&
+          toEpochMsLocal(r['最近跟进时间']) > now - 30 * 86_400_000,
+      ).length;
+      return { ...o, follow30 };
+    });
+    const channels = groupBy((r) => String(r['来源渠道'] ?? ''));
+    const components = groupBy((r) => String(r['来源组件'] ?? '')).slice(0, 10);
+
+    // ⑤ 招生漏斗自定义维度（取覆盖率高的几个）
+    const customDim = (apiName: string) => {
+      const m = new Map<string, number>();
+      const opts = optOf.get(apiName);
+      let covered = 0;
+      for (const r of filtered) {
+        const raw = parseCustom(r['自定义字段'])[apiName];
+        if (raw == null || raw === '') continue;
+        covered += 1;
+        const vals = Array.isArray(raw) ? raw : [raw];
+        for (const v of vals) {
+          const label = opts?.get(String(v)) ?? String(v);
+          m.set(label, (m.get(label) ?? 0) + 1);
+        }
+      }
+      return {
+        name: nameOf.get(apiName) ?? apiName,
+        apiName,
+        covered,
+        items: [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+      };
+    };
+    const funnels = ['xsdx', 'yxd', 'zxzlx', 'yxlxgb'].map(customDim).filter((d) => d.covered > 0);
+
+    // ⑥ 漏斗后半段（到访 → 缴面试费 → 完成面试 → 接受 Offer → 缴费）
+    const pipelineSteps: { name: string; apiName: string; yes: string }[] = [
+      { name: '线下到访', apiName: 'xxdf', yes: '已到访' },
+      { name: '缴纳面试费', apiName: 'sftjbmb', yes: '是' },
+      { name: '完成面试', apiName: 'sffwcms', yes: '是' },
+      { name: '接受 Offer', apiName: 'sfjsoffer', yes: '是' },
+      { name: '已缴费', apiName: 'jfqk', yes: '是' },
+    ];
+    const pipeline = pipelineSteps.map((s) => {
+      const opts = optOf.get(s.apiName);
+      let yes = 0;
+      let answered = 0;
+      for (const r of filtered) {
+        const raw = parseCustom(r['自定义字段'])[s.apiName];
+        if (raw == null || raw === '') continue;
+        answered += 1;
+        const label = opts?.get(String(raw)) ?? String(raw);
+        if (label === s.yes) yes += 1;
+      }
+      return { name: s.name, yes, answered };
+    });
+
+    // ⑦ 按月趋势
+    const trendMap = new Map<string, { newCount: number; dealCount: number }>();
+    for (const r of filtered) {
+      const ct = toEpochMsLocal(r['创建时间']);
+      if (!ct) continue;
+      const d = new Date(ct);
+      const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const e = trendMap.get(m) ?? { newCount: 0, dealCount: 0 };
+      e.newCount += 1;
+      if (isDeal(r)) e.dealCount += 1;
+      trendMap.set(m, e);
+    }
+    const trend = [...trendMap.entries()]
+      .map(([month, v]) => ({ month, ...v }))
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .slice(-12);
+
+    // ⑧ 跟进健康度
+    const buckets = [
+      { name: '7 天内', max: 7 },
+      { name: '30 天内', max: 30 },
+      { name: '90 天内', max: 90 },
+      { name: '90 天以上', max: Number.MAX_SAFE_INTEGER },
+    ];
+    let never = 0;
+    const health = buckets.map((b) => ({ name: b.name, count: 0 }));
+    for (const r of filtered) {
+      const t = toEpochMsLocal(r['最近跟进时间']);
+      if (!t) {
+        never += 1;
+        continue;
+      }
+      const days = (now - t) / 86_400_000;
+      const idx = buckets.findIndex((b) => days <= b.max);
+      if (idx >= 0) health[idx] = { ...health[idx]!, count: health[idx]!.count + 1 };
+    }
+    health.push({ name: '从未跟进', count: never });
+
+    // 汇总
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const deal = filtered.filter(isDeal).length;
+    const matched = filtered.filter((r) => String(r['关联学生'] ?? '') !== '').length;
+    const summary = {
+      total: filtered.length,
+      monthNew: filtered.filter((r) => toEpochMsLocal(r['创建时间']) >= monthStart.getTime()).length,
+      deal,
+      dealRate: filtered.length ? (deal / filtered.length) * 100 : 0,
+      matched,
+      owners: owners.length,
+    };
+
+    const data = { summary, stage, owners, channels, components, funnels, pipeline, trend, health };
+    analyzeCache.set(cacheKey, { at: Date.now(), data });
+    return data;
   }
 
   syncStatus() {

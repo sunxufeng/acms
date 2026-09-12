@@ -661,6 +661,12 @@ export const api = {
     request<{ api_name: string; view_name: string; property_type?: number; options?: { label: string; value: string }[] }[]>(
       `/weiling/fields${refresh ? '?refresh=1' : ''}`,
     ),
+  weilingAnalyze: (params: { from?: string; to?: string; owner?: string; channel?: string; stage?: string } = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<unknown>(`/weiling/analyze${q ? `?${q}` : ''}`);
+  },
   weilingSyncStatus: () => request<{ lastSyncAt: number; count: number; syncing: boolean }>('/weiling/sync-status'),
   weilingSync: (full = true) =>
     request<{ ok: boolean; count: number; message?: string }>(`/weiling/sync${full ? '' : '?full=0'}`, { method: 'POST' }),

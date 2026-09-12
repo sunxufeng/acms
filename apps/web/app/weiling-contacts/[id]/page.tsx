@@ -42,7 +42,9 @@ export default function WeilingContactDetailPage() {
     for (const f of fields) {
       name.set(f.api_name, f.view_name);
       if (f.options?.length) {
-        opt.set(f.api_name, new Map(f.options.map((o) => [String(o.value), o.label])));
+        // ⚠️ 卫瓴枚举是 {"label":"1","value":"美国"}：**label 是数字键，value 才是显示文本**
+        // （跟直觉相反）。用反了会把枚举显示成「1」而不是「美国」。
+        opt.set(f.api_name, new Map(f.options.map((o) => [String(o.label), o.value])));
       }
     }
     return { name, opt };

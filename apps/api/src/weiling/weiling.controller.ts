@@ -31,6 +31,20 @@ export class WeilingController {
     return this.svc.syncStatus();
   }
 
+  /** 招生分析（报表用）：多维度聚合，支持按人/渠道/阶段/时间筛选 */
+  @Get('analyze')
+  analyze(
+    @Req() req: Request,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('owner') owner?: string,
+    @Query('channel') channel?: string,
+    @Query('stage') stage?: string,
+  ) {
+    WeilingController.requireRead((req as Request & { user: SessionUser }).user);
+    return this.svc.analyze({ from, to, 归属人: owner, 来源渠道: channel, 客户阶段: stage });
+  }
+
   /** 重算与 ACMS 学生档案的疑似匹配（不访问上游，只扫本地库） */
   @Post('match')
   match(@Req() req: Request) {

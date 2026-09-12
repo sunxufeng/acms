@@ -15,6 +15,7 @@ import {
 } from '../../components/reports/panels';
 import { ActivityPanel } from '../../components/reports/activity';
 import { NotesPanel } from '../../components/reports/notes';
+import { WeilingPanel } from '../../components/reports/weiling';
 
 interface ReportDef {
   key: string;
@@ -30,7 +31,7 @@ interface ReportDef {
    * - 'time'：时间类报表共用（起止日期 + 快捷区间）
    * 列表页不显示任何筛选条件（2026-09-11 调整）。
    */
-  group?: 'students' | 'time';
+  group?: 'students' | 'time' | 'weiling';
 }
 
 /** 报表清单：ready=true 的已有数据支撑，false 的等对应业务表录入后自动出图 */
@@ -39,6 +40,14 @@ const REPORTS: ReportDef[] = [
   { key: 'gradeFlow', label: '年级升级流向', desc: '入学年级与当前年级对比，看学生升级流动', dims: '条形图 · 变化表', ready: true, group: 'students' },
   { key: 'trend', label: '入学趋势', desc: '按入学年份/学期看招生规模变化', dims: '柱状图 · 导出', ready: true, group: 'students' },
   { key: 'completeness', label: '档案完整度', desc: '按字段统计缺失率，定位待补录的字段与学生', dims: '缺失排行 · 导出', ready: true, group: 'students' },
+  {
+    key: 'weiling',
+    label: '招生分析',
+    desc: '卫瓴线索多维度分析：阶段 / 归属人 / 渠道 / 活动 / 漏斗 / 趋势',
+    dims: '8 个分析区块 · 支持下钻',
+    ready: true,
+    group: 'weiling',
+  },
   { key: 'notes', label: '笔记统计', desc: '按人统计某段时间新增多少笔记、转了多少次', dims: '按人 · 来源 · 模块 · 趋势', ready: true, group: 'time' },
 { key: 'activity', label: '活跃时段', desc: '按人统计什么时间登录、什么时间有操作', dims: '人 × 小时热力 · 趋势', ready: true, group: 'time' },
   { key: 'attendance', label: '考勤分析', desc: '出勤率、迟到/请假/缺勤次数排行与趋势', source: '考勤记录表', ready: false, href: '/student-attendances' },
@@ -168,6 +177,7 @@ export default function ReportsPage() {
           {active === 'gradeFlow' ? <GradeFlow rows={rows} /> : null}
           {active === 'trend' ? <EnrollmentTrend rows={rows} /> : null}
           {active === 'completeness' ? <ProfileCompleteness rows={rows} /> : null}
+          {active === 'weiling' ? <WeilingPanel /> : null}
           {active === 'notes' ? <NotesPanel from={from} to={to} /> : null}
           {active === 'activity' ? <ActivityPanel from={from} to={to} /> : null}
           {!activeReport.ready ? (

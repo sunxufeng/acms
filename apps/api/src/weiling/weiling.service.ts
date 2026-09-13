@@ -748,10 +748,13 @@ export class WeilingService implements OnModuleInit {
         ...(token ? { pageToken: token } : {}),
       });
       for (const r of page.items ?? []) {
-        const rec = r as { id?: string; fields?: Record<string, unknown> };
+        // ⚠️ SqlStore.search 返回的记录里，id 的字段名是 **recordId**（不是 id）。
+        // 只认 `.id` 会静默拿到空串 —— 结果「关联学生ID」永远写不进去，
+        // 列表与详情页按它做的跳转全部失效（2026-09-13 实测发现）。
+        const rec = r as { id?: string; recordId?: string; fields?: Record<string, unknown> };
         const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
         out.push({
-          id: String(rec.id ?? ''),
+          id: String(rec.recordId ?? rec.id ?? ''),
           name: String(f['学生姓名'] ?? ''),
           enName: String(f['英文名'] ?? ''),
           formerName: String(f['曾用名'] ?? ''),

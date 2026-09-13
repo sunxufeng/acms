@@ -1,5 +1,6 @@
+import Link from 'next/link';
 import type { CrudColumn } from '../../components/CrudPage';
-import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
+import { STUDENT_ENGLISH_KEY, STUDENT_REF_KEY, studentHref, studentLabel } from '../../components/CrudPage';
 
 /**
  * 时间字段 → 毫秒。
@@ -53,7 +54,9 @@ export const STATUS_TEXT: Record<string, string> = { '1': '正常', '4': '其它
  */
 export const COLUMNS: CrudColumn[] = [
   // openRecord + 页面 detailHref ⇒ 点击姓名进入只读详情页
-  { key: '联系人姓名', label: '联系人', width: '180px', filter: true, filterType: 'text', openRecord: true },
+  // 筛选区不再放「联系人」（自由文本逐字筛命中率低、把筛选区撑长）；
+  // 列本身保留，点姓名进详情页；要按姓名搜用顶部搜索框（q → 后端 searchFields）。
+  { key: '联系人姓名', label: '联系人', width: '180px', openRecord: true },
   { key: '手机号', label: '手机号', width: '140px' },
   { key: '归属人', label: '归属人', width: '160px', filter: true },
   { key: '客户阶段', label: '客户阶段', width: '110px', filter: true },
@@ -145,10 +148,22 @@ export const COLUMNS: CrudColumn[] = [
       const score = Number(row['匹配置信度'] ?? 0);
       const color = score >= 90 ? '#2c6b45' : score >= 70 ? '#7a5c10' : '#6b6b66';
       const bg = score >= 90 ? '#eaf5ee' : score >= 70 ? '#fdf6e8' : '#f0efeb';
+      // 学生记录 id 两个来源，优先用后端匹配时写入的「关联学生ID」（精确）：
+      //  1. 关联学生ID —— matchStudents 按姓名/手机号匹配后写入的 student record id
+      //  2. STUDENT_REF_KEY —— CrudPage 按姓名反查注入（页面传 studentNameKeys 才会有），
+      //     兜底给「匹配 ID 还为空」的老数据/特殊行
+      // 两个都没有（学生已删除 / 档案里没有）就退化成纯文本，不做成死链。
+      const refId = String(row['关联学生ID'] ?? '') || String(row[STUDENT_REF_KEY] ?? '');
+      const label = studentLabel(name, row[STUDENT_ENGLISH_KEY]);
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {/* 英文名由 CrudPage 按学生姓名注入（页面传 studentNameKeys 才会拉这张映射表） */}
-          <span>{studentLabel(name, row[STUDENT_ENGLISH_KEY])}</span>
+          {refId ? (
+            <Link href={studentHref(refId)} className="name-link" title="查看学生基本信息">
+              {label}
+            </Link>
+          ) : (
+            <span>{label}</span>
+          )}
           <span
             title={String(row['匹配依据'] ?? '')}
             style={{ fontSize: 10, padding: '1px 5px', borderRadius: 8, background: bg, color, whiteSpace: 'nowrap' }}

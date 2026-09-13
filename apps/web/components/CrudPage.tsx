@@ -260,8 +260,24 @@ function str(v: unknown): string {
   return String(v);
 }
 
-/** 学生列英文名派生键：列表渲染前由 CrudPage 注入到行上，供各模块自定义 render 取用 */
+/**
+ * 学生列英文名派生键：列表渲染前由 CrudPage 注入到行上，供各模块自定义 render 取用。
+ * ⚠️ 一行只注入「第一个命中学生档案的列」的值 —— 若同一行有多个不同的学生字段，
+ * 只有第一个能被注入（多字段场景请用 studentIdByName 自己查，别依赖这个键）。
+ */
 export const STUDENT_ENGLISH_KEY = '__studentEnglish';
+/**
+ * 学生记录 id 派生键：与英文名一起注入。
+ *
+ * 用途：字段里存的是**学生姓名文本**（不是 student / studentLink 类型的关联 id）时，
+ * 想让这个姓名可点击跳学生详情，就需要 id —— 这里按姓名反查学生档案拿到 id 注入。
+ * 典型场景：卫瓴联系人的「疑似关联学生」是按姓名匹配出来的。
+ */
+export const STUDENT_REF_KEY = '__studentRefId';
+/** 学生基本信息页路径（与 students 列表页保持一致，避免多处硬编码） */
+export function studentHref(id: string): string {
+  return `/students/${encodeURIComponent(id)}`;
+}
 /** 学生显示名：有英文名时显示「中文名 / 英文名」，与表单下拉选项保持一致 */
 export function studentLabel(name: string, englishName?: unknown): string {
   const en = typeof englishName === 'string' ? englishName.trim() : '';
@@ -793,16 +809,25 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     [columns, studentNameKeys],
   );
   const rows = useMemo(() => {
-    if (!studentCols.length || !Object.keys(studentEnglishByName).length) return items;
+    if (!studentCols.length) return items;
+    // 英文名与记录 id 都要注入：有的学生没英文名，但「姓名可点击跳详情」依然需要 id
+    if (!Object.keys(studentEnglishByName).length && !Object.keys(studentIdByName).length) return items;
     return items.map((r) => {
       for (const k of studentCols) {
         const n = str(r[k]);
-        const en = n ? studentEnglishByName[n] : '';
-        if (en) return { ...r, [STUDENT_ENGLISH_KEY]: en };
+        if (!n) continue;
+        const en = studentEnglishByName[n] ?? '';
+        const refId = studentIdByName[n] ?? '';
+        if (!en && !refId) continue;
+        return {
+          ...r,
+          ...(en ? { [STUDENT_ENGLISH_KEY]: en } : {}),
+          ...(refId ? { [STUDENT_REF_KEY]: refId } : {}),
+        };
       }
       return r;
     });
-  }, [items, studentCols, studentEnglishByName]);
+  }, [items, studentCols, studentEnglishByName, studentIdByName]);
 
   // 卫瓴联系人候选项（招生跟进的「关联联系人」）：value=contact_id，label=姓名｜手机号。
   // 存 id 而不是姓名：联系人有重名、也会改名，存 id 由后端解析显示才不会串。

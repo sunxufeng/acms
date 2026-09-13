@@ -354,7 +354,8 @@ export class ReportsService {
     const fromMs = (query.from ? startOf(query.from) : null) ?? now - 29 * 86_400_000;
     const toMs = (query.to ? endOf(query.to) : null) ?? now;
 
-    // ⚠️ 不同数据源返回结构不一致：SqlStore 给 { id, fields }，有的路径直接给扁平对象。
+    // ⚠️ 不同数据源返回结构不一致：SqlStore 给 **{ recordId, fields }**（id 叫 recordId，
+    // 不叫 id！），有的路径直接给扁平对象。
     // 两种都兼容，取错会静默变成「取不到字段」这类最难查的问题。
     const rowsOf = (r: unknown): Record<string, unknown> =>
       (((r as { fields?: Record<string, unknown> }).fields ?? r) ?? {}) as Record<string, unknown>;

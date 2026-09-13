@@ -71,7 +71,12 @@ export class LoginLogService {
         const t = Number(f['登录时间'] ?? 0);
         if (t >= fromMs && t <= toMs) {
           out.push({
-            id: String((r as unknown as { id?: string }).id ?? ''),
+            // ⚠️ SqlStore.search 的 id 字段名是 recordId（不是 id），只认 id 会恒为空
+            id: String(
+              (r as unknown as { recordId?: string; id?: string }).recordId ??
+                (r as unknown as { id?: string }).id ??
+                '',
+            ),
             登录时间: t,
             姓名: String(f['姓名'] ?? ''),
             飞书OpenID: String(f['飞书OpenID'] ?? ''),

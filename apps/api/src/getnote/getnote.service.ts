@@ -940,7 +940,12 @@ export class GetnoteService {
       let token: string | undefined;
       for (let i = 0; i < 20; i += 1) {
         const page = await sql.search(tableId, { pageSize: 500, ...(token ? { pageToken: token } : {}) });
-        for (const r of page.items ?? []) existing.add(String((r as unknown as { id?: string }).id ?? ''));
+        for (const r of page.items ?? []) {
+          // ⚠️ 同上：search 返回的是 recordId。恒空会让「已存在走 update」永远不成立，
+          // 全部落到 createWithId（它是 upsert，所以结果仍然正确，只是绕了路）。
+          const rr = r as unknown as { recordId?: string; id?: string };
+          existing.add(String(rr.recordId ?? rr.id ?? ''));
+        }
         if (!page.hasMore || !page.pageToken) break;
         token = page.pageToken;
       }

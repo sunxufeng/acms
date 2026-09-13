@@ -500,3 +500,69 @@ AI_ROUTE_METAS.push({
   searchField: '名称',
   sortField: '更新时间',
 });
+
+/**
+ * ── 教学域配置（参照 GibbonEdu/core v31 移植，2026-09-13）─────────────
+ *
+ * 这一组是「可配置的口径」而不是硬编码枚举 —— 考勤结果、成绩等级体系、
+ * 考核类型权重全都落到表里，将来改口径不用改代码：
+ *   · 以前「出勤/迟到/早退/事假/病假/缺勤/校内活动」是写死在前端 columns.tsx 的，
+ *     现在改成考勤码表，还能用「可预填 / 计入统计」两个开关控制口径。
+ *   · 成绩等级体系（A-F / 优秀良好 / 百分制）以前也是写死的，现在可配，
+ *     并靠「序号越小越好」支持达标判定（与 Gibbon 一致）。
+ *
+ * 需要专用逻辑的部分（加权汇总、二维录入、告警重算、单元部署）不在通用 CRUD 里，
+ * 见 markbook / behaviour / curriculum 三个模块。
+ */
+export const TEACHING_CONFIG_METAS: RecordMeta[] = [
+  {
+    path: 'attendance-codes',
+    tableId: TABLES.attendanceCode.tableId,
+    readPerm: 'module:attendanceCodes:read',
+    writePerm: 'module:attendanceCodes:update',
+    // 方向（在校/不在校）是统计主判定轴；语义范围（在校/在校-迟到/离校/离校-提前）
+    // 决定出勤率口径与显示颜色。⚠️ 简写一旦被历史记录引用过就不要再改。
+    numbers: ['排序'],
+    statusField: '状态',
+    defaultStatus: '启用',
+    searchField: '名称',
+    sortField: '排序',
+  },
+  {
+    path: 'grade-scales',
+    tableId: TABLES.gradeScale.tableId,
+    // 等级体系与类型权重都算成绩册的配置，共用 markbook 权限点
+    readPerm: 'module:markbook:read',
+    writePerm: 'module:markbook:update',
+    // 「达标线」存等级序号（越小越好，1 为最好）—— 注意达标判定是「序号 ≤ 达标线」，
+    // 与直觉的「分数 ≥ 及格线」相反，前端提示里要写清楚。
+    numbers: ['排序'],
+    statusField: '状态',
+    defaultStatus: '启用',
+    searchField: '名称',
+    sortField: '排序',
+  },
+  {
+    path: 'grade-scale-levels',
+    tableId: TABLES.gradeScaleLevel.tableId,
+    readPerm: 'module:markbook:read',
+    writePerm: 'module:markbook:update',
+    numbers: ['序号'],
+    linkFields: [{ field: '所属体系', table: TABLES.gradeScale.tableId, nameField: '名称' }],
+    searchField: '显示值',
+    sortField: '序号',
+  },
+  {
+    path: 'markbook-weights',
+    tableId: TABLES.markbookWeight.tableId,
+    readPerm: 'module:markbook:read',
+    writePerm: 'module:markbook:update',
+    // 第二层权重：与成绩册列上的「列权重」相乘。
+    // ⚠️ 汇总口径是「分母 = 实际参与项的权重和」（自归一化），
+    // 不要要求各类型权重合计 100 —— 那样会在只录了部分考核时算错。
+    numbers: ['权重'],
+    linkFields: [{ field: '教学班', table: TABLES.teachingClass.tableId, nameField: '教学班名称' }],
+    searchField: '类型',
+    sortField: '更新时间',
+  },
+];

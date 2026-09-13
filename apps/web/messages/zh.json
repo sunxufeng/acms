@@ -147,7 +147,8 @@
     "后台管理": "后台管理",
     "知识库": "知识库",
     "报表管理": "报表管理",
-    "AI 路由": "AI 路由"
+    "AI 路由": "AI 路由",
+    "教学管理": "Teaching"
   },
   "nav": {
     "dashboard": "概览",
@@ -205,7 +206,13 @@
     "aiApiKeys": "API 密钥",
     "aiUsage": "用量统计",
     "aiOpLogs": "审计日志",
-    "aiProxies": "上游代理"
+    "aiProxies": "上游代理",
+    "markbook": "成绩册",
+    "learningOutcomes": "学习成果",
+    "curriculum": "课程规划",
+    "lessonPlans": "课时教案",
+    "behaviour": "行为记录",
+    "attendanceCodes": "考勤码"
   },
   "breadcrumb": {
     "dashboard": "工作台",

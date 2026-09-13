@@ -44,7 +44,13 @@ import { OpenPlatformModule } from './open-platform/open-platform.module.js';
 import { WeilingModule } from './weiling/weiling.module.js';
 import { GetnoteSourceModule } from './getnote/sources.module.js';
 import { ReportsModule } from './reports/reports.module.js';
-import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS, AI_ROUTE_METAS } from './shared/lifecycle.meta.js';
+import {
+  LIFECYCLE_METAS,
+  CONFIG_METAS,
+  AUDIT_METAS,
+  AI_ROUTE_METAS,
+  TEACHING_CONFIG_METAS,
+} from './shared/lifecycle.meta.js';
 
 @Module({
   imports: [
@@ -75,6 +81,8 @@ import { LIFECYCLE_METAS, CONFIG_METAS, AUDIT_METAS, AI_ROUTE_METAS } from './sh
     GenericCrudModule.registerAll(AUDIT_METAS),
     // AI 路由（分组/上游/模型路由/密钥/用量/操作日志）—— 自建 SQL 表
     GenericCrudModule.registerAll(AI_ROUTE_METAS),
+    // 教学域配置（考勤码 / 成绩等级体系与等级 / 考核类型权重）—— 自建 SQL 表
+    GenericCrudModule.registerAll(TEACHING_CONFIG_METAS),
     Student360Module,
     IdpModule,
     UsersModule,

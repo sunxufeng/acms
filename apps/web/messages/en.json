@@ -147,7 +147,8 @@
     "后台管理": "Administration",
     "知识库": "Knowledge Base",
     "报表管理": "Reports",
-    "AI 路由": "AI Gateway"
+    "AI 路由": "AI Gateway",
+    "教学管理": "Teaching"
   },
   "nav": {
     "dashboard": "Overview",
@@ -205,7 +206,13 @@
     "aiApiKeys": "API Keys",
     "aiUsage": "Usage",
     "aiOpLogs": "Audit Log",
-    "aiProxies": "Proxies"
+    "aiProxies": "Proxies",
+    "markbook": "Markbook",
+    "learningOutcomes": "Outcomes",
+    "curriculum": "Curriculum",
+    "lessonPlans": "Lesson Plans",
+    "behaviour": "Behaviour",
+    "attendanceCodes": "Attendance Codes"
   },
   "breadcrumb": {
     "dashboard": "Workspace",

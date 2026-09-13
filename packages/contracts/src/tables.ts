@@ -115,6 +115,64 @@ export const TABLES = {
   aiOpLog: { tableId: 'tblairop000000001', name: 'AI路由操作日志表' },
   /** AI 上游代理：国内访问境外 API 时用（协议/主机/端口/账密 + 到期自动切备用） */
   aiProxy: { tableId: 'tblairproxy000001', name: 'AI上游代理表' },
+
+  // ══ 教学域（参照 GibbonEdu/core v31 移植，2026-09-13）══════════════
+  // 四块：考勤补齐 / 成绩册 / 行为记录 / 课程规划与备课。
+  // 全部自建 SQL 表，启动期由各模块 onModuleInit 幂等建表。
+
+  // ── 考勤：把硬编码在前端的「考勤结果」升级为可配置的码表 ──────────
+  /**
+   * 考勤码：`方向`（在校/不在校）是统计主判定轴，`语义范围`（在校/在校-迟到/
+   * 离校/离校-提前）决定出勤率口径与显示颜色；`可预填`决定能否被上学期末的
+   * 状态自动带入下一节课。⚠️ 改码会污染历史统计，码值（简写）一旦用过不要改。
+   */
+  attendanceCode: { tableId: 'tblattcode0000001', name: '考勤码表' },
+
+  // ── 成绩册（Markbook 口径）────────────────────────────────────────
+  /** 成绩等级体系（如「百分制」「A-F」「优秀/良好/合格」），`达标线`指等级序号 */
+  gradeScale: { tableId: 'tblgscale00000001', name: '成绩等级体系表' },
+  /** 等级：序号越小越好（1=最好，与 Gibbon 一致），达标判定靠它而非数值 */
+  gradeScaleLevel: { tableId: 'tblglevel00000001', name: '成绩等级表' },
+  /** 成绩册列：一列 = 一次考核。班级维度的列定义，含权重、可见性、完成闸门 */
+  markbookColumn: { tableId: 'tblmbcol000000001', name: '成绩册列表' },
+  /** 成绩册条目：一列 × 一个学生。存值 + 写入时的等级描述快照（等级改名不篡改历史） */
+  markbookEntry: { tableId: 'tblmbentry0000001', name: '成绩册条目表' },
+  /** 类型权重：按「考核类型」给权重，与列级权重相乘（两层权重） */
+  markbookWeight: { tableId: 'tblmbweight000001', name: '成绩类型权重表' },
+  /** 个人目标：某班某生的目标等级，用于「低于个人目标」提醒 */
+  markbookTarget: { tableId: 'tblmbtarget000001', name: '成绩个人目标表' },
+
+  // ── 行为记录（奖惩/表现）──────────────────────────────────────────
+  /** 行为记录：一个学生一条；多学生同一次事件用「批次号」关联 */
+  behaviourRecord: { tableId: 'tblbhvrec00000001', name: '行为记录表' },
+  /** 跟进流水：对某条行为的后续处理记录（可多条） */
+  behaviourFollowUp: { tableId: 'tblbhvfollow00001', name: '行为跟进表' },
+  /** 家长通知信件：按阈值生成，`创建时计数`用于去重（同一档不重复发） */
+  behaviourLetter: { tableId: 'tblbhvletter00001', name: '行为通知信件表' },
+  /** 学生告警：行为的派生结果（写入后重算，可删可重建），含阈值等级 */
+  studentAlert: { tableId: 'tblalert000000001', name: '学生告警表' },
+
+  // ── 课程规划与教师备课（Planner 口径）────────────────────────────~
+  /** 单元母版：挂在「课程方案」上（不是班级），可复用/复制到其它课程与学年 */
+  curriculumUnit: { tableId: 'tblunit0000000001', name: '课程单元表' },
+  /** 单元块：单元内的环节（导入/讲解/练习…），类型是自由文本 */
+  curriculumUnitBlock: { tableId: 'tblunitblock0001', name: '单元环节表' },
+  /** 单元×教学班：单元在某班开课（`进行中` 是覆盖率统计的过滤条件） */
+  curriculumUnitClass: { tableId: 'tblunitclass0001', name: '单元开课表' },
+  /** 部署后的环节：部署到班级时生成，必须挂到一节课上 */
+  unitClassBlock: { tableId: 'tblucblock0000001', name: '单元开课环节表' },
+  /** 学习成果（Outcomes）：`范围`=全校（按年级）或学习领域（按部门） */
+  learningOutcome: { tableId: 'tbloutcome0000001', name: '学习成果表' },
+  /** 单元挂成果（可对成果文本做单元内改写） */
+  unitOutcome: { tableId: 'tblunitoutcome001', name: '单元成果关联表' },
+  /** 课时：挂在现有「课次」上（沿用课表），承载教案与可见性开关 */
+  lessonEntry: { tableId: 'tbllesson0000001', name: '课时教案表' },
+  /** 课时挂成果 */
+  lessonOutcome: { tableId: 'tbllessonoutcome1', name: '课时成果关联表' },
+  /** 作业提交：每次提交一个版本（草稿/最终），迟交由服务端二次核算 */
+  homeworkSubmission: { tableId: 'tblhwsubmit000001', name: '作业提交表' },
+  /** 作业完成打勾：教师侧只记完成与否，不含分数 */
+  homeworkTracker: { tableId: 'tblhwtracker00001', name: '作业完成追踪表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

@@ -125,6 +125,16 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'aiUsage', label: 'AI 用量明细', path: '/ai-usage', legacyRead: null, legacyWrite: null, menuPermission: null, actions: READ, genericCrud: true },
   { key: 'aiOpLogs', label: 'AI 路由操作日志', path: '/ai-op-logs', legacyRead: null, legacyWrite: null, menuPermission: null, actions: READ, genericCrud: true },
   { key: 'aiProxies', label: 'AI 上游代理', path: '/ai-proxies', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+
+  // ── 教学域（参照 Gibbon v31 移植，2026-09-13）──────────────────────
+  // 粒度按「一个菜单一项权限」：成绩册把等级体系/类型权重/列/条目/目标收在一个模块下，
+  // 行为记录把设置/记录/跟进/告警/信件收在一个模块下，避免权限矩阵爆炸。
+  { key: 'attendanceCodes', label: '考勤码', path: '/attendance-codes', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'markbook', label: '成绩册', path: '/markbook', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'behaviour', label: '行为记录', path: '/behaviour', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'curriculum', label: '课程规划', path: '/curriculum', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'lessonPlan', label: '课时教案', path: '/lesson-plans', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'learningOutcomes', label: '学习成果', path: '/learning-outcomes', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
 ];
 
 /** 返回值是 Permission 的子类型，供现有 authorize/hasPermission 直接使用。 */

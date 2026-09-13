@@ -281,6 +281,7 @@ export const SECTION_EN_LABELS: Record<string, string> = {
   邮件归档: 'Mail Archive',
   知识库: 'Knowledge Base',
   报表管理: 'Reports',
+  教学管理: 'Teaching',
   组织管理: 'Organization',
   'AI 路由': 'AI Gateway',
 };
@@ -307,6 +308,16 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'idpPlans', label: 'IDP管理', enLabel: 'IDP Plans', href: '/idp-plans', icon: 'target', section: '学生闭环', order: 75, perm: 'idp:read' },
     { key: 'stageEvaluations', label: '阶段评价', enLabel: 'Stage Evaluations', href: '/stage-evaluations', icon: 'students', section: '学生闭环', order: 80, perm: 'evaluation:read' },
     { key: 'alumniFollowups', label: '校友跟进', enLabel: 'Alumni Follow-ups', href: '/alumni-followups', icon: 'students', section: '学生闭环', order: 90, perm: 'alumni:read' },
+
+    // ── 教学管理（参照 GibbonEdu/core v31 移植，2026-09-13）──────────────
+    // perm 留空：这些模块没有历史遗留权限点，访问控制走「模块×动作」矩阵里的
+    // module:markbook / module:behaviour 等（与 AI 路由那组一致）。
+    { key: 'markbook', label: '成绩册', enLabel: 'Markbook', href: '/markbook', icon: 'target', section: '教学管理', order: 10, perm: '' },
+    { key: 'learningOutcomes', label: '学习成果', enLabel: 'Outcomes', href: '/learning-outcomes', icon: 'award', section: '教学管理', order: 20, perm: '' },
+    { key: 'curriculum', label: '课程规划', enLabel: 'Curriculum', href: '/curriculum', icon: 'book', section: '教学管理', order: 30, perm: '' },
+    { key: 'lessonPlans', label: '课时教案', enLabel: 'Lesson Plans', href: '/lesson-plans', icon: 'list', section: '教学管理', order: 40, perm: '' },
+    { key: 'behaviour', label: '行为记录', enLabel: 'Behaviour', href: '/behaviour', icon: 'flag', section: '教学管理', order: 50, perm: '' },
+    { key: 'attendanceCodes', label: '考勤码', enLabel: 'Attendance Codes', href: '/attendance-codes', icon: 'check', section: '教学管理', order: 90, perm: '' },
 
     { key: 'reports', label: '报表管理', enLabel: 'Reports', href: '/reports', icon: 'reports', section: '报表管理', order: 10, perm: 'report:read' },
 

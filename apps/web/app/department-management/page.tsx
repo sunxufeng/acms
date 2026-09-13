@@ -1,8 +1,29 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, type DepartmentListResult, type DepartmentNode, type DepartmentSyncProgress } from '../../lib/api';
+import {
+  api,
+  type DepartmentListResult,
+  type DepartmentMemberResult,
+  type DepartmentNode,
+  type DepartmentStatus,
+  type DepartmentSyncProgress,
+} from '../../lib/api';
 import { useTranslations } from 'next-intl';
+
+/**
+ * 部门管理（组织管理）。
+ *
+ * 2026-09-13 改造（用户反馈）：
+ * 1. 页面此前是自绘 Tailwind 树、与全站风格不一致 → 全面改用标准类
+ *    （.page-content / .page-header / .card / .form-input / .data-table / .empty-state）。
+ * 2. 树最上层「公司」（根部门）不显示 → 根因在后端：飞书部门列表接口
+ *    （parent_department_id=0&fetch_child=true）只返回**根的子孙**、不含根自身，
+ *    一级部门的 parent='0' 在集合里找不到，全被当成了并列的根。
+ *    现在同步时补一条 id='0'、parent='' 的根部门记录，这里照常建树即可。
+ * 3. 点击部门看不到员工 → 新增「部门成员」快照表 + GET /departments/:id/members，
+ *    右侧展示该部门员工（默认含子部门，因为飞书只给直属成员）。
+ */
 
 /** 提示条：同步进度三态（running / ok / error） */
 function Banner({
@@ -14,36 +35,25 @@ function Banner({
   title: string;
   detail?: string;
 }) {
-  const color = tone === 'running' ? 'var(--accent)' : tone === 'error' ? 'var(--danger)' : 'var(--success)';
-  const bg =
-    tone === 'running' ? 'var(--accent-muted)' : tone === 'error' ? 'var(--danger-muted)' : 'var(--success-muted)';
+  const cls = tone === 'running' ? 'notice notice-info' : tone === 'error' ? 'notice notice-error' : 'notice notice-ok';
   return (
-    <div
-      className="mb-4 rounded-lg border px-4 py-3 text-sm"
-      style={{ borderColor: color, background: bg, color: 'var(--fg)' }}
-    >
-      <div className="font-medium">{title}</div>
-      {detail && <div className="mt-1 text-xs" style={{ color: 'var(--fg-tertiary)' }}>{detail}</div>}
+    <div className={cls}>
+      <div className="notice-title">{title}</div>
+      {detail && <div className="notice-detail">{detail}</div>}
     </div>
   );
 }
 
-/** 状态徽标 */
-function StatusBadge({ status, t }: { status: DepartmentNode['status']; t: (k: string, v?: Record<string, string | number>) => string }) {
-  if (status === 'disabled') {
-    return (
-      <span className="ml-2 rounded px-1.5 py-0.5 text-xs" style={{ background: 'var(--warning-muted)', color: 'var(--warning)' }}>
-        {t('statusDisabled')}
-      </span>
-    );
-  }
-  if (status === 'invalid') {
-    return (
-      <span className="ml-2 rounded px-1.5 py-0.5 text-xs" style={{ background: 'var(--danger-muted)', color: 'var(--danger)' }}>
-        {t('statusInvalid')}
-      </span>
-    );
-  }
+/** 部门状态徽标（停用/已删除才显示，正常不打标） */
+function StatusBadge({
+  status,
+  t,
+}: {
+  status: DepartmentStatus;
+  t: (k: string, v?: Record<string, string | number>) => string;
+}) {
+  if (status === 'disabled') return <span className="dept-status dept-status-inactive">{t('statusDisabled')}</span>;
+  if (status === 'invalid') return <span className="dept-status dept-status-resigned">{t('statusInvalid')}</span>;
   return null;
 }
 
@@ -62,6 +72,12 @@ export default function DepartmentManagementPage() {
   const [query, setQuery] = useState('');
   const [sync, setSync] = useState<DepartmentSyncProgress | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /** 当前选中的部门（右侧员工列表据此加载） */
+  const [selectedId, setSelectedId] = useState('');
+  /** 是否含子部门 —— 默认开：飞书按部门取人只给直属成员，不含下级的话点「公司」永远是空的 */
+  const [includeSub, setIncludeSub] = useState(true);
+  const [members, setMembers] = useState<DepartmentMemberResult | null>(null);
+  const [memberLoading, setMemberLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -77,7 +93,7 @@ export default function DepartmentManagementPage() {
     try {
       const r = await api.listDepartments();
       setData(r);
-      // 默认展开全部
+      // 默认展开全部（部门层级不深，全展开比逐层点开好用）
       setExpanded(new Set(r.items.map((n) => n.open_department_id)));
     } finally {
       setLoading(false);
@@ -111,8 +127,8 @@ export default function DepartmentManagementPage() {
     }, 2000);
   }, [stopPolling, reload]);
 
-  // 构建树：过滤掉 status='invalid'（已删除不展示），按 parent 分组，根节点 = parent 为空或父不在集合内
-  const { roots, childrenMap, depthOf } = useMemo(() => {
+  // 构建树：过滤掉 status='invalid'（已删除不展示），按 parent 分组，根节点 = 无父或父不在集合内
+  const { roots, childrenMap, depthOf, validCount } = useMemo(() => {
     const valid = (data?.items ?? []).filter((n) => n.status !== 'invalid');
     const byId = new Map(valid.map((n) => [n.open_department_id, n]));
     const cMap = new Map<string, DepartmentNode[]>();
@@ -128,15 +144,47 @@ export default function DepartmentManagementPage() {
     const sortByOrder = (arr: DepartmentNode[]) => arr.sort((a, b) => b.order - a.order);
     sortByOrder(rootNodes);
     for (const arr of cMap.values()) sortByOrder(arr);
-    // 计算深度（用于搜索时扁平展示缩进）
+    // 深度（搜索平铺时用于缩进）
     const depth: Record<string, number> = {};
     const walk = (n: DepartmentNode, d: number) => {
       depth[n.open_department_id] = d;
       for (const c of cMap.get(n.open_department_id) ?? []) walk(c, d + 1);
     };
     for (const r of rootNodes) walk(r, 0);
-    return { roots: rootNodes, childrenMap: cMap, depthOf: depth };
+    return { roots: rootNodes, childrenMap: cMap, depthOf: depth, validCount: valid.length };
   }, [data]);
+
+  /** 数据变化后决定默认选中：优先根部门（id='0' = 公司），否则第一个根 */
+  useEffect(() => {
+    if (!data) return;
+    setSelectedId((cur) => {
+      const valid = data.items.filter((n) => n.status !== 'invalid');
+      if (cur && valid.some((n) => n.open_department_id === cur)) return cur;
+      const root =
+        valid.find((n) => n.open_department_id === '0') ||
+        valid.find((n) => !n.parent_department_id || !valid.some((m) => m.open_department_id === n.parent_department_id));
+      return root ? root.open_department_id : '';
+    });
+  }, [data]);
+
+  const loadMembers = useCallback(async (id: string, sub: boolean) => {
+    if (!id) {
+      setMembers(null);
+      return;
+    }
+    setMemberLoading(true);
+    try {
+      setMembers(await api.listDepartmentMembers(id, sub));
+    } catch {
+      setMembers(null);
+    } finally {
+      setMemberLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMembers(selectedId, includeSub);
+  }, [selectedId, includeSub, loadMembers]);
 
   const hasQuery = query.trim().length > 0;
   const matched = useMemo(() => {
@@ -156,31 +204,35 @@ export default function DepartmentManagementPage() {
     });
   };
 
+  const selectedNode = useMemo(
+    () => (data?.items ?? []).find((n) => n.open_department_id === selectedId) ?? null,
+    [data, selectedId],
+  );
+
   const renderNode = (n: DepartmentNode, depth: number): ReactNode => {
     const kids = childrenMap.get(n.open_department_id) ?? [];
     const isOpen = expanded.has(n.open_department_id);
+    const active = selectedId === n.open_department_id;
     return (
       <div key={n.open_department_id}>
-        <div
-          className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-[var(--bg-subtle)]"
-          style={{ paddingLeft: depth * 18 + 8 }}
-        >
+        <div className={`dept-row${active ? ' dept-row-active' : ''}`} style={{ paddingLeft: depth * 14 + 6 }}>
           {kids.length > 0 ? (
             <button
+              type="button"
+              className="dept-caret"
               onClick={() => toggle(n.open_department_id)}
-              className="w-4 shrink-0 text-xs text-[var(--fg-tertiary)]"
-              aria-label={isOpen ? 'collapse' : 'expand'}
+              aria-label={isOpen ? t('collapseAll') : t('expandAll')}
             >
               {isOpen ? '▾' : '▸'}
             </button>
           ) : (
-            <span className="w-4 shrink-0" />
+            <span className="dept-caret" />
           )}
-          <span className="font-medium">{n.name}</span>
-          <StatusBadge status={n.status} t={t} />
-          <span className="ml-auto text-xs" style={{ color: 'var(--fg-tertiary)' }}>
-            {t('memberCount', { count: n.member_count })}
-          </span>
+          <button type="button" className="dept-name" onClick={() => setSelectedId(n.open_department_id)} title={n.name}>
+            <span className="dept-name-text">{n.name}</span>
+            <StatusBadge status={n.status} t={t} />
+          </button>
+          <span className="dept-count">{n.member_count}</span>
         </div>
         {isOpen && kids.map((c) => renderNode(c, depth + 1))}
       </div>
@@ -188,93 +240,175 @@ export default function DepartmentManagementPage() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6">
-      <div className="mb-1 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">{t('title')}</h1>
-          <p className="text-sm" style={{ color: 'var(--fg-tertiary)' }}>{t('subtitle')}</p>
+    <div className="page">
+      <div className="page-content">
+        <div className="page-header page-header-row">
+          <div>
+            <div className="page-eyebrow">{t('eyebrow')}</div>
+            <h1 className="page-title">{t('title')}</h1>
+            <p className="page-subtitle">{t('subtitle')}</p>
+          </div>
+          <div className="page-header-actions">
+            <button className="btn btn-primary" onClick={() => void startSync()} disabled={sync?.running}>
+              {sync?.running ? t('syncing') : t('syncNow')}
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => void startSync()}
-          disabled={sync?.running}
-          className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          style={{ background: 'var(--accent)' }}
-        >
-          {sync?.running ? t('syncing') : t('syncNow')}
-        </button>
-      </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-3 text-xs" style={{ color: 'var(--fg-tertiary)' }}>
-        <span>
-          {data ? t('total', { count: data.items.filter((n) => n.status !== 'invalid').length }) : ''}
-        </span>
-        <span>
-          {data?.lastSyncedAt
-            ? t('lastSynced', { time: fmtTime(data.lastSyncedAt) })
-            : t('neverSynced')}
-        </span>
-        {!hasQuery && (
-          <span className="ml-auto flex gap-2">
-            <button className="hover:underline" onClick={() => setExpanded(new Set((data?.items ?? []).map((n) => n.open_department_id)))}>
-              {t('expandAll')}
-            </button>
-            <button className="hover:underline" onClick={() => setExpanded(new Set())}>
-              {t('collapseAll')}
-            </button>
+        {sync && (
+          <Banner
+            tone={sync.running ? 'running' : sync.error ? 'error' : 'ok'}
+            title={sync.running ? t('syncing') : sync.error ? t('syncFailed') : t('syncDone')}
+            detail={
+              sync.error
+                ? t('syncError', { msg: sync.error })
+                : sync.result || (sync.running ? `已处理 ${sync.stored} / 拉取 ${sync.fetched}` : '')
+            }
+          />
+        )}
+
+        <div className="dept-meta-line">
+          <span>{data ? t('total', { count: validCount }) : ''}</span>
+          <span>
+            {data?.lastSyncedAt ? t('lastSynced', { time: fmtTime(data.lastSyncedAt) }) : t('neverSynced')}
           </span>
-        )}
-      </div>
+          <span className="dept-meta-hint">{t('readOnlyHint')}</span>
+        </div>
 
-      {sync && (
-        <Banner
-          tone={sync.running ? 'running' : sync.error ? 'error' : 'ok'}
-          title={sync.running ? t('syncing') : sync.error ? t('syncFailed') : t('syncDone')}
-          detail={
-            sync.error
-              ? t('syncError', { msg: sync.error })
-              : sync.result || (sync.running ? `已处理 ${sync.stored} / 拉取 ${sync.fetched}` : '')
-          }
-        />
-      )}
-
-      <div className="mb-4 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: 'var(--border)', background: 'var(--bg-subtle)', color: 'var(--fg-tertiary)' }}>
-        {t('readOnlyHint')}
-      </div>
-
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder={t('searchPlaceholder')}
-        className="mb-3 w-full rounded-md border px-3 py-2 text-sm"
-        style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--fg)' }}
-      />
-
-      <div className="rounded-lg border" style={{ borderColor: 'var(--border)' }}>
-        {loading && !data ? (
-          <div className="p-6 text-center text-sm" style={{ color: 'var(--fg-tertiary)' }}>…</div>
-        ) : hasQuery ? (
-          matched.length === 0 ? (
-            <div className="p-6 text-center text-sm" style={{ color: 'var(--fg-tertiary)' }}>{t('empty')}</div>
-          ) : (
-            matched.map((n) => (
-              <div
-                key={n.open_department_id}
-                className="flex items-center gap-2 rounded px-2 py-1.5"
-                style={{ paddingLeft: (depthOf[n.open_department_id] ?? 0) * 18 + 8 }}
-              >
-                <span className="font-medium">{n.name}</span>
-                <StatusBadge status={n.status} t={t} />
-                <span className="ml-auto text-xs" style={{ color: 'var(--fg-tertiary)' }}>
-                  {t('memberCount', { count: n.member_count })}
-                </span>
+        <div className="dept-layout">
+          <div className="card dept-tree-card">
+            <div className="dept-card-head">
+              <span className="dept-card-title">{t('treeTitle')}</span>
+              <span className="dept-card-meta">
+                {t('expandAll')} / {t('collapseAll')}
+              </span>
+            </div>
+            <div className="dept-tree-tools">
+              <input
+                className="form-input"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t('searchPlaceholder')}
+              />
+              <div className="dept-tree-ops">
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => setExpanded(new Set((data?.items ?? []).map((n) => n.open_department_id)))}
+                >
+                  {t('expandAll')}
+                </button>
+                <button type="button" className="link-btn" onClick={() => setExpanded(new Set())}>
+                  {t('collapseAll')}
+                </button>
               </div>
-            ))
-          )
-        ) : roots.length === 0 ? (
-          <div className="p-6 text-center text-sm" style={{ color: 'var(--fg-tertiary)' }}>{t('empty')}</div>
-        ) : (
-          roots.map((r) => renderNode(r, 0))
-        )}
+            </div>
+            <div className="dept-tree">
+              {loading && !data ? (
+                <div className="dept-loading">…</div>
+              ) : hasQuery ? (
+                matched.length === 0 ? (
+                  <div className="dept-loading">{t('empty')}</div>
+                ) : (
+                  matched.map((n) => (
+                    <div
+                      key={n.open_department_id}
+                      className={`dept-row${selectedId === n.open_department_id ? ' dept-row-active' : ''}`}
+                      style={{ paddingLeft: (depthOf[n.open_department_id] ?? 0) * 14 + 6 }}
+                    >
+                      <span className="dept-caret" />
+                      <button
+                        type="button"
+                        className="dept-name"
+                        onClick={() => setSelectedId(n.open_department_id)}
+                        title={n.name}
+                      >
+                        <span className="dept-name-text">{n.name}</span>
+                        <StatusBadge status={n.status} t={t} />
+                      </button>
+                      <span className="dept-count">{n.member_count}</span>
+                    </div>
+                  ))
+                )
+              ) : roots.length === 0 ? (
+                <div className="dept-loading">{t('empty')}</div>
+              ) : (
+                roots.map((r) => renderNode(r, 0))
+              )}
+            </div>
+          </div>
+
+          <div className="card dept-main-card">
+            <div className="dept-card-head">
+              <span className="dept-card-title">{selectedNode ? selectedNode.name : t('pickDept')}</span>
+              <label className="dept-sub-toggle">
+                <input type="checkbox" checked={includeSub} onChange={(e) => setIncludeSub(e.target.checked)} />
+                <span>{t('includeSub')}</span>
+              </label>
+              <span className="dept-card-meta">
+                {members ? t('employeeCount', { count: members.total }) : ''}
+                {members?.synced_at ? ` · ${t('memberSyncedAt', { time: fmtTime(members.synced_at) })}` : ''}
+              </span>
+            </div>
+
+            {!selectedId ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">🏢</div>
+                <div className="empty-state-text">{t('pickDept')}</div>
+              </div>
+            ) : memberLoading ? (
+              <div className="dept-loading">{t('loading')}</div>
+            ) : !members || members.items.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">👥</div>
+                <div className="empty-state-text">{t('employeeEmpty')}</div>
+                <div className="empty-state-text">{t('memberSyncHint')}</div>
+              </div>
+            ) : (
+              <div className="data-table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>{t('colName')}</th>
+                      <th>{t('colUserId')}</th>
+                      <th>{t('colDept')}</th>
+                      <th>{t('colStatus')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {members.items.map((m) => (
+                      <tr key={`${m.open_department_id}__${m.open_id}`}>
+                        <td>
+                          <div className="dept-emp-name">{m.name}</div>
+                          {m.en_name ? <div className="dept-emp-sub">{m.en_name}</div> : null}
+                        </td>
+                        <td>{m.user_id || '—'}</td>
+                        <td>{m.department_name || '—'}</td>
+                        <td>
+                          <span
+                            className={
+                              m.status === 'resigned'
+                                ? 'dept-status dept-status-resigned'
+                                : m.status === 'inactive'
+                                  ? 'dept-status dept-status-inactive'
+                                  : 'dept-status dept-status-ok'
+                            }
+                          >
+                            {m.status === 'resigned'
+                              ? t('statusResigned')
+                              : m.status === 'inactive'
+                                ? t('statusInactive')
+                                : t('empActive')}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

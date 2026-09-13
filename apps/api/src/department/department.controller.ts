@@ -1,4 +1,4 @@
-import { Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { SessionGuard } from '../auth/session.guard.js';
 import { DepartmentService } from './department.service.js';
 
@@ -30,5 +30,15 @@ export class DepartmentController {
   @Get('sync-status')
   syncStatus() {
     return this.svc.getSyncStatus();
+  }
+
+  /**
+   * 某部门下的员工（读本地成员快照，不打上游）。
+   * includeSub 默认 **true**：飞书的按部门取人只给直属成员，
+   * 不含下级的话点「公司」/中间层部门永远是空的。传 0 只看直属。
+   */
+  @Get(':id/members')
+  members(@Param('id') id: string, @Query('includeSub') includeSub?: string) {
+    return this.svc.listMembers(id, includeSub !== '0' && includeSub !== 'false');
   }
 }

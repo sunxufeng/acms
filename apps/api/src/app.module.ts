@@ -51,6 +51,14 @@ import {
   AI_ROUTE_METAS,
   TEACHING_CONFIG_METAS,
 } from './shared/lifecycle.meta.js';
+// 教学域三块专用模块（2026-09-13 参照 GibbonEdu/core v31 移植）：
+// 成绩册（加权汇总 + 二维录入）、课程规划（单元部署 + 作业）、行为记录（告警重算 + 信件）
+import { MARKBOOK_METAS } from './markbook/markbook.meta.js';
+import { MarkbookModule } from './markbook/markbook.module.js';
+import { CURRICULUM_METAS } from './curriculum/curriculum.meta.js';
+import { CurriculumModule } from './curriculum/curriculum.module.js';
+import { BEHAVIOUR_METAS } from './behaviour/behaviour.meta.js';
+import { BehaviourModule } from './behaviour/behaviour.module.js';
 
 @Module({
   imports: [
@@ -83,6 +91,10 @@ import {
     GenericCrudModule.registerAll(AI_ROUTE_METAS),
     // 教学域配置（考勤码 / 成绩等级体系与等级 / 考核类型权重）—— 自建 SQL 表
     GenericCrudModule.registerAll(TEACHING_CONFIG_METAS),
+    // 教学域三块主体表（成绩册列/条目/目标、课程规划 10 张、行为跟进/告警/信件）—— 自建 SQL 表
+    GenericCrudModule.registerAll(MARKBOOK_METAS),
+    GenericCrudModule.registerAll(CURRICULUM_METAS),
+    GenericCrudModule.registerAll(BEHAVIOUR_METAS),
     Student360Module,
     IdpModule,
     UsersModule,
@@ -104,6 +116,10 @@ import {
     DepartmentModule,
     MeetingMinutesModule,
     SystemMonitorModule,
+    // 教学域三块（专用逻辑 + 建表）
+    MarkbookModule,
+    CurriculumModule,
+    BehaviourModule,
   ],
 })
 export class AppModule {}

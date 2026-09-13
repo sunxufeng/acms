@@ -45,3 +45,41 @@ export interface DepartmentSyncProgress {
   error?: string;
   result?: string;
 }
+
+/**
+ * 部门成员（「点部门看员工」用的直属成员快照）。
+ *
+ * 数据来源：飞书 contact v3 `users/find_by_department`，随部门同步一起落本地
+ * 表 t_tbldeptmem000001（记录 id = `${部门ID}__${成员 open_id}`），点开即出、不打上游。
+ *
+ * ⚠️ 只存**直属**成员：该接口不含子部门成员。含下级展开由后端按部门树递归子树后过滤，
+ *    所以同一个人可能出现在多条记录里（他在多个部门时飞书本来就如此）。
+ */
+export interface DepartmentMember {
+  open_id: string;
+  name: string;
+  en_name: string;
+  /** 职务（飞书 job_title）—— ⚠️ 实测 find_by_department 不返回该字段，通常为空 */
+  job_title: string;
+  /** 工号（飞书 employee_no）—— ⚠️ 实测不返回，通常为空 */
+  employee_no: string;
+  /** 飞书 user_id（企业内成员编号，可作为「用户ID」展示） */
+  user_id: string;
+  avatar: string;
+  /** 其**直属**部门 ID（含下级展开时用于区分同一个人来自哪个部门） */
+  open_department_id: string;
+  /** 其直属部门名（前端展示用，避免再查一次部门表） */
+  department_name: string;
+  /** active 在职 / resigned 已离职 / inactive 未激活 */
+  status: 'active' | 'resigned' | 'inactive';
+  synced_at: number;
+}
+
+export interface DepartmentMemberResult {
+  items: DepartmentMember[];
+  total: number;
+  /** 命中的部门 ID 集合（含下级展开时有多个），供前端提示口径 */
+  department_ids: string[];
+  /** 这份快照的同步时间（取最大值），为 0 表示还没同步过成员 */
+  synced_at: number;
+}

@@ -1288,6 +1288,101 @@ export const api = {
   /** 立即同步飞书部门：异步触发，立刻返回当前进度；之后轮询 sync-status */
   syncDepartments: () => request<DepartmentSyncProgress>('/departments/sync', { method: 'POST' }),
   getDepartmentSyncStatus: () => request<DepartmentSyncProgress>('/departments/sync-status'),
+  /** 某部门下的员工（读本地快照）。includeSub 默认 true=含子部门 */
+  listDepartmentMembers: (id: string, includeSub = true) =>
+    request<DepartmentMemberResult>(
+      `/departments/${encodeURIComponent(id)}/members${includeSub ? '' : '?includeSub=0'}`,
+    ),
+
+  // ── 成绩册（Markbook，2026-09-13 参照 Gibbon 移植）────────────────────
+  /** 可选班级（学生档案「当前班级」聚合） */
+  markbookClasses: () => request<MarkbookClassOption[]>('/markbook/classes'),
+  /** 整个班级的成绩册网格（列 × 学生 + 单元格 + 加权总评） */
+  markbookGrid: (cls: string) => request<MarkbookGrid>(`/markbook/grid?cls=${encodeURIComponent(cls)}`),
+  /** 批量保存单元格（score 传空 = 删除该条目） */
+  markbookSaveEntries: (cls: string, rows: MarkbookSaveRow[]) =>
+    request<{ saved: number; removed: number; skipped: number }>('/markbook/entries/save', {
+      method: 'POST',
+      body: JSON.stringify({ cls, rows }),
+    }),
+  /** 用当前等级体系与目标重算既有条目的快照 */
+  markbookRecalc: (cls: string) =>
+    request<{ scanned: number; updated: number }>('/markbook/recalc', {
+      method: 'POST',
+      body: JSON.stringify({ cls }),
+    }),
+  /** 新建 / 更新一列 */
+  markbookSaveColumn: (payload: MarkbookColumnPayload) =>
+    request<{ id: string }>('/markbook/columns', { method: 'POST', body: JSON.stringify(payload) }),
+  /** 删除一列（连同其条目） */
+  markbookDeleteColumn: (id: string) =>
+    request<{ removedEntries: number }>(`/markbook/columns/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // ── 课程规划 / 学习成果 / 课时教案（教学域第四块，参照 Gibbon v31 的 Planner）────
+  // 这 10 张表全部由后端 generic-crud 承载，端点形状完全一致
+  // （GET / | POST / | PUT /:id | DELETE /:id | POST /:id/transition），
+  // 因此用文件末尾的 crud() 工厂统一生成，不再逐个手写 40 个方法。
+  // 调用示例：api.curriculumUnits.list({ pageSize: '100' })
+  curriculumUnits: crud('curriculum/units'),
+  curriculumUnitBlocks: crud('curriculum/unit-blocks'),
+  curriculumUnitClasses: crud('curriculum/unit-classes'),
+  curriculumUnitClassBlocks: crud('curriculum/unit-class-blocks'),
+  curriculumUnitOutcomes: crud('curriculum/unit-outcomes'),
+  learningOutcomes: crud('learning-outcomes/outcomes'),
+  lessonEntries: crud('lesson-plans/lessons'),
+  lessonOutcomes: crud('lesson-plans/lesson-outcomes'),
+  homeworkSubmissions: crud('lesson-plans/homework-submissions'),
+  homeworkTrackers: crud('lesson-plans/homework-tracker'),
+
+  /**
+   * 部署环节到课次：把该「单元开课」所属单元的全部环节，按顺序落到该教学班的课次上。
+   * replaceExisting 默认 true（先清掉已生成的部署记录再重建）；传 false 只补没部署过的环节。
+   */
+  deployUnitClass: (id: string, opts: { replaceExisting?: boolean } = {}) =>
+    request<DeployUnitClassResult>(`/curriculum/unit-classes/${encodeURIComponent(id)}/deploy`, {
+      method: 'POST',
+      body: JSON.stringify({ replaceExisting: opts.replaceExisting }),
+    }),
+  /** 课程规划覆盖率：按教学班汇总单元数 / 状态分布 / 环节部署数与部署到课次的占比 */
+  getCurriculumCoverage: (params: { 课程方案?: string; 学年?: string; 教学班?: string } = {}) =>
+    request<CurriculumCoverageResult>(`/curriculum/coverage${qs(params)}`),
+  /** 重算作业迟交（是否迟交 / 迟交分钟数）。dryRun=true 只回结果不写库 */
+  recomputeHomeworkLate: (body: { ids?: string[]; 教学班?: string; dryRun?: boolean } = {}) =>
+    request<RecomputeLateResult>('/lesson-plans/homework-submissions/recompute-late', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  // ── 行为记录（教学域第三块，参照 GibbonEdu/core v31 的 Behaviour）──────────
+  // 记录 / 跟进流水 / 告警 / 信件四个资源的端点形状一致（GET / | POST / | PUT /:id |
+  // DELETE /:id | POST /:id/transition），用文件末尾的 crud() 工厂统一生成。
+  // 调用示例：api.behaviourRecords.list({ pageSize: '100' })
+  behaviourRecords: crud('behaviour/records'),
+  behaviourFollowUps: crud('behaviour/follow-ups'),
+  behaviourAlerts: crud('behaviour/alerts'),
+  behaviourLetters: crud('behaviour/letters'),
+
+  /**
+   * 重算学生告警（由行为记录派生）。
+   * 不传 studentId = 全量重算；传了只算该学生。返回 新增/更新/解除 条数。
+   */
+  recalcBehaviourAlerts: (body: { studentId?: string } = {}) =>
+    request<BehaviourRecalcResult>('/behaviour/recalc-alerts', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** 按告警等级生成一封家长通知信件（幂等：同告警同一档不重复生成） */
+  generateBehaviourLetter: (body: { alertId: string; studentId?: string; 收件家长?: string }) =>
+    request<GenerateBehaviourLetterResult>('/behaviour/letters/generate', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** 某条行为的全部跟进流水（按跟进日期倒序） */
+  listBehaviourFollowUps: (recordId: string) =>
+    request<BehaviourFollowUpPage>(`/behaviour/records/${encodeURIComponent(recordId)}/follow-ups`),
+  /** 行为统计：按班级/年级汇总行为条数、涉及学生数、告警数（按等级） */
+  getBehaviourStats: (params: { from?: string; to?: string; 班级?: string; 年级?: string } = {}) =>
+    request<BehaviourStatsResult>(`/behaviour/stats${qs(params)}`),
 };
 
 /** 知识库配置「立即收取」的实时进度（与 MailSyncProgress 同范式） */
@@ -1335,6 +1430,128 @@ export interface DepartmentSyncProgress {
   sourceName: string;
   error?: string;
   result?: string;
+}
+
+/** 部门成员（「点部门看员工」列表项，来自部门成员快照表） */
+export interface DepartmentMember {
+  open_id: string;
+  name: string;
+  en_name: string;
+  /** ⚠️ 飞书按部门取人的接口不返回职务/工号，通常为空 */
+  job_title: string;
+  employee_no: string;
+  /** 飞书 user_id（企业内成员编号） */
+  user_id: string;
+  avatar: string;
+  open_department_id: string;
+  department_name: string;
+  status: 'active' | 'resigned' | 'inactive';
+  synced_at: number;
+}
+
+export interface DepartmentMemberResult {
+  items: DepartmentMember[];
+  total: number;
+  department_ids: string[];
+  synced_at: number;
+}
+
+// ── 成绩册（Markbook）类型：与 apps/api/src/markbook/markbook.service.ts 的返回体一一对应 ──
+export interface MarkbookClassOption {
+  cls: string;
+  students: number;
+  columns: number;
+  entries: number;
+}
+export interface MarkbookColumn {
+  id: string;
+  name: string;
+  type: string;
+  /** 列权重（第一层权重，与「成绩类型权重」相乘） */
+  weight: number;
+  fullMark: number;
+  scaleId: string;
+  date: string;
+  sort: number;
+  status: string;
+  studentVisible: string;
+  parentVisible: string;
+  completeDate: string;
+}
+export interface MarkbookStudent {
+  id: string;
+  name: string;
+  enName: string;
+}
+export interface MarkbookCell {
+  columnId: string;
+  studentId: string;
+  score: number | null;
+  /** 等级是写入时的快照，等级体系改名不篡改历史 */
+  level: string;
+  levelOrder: number | null;
+  concern: boolean;
+  attained: string;
+  comment: string;
+}
+export interface MarkbookSummary {
+  studentId: string;
+  /** 加权总评（百分制，自归一化） */
+  total: number | null;
+  level: string;
+  levelOrder: number | null;
+  concern: boolean;
+  targetLevel: string;
+  targetOrder: number | null;
+  /** true 达标 / false 未达标 / null 无法判定（缺目标或没成绩） */
+  attained: boolean | null;
+  filled: number;
+  weightSum: number;
+}
+export interface MarkbookLevel {
+  id: string;
+  scaleId: string;
+  label: string;
+  /** 序号越小越好（1 = 最好） */
+  order: number;
+  min: number | null;
+  max: number | null;
+  concern: boolean;
+}
+export interface MarkbookGrid {
+  cls: string;
+  columns: MarkbookColumn[];
+  students: MarkbookStudent[];
+  cells: MarkbookCell[];
+  summary: MarkbookSummary[];
+  levels: MarkbookLevel[];
+  scales: { id: string; name: string; isDefault: boolean }[];
+  typeWeights: { type: string; weight: number }[];
+}
+/** 批量保存的一行（score 传 null/'' 表示清空该格） */
+export interface MarkbookSaveRow {
+  columnId: string;
+  studentId: string;
+  score: number | string | null;
+  comment?: string;
+  visibleStudent?: string;
+  visibleParent?: string;
+}
+export interface MarkbookColumnPayload {
+  id?: string;
+  cls: string;
+  name: string;
+  type?: string;
+  weight?: number;
+  fullMark?: number;
+  scaleId?: string;
+  date?: string;
+  desc?: string;
+  sort?: number;
+  status?: string;
+  studentVisible?: string;
+  parentVisible?: string;
+  completeDate?: string;
 }
 
 /** 当前用户的得到大脑凭证状态。只有掩码，永不含明文。 */
@@ -1513,3 +1730,159 @@ export interface SessionUser {
   sessionId: string;
   expiresAt: number;
 }
+
+// ── 课程规划相关的接口类型与工厂（本块为 2026-09-13 新增，只服务 curriculum/lessonPlan/learningOutcomes）──
+
+/**
+ * 后端 generic-crud 承载的资源统一的 5 个端点。
+ *
+ * 定义在文件末尾（`function` 声明会提升，`api` 对象里引用它是安全的）：
+ * 放在 API_BASE 附近虽然更好读，但那里是全站公共区域，改动容易与其它人冲突。
+ *
+ * ⚠️ 没有 statusField 的表（如单元环节、成果关联表）后端不提供 /transition，
+ * 页面里不要把它接进 CrudPage 的 api —— 传了也不会报错，但点了会 400。
+ */
+function crud<T = Record<string, unknown>>(path: string) {
+  return {
+    list: (params: Record<string, string | undefined> = {}) => request<Page<T>>(`${path}${qs(params)}`),
+    create: (data: Record<string, unknown>) => request<T>(path, { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<T>(`${path}/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+    archive: (id: string) => request<{ ok: boolean }>(`${path}/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    transition: (id: string, to: string) =>
+      request<T>(`${path}/${encodeURIComponent(id)}/transition`, { method: 'POST', body: JSON.stringify({ to }) }),
+  };
+}
+
+/** 部署环节到课次的返回（字段名与后端 CurriculumService.deploy 的返回体一致） */
+export interface DeployUnitClassResult {
+  ok: boolean;
+  开课: string;
+  开课名称: string;
+  单元: string;
+  单元名称: string;
+  环节数: number;
+  可用课次数: number;
+  已部署: number;
+  已跳过: number;
+  课次不足的环节数: number;
+  空余课次数: number;
+  覆盖重建: boolean;
+}
+
+export interface CoverageUnitRow {
+  开课: string;
+  开课名称: string;
+  单元: string;
+  单元名称: string;
+  开课状态: string;
+  开始日期: string;
+  结束日期: string;
+  环节总数: number;
+  已部署环节数: number;
+  已完成环节数: number;
+  已跳过环节数: number;
+}
+
+export interface CurriculumCoverageRow {
+  教学班: string;
+  教学班名称: string;
+  单元总数: number;
+  未开始: number;
+  进行中: number;
+  已完成: number;
+  已取消: number;
+  环节总数: number;
+  已部署环节数: number;
+  已部署课次环节数: number;
+  /** 0~1 的比值，渲染时乘 100 并保留一位小数 */
+  部署率: number;
+  未部署环节数: number;
+  单元: CoverageUnitRow[];
+}
+
+export interface CurriculumCoverageResult {
+  items: CurriculumCoverageRow[];
+  汇总: {
+    教学班数: number;
+    单元总数: number;
+    未开始: number;
+    进行中: number;
+    已完成: number;
+    已取消: number;
+    环节总数: number;
+    已部署环节数: number;
+    已部署课次环节数: number;
+    部署率: number;
+  };
+  updatedAt: number;
+}
+
+export interface RecomputeLateChange {
+  id: string;
+  作业名称: string;
+  原是否迟交: string;
+  新是否迟交: string;
+  原迟交分钟数: number;
+  新迟交分钟数: number;
+}
+
+export interface RecomputeLateResult {
+  scanned: number;
+  changed: number;
+  unchanged: number;
+  missingTime: number;
+  dryRun: boolean;
+  changes: RecomputeLateChange[];
+  truncated: boolean;
+}
+
+/** 行为记录重算告警的返回（字段名与后端 BehaviourService.recalcAlerts 一致） */
+export interface BehaviourRecalcResult {
+  ok: boolean;
+  新增: number;
+  更新: number;
+  解除: number;
+  未变: number;
+  扫描学生数: number;
+  扫描记录数: number;
+  未关联学生的记录: number;
+  告警窗口: string[];
+  updatedAt: number;
+}
+
+export interface GenerateBehaviourLetterResult {
+  ok: boolean;
+  /** false = 该告警同一档已生成过（幂等命中） */
+  created: boolean;
+  id: string;
+  信件类型: string;
+  第几次?: number;
+  letter: Record<string, unknown>;
+}
+
+export type BehaviourFollowUpPage = Page<Record<string, unknown>>;
+
+/** 行为统计行（班级维度与年级维度共用同一形状） */
+export interface BehaviourStatsRow {
+  班级: string;
+  年级: string;
+  行为条数: number;
+  正向条数: number;
+  负向条数: number;
+  涉及学生数: number;
+  告警数: number;
+  告警人数: number;
+  轻度: number;
+  中度: number;
+  严重: number;
+}
+
+export interface BehaviourStatsResult {
+  items: BehaviourStatsRow[];
+  byGrade: BehaviourStatsRow[];
+  汇总: BehaviourStatsRow;
+  阈值: { 轻度: number; 中度: number; 严重: number; 条数: number; 短窗口: string };
+  updatedAt: number;
+}
+

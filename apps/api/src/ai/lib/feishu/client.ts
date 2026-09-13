@@ -352,6 +352,96 @@ export async function listDepartments(creds) {
   return { departments: all, rootId: ROOT_ID };
 }
 
+/**
+ * 读取**根部门（公司）**。
+ *
+ * 为什么需要单独取：上面的列表接口是 `parent_department_id=0&fetch_child=true`，返回的是
+ * 根的**子孙**部门，**不含根自身** —— 于是前端建树时所有一级部门的 parent='0' 在集合里找不到，
+ * 全被当成根节点并列展示，「公司」这一层永远不显示（2026-09-13 用户反馈的现场）。
+ * 根部门的 open_department_id 固定为字符串 "0"，用 /departments/0 单独取一次即可。
+ */
+export async function getRootDepartment(creds?: unknown) {
+  const token = await getTenantToken(creds);
+  if (!token) return { error: '未配置飞书凭据' };
+  const url = `${FEISHU_HOST}/open-apis/contact/v3/departments/0?department_id_type=open_department_id`;
+  try {
+    const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    if (data.code !== 0) return { error: `读取根部门失败: ${data.msg}` };
+    const d = (data.data && data.data.department) || null;
+    if (!d) return { error: '根部门返回为空' };
+    return {
+      department: {
+        open_department_id: String(d.open_department_id || '0'),
+        name: String(d.name || ''),
+        parent_department_id: '',
+        order: Number(d.order) || 0,
+        status: {
+          is_deleted: !!(d.status && d.status.is_deleted),
+          is_deactivated: !!(d.status && d.status.is_deactivated),
+        },
+        leader_user_id: d.leader_user_id || '',
+        manager_user_id: d.manager_user_id || '',
+        i18n_name: d.i18n_name || null,
+        member_count: Number(d.member_count) || 0,
+      },
+    };
+  } catch (e) {
+    return { error: `读取根部门异常: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * 拉某个部门的成员（飞书 find_by_department）。
+ * ⚠️ 只返回该部门的**直属**成员，**不含子部门**成员 —— 想含下级要在调用侧递归子树。
+ * 用 user_id_type=open_id，与系统用户表的「飞书 Open ID」同一标识，便于交叉关联。
+ */
+export async function listDepartmentMembers(creds: unknown, openDepartmentId: string) {
+  const token = await getTenantToken(creds);
+  if (!token) return { error: '未配置飞书凭据' };
+  const id = String(openDepartmentId || '').trim();
+  if (!id) return { error: '部门 ID 为空' };
+  const all: Array<Record<string, any>> = [];
+  let pageToken = '';
+  for (let i = 0; i < 100; i++) {
+    let url =
+      `${FEISHU_HOST}/open-apis/contact/v3/users/find_by_department` +
+      `?department_id=${encodeURIComponent(id)}&department_id_type=open_department_id` +
+      `&user_id_type=open_id&page_size=50`;
+    if (pageToken) url += `&page_token=${encodeURIComponent(pageToken)}`;
+    const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    // 部门为空时飞书可能直接报「部门不存在」，这里按空处理而不是让整个同步失败
+    if (data.code !== 0) {
+      if (all.length) break;
+      return { error: `读取部门成员失败: ${data.msg}` };
+    }
+    const items = (data.data && data.data.items) || [];
+    for (const u of items) {
+      // ⚠️ 实测（2026-09-13）：`users/find_by_department` 只返回
+      //    avatar / description / email / en_name / gender / mobile / name / nickname /
+      //    open_id / union_id / user_id —— **没有** status、job_title、employee_no。
+      //    所以「职务/工号」只能留空（不要拿别的字段硬凑），
+      //    「状态」在接口没给 status 时**默认在职**（曾误判成全部「未激活」）。
+      //    邮箱与手机号刻意不落库（本项目不扩散个人联系方式）。
+      all.push({
+        open_id: String(u.open_id || ''),
+        name: String(u.name || ''),
+        en_name: String(u.en_name || u.nickname || ''),
+        job_title: String(u.job_title || ''),
+        employee_no: String(u.employee_no || ''),
+        user_id: String(u.user_id || ''),
+        avatar: (u.avatar && (u.avatar.avatar_240 || u.avatar.avatar_72)) || '',
+        is_activated: u.status ? !!u.status.is_activated : true,
+        is_resigned: !!(u.status && u.status.is_resigned),
+      });
+    }
+    pageToken = (data.data && data.data.page_token) || '';
+    if (!pageToken || !items.length) break;
+  }
+  return { users: all };
+}
+
 // 把 Markdown 渲染成飞书互动卡片（卡片内 markdown 元素可正常渲染排版）
 // 超过卡片上限或发送失败时，回退为纯文本（剥离 markdown 语法）
 const CARD_MD_LIMIT = 4000;

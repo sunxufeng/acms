@@ -1,8 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { TABLES, type DepartmentListResult, type DepartmentNode, type DepartmentStatus, type DepartmentSyncProgress } from '@acms/contracts';
+import {
+  TABLES,
+  type DepartmentListResult,
+  type DepartmentMemberResult,
+  type DepartmentNode,
+  type DepartmentStatus,
+  type DepartmentSyncProgress,
+} from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { runAs, systemActor } from '../shared/actor-context.js';
-import { listDepartments } from '../ai/lib/feishu/client.js';
+import { getRootDepartment, listDepartments, listDepartmentMembers } from '../ai/lib/feishu/client.js';
 
 /**
  * 部门管理：只读同步飞书通讯录部门树到本地 SQL 表（t_tbldept0000001）。
@@ -36,7 +43,9 @@ export class DepartmentService {
       return;
     }
     await sql.ensureTable(TABLES.departments.tableId, '部门表', []);
-    this.logger.log('[department] 部门表已就绪');
+    // 成员快照表（2026-09-13 新增）：「点部门看员工」用，随部门同步一起写
+    await sql.ensureTable(TABLES.departmentMembers.tableId, '部门成员表', []);
+    this.logger.log('[department] 部门表 / 部门成员表已就绪');
   }
 
   /** 读取全部部门（前端据此构建树）。已删除部门(status='invalid')也一并返回，由前端过滤。 */
@@ -60,6 +69,82 @@ export class DepartmentService {
     });
     const lastSyncedAt = items.reduce((m, it) => Math.max(m, it.synced_at), 0);
     return { items, total: items.length, lastSyncedAt };
+  }
+
+  /**
+   * 部门子树 id 集合（含自身）。
+   * 用于「含下级」展开：飞书 find_by_department 只给直属成员，
+   * 点「公司」或任何中间层部门想知道全部人，就必须先展开子树再筛。
+   */
+  private subtreeIds(nodes: DepartmentNode[], rootId: string): string[] {
+    const childrenMap = new Map<string, string[]>();
+    for (const n of nodes) {
+      if (n.status === 'invalid') continue;
+      const p = n.parent_department_id || '';
+      const arr = childrenMap.get(p);
+      if (arr) arr.push(n.open_department_id);
+      else childrenMap.set(p, [n.open_department_id]);
+    }
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const walk = (x: string) => {
+      if (!x || seen.has(x)) return;
+      seen.add(x);
+      out.push(x);
+      for (const c of childrenMap.get(x) ?? []) walk(c);
+    };
+    walk(rootId);
+    return out;
+  }
+
+  /**
+   * 读取某部门下的员工（来自成员快照表，不打上游）。
+   *
+   * includeSub 默认 **true**：含子部门。因为飞书只给直属成员，
+   * 点「公司」/中间层部门时若不含下级就永远是空的 —— 那不是用户要的「部门下的员工」。
+   * 只想看直属成员时传 includeSub=false。
+   */
+  async listMembers(openDepartmentId: string, includeSub = true): Promise<DepartmentMemberResult> {
+    const sql = getSqlStore();
+    if (!sql) return { items: [], total: 0, department_ids: [], synced_at: 0 };
+    const id = String(openDepartmentId || '').trim();
+    if (!id) return { items: [], total: 0, department_ids: [], synced_at: 0 };
+
+    const all = await this.list();
+    const ids = includeSub ? this.subtreeIds(all.items, id) : [id];
+    const idSet = new Set(ids);
+
+    const res = await sql.search(TABLES.departmentMembers.tableId, { pageSize: 5000 });
+    const items = (res.items || [])
+      .map((r) => {
+        const f = (r.fields || {}) as Record<string, unknown>;
+        const st = String(f.status ?? 'active');
+        return {
+          open_id: String(f.user_open_id ?? ''),
+          name: String(f.name ?? ''),
+          en_name: String(f.en_name ?? ''),
+          job_title: String(f.job_title ?? ''),
+          employee_no: String(f.employee_no ?? ''),
+          user_id: String(f.user_id ?? ''),
+          avatar: String(f.avatar ?? ''),
+          open_department_id: String(f.open_department_id ?? ''),
+          department_name: String(f.department_name ?? ''),
+          status: (st === 'resigned' || st === 'inactive' ? st : 'active') as
+            | 'active'
+            | 'resigned'
+            | 'inactive',
+          synced_at: Number(f.synced_at ?? 0),
+        };
+      })
+      .filter((m) => m.open_id && idSet.has(m.open_department_id))
+      // 在职在前、再按姓名；同一人可能在多个部门（飞书本来就允许多部门）
+      .sort((a, b) => {
+        const rank = (s: string) => (s === 'active' ? 0 : s === 'resigned' ? 2 : 1);
+        return rank(a.status) - rank(b.status) || a.name.localeCompare(b.name, 'zh-CN');
+      });
+
+    const syncedAt = items.reduce((m, it) => Math.max(m, it.synced_at), 0);
+    return { items, total: items.length, department_ids: ids, synced_at: syncedAt };
   }
 
   /** 触发一次同步（异步）：HTTP 立即返回当前进度，后台跑 listDepartments 并落库 */
@@ -102,16 +187,22 @@ export class DepartmentService {
         }
         const now = Date.now();
         let stored = 0;
-        for (const d of depts) {
+        const upsertDept = async (d: Record<string, any>, isRoot: boolean) => {
           const status: DepartmentStatus = d.status?.is_deleted
             ? 'invalid'
             : d.status?.is_deactivated
               ? 'disabled'
               : 'active';
+          // ⚠️ 飞书对**根部门**返回的 name 是空串（实测 /departments/0 → "name":""），
+          //    不兜底的话树的最上层就是一行空白 —— 用户报的「公司没有显示出来」正是这个。
+          const rawName = String(d.name ?? '').trim() || String(d.i18n_name ?? '').trim();
+          const name = rawName || (isRoot ? '公司' : String(d.open_department_id ?? ''));
           await sql.createWithId(TABLES.departments.tableId, String(d.open_department_id), {
             open_department_id: String(d.open_department_id),
-            name: String(d.name ?? ''),
-            parent_department_id: String(d.parent_department_id ?? ''),
+            name,
+            // 根部门强行置空 parent：列表接口把一级部门的 parent 写成 '0'，
+            // 根若也存 '0' 就成了「自己是自己的父」，前端建树会出环
+            parent_department_id: isRoot ? '' : String(d.parent_department_id ?? ''),
             order: Number(d.order ?? 0),
             status,
             leader_user_id: String(d.leader_user_id ?? ''),
@@ -121,11 +212,85 @@ export class DepartmentService {
             synced_at: now,
           });
           stored++;
+        };
+
+        // 0) 根部门（公司）：部门列表接口只返回「根的子孙」、不含根自身，
+        //    不补这一条，前端树就永远缺最上层「公司」（2026-09-13 用户反馈的现场）。
+        let rootName = '';
+        const rr = await getRootDepartment(undefined);
+        if (rr && 'error' in rr) {
+          this.logger.warn(`[department] 根部门读取失败（不影响子部门同步）：${rr.error}`);
+        } else if (rr && 'department' in rr) {
+          rootName = String(rr.department.name || '');
+          await upsertDept(rr.department as Record<string, any>, true);
         }
+
+        for (const d of depts) await upsertDept(d, false);
+
+        // 1) 成员快照：逐部门拉「直属」成员（飞书该接口不含子部门，含下级由查询侧递归子树）。
+        //    记录 id = `${部门ID}__${成员open_id}`，用 bulkInsert 批量 upsert（多值 INSERT + ON CONFLICT）。
+        const memberRows: { id: string; fields: Record<string, unknown> }[] = [];
+        const failedDepts = new Set<string>();
+        for (const d of depts) {
+          const id = String(d.open_department_id || '');
+          if (!id) continue;
+          const mr = await listDepartmentMembers(undefined, id);
+          if (mr && 'error' in mr) {
+            // ⚠️ 记录失败部门：下面的「清理陈旧成员」必须跳过它们，
+            //    否则一次上游抖动会把该部门的成员快照整段删掉
+            failedDepts.add(id);
+            this.logger.warn(`[department] 部门 ${id} 成员读取失败：${mr.error}`);
+            continue;
+          }
+          for (const u of (mr as { users: Array<Record<string, any>> }).users || []) {
+            if (!u.open_id) continue;
+            memberRows.push({
+              id: `${id}__${u.open_id}`,
+              fields: {
+                open_department_id: id,
+                department_name: String(d.name ?? ''),
+                user_open_id: String(u.open_id),
+                user_id: String(u.user_id ?? ''),
+                name: String(u.name ?? ''),
+                en_name: String(u.en_name ?? ''),
+                job_title: String(u.job_title ?? ''),
+                employee_no: String(u.employee_no ?? ''),
+                avatar: String(u.avatar ?? ''),
+                status: u.is_resigned ? 'resigned' : u.is_activated ? 'active' : 'inactive',
+                synced_at: now,
+              },
+            });
+          }
+          // 上游 QPS 保护（部门数不多，但别打太密）
+          await new Promise((res) => setTimeout(res, 120));
+        }
+        let memberStored = 0;
+        if (memberRows.length) {
+          memberStored = await sql.bulkInsert(TABLES.departmentMembers.tableId, memberRows);
+        }
+
+        // 2) 清理陈旧成员（调岗/离职）：本轮没被写回（synced_at != now）且所属部门同步成功的，即已不在快照里。
+        //    ⚠️ SqlStore.search 返回的记录里 id 字段名是 recordId，不是 id（本项目反复踩过）
+        let memberRemoved = 0;
+        const prev = await sql.search(TABLES.departmentMembers.tableId, { pageSize: 5000 });
+        for (const row of prev.items || []) {
+          const f = (row.fields || {}) as Record<string, unknown>;
+          if (Number(f.synced_at ?? 0) === now) continue;
+          if (failedDepts.has(String(f.open_department_id ?? ''))) continue;
+          const r = row as unknown as { recordId?: string; id?: string };
+          const rid = String(r.recordId ?? r.id ?? '');
+          if (!rid) continue;
+          await sql.delete(TABLES.departmentMembers.tableId, rid);
+          memberRemoved++;
+        }
+
         const deleted = depts.filter((d) => d.status?.is_deleted).length;
         state.fetched = depts.length;
         state.stored = stored;
-        state.result = `同步完成：共 ${depts.length} 个部门（含已删除 ${deleted} 个，已标记为无效）`;
+        state.result =
+          `同步完成：部门 ${stored} 个（含已删除 ${deleted} 个标记为无效` +
+          `${rootName ? `，根部门「${rootName}」已补齐` : ''}），` +
+          `成员 ${memberStored} 条${memberRemoved ? `（清理失效 ${memberRemoved} 条）` : ''}`;
       } catch (e) {
         const msg = (e as Error).message;
         state.error = msg;

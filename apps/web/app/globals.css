@@ -1644,3 +1644,117 @@ select.form-input:disabled { color: var(--fg); }
 }
 .pagination-jump-input:focus { outline: none; border-color: var(--accent); }
 
+
+/* ============================================================================
+   部门管理（组织管理）2026-09-13
+   本节只放布局/尺寸，颜色一律取变量 —— 深浅主题自动跟随，不要写死色值。
+   .notice 系列是通用提示条（可被其它页面复用）。
+   ============================================================================ */
+.notice {
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: var(--space-md) var(--space-lg); margin-bottom: var(--space-lg);
+  font-size: var(--font-sm); background: var(--bg-subtle);
+}
+.notice-info { border-color: var(--accent); background: var(--accent-muted); }
+.notice-ok { border-color: var(--success); background: var(--success-muted); }
+.notice-error { border-color: var(--danger); background: var(--danger-muted); }
+.notice-title { font-weight: 600; color: var(--fg); }
+.notice-detail { margin-top: 4px; font-size: var(--font-xs); color: var(--fg-tertiary); }
+
+.dept-meta-line {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-md);
+  margin-bottom: var(--space-md); font-size: var(--font-xs); color: var(--fg-tertiary);
+}
+.dept-meta-hint { margin-left: auto; text-align: right; }
+
+.dept-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: var(--space-lg); align-items: start; }
+@media (max-width: 900px) { .dept-layout { grid-template-columns: 1fr; } }
+
+.dept-tree-card, .dept-main-card { overflow: hidden; }
+
+.dept-card-head {
+  display: flex; align-items: center; gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border);
+}
+.dept-card-title { font-size: var(--font-sm); font-weight: 700; color: var(--fg); }
+.dept-card-meta { margin-left: auto; font-size: var(--font-xs); color: var(--fg-tertiary); }
+
+.dept-tree-tools { padding: var(--space-sm) var(--space-md) 0; }
+.dept-tree-tools .form-input { width: 100%; font-size: var(--font-sm); padding: 8px 12px; }
+.dept-tree-ops { display: flex; gap: var(--space-md); padding: var(--space-xs) 0 0; font-size: var(--font-xs); }
+
+.dept-tree { padding: var(--space-sm); max-height: 62vh; overflow: auto; }
+
+.dept-row { display: flex; align-items: center; gap: 2px; border-radius: var(--radius-sm); }
+.dept-row:hover { background: var(--bg-subtle); }
+.dept-row-active { background: var(--accent-muted); }
+.dept-row-active .dept-name-text { font-weight: 600; }
+
+.dept-caret {
+  flex: 0 0 18px; width: 18px; height: 18px; display: inline-flex;
+  align-items: center; justify-content: center;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--fg-tertiary); font-size: 10px; line-height: 1;
+}
+.dept-name {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--space-xs);
+  background: none; border: 0; padding: 6px 4px; cursor: pointer;
+  color: var(--fg); font-size: var(--font-sm); text-align: left;
+}
+.dept-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dept-count { flex: 0 0 auto; padding-right: var(--space-sm); font-size: var(--font-xs); color: var(--fg-tertiary); }
+.dept-loading { padding: var(--space-2xl); text-align: center; font-size: var(--font-sm); color: var(--fg-tertiary); }
+
+.dept-sub-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-xs); color: var(--fg-secondary); cursor: pointer; }
+
+.dept-status {
+  display: inline-flex; align-items: center; padding: 2px 8px;
+  border-radius: var(--radius-full); font-size: var(--font-xs); font-weight: 600;
+}
+.dept-status-ok { background: var(--success-muted); color: var(--success); }
+.dept-status-inactive { background: var(--warning-muted); color: var(--warning); }
+.dept-status-resigned { background: var(--bg-subtle); color: var(--fg-tertiary); }
+
+.dept-emp-name { font-weight: 600; }
+.dept-emp-sub { font-size: var(--font-xs); color: var(--fg-tertiary); }
+
+/* ============================================================================
+   成绩册（Markbook）2026-09-13
+   二维录入网格：行为学生、列为考核项。只放布局/尺寸，颜色一律 var()。
+   ============================================================================ */
+.mb-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+.mb-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-xs); color: var(--fg-tertiary); }
+.mb-field > span { font-weight: 600; }
+.mb-field-wide { grid-column: 1 / -1; }
+.mb-meta { font-size: var(--font-xs); color: var(--fg-tertiary); }
+
+.mb-card { overflow: hidden; }
+.mb-table { min-width: 720px; }
+.mb-sticky-col { position: sticky; left: 0; background: var(--bg-elevated); z-index: 2; min-width: 130px; }
+.mb-col-head { min-width: 110px; vertical-align: top; }
+.mb-col-name { font-weight: 700; color: var(--fg); }
+.mb-col-sub { font-size: var(--font-xs); font-weight: 400; color: var(--fg-tertiary); margin-top: 2px; }
+.mb-col-ops { display: flex; gap: var(--space-sm); margin-top: 4px; font-weight: 400; }
+.mb-cell { padding: 4px !important; }
+.mb-input { width: 84px; padding: 6px 8px; text-align: center; font-size: var(--font-sm); }
+.mb-input-dirty { border-color: var(--accent); background: var(--accent-muted); }
+.mb-sum-col { white-space: nowrap; }
+.mb-total { font-weight: 700; }
+.mb-foot {
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border);
+  font-size: var(--font-xs); color: var(--fg-tertiary);
+}
+
+.mb-editor { margin-top: var(--space-lg); overflow: hidden; }
+.mb-editor-body { padding: var(--space-lg); }
+.mb-editor-msg { margin: 0 var(--space-lg) var(--space-md); }
+.mb-editor-foot {
+  display: flex; justify-content: flex-end; gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border);
+}

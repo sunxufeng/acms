@@ -74,6 +74,13 @@ export const TABLES = {
   // 这是 ACMS 自建 SQL 表（不走飞书 Base），建表用 SqlStore.ensureTable 幂等首建 t_tbldept0000001。
   // ⚠️ 合成 tableId，仅本地使用，无需 TABLE_ID_MAP 映射；记录 id = 飞书 open_department_id。
   departments: { tableId: 'tbldept0000001', name: '部门表' },
+  // 部门成员表（组织管理 / 部门管理，2026-09-13 新增）：部门→成员的归属快照。
+  // 飞书 contact v3 **没有**「按部门取成员」的本地缓存，且部门表只存了 member_count 这个计数，
+  // 所以「点部门看员工」要么每次打上游、要么落一份 —— 这里选落库（与部门树同源、点开即出）。
+  // 记录 id = `${open_department_id}__${user_open_id}`（同一部门同一人唯一，可幂等 upsert）。
+  // ⚠️ 只存「直属成员」：飞书 find_by_department 不含子部门成员，含下级的展开在前端做。
+  // ⚠️ 合成 tableId，仅本地使用，无需 TABLE_ID_MAP 映射。
+  departmentMembers: { tableId: 'tbldeptmem000001', name: '部门成员表' },
   // 会议纪要表（组织管理 / 会议纪要，2026-09-11 新增）：会议记录与总结，关联部门（存部门名）。
   // 与部门表同为该校自建 SQL 表（不走飞书 Base），由 SqlStore.ensureTable 幂等首建 t_tblmtg0000000001。
   // ⚠️ 合成 tableId，仅本地使用，无需 TABLE_ID_MAP 映射。

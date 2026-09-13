@@ -699,11 +699,32 @@ export class GetnoteService {
 
     const own = getCredentialPair(user.openId);
     if (own?.key && own.clientId) {
+      // 管理员的本人笔记走这一路（凭证来自「向导页」填的个人 Key）。
+      //
+      // ⚠️ 这一路的 sourceName 早先写死为空，导致**管理员自己的笔记在报表里全归到「未标注」**：
+      // 他明明在「知识库配置」里建了来源（如「Richard Sun Get Note」），却因为 getCredentialPair
+      // 只返回 { key, clientId }、不带名称，加上后面的 seenKey 去重又把配置表那条跳过，
+      // 名字永远用不上（2026-09-13 实测：孙旭峰 17 篇 vs 未标注 17 篇，完全重合）。
+      //
+      // 现在从配置表里取**同一个账号**那条的「配置名称」套上：
+      // 只有 Key 完全相同（同一对凭证）才套用 —— 若 Key 不同，说明是两份不同凭证、
+      // 笔记来自不同账号，借用名字会造成张冠李戴，此时保持为空。
+      const mine = entries.find(
+        (e) =>
+          e.ownerOpenId === user.openId &&
+          e.cred?.key === own.key &&
+          // plainText(配置名称) 为空时 sourceName 会回落成 recordId，那不是「名称」，
+          // 套上去等于把 rec_xxx 当配置名显示，不如留空。
+          Boolean(e.sourceName) &&
+          !e.sourceName.startsWith('rec'),
+      );
       sources.push({
         cred: own,
         ownerName: user.name ?? '',
         ownerOpenId: user.openId,
-        sourceName: '',
+        sourceName: mine?.sourceName ?? '',
+        // recordId 故意留空：详情/标签等接口拿它反查「这篇该用哪套凭证」，
+        // 本路本来就是用本人凭证，留空即表示「用你自己的 Key 即可」。
         recordId: '',
       });
       seenKey.add(own.key);

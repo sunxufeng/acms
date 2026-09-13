@@ -5,6 +5,7 @@ import { BaseClient } from '@acms/base-adapter';
 import { TABLES, USER_TABLE } from '@acms/contracts';
 import { BASE_CLIENT, getSqlStore } from '../base.provider.js';
 import { LoginLogService } from '../login-log/login-log.service.js';
+import { buildDedupGroups, toDedupRow, type DedupResult, type DedupRow } from './contact-dedup.js';
 
 function toPrincipal(user: SessionUser): Principal {
   return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
@@ -163,6 +164,57 @@ export class ReportsService {
     }
     return { items: out, total: out.length };
   }
+  /**
+   * 联系人去重（权限点 `report:read`）。
+   *
+   * 判据、分级与反证据规则见 `contact-dedup.ts` 顶部说明。这里只负责「拉全量 + 缓存」：
+   *  - 联系人表是卫瓴的全量只读副本（当前 3.6k 条），拉一次做内存分组即可，
+   *    **不新增表、不写任何数据** —— 合并动作在卫瓴侧做，本报表只出清单；
+   *  - 缓存的是**原始行**（5 分钟），统计口径与筛选都交给纯函数重算 ——
+   *    缓存「已筛选结果」会在切换条件时串味。
+   */
+  private dedupRowsCache: { at: number; rows: DedupRow[] } | null = null;
+
+  private async dedupRows(force = false): Promise<DedupRow[]> {
+    const cached = this.dedupRowsCache;
+    if (!force && cached && Date.now() - cached.at < 5 * 60 * 1000) return cached.rows;
+    const rows: DedupRow[] = [];
+    let token: string | undefined;
+    for (let i = 0; i < 40; i += 1) {
+      const page = await this.base.search(TABLES.weilingContact.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of page.items) {
+        const rec = r as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+        rows.push(toDedupRow(String(rec.recordId ?? rec.id ?? ''), rec.fields ?? {}));
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    this.dedupRowsCache = { at: Date.now(), rows };
+    return rows;
+  }
+
+  async contactDedup(
+    user: SessionUser,
+    query: { level?: string; channel?: string; owner?: string; refresh?: string } = {},
+  ): Promise<DedupResult> {
+    if (!authorize(toPrincipal(user), 'report:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:report:read');
+    }
+    const rows = await this.dedupRows(query.refresh === '1');
+    const level = query.level === 'strong' || query.level === 'all' ? query.level : 'likely';
+    const result = buildDedupGroups(rows, { level, channel: query.channel, owner: query.owner });
+    if (query.refresh === '1') {
+      this.logger.log(
+        `[联系人去重] 重算完成：${result.stats.groups} 组 / ${result.stats.records} 条` +
+          `（强 ${result.stats.byLevel.strong} · 较可信 ${result.stats.byLevel.likely} · 仅同名 ${result.stats.byLevel.weak}）`,
+      );
+    }
+    return result;
+  }
+
   /**
    * 活跃时段统计（权限点 `report:read`）。
    *

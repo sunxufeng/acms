@@ -190,6 +190,58 @@ function qs(params: Record<string, string | undefined>): string {
   return s ? `?${s}` : '';
 }
 
+/** 联系人去重：组内一条记录（= 一条卫瓴联系人） */
+export interface DedupMember {
+  id: string;
+  name: string;
+  phone: string;
+  remark: string;
+  channel: string;
+  owner: string;
+  stage: string;
+  /** 流失状态 */
+  lost: string;
+  /** 关联学生（已匹配时才有） */
+  student: string;
+  createdAt: number;
+  lastFollowAt: number;
+  score: number;
+  /** 卫瓴联系人 ID（导出后回卫瓴核对） */
+  weilingId: string;
+  /** 建议保留（信息最全 + 创建最早） */
+  keep: boolean;
+  // 以下为后端判据用的内部字段，页面不展示
+  phoneKey?: string;
+  wxId?: string;
+  studentName?: string;
+}
+
+export type DedupLevel = 'strong' | 'likely' | 'weak';
+
+/** 联系人去重：一个疑似重复组 */
+export interface DedupGroup {
+  /** 稳定编号 G-001…（与导出清单一致） */
+  key: string;
+  label: string;
+  level: DedupLevel;
+  evidences: string[];
+  members: DedupMember[];
+}
+
+export interface ContactDedupResult {
+  generatedAt: number;
+  stats: {
+    total: number;
+    noPhone: number;
+    groups: number;
+    records: number;
+    mergeable: number;
+    byLevel: Record<DedupLevel, number>;
+  };
+  groups: DedupGroup[];
+  filterOptions: { channels: string[]; owners: string[] };
+}
+
 export const api = {
   /** 当前会话用户 */
   me: () => request<SessionUser>('/auth/me'),
@@ -214,6 +266,20 @@ export const api = {
    */
   listReportStudents: () =>
     request<{ items: Record<string, unknown>[]; total: number }>('/reports/students'),
+
+  /**
+   * 联系人去重（需 `report:read`）：疑似同一个人的多条联系人记录。
+   * level: strong（仅强证据）/ likely（默认，强+较可信）/ all（含仅同名）；
+   * refresh=1 强制重算（后端默认缓存 5 分钟）。
+   */
+  getContactDedup: (
+    params: { level?: string; channel?: string; owner?: string; refresh?: string } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+    const q = qs.toString();
+    return request<ContactDedupResult>(`/reports/contact-dedup${q ? `?${q}` : ''}`);
+  },
 
   /** 学生详情 */
   getStudent: (id: string) => request<StudentRecord>(`/students/${id}`),

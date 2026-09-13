@@ -18,6 +18,7 @@ import {
 import { ActivityPanel } from '../../components/reports/activity';
 import { NotesPanel } from '../../components/reports/notes';
 import { WeilingPanel } from '../../components/reports/weiling';
+import { DedupPanel } from '../../components/reports/dedup';
 
 interface ReportDef {
   key: string;
@@ -49,6 +50,15 @@ const REPORTS: ReportDef[] = [
     dims: '8 个分析区块 · 支持下钻',
     ready: true,
     group: 'weiling',
+  },
+  {
+    // 不设 group：本报表自带筛选栏（置信等级 / 渠道 / 归属人），
+    // 不需要学生类或时间类的公共查询条件。
+    key: 'dedup',
+    label: '联系人去重',
+    desc: '疑似同一个人的多条联系人记录：按置信度分组 + 列出证据 + 标注建议保留，可导出清单去卫瓴合并',
+    dims: '分组 · 证据 · 导出 CSV',
+    ready: true,
   },
   { key: 'notes', label: '笔记统计', desc: '按人统计某段时间新增多少笔记、转了多少次', dims: '按人 · 来源 · 模块 · 趋势', ready: true, group: 'time' },
 { key: 'activity', label: '活跃时段', desc: '按人统计什么时间登录、什么时间有操作', dims: '人 × 小时热力 · 趋势', ready: true, group: 'time' },
@@ -193,6 +203,7 @@ export default function ReportsPage() {
           {active === 'trend' ? <EnrollmentTrend rows={rows} drill={drill} /> : null}
           {active === 'completeness' ? <ProfileCompleteness rows={rows} /> : null}
           {active === 'weiling' ? <WeilingPanel /> : null}
+          {active === 'dedup' ? <DedupPanel /> : null}
           {active === 'notes' ? <NotesPanel from={from} to={to} /> : null}
           {active === 'activity' ? <ActivityPanel from={from} to={to} /> : null}
           {!activeReport.ready ? (

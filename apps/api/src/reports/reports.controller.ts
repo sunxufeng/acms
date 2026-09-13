@@ -34,4 +34,20 @@ export class ReportsController {
   activity(@Req() req: Request, @Query('from') from?: string, @Query('to') to?: string) {
     return this.svc.activity(userOf(req), { from, to });
   }
+
+  /**
+   * 联系人去重：疑似同一个人的多条联系人记录。
+   * level=strong 只要强证据 / level=likely（默认）强+较可信 / level=all 全部；
+   * channel、owner 按「组内任一成员命中」筛选；refresh=1 强制重算（对应页面「重新计算」）。
+   */
+  @Get('contact-dedup')
+  contactDedup(
+    @Req() req: Request,
+    @Query('level') level?: string,
+    @Query('channel') channel?: string,
+    @Query('owner') owner?: string,
+    @Query('refresh') refresh?: string,
+  ) {
+    return this.svc.contactDedup(userOf(req), { level, channel, owner, refresh });
+  }
 }

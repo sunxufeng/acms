@@ -23,6 +23,7 @@ function buildColumns(upstreamOptions: { value: string; label: string }[]): Crud
       required: true,
       filter: true,
       filterType: 'text',
+    filterOp: 'contains',
       listOrder: 1,
       hint: '使用方在 SDK 里填的 model 名，如 gpt-4o-mini',
       render: (v) => <span style={{ fontWeight: 600 }}>{String(v ?? '—')}</span>,

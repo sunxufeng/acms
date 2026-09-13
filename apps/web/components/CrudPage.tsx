@@ -27,8 +27,20 @@ export interface CrudColumn {
   width?: string;
   render?: (v: unknown, row: Record<string, unknown>) => React.ReactNode;
   filter?: boolean;
-  /** 列筛选控件类型：select=下拉(默认) / text=文本模糊输入 */
+  /** 列筛选控件类型：select=下拉(默认) / text=文本输入框 */
   filterType?: 'select' | 'text';
+  /**
+   * 文本筛选的匹配方式（**只在后端是通用 CRUD 时才需要声明**）：
+   *  - `'contains'` → 参数名补 `__contains` 后缀，后端翻译成 ILIKE `%值%` 模糊匹配
+   *  - `'is'` 或不声明 → 原样传参（后端默认等值匹配）
+   *
+   * ⚠️ 为什么不是 `filterType: 'text'` 就自动模糊：通用 CRUD 的字段筛选原本一律等值，
+   *    而**自建 controller**（考勤 / 排课 / 结算 / 合作 / 合作方…）用的是自己 DTO 里的
+   *    参数名且已手写 `op: 'contains'` —— 给它们加后缀后端不认识，会静默筛成空。
+   *    所以模糊与否是「后端实现」决定的信息，只能由列自己声明。
+   *    （2026-09-14：联系人页「关联学生」输入「赵」恒为 0 条，就是通用层漏了模糊。）
+   */
+  filterOp?: 'is' | 'contains';
   /** 筛选提交到后端的查询参数名（默认用 key，如审计页操作人→actor） */
   filterParam?: string;
   filterOptions?: string[];
@@ -574,8 +586,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       const f = filtersRef.current;
       const params: Record<string, string | undefined> = { pageSize: String(PAGE_SIZE) };
       for (const c of columns.filter((x) => x.filter)) {
-        const v = f[c.filterParam ?? c.key];
-        if (v) params[c.filterParam ?? c.key] = v;
+        const key = c.filterParam ?? c.key;
+        const v = f[key];
+        if (!v) continue;
+        // filterOp: 'contains' → 传 `<字段>__contains`，后端按 ILIKE 模糊匹配。
+        // filterParam 已自带后缀（如 `所属单元__has` / 审计页的 `actor`）时不再叠加。
+        const useContains = c.filterOp === 'contains' && !key.includes('__');
+        params[useContains ? `${key}__contains` : key] = v;
       }
       for (const rf of rangeRef.current ?? []) {
         if (f[rf.fromParam]) params[rf.fromParam] = f[rf.fromParam];

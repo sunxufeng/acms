@@ -144,6 +144,7 @@ export const COLUMNS: CrudColumn[] = [
     width: '170px',
     filter: true,
     filterType: 'text',
+    filterOp: 'contains',
     render: (v, row) => {
       const name = String(v ?? '');
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;

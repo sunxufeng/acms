@@ -18,6 +18,7 @@ const COLUMNS: CrudColumn[] = [
     width: '180px',
     filter: true,
     filterType: 'text',
+    filterOp: 'contains',
     listOrder: 1,
     render: (v) => (
       <code style={{ fontSize: 'var(--font-xs)', background: 'var(--bg-subtle)', padding: '1px 5px', borderRadius: 4 }}>

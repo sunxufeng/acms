@@ -212,7 +212,20 @@ export class BaseRecordService {
     const conditions: (FilterCondition | FilterGroup)[] = [];
     for (const [k, v] of Object.entries(query)) {
       if (['pageToken', 'sortBy', 'sortOrder', 'q', 'pageSize'].includes(k)) continue;
-      if (v) conditions.push({ field: k, value: [v] });
+      if (!v) continue;
+      // `<字段>__contains=值` → 模糊匹配（SqlStore 侧翻译成 ILIKE '%值%'，仍是服务端过滤、分页正确）。
+      //
+      // 背景（2026-09-14 用户实测）：字段筛选原先**一律等值** —— 前端 `filterType: 'text'`
+      // 只是输入框形态，后端并不知道该模糊匹配，于是联系人页「关联学生」输入「赵」恒为 0 条、
+      // 必须输入完整值「赵浩元」才筛得到。
+      // 自建 controller（考勤/排课/结算/合作…）的文本筛选一直是手写 `op: 'contains'`，
+      // 只有通用 CRUD 这条路径漏了，这里补齐；下拉（filterType 'select'）仍是等值。
+      const contains = /^(.+?)__contains$/.exec(k);
+      conditions.push(
+        contains
+          ? { field: contains[1] as string, op: 'contains', value: [v] }
+          : { field: k, value: [v] },
+      );
     }
     if (query.q) {
       const q = query.q;
@@ -390,10 +403,10 @@ export class BaseRecordService {
     // 多值字段的成员包含筛选：参数名约定 `<字段>__has=<值>`。
     // 数组存的多值字段（如上游账号的「所属分组」）用等值筛选必然落空，只能这样匹配。
     // 支持两类载体：jsonb 数组（multi 字段）与「、/,」分隔的字符串（link 解析后的展示值）。
-    const hasKeys: string[] = [];
+    const suffixKeys: string[] = [];
     for (const [k, v] of Object.entries(query)) {
       if (!v || !k.endsWith('__has')) continue;
-      hasKeys.push(k);
+      suffixKeys.push(k);
       const field = k.slice(0, -'__has'.length);
       const want = String(v);
       filtered = filtered.filter((r) => {
@@ -410,12 +423,23 @@ export class BaseRecordService {
       });
     }
 
+    // 模糊包含筛选：参数名约定 `<字段>__contains=<值>`（与主分支的 ILIKE 语义一致）。
+    // 单用它不会走到这里（主分支服务端就能表达），但**与 `__has` 等混用时**会命中本路径
+    // —— 那时若不处理，这个条件会被静默忽略（返回比预期更多的行）。
+    for (const [k, v] of Object.entries(query)) {
+      if (!v || !k.endsWith('__contains')) continue;
+      suffixKeys.push(k);
+      const field = k.slice(0, -'__contains'.length);
+      const kw = String(v).toLowerCase();
+      filtered = filtered.filter((r) => String(r[field] ?? '').toLowerCase().includes(kw));
+    }
+
     // 其余后缀约定：非空 / 为空 / 数值比较。都表达不了「等值」，只能内存过滤。
     for (const [k, v] of Object.entries(query)) {
       if (!v) continue;
       const m = /^(.+?)__(notempty|empty|gt|lt)$/.exec(k);
       if (!m) continue;
-      hasKeys.push(k);
+      suffixKeys.push(k);
       const field = m[1] as string;
       const op = m[2] as string;
       if (op === 'notempty') {
@@ -447,8 +471,8 @@ export class BaseRecordService {
       'dimval',
       // `<字段>_from/_to` 已按时间区间处理过，不能再当字段名做等值匹配（会直接筛空）
       ...fieldRangeKeys,
-      // `<字段>__has` 同理，已按成员包含处理过
-      ...hasKeys,
+      // `<字段>__has` / `<字段>__contains` 同理，已按各自语义处理过
+      ...suffixKeys,
       ...(this.meta.deepParams ?? []),
     ]);
     for (const [k, v] of Object.entries(query)) {

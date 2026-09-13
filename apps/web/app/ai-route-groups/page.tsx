@@ -10,7 +10,8 @@ import { api } from '../../lib/api';
  * 什么价格倍率、每分钟/并发上限、每月花多少钱。
  */
 const COLUMNS: CrudColumn[] = [
-  { key: '名称', label: '分组名称', width: '160px', form: true, required: true, filter: true, filterType: 'text', listOrder: 1 },
+  { key: '名称', label: '分组名称', width: '160px', form: true, required: true, filter: true, filterType: 'text',
+    filterOp: 'contains', listOrder: 1 },
   {
     key: '状态',
     label: '状态',

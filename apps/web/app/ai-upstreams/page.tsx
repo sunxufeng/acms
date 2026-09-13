@@ -96,6 +96,7 @@ function buildColumns(opts: {
     {
       key: '名称', label: '账号名称', width: '150px', listOrder: 1,
       form: true, required: true, section: S.base, filter: true, filterType: 'text',
+    filterOp: 'contains',
     },
     {
       key: '供应商', label: '平台', width: '110px', listOrder: 3,

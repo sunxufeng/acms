@@ -17,7 +17,8 @@ import { api } from '../../lib/api';
  */
 function buildColumns(proxyOptions: { value: string; label: string }[]): CrudColumn[] {
   return [
-    { key: '名称', label: '名称', width: '140px', form: true, required: true, filter: true, filterType: 'text', listOrder: 1 },
+    { key: '名称', label: '名称', width: '140px', form: true, required: true, filter: true, filterType: 'text',
+    filterOp: 'contains', listOrder: 1 },
     {
       key: '协议',
       label: '协议',

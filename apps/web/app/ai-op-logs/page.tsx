@@ -12,7 +12,8 @@ import { api } from '../../lib/api';
  */
 const COLUMNS: CrudColumn[] = [
   { key: '操作时间', label: '时间', width: '160px', listOrder: 1 },
-  { key: '操作人', label: '操作人', width: '130px', filter: true, filterType: 'text', listOrder: 2 },
+  { key: '操作人', label: '操作人', width: '130px', filter: true, filterType: 'text',
+    filterOp: 'contains', listOrder: 2 },
   {
     key: '动作',
     label: '动作',

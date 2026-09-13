@@ -120,9 +120,52 @@ export function isAttained(actualOrder: number | null | undefined, targetOrder: 
   return Number(actualOrder) <= Number(targetOrder);
 }
 
-/** 班级名归一化（学生档案的「当前班级」与列上的「班级」必须按同一口径比对） */
+/**
+ * 从任意字段值里安全取出**可读文本**。
+ *
+ * ⚠️ 为什么必须有这个函数（2026-09-13 实测踩坑）：
+ * 飞书的关联字段在 PG 的 jsonb 里是对象形态（如 `{"link_record_ids": null}`），
+ * 直接 `String(v)` 会得到字面量 **`"[object Object]"`** —— 这个字符串会一路
+ * 写进「班级」字段、再被前端当成真实班级展示（列表全部显示 [object Object]，
+ * 而且因为所有学生都变成同一个值，分班过滤等于失效）。
+ *
+ * 取值顺序：字符串/数字原样 → 数组逐项、连接 → 对象依次尝试 text/name/value/label
+ * → 都取不到返回空串（宁可空，也不要 [object Object]，也不要吐 rec_xxx 主键）。
+ */
+export function textOf(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) {
+    return v
+      .map((x) => textOf(x))
+      .filter(Boolean)
+      .join('、');
+  }
+  if (typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    for (const k of ['text', 'name', 'value', 'label']) {
+      const t = textOf(o[k]);
+      if (t) return t;
+    }
+    return '';
+  }
+  return '';
+}
+
+/**
+ * 分组维度归一化（成绩册按它把学生分到「班级」下）。
+ *
+ * ⚠️ 学生档案实测（2026-09-13，82 名学生）：
+ *   - 「当前班级」「当前学年」「学籍与班级历史」都是**关联字段且生产数据全为 null**
+ *     （`{"link_record_ids": null}`）→ 取不到任何可读值；
+ *   - 「当前年级」才是真有值的分群维度：Pre-1(33) / Pre-3(19) / Pre-2(17) /
+ *     大一(7) / 未来企业家班(4) / 全球领航计划(2)。
+ *   ⇒ 所以分组按 `当前班级 → 当前年级` 依次回落，字段名见 service 的 CLASS_FIELDS。
+ *     将来「当前班级」的关联补上了，会自动优先用它（无需改代码）。
+ */
 export function normClass(v: unknown): string {
-  return String(v ?? '').trim();
+  return textOf(v);
 }
 
 /** 条目快照：保存条目时把等级写死在条目上，等级改名不篡改历史 */

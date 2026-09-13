@@ -1318,21 +1318,24 @@ export const api = {
   markbookDeleteColumn: (id: string) =>
     request<{ removedEntries: number }>(`/markbook/columns/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
+  /** 考勤码（教学域配置表，通用 CRUD）。出勤口径的可配置码表，见 /attendance-codes 页面 */
+  attendanceCodes: crud('/attendance-codes'),
+
   // ── 课程规划 / 学习成果 / 课时教案（教学域第四块，参照 Gibbon v31 的 Planner）────
   // 这 10 张表全部由后端 generic-crud 承载，端点形状完全一致
   // （GET / | POST / | PUT /:id | DELETE /:id | POST /:id/transition），
   // 因此用文件末尾的 crud() 工厂统一生成，不再逐个手写 40 个方法。
   // 调用示例：api.curriculumUnits.list({ pageSize: '100' })
-  curriculumUnits: crud('curriculum/units'),
-  curriculumUnitBlocks: crud('curriculum/unit-blocks'),
-  curriculumUnitClasses: crud('curriculum/unit-classes'),
-  curriculumUnitClassBlocks: crud('curriculum/unit-class-blocks'),
-  curriculumUnitOutcomes: crud('curriculum/unit-outcomes'),
-  learningOutcomes: crud('learning-outcomes/outcomes'),
-  lessonEntries: crud('lesson-plans/lessons'),
-  lessonOutcomes: crud('lesson-plans/lesson-outcomes'),
-  homeworkSubmissions: crud('lesson-plans/homework-submissions'),
-  homeworkTrackers: crud('lesson-plans/homework-tracker'),
+  curriculumUnits: crud('/curriculum/units'),
+  curriculumUnitBlocks: crud('/curriculum/unit-blocks'),
+  curriculumUnitClasses: crud('/curriculum/unit-classes'),
+  curriculumUnitClassBlocks: crud('/curriculum/unit-class-blocks'),
+  curriculumUnitOutcomes: crud('/curriculum/unit-outcomes'),
+  learningOutcomes: crud('/learning-outcomes/outcomes'),
+  lessonEntries: crud('/lesson-plans/lessons'),
+  lessonOutcomes: crud('/lesson-plans/lesson-outcomes'),
+  homeworkSubmissions: crud('/lesson-plans/homework-submissions'),
+  homeworkTrackers: crud('/lesson-plans/homework-tracker'),
 
   /**
    * 部署环节到课次：把该「单元开课」所属单元的全部环节，按顺序落到该教学班的课次上。
@@ -1357,10 +1360,10 @@ export const api = {
   // 记录 / 跟进流水 / 告警 / 信件四个资源的端点形状一致（GET / | POST / | PUT /:id |
   // DELETE /:id | POST /:id/transition），用文件末尾的 crud() 工厂统一生成。
   // 调用示例：api.behaviourRecords.list({ pageSize: '100' })
-  behaviourRecords: crud('behaviour/records'),
-  behaviourFollowUps: crud('behaviour/follow-ups'),
-  behaviourAlerts: crud('behaviour/alerts'),
-  behaviourLetters: crud('behaviour/letters'),
+  behaviourRecords: crud('/behaviour/records'),
+  behaviourFollowUps: crud('/behaviour/follow-ups'),
+  behaviourAlerts: crud('/behaviour/alerts'),
+  behaviourLetters: crud('/behaviour/letters'),
 
   /**
    * 重算学生告警（由行为记录派生）。
@@ -1742,7 +1745,12 @@ export interface SessionUser {
  * ⚠️ 没有 statusField 的表（如单元环节、成果关联表）后端不提供 /transition，
  * 页面里不要把它接进 CrudPage 的 api —— 传了也不会报错，但点了会 400。
  */
-function crud<T = Record<string, unknown>>(path: string) {
+function crud<T = Record<string, unknown>>(rawPath: string) {
+  // ⚠️ 必须补前导斜杠：request() 内部是 fetch(`${API_BASE}${path}`)，而 API_BASE 以
+  //    `/api/v1` 结尾 —— 漏了斜杠会拼成 `/api/v1curriculum/units`，后端直接
+  //    `Cannot GET /api/v1curriculum/units`（2026-09-13 全站 13 个资源一起 404 的现场）。
+  //    这里兜底，调用处也统一写带斜杠的形式。
+  const path = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
   return {
     list: (params: Record<string, string | undefined> = {}) => request<Page<T>>(`${path}${qs(params)}`),
     create: (data: Record<string, unknown>) => request<T>(path, { method: 'POST', body: JSON.stringify(data) }),

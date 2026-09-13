@@ -125,6 +125,25 @@ export class MarkbookService implements OnModuleInit {
     });
   }
 
+  /**
+   * 分组维度（成绩册里的「班级」）取自学生档案的哪些字段，按优先级排列。
+   *
+   * ⚠️ 实测（2026-09-13，82 名学生）：「当前班级」是**关联字段且全为 null**
+   *    （`{"link_record_ids": null}`），取不到可读值；「当前年级」才是真正有值的那一列
+   *    （Pre-1 / Pre-2 / Pre-3 / 大一 / 未来企业家班 / 全球领航计划）。
+   *    所以这里按序回落 —— 将来「当前班级」的关联补上了，会自动优先用它，不必改代码。
+   */
+  private static readonly CLASS_FIELDS = ['当前班级', '当前年级'] as const;
+
+  /** 取某学生记录的分组维度（班级） */
+  private classOf(f: Record<string, any>): string {
+    for (const k of MarkbookService.CLASS_FIELDS) {
+      const t = normClass(f[k]);
+      if (t) return t;
+    }
+    return '';
+  }
+
   private levelOf(f: Record<string, any>): LevelDef {
     const num = (k: string): number | null => {
       const v = f[k];
@@ -187,7 +206,7 @@ export class MarkbookService implements OnModuleInit {
       return o;
     };
     for (const s of students) {
-      const cls = normClass(s.f['当前班级']);
+      const cls = this.classOf(s.f);
       if (cls) ensure(cls).students++;
     }
     for (const c of columns) {
@@ -201,12 +220,12 @@ export class MarkbookService implements OnModuleInit {
     return [...map.values()].sort((a, b) => a.cls.localeCompare(b.cls, 'zh-CN'));
   }
 
-  /** 班级名单（学生档案「当前班级」匹配，排除已毕业/已离校/已流失） */
+  /** 班级名单（学生档案的分组维度匹配，排除已毕业/已离校/已流失） */
   private async studentsOf(cls: string): Promise<GridStudent[]> {
     const rows = await this.readAll(TABLES.studentProfile.tableId);
     const BAD = /毕业|离校|流失|退学/;
     return rows
-      .filter((r) => normClass(r.f['当前班级']) === cls && !BAD.test(String(r.f['当前状态'] ?? '')))
+      .filter((r) => this.classOf(r.f) === cls && !BAD.test(String(r.f['当前状态'] ?? '')))
       .map((r) => ({
         id: r.id,
         name: String(r.f['学生姓名'] ?? ''),

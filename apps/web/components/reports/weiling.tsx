@@ -129,6 +129,12 @@ export function WeilingPanel() {
    * ⚠️ 必须带上报表当前的筛选（时间区间 + 已选维度），否则列表页会显示全量联系人 ——
    * 用户点某根柱子想看的是「这批人」，不是所有人。extra 里的空值不传。
    */
+  /**
+   * 「成交」的判据必须与后端一致（weiling.service.ts 的 `const DEAL = '成交客户'`）。
+   * 报表 KPI 与列表下钻用同一个值，否则点进去的数字对不上。
+   */
+  const DEAL_STAGE = '成交客户';
+
   const drill = (extra: Record<string, string>) => {
     const merged: Record<string, string> = {};
     if (from) merged.from = from;
@@ -211,25 +217,49 @@ export function WeilingPanel() {
         {loading ? <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>刷新中…</span> : null}
       </div>
 
-      {/* KPI */}
+      {/* KPI：带 params 的卡片可点，点进去带报表当前筛选 + 该卡片的口径 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10, marginBottom: '1.25rem' }}>
-        {[
-          { label: '线索总数', value: data.summary.total },
-          { label: '本月新增', value: data.summary.monthNew },
-          { label: '成交客户', value: data.summary.deal },
-          { label: '转化率', value: `${data.summary.dealRate.toFixed(1)}%` },
-          { label: '已匹配在校生', value: data.summary.matched },
-          { label: '归属人数', value: data.summary.owners },
-          { label: '跟进记录', value: data.summary.followRecords ?? 0 },
-          { label: '人均跟进次数', value: Number(data.summary.followAvg ?? 0).toFixed(1) },
-          { label: '已流失', value: lost.summary.lost },
-          { label: '流失率', value: `${lost.summary.rate.toFixed(1)}%` },
-        ].map((k) => (
-          <div key={k.label} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-elevated,#fff)' }}>
-            <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{k.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 600 }}>{k.value}</div>
-          </div>
-        ))}
+        {(
+          [
+            { label: '线索总数', value: data.summary.total, params: {} },
+            // 本月新增：报表按「创建时间 ≥ 本月 1 日 0 点」算，这里用同样的本地日期边界
+            { label: '本月新增', value: data.summary.monthNew, params: { 创建时间_from: monthRange(today().slice(0, 7)).from } },
+            { label: '成交客户', value: data.summary.deal, params: { 客户阶段: DEAL_STAGE } },
+            { label: '转化率', value: `${data.summary.dealRate.toFixed(1)}%` },
+            { label: '已匹配在校生', value: data.summary.matched, params: { 关联学生__notempty: '1' } },
+            { label: '归属人数', value: data.summary.owners },
+            {
+              label: '跟进记录',
+              value: data.summary.followRecords ?? 0,
+              params: { 跟进次数__gt: '0' },
+              // 卡片上是「记录条数」，点进去看到的是「被跟进过的联系人」——两者口径不同，标出来
+              hint: `涉及 ${follow.summary.contacts} 位联系人`,
+            },
+            { label: '人均跟进次数', value: Number(data.summary.followAvg ?? 0).toFixed(1) },
+            { label: '已流失', value: lost.summary.lost, params: { 流失状态: '已流失' } },
+            { label: '流失率', value: `${lost.summary.rate.toFixed(1)}%` },
+          ] as { label: string; value: string | number; params?: Record<string, string>; hint?: string }[]
+        ).map((k) => {
+          const clickable = k.params !== undefined;
+          return (
+            <div
+              key={k.label}
+              title={clickable ? '点击查看名单' : undefined}
+              onClick={clickable ? () => drill(k.params ?? {}) : undefined}
+              style={{
+                padding: '10px 12px',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                background: 'var(--bg-elevated,#fff)',
+                cursor: clickable ? 'pointer' : undefined,
+              }}
+            >
+              <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{k.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 600, color: clickable ? 'var(--accent)' : undefined }}>{k.value}</div>
+              {k.hint ? <div style={{ fontSize: 11, color: 'var(--fg-tertiary)', marginTop: 2 }}>{k.hint}</div> : null}
+            </div>
+          );
+        })}
       </div>
 
       {/* ① 客户阶段漏斗 */}

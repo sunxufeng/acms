@@ -237,6 +237,20 @@ export interface CrudPageProps {
   autoRefresh?: number[];
   /** 行内开关（CrudColumn.inlineSwitch）的提交回调；next 是要写入的目标值 */
   onInlineSwitch?: (row: Record<string, unknown>, next: string) => void | Promise<void>;
+  /**
+   * 隐藏末尾的「操作」列。
+   * 用于纯只读列表（如卫瓴联系人副本）—— 该列只剩一个空单元格，白占 150px 宽度。
+   * 只影响渲染，不影响任何动作能力。
+   */
+  hideActions?: boolean;
+  /**
+   * 这些列的**文本值本身就是学生姓名**（而非 link 存的 record id）。
+   * 提供后 CrudPage 会拉一次学生档案建「中文名 → 英文名」映射，并以
+   * `__studentEnglish` 注入行上，供模块自定义 render 用 studentLabel() 显示双语。
+   * 场景：卫瓴联系人的「疑似关联学生」是按姓名匹配出来的，没有 student/studentLink 类型列，
+   * 默认不会触发英文名映射。
+   */
+  studentNameKeys?: string[];
 }
 
 function str(v: unknown): string {
@@ -346,7 +360,7 @@ const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: '
  */
 let weilingContactCache: { value: string; label: string }[] | null = null;
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, studentNameKeys }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -508,7 +522,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const pageIds = items.map(selKey);
   const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedRows.has(id));
   const someOnPageSelected = pageIds.some((id) => selectedRows.has(id));
-  const colCount = listCols.length + 1 + (selection ? 1 : 0);
+  const showActions = !hideActions;
+  const colCount = listCols.length + (showActions ? 1 : 0) + (selection ? 1 : 0);
   const toggleRow = (row: Record<string, unknown>) => {
     const id = selKey(row);
     setSelectedRows((prev) => {
@@ -715,7 +730,10 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   /** 学生姓名 → 英文名：列表里学生列要显示「中文名 / 英文名」，表单下拉已带英文名，这里补列表用 */
   const [studentEnglishByName, setStudentEnglishByName] = useState<Record<string, string>>({});
   useEffect(() => {
-    if (!columns.some((c) => c.type === 'student' || c.type === 'studentLink' || c.type === 'parent')) return;
+    const needStudentMap =
+      columns.some((c) => c.type === 'student' || c.type === 'studentLink' || c.type === 'parent') ||
+      Boolean(studentNameKeys?.length);
+    if (!needStudentMap) return;
     let alive = true;
     const collected: { id: string; name: string; englishName: string; father: string; mother: string }[] = [];
     const fetchPage = async (token?: string): Promise<void> => {
@@ -762,13 +780,17 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       })
       .catch(() => {});
     return () => { alive = false; };
-  }, [columns]);
+  }, [columns, studentNameKeys]);
 
   // 学生列补英文名：把「中文名 → 英文名」以 __studentEnglish 注入行上，
   // 这样既有通用单元格渲染、也有各模块自定义 render（如家校沟通的学生列）都能显示双语。
   const studentCols = useMemo(
-    () => columns.filter((c) => c.type === 'student' || c.type === 'studentLink').map((c) => c.key),
-    [columns],
+    () => [
+      ...columns.filter((c) => c.type === 'student' || c.type === 'studentLink').map((c) => c.key),
+      // 值本身是学生姓名的列（如「疑似关联学生」）也要参与注入
+      ...(studentNameKeys ?? []),
+    ],
+    [columns, studentNameKeys],
   );
   const rows = useMemo(() => {
     if (!studentCols.length || !Object.keys(studentEnglishByName).length) return items;
@@ -1689,7 +1711,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 </th>
               )}
               {listCols.map((c) => <th key={c.key} style={c.width ? { width: c.width } : undefined}>{tl(c.label)}</th>)}
-              <th style={{ width: '150px' }}>{t('common.actions')}</th>
+              {showActions && <th style={{ width: '150px' }}>{t('common.actions')}</th>}
             </tr>
           </thead>
           <tbody>
@@ -1776,6 +1798,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                                 : cellText(row[c.key], c, tl, dictMeta)))}
                     </td>
                   ))}
+                  {showActions && (
                   <td>
                     <div style={rowActions}>
                       {canUpdate && editHref ? (
@@ -1814,6 +1837,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                       {canDelete && <button className="btn btn-danger btn-sm" onClick={() => remove(row)}>{t('crud.delete')}</button>}
                     </div>
                   </td>
+                  )}
                 </tr>
               );
             })}

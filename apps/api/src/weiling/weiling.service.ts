@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { TABLES } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { decryptSecret } from '../shared/secret-cipher.js';
+import { runAs, systemActor } from '../shared/actor-context.js';
 
 /**
  * 卫瓴 SCRM 开放平台对接。
@@ -610,6 +611,65 @@ export class WeilingService implements OnModuleInit {
    *  - 70 联系人昵称去掉「妈妈/爸爸/家长」后缀 = 父亲/母亲姓名
    *  - 55 弱包含（昵称里出现学生姓名）
    */
+  /**
+   * 重算联系人的「跟进次数」。
+   *
+   * 这个字段是**同步时写回的缓存快照**（跟进记录同步时按联系人写 `list.length`），
+   * 一旦某一轮漏写、或联系人被重建，缓存就会与跟进记录表漂移 ——
+   * 表现为「跟进记录里明明有，联系人列表却显示 —」，报表的「被跟进线索」也会对不上。
+   * 这里以跟进记录表为准做一次全量重算，只写有差异的行。
+   */
+  async recountFollows(): Promise<{ scanned: number; fixed: number }> {
+    const sql = getSqlStore();
+    if (!sql) throw new Error('未配置数据库连接');
+
+    // ① 先统计每个联系人的实际跟进记录数
+    const counts = new Map<string, number>();
+    let token: string | undefined;
+    for (let page = 0; page < 60; page += 1) {
+      const res = await sql.search(TABLES.weilingProgress.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of res.items ?? []) {
+        const rec = r as { fields?: Record<string, unknown> } | null;
+        const f = (rec?.fields ?? r) as Record<string, unknown>;
+        const cid = String(f['关联联系人ID'] ?? '');
+        if (cid) counts.set(cid, (counts.get(cid) ?? 0) + 1);
+      }
+      if (!res.hasMore || !res.pageToken) break;
+      token = res.pageToken;
+    }
+
+    // ② 逐条比对，只改不一致的
+    let scanned = 0;
+    let fixed = 0;
+    token = undefined;
+    for (let page = 0; page < 60; page += 1) {
+      const res = await sql.search(TABLES.weilingContact.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of res.items ?? []) {
+        const rec = r as { recordId?: string; id?: string; fields?: Record<string, unknown> } | null;
+        const id = String(rec?.recordId ?? (r as { id?: string })?.id ?? '');
+        if (!id) continue;
+        const f = ((rec?.fields ?? r) ?? {}) as Record<string, unknown>;
+        scanned += 1;
+        const actual = counts.get(id) ?? 0;
+        if (Number(f['跟进次数'] ?? 0) === actual) continue;
+        await runAs(systemActor('weiling', '系统 · 卫瓴同步'), () =>
+          sql.update(TABLES.weilingContact.tableId, id, { 跟进次数: actual }),
+        ).catch(() => undefined);
+        fixed += 1;
+      }
+      if (!res.hasMore || !res.pageToken) break;
+      token = res.pageToken;
+    }
+    this.logger.log(`重算跟进次数：扫描 ${scanned} 条，修正 ${fixed} 条`);
+    return { scanned, fixed };
+  }
+
   async matchStudents(): Promise<{ ok: boolean; matched: number; total: number; message?: string }> {
     const sql = getSqlStore();
     if (!sql) return { ok: false, matched: 0, total: 0, message: '未配置数据库连接' };

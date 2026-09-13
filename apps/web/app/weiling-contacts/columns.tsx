@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
 
 /**
  * 时间字段 → 毫秒。
@@ -118,9 +119,9 @@ export const COLUMNS: CrudColumn[] = [
     key: '状态',
     label: '状态',
     width: '100px',
-    filter: true,
-    // 下拉用原始值（1/4）提交，显示成中文 —— 反过来的话筛选会把「正常」当值传，匹配不上
-    filterOptions: ['1', '4'],
+    // 列表与筛选区都不显示：卫瓴没给 status 的官方枚举，1/4 的中文名是按分布推测的，
+    // 挂在列表上容易被当成权威口径。字段值仍在行数据里（导出/详情照旧）。
+    list: false,
     render: (v) => {
       const s = String(v ?? '');
       if (!s) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
@@ -146,7 +147,8 @@ export const COLUMNS: CrudColumn[] = [
       const bg = score >= 90 ? '#eaf5ee' : score >= 70 ? '#fdf6e8' : '#f0efeb';
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span>{name}</span>
+          {/* 英文名由 CrudPage 按学生姓名注入（页面传 studentNameKeys 才会拉这张映射表） */}
+          <span>{studentLabel(name, row[STUDENT_ENGLISH_KEY])}</span>
           <span
             title={String(row['匹配依据'] ?? '')}
             style={{ fontSize: 10, padding: '1px 5px', borderRadius: 8, background: bg, color, whiteSpace: 'nowrap' }}

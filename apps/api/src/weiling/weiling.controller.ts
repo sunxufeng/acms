@@ -85,6 +85,19 @@ export class WeilingController {
     return this.svc.matchStudents();
   }
 
+  /**
+   * 重算联系人的「跟进次数」（不访问上游，只扫本地库）。
+   * 该字段是同步时写回的缓存快照，会与跟进记录表漂移；权限与其它维护动作一致（weiling:sync）。
+   */
+  @Post('recount-follows')
+  recountFollows(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'weiling:sync').allowed) {
+      throw new HttpException('FORBIDDEN:weiling:sync', HttpStatus.FORBIDDEN);
+    }
+    return this.svc.recountFollows();
+  }
+
   /** 手动触发同步（会真实拉取上游，限管理员：weiling:sync） */
   @Post('sync')
   sync(@Req() req: Request, @Query('full') full?: string) {

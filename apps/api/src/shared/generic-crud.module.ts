@@ -194,9 +194,12 @@ export class BaseRecordService {
     const hasDeep =
       BaseRecordService.DEEP_PARAMS.some((k) => query[k]) ||
       Object.keys(query).some((k) => /_(from|to)$/.test(k)) ||
-      // `<字段>__has=<值>`：多值字段（jsonb 数组）的成员包含筛选。等值筛选对数组必然落空，
-      // 只能内存过滤。典型用途：上游账号按「所属分组」筛（一个账号可属于多个分组）。
-      Object.keys(query).some((k) => k.endsWith('__has') && query[k]) ||
+      // 后缀约定的筛选一律内存过滤（等值匹配表达不了）：
+      //   `<字段>__has=值`      多值字段的成员包含（jsonb 数组 / 「、」分隔字符串）
+      //   `<字段>__notempty=1`  字段非空（报表下钻「已匹配在校生」= 关联学生非空）
+      //   `<字段>__empty=1`     字段为空
+      //   `<字段>__gt=数字` / `<字段>__lt=数字`  数值比较（如「跟进次数 > 0」）
+      Object.keys(query).some((k) => /__(has|notempty|empty|gt|lt)$/.test(k) && query[k]) ||
       !!(query.dim && query.dimval) ||
       (this.meta.deepParams ?? []).some((k) => query[k]);
     if (hasDeep) {
@@ -404,6 +407,30 @@ export class BaseRecordService {
           .split(/[、,，]/)
           .map((x) => x.trim())
           .includes(want);
+      });
+    }
+
+    // 其余后缀约定：非空 / 为空 / 数值比较。都表达不了「等值」，只能内存过滤。
+    for (const [k, v] of Object.entries(query)) {
+      if (!v) continue;
+      const m = /^(.+?)__(notempty|empty|gt|lt)$/.exec(k);
+      if (!m) continue;
+      hasKeys.push(k);
+      const field = m[1] as string;
+      const op = m[2] as string;
+      if (op === 'notempty') {
+        filtered = filtered.filter((r) => !isBlankVal(r[field]));
+        continue;
+      }
+      if (op === 'empty') {
+        filtered = filtered.filter((r) => isBlankVal(r[field]));
+        continue;
+      }
+      const num = Number(v);
+      if (!Number.isFinite(num)) continue;
+      filtered = filtered.filter((r) => {
+        const x = Number(r[field]);
+        return Number.isFinite(x) && (op === 'gt' ? x > num : x < num);
       });
     }
 
@@ -711,4 +738,11 @@ export class GenericCrudModule {
       providers: [...providers, baseClientProvider],
     };
   }
+}
+
+/** 空值判定（用于 `<字段>__empty` / `<字段>__notempty`）：空串、null、空数组都算空 */
+function isBlankVal(v: unknown): boolean {
+  if (v == null) return true;
+  if (Array.isArray(v)) return v.length === 0;
+  return String(v).trim() === '';
 }

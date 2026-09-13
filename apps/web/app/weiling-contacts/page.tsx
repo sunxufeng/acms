@@ -18,6 +18,8 @@ export default function WeilingContactsPage() {
   const [status, setStatus] = useState<{ lastSyncAt: number; count: number } | null>(null);
   const [pgMsg, setPgMsg] = useState('');
   const [pgRunning, setPgRunning] = useState(false);
+  const [rcMsg, setRcMsg] = useState('');
+  const [rcRunning, setRcRunning] = useState(false);
   const [lostMsg, setLostMsg] = useState('');
   const [lostRunning, setLostRunning] = useState(false);
   const [lostProgress, setLostProgress] = useState<{ scanned: number; total: number } | null>(null);
@@ -34,13 +36,25 @@ export default function WeilingContactsPage() {
     最近跟进时间_to: '最近跟进止',
     dim: '自定义字段',
     dimval: '字段值',
+    // KPI 卡片下钻带上来的条件
+    创建时间_from: '创建时间起',
+    创建时间_to: '创建时间止',
+    关联学生__notempty: '已匹配在校生',
+    关联学生__empty: '未匹配在校生',
+    跟进次数__gt: '有跟进记录',
+  };
+  /** chip 的展示值：`__notempty` / `__empty` / `__gt` 这类是标记位，写出来反而让人困惑 */
+  const chipValue = (k: string, v: string): string => {
+    if (/__(notempty|empty)$/.test(k)) return '';
+    if (k === '跟进次数__gt') return '≥1 次';
+    return v;
   };
   useEffect(() => {
     const qs = new URLSearchParams(window.location.search);
     const chips: { label: string; value: string }[] = [];
     for (const [k, label] of Object.entries(DRILL_LABELS)) {
       const v = qs.get(k);
-      if (v) chips.push({ label, value: v });
+      if (v) chips.push({ label, value: chipValue(k, v) });
     }
     setDrillChips(chips);
   }, []);
@@ -116,6 +130,26 @@ export default function WeilingContactsPage() {
   };
 
   /**
+   * 重算「跟进次数」。
+   *
+   * 该字段是跟进记录同步时写回的**缓存快照**，会与跟进记录表漂移 ——
+   * 症状是「联系人详情里明明有跟进记录，列表却显示 —」，报表的「被跟进线索」也对不上。
+   * 这里按跟进记录表为准全量重算，只写不一致的行，不访问上游。
+   */
+  const recountFollows = async () => {
+    setRcRunning(true);
+    setRcMsg('');
+    try {
+      const r = await api.recountWeilingFollows();
+      setRcMsg(`已重算：扫描 ${r.scanned} 条，修正 ${r.fixed} 条`);
+    } catch (e) {
+      setRcMsg(`重算失败：${(e as Error).message}`);
+    } finally {
+      setRcRunning(false);
+    }
+  };
+
+  /**
    * 流失状态同步：走的是卫瓴**客户**接口（联系人接口不返回这个字段），
    * 逐个联系人查，约 5 分钟。后台跑，这里只负责启动 + 轮询进度。
    */
@@ -186,6 +220,9 @@ export default function WeilingContactsPage() {
         >
           {pgRunning ? '同步中…' : '同步跟进记录'}
         </button>
+        <button className="btn btn-outline btn-sm" disabled={rcRunning} onClick={() => void recountFollows()}>
+          {rcRunning ? '重算中…' : '重算跟进次数'}
+        </button>
         <button className="btn btn-outline btn-sm" disabled={lostRunning} onClick={() => void syncLost()}>
           {lostRunning
             ? `同步流失状态 ${lostProgress?.total ? `${lostProgress.scanned}/${lostProgress.total}` : '…'}`
@@ -199,6 +236,9 @@ export default function WeilingContactsPage() {
         ) : null}
         {pgMsg ? (
           <span style={{ color: pgMsg.includes('失败') ? 'var(--fg-error)' : 'var(--fg-secondary)' }}>{pgMsg}</span>
+        ) : null}
+        {rcMsg ? (
+          <span style={{ color: rcMsg.includes('失败') ? 'var(--fg-error)' : 'var(--fg-secondary)' }}>{rcMsg}</span>
         ) : null}
         {lostMsg ? (
           <span style={{ color: lostMsg.includes('失败') ? 'var(--fg-error)' : 'var(--fg-secondary)' }}>{lostMsg}</span>
@@ -251,10 +291,32 @@ export default function WeilingContactsPage() {
         // 只读：数据来自卫瓴，这里不提供任何写入能力
         readonly
         hideCreate
+        // 只读列表没有行内动作，「操作」列只剩一个空单元格，白占 150px
+        hideActions
+        // 「疑似关联学生」是按姓名匹配出来的（不是 link），显式声明后
+        // CrudPage 会注入 __studentEnglish，让该列显示「中文名 / 英文名」
+        studentNameKeys={['关联学生']}
         detailHref={(id) => `/weiling-contacts/${id}`}
         rangeFilters={[{ key: 'createTime', label: '创建时间', fromParam: 'from', toParam: 'to' }]}
         // 报表下钻用的隐藏条件：没有筛选控件，但必须透传给列表接口
-        passthroughParams={['来源组件', 'dim', 'dimval', 'follower', '最近跟进时间_from', '最近跟进时间_to']}
+        //  · 关联学生__notempty  —— 「已匹配在校生」下钻（关联学生非空）
+        //  · 跟进次数__gt=0     —— 「跟进记录」下钻（被跟进过的联系人）
+        //  · 创建时间_from/_to  —— 「本月新增」下钻（与顶部 from/to 的 rangeField 是两回事：
+        //                          顶部筛选作用于「创建时间」，这里也是，两者 AND 生效）
+        passthroughParams={[
+          '来源组件',
+          'dim',
+          'dimval',
+          'follower',
+          '最近跟进时间_from',
+          '最近跟进时间_to',
+          '关联学生__notempty',
+          '关联学生__empty',
+          '跟进次数__gt',
+          '创建时间_from',
+          '创建时间_to',
+        ]}
+
         api={{
           list: (p) => api.listWeilingContacts(p),
         }}

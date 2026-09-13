@@ -678,6 +678,9 @@ export const api = {
     request<{ ok: boolean; started: boolean; message?: string }>(`/weiling/sync-progress${full ? '' : '?full=0'}`, {
       method: 'POST',
     }),
+  /** 重算「跟进次数」缓存（与跟进记录表对齐；同步快照漂移时用） */
+  recountWeilingFollows: () =>
+    request<{ scanned: number; fixed: number }>('/weiling/recount-follows', { method: 'POST' }),
   syncWeilingLost: () =>
     request<{ ok: boolean; started: boolean; message?: string }>('/weiling/sync-lost', { method: 'POST' }),
   weilingAnalyze: (params: { from?: string; to?: string; owner?: string; channel?: string; stage?: string } = {}) => {

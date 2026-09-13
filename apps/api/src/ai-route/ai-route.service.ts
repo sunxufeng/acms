@@ -1338,8 +1338,17 @@ const PRICING: Record<string, { in: number; out: number }> = {
   'claude-3-opus': { in: 0.015, out: 0.075 },
   'claude-sonnet-4': { in: 0.003, out: 0.015 },
   'claude-haiku-4': { in: 0.001, out: 0.005 },
-  'deepseek-chat': { in: 0.00027, out: 0.0011 },
-  'deepseek-reasoner': { in: 0.00055, out: 0.00219 },
+  // DeepSeek（2026-09-13 按官方定价页核实）：
+  // ⚠️ 上游已把 deepseek-chat / deepseek-reasoner 路由到 V4.1 Flash 并**按 Flash 单价计费**
+  //   （实测：请求 deepseek-chat，响应里的 model 是 deepseek-flash）。旧价 0.00027/0.0011
+  //   是 V3 时代的数字，用它会把成本算高约 1.8 倍。
+  // ⚠️ 官方区分空闲 / 高峰时段（高峰为 2 倍，北京时间 9:00-12:00、14:00-18:00）。
+  //   这里是**静态单价、取空闲时段价**；高峰时段要用分组上的「高峰倍率」补足，
+  //   否则高峰期成本会被低估一半。
+  'deepseek-chat': { in: 0.00015, out: 0.0006 },
+  'deepseek-reasoner': { in: 0.00015, out: 0.0006 },
+  'deepseek-flash': { in: 0.00015, out: 0.0006 },
+  'deepseek-v4-pro': { in: 0.00066, out: 0.00198 },
   'qwen-turbo': { in: 0.0003, out: 0.0006 },
   'qwen-plus': { in: 0.0008, out: 0.002 },
   'qwen-max': { in: 0.0024, out: 0.0096 },

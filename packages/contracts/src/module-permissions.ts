@@ -118,23 +118,36 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   // 五张可写表用 RECORD（含批量导入导出），用量明细与操作日志只读（READ）。
   // 权限点走 module:<key>:<action> 新体系，不设 legacy 点。
   // ⚠️ path 必须与 lifecycle.meta.ts 里 RecordMeta.path 完全一致，否则鉴权会静默回退。
-  { key: 'aiRouteGroups', label: 'AI 路由分组', path: '/ai-route-groups', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
-  { key: 'aiUpstreams', label: 'AI 上游账号', path: '/ai-upstreams', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
-  { key: 'aiModelRoutes', label: 'AI 模型路由', path: '/ai-model-routes', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
-  { key: 'aiApiKeys', label: 'AI 密钥', path: '/ai-api-keys', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
-  { key: 'aiUsage', label: 'AI 用量明细', path: '/ai-usage', legacyRead: null, legacyWrite: null, menuPermission: null, actions: READ, genericCrud: true },
-  { key: 'aiOpLogs', label: 'AI 路由操作日志', path: '/ai-op-logs', legacyRead: null, legacyWrite: null, menuPermission: null, actions: READ, genericCrud: true },
-  { key: 'aiProxies', label: 'AI 上游代理', path: '/ai-proxies', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'aiRouteGroups', label: 'AI 路由分组', path: '/ai-route-groups', legacyRead: 'ai:admin', legacyWrite: 'ai:admin', menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'aiUpstreams', label: 'AI 上游账号', path: '/ai-upstreams', legacyRead: 'ai:admin', legacyWrite: 'ai:admin', menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'aiModelRoutes', label: 'AI 模型路由', path: '/ai-model-routes', legacyRead: 'ai:admin', legacyWrite: 'ai:admin', menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'aiApiKeys', label: 'AI 密钥', path: '/ai-api-keys', legacyRead: 'ai:admin', legacyWrite: 'ai:admin', menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'aiUsage', label: 'AI 用量明细', path: '/ai-usage', legacyRead: 'ai:admin', legacyWrite: null, menuPermission: null, actions: READ, genericCrud: true },
+  { key: 'aiOpLogs', label: 'AI 路由操作日志', path: '/ai-op-logs', legacyRead: 'ai:admin', legacyWrite: null, menuPermission: null, actions: READ, genericCrud: true },
+  { key: 'aiProxies', label: 'AI 上游代理', path: '/ai-proxies', legacyRead: 'ai:admin', legacyWrite: 'ai:admin', menuPermission: null, actions: RECORD, genericCrud: true },
 
   // ── 教学域（参照 Gibbon v31 移植，2026-09-13）──────────────────────
   // 粒度按「一个菜单一项权限」：成绩册把等级体系/类型权重/列/条目/目标收在一个模块下，
   // 行为记录把设置/记录/跟进/告警/信件收在一个模块下，避免权限矩阵爆炸。
-  { key: 'attendanceCodes', label: '考勤码', path: '/attendance-codes', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
-  { key: 'markbook', label: '成绩册', path: '/markbook', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
-  { key: 'behaviour', label: '行为记录', path: '/behaviour', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
-  { key: 'curriculum', label: '课程规划', path: '/curriculum', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
-  { key: 'lessonPlan', label: '课时教案', path: '/lesson-plans', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
-  { key: 'learningOutcomes', label: '学习成果', path: '/learning-outcomes', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  // ⚠️ 这 6 个教学模块的 legacyRead/Write 统一挂 `grade:read` / `grade:write`，
+  //    而不是各自语义上「更像」的权限点（课程/考勤/学生…），原因：
+  //    legacy 权限体系里**没有「是不是教学侧人员」这个维度**，而「教师本人」角色只有
+  //    grade:read / student:read / attendance:read / report:read 这几个 —— 若按语义拆开挂，
+  //    教师能看成绩册却看不到教案与课程规划（实测预演确认过）。
+  //    所以统一用 `grade:read` 作「教学侧」判据：系统管理员 / 院级管理 / 教务 /
+  //    教师本人 / 学生事务 / Phase1 命中；财务、招生、HR、student、parent 不命中。
+  //    要单独放宽某类人，在权限矩阵里勾对应菜单即可（每个菜单都有独立权限点）。
+  { key: 'attendanceCodes', label: '考勤码', path: '/attendance-codes', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'markbook', label: '成绩册', path: '/markbook', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'behaviour', label: '行为记录', path: '/behaviour', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'curriculum', label: '课程规划', path: '/curriculum', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'lessonPlan', label: '课时教案', path: '/lesson-plans', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
+  { key: 'learningOutcomes', label: '学习成果', path: '/learning-outcomes', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
+  // 部门管理（组织管理，2026-09-13 补登）：只读同步飞书通讯录部门树 + 部门成员，
+  // 接口只要求登录态（部门/成员属公开组织信息），这里登记是为了**菜单可授权**：
+  // 之前菜单 perm 为空 => 所有人可见、权限矩阵里管不到，现在用 module:departmentManagement:read 控制入口。
+  // actions 只给 READ（本模块没有写接口）；genericCrud: false（controller 是自建的，不走通用 CRUD）。
+  { key: 'departmentManagement', label: '部门管理', path: '/department-management', legacyRead: null, legacyWrite: null, menuPermission: null, actions: READ, genericCrud: false },
 ];
 
 /** 返回值是 Permission 的子类型，供现有 authorize/hasPermission 直接使用。 */

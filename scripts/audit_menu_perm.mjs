@@ -5,7 +5,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -45,8 +45,34 @@ function parseMenu(file) {
   return items;
 }
 
-const PERMS = parsePerms('packages/contracts/src/role.ts');
-const MENU = parseMenu('packages/contracts/src/homepage.ts');
+// ⚠️ 优先用**编译产物里的运行时值**：下面的 parsePerms/parseMenu 是正则解析源码字面量，
+//    认不出 `...MODULE_PERMISSIONS` 这类展开 —— 会把全部 `module:*` 权限点误报成
+//    「菜单 perm 不在权限清单」（A 段假阳性）。2026-09-13 给教学域/AI 路由菜单挂上
+//    module:* 权限点后就踩了一次：运行时清单里明明有，脚本却报 14 条 ✗。
+const DIST = path.join(root, 'packages/contracts/dist/index.js');
+async function loadRuntime() {
+  if (!fs.existsSync(DIST)) return null;
+  try {
+    const m = await import(pathToFileURL(DIST).href);
+    return { perms: [...m.PERMISSIONS], menu: m.DEFAULT_NAV_MENU_CONFIG?.items ?? [] };
+  } catch {
+    return null;
+  }
+}
+const RT = await loadRuntime();
+
+const PERMS = RT && RT.perms.length ? RT.perms : parsePerms('packages/contracts/src/role.ts');
+const MENU =
+  RT && RT.menu.length
+    ? RT.menu.map((i) => ({
+        key: i.key,
+        label: i.label,
+        href: i.href,
+        section: i.section,
+        perm: i.perm ?? '',
+        adminOnly: !!i.adminOnly,
+      }))
+    : parseMenu('packages/contracts/src/homepage.ts');
 const permSet = new Set(PERMS);
 
 console.log(`权限清单共 ${PERMS.length} 个权限点；菜单共 ${MENU.length} 项\n`);

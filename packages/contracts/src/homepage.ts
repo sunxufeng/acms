@@ -312,12 +312,12 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     // ── 教学管理（参照 GibbonEdu/core v31 移植，2026-09-13）──────────────
     // perm 留空：这些模块没有历史遗留权限点，访问控制走「模块×动作」矩阵里的
     // module:markbook / module:behaviour 等（与 AI 路由那组一致）。
-    { key: 'markbook', label: '成绩册', enLabel: 'Markbook', href: '/markbook', icon: 'target', section: '教学管理', order: 10, perm: '' },
-    { key: 'learningOutcomes', label: '学习成果', enLabel: 'Outcomes', href: '/learning-outcomes', icon: 'award', section: '教学管理', order: 20, perm: '' },
-    { key: 'curriculum', label: '课程规划', enLabel: 'Curriculum', href: '/curriculum', icon: 'book', section: '教学管理', order: 30, perm: '' },
-    { key: 'lessonPlans', label: '课时教案', enLabel: 'Lesson Plans', href: '/lesson-plans', icon: 'list', section: '教学管理', order: 40, perm: '' },
-    { key: 'behaviour', label: '行为记录', enLabel: 'Behaviour', href: '/behaviour', icon: 'flag', section: '教学管理', order: 50, perm: '' },
-    { key: 'attendanceCodes', label: '考勤码', enLabel: 'Attendance Codes', href: '/attendance-codes', icon: 'check', section: '教学管理', order: 90, perm: '' },
+    { key: 'markbook', label: '成绩册', enLabel: 'Markbook', href: '/markbook', icon: 'target', section: '教学管理', order: 10, perm: 'module:markbook:read' },
+    { key: 'learningOutcomes', label: '学习成果', enLabel: 'Outcomes', href: '/learning-outcomes', icon: 'award', section: '教学管理', order: 20, perm: 'module:learningOutcomes:read' },
+    { key: 'curriculum', label: '课程规划', enLabel: 'Curriculum', href: '/curriculum', icon: 'book', section: '教学管理', order: 30, perm: 'module:curriculum:read' },
+    { key: 'lessonPlans', label: '课时教案', enLabel: 'Lesson Plans', href: '/lesson-plans', icon: 'list', section: '教学管理', order: 40, perm: 'module:lessonPlan:read' },
+    { key: 'behaviour', label: '行为记录', enLabel: 'Behaviour', href: '/behaviour', icon: 'flag', section: '教学管理', order: 50, perm: 'module:behaviour:read' },
+    { key: 'attendanceCodes', label: '考勤码', enLabel: 'Attendance Codes', href: '/attendance-codes', icon: 'check', section: '教学管理', order: 90, perm: 'module:attendanceCodes:read' },
 
     { key: 'reports', label: '报表管理', enLabel: 'Reports', href: '/reports', icon: 'reports', section: '报表管理', order: 10, perm: 'report:read' },
 
@@ -364,19 +364,19 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'student-users', label: '学生账号', enLabel: 'Student Accounts', href: '/student-users', icon: 'user', section: '后台管理', order: 130, adminOnly: true, perm: 'admin:studentUser' },
 
   // ── 组织管理（2026-09-10 新增）：只读同步飞书通讯录部门树，全员可见 ──
-  { key: 'department-management', label: '部门管理', enLabel: 'Departments', href: '/department-management', icon: 'compass', section: '组织管理', order: 10, perm: '' },
+  { key: 'department-management', label: '部门管理', enLabel: 'Departments', href: '/department-management', icon: 'compass', section: '组织管理', order: 10, perm: 'module:departmentManagement:read' },
   { key: 'meetingMinutes', label: '会议纪要', enLabel: 'Meeting Minutes', href: '/meeting-minutes', icon: 'notifications', section: '组织管理', order: 20, perm: 'meeting:read' },
 
     // ── AI 路由（acapi 网关移植，2026-09-12）────────────────────────
     // 一套自建的大模型调用网关：上游是各家厂商的真实账号，对外发我们自己的密钥。
     // 菜单可见性走 module:<key>:enter（无需 perm），接口权限同名。
-    { key: 'aiRouteGroups', label: '分组管理', enLabel: 'Groups', href: '/ai-route-groups', icon: 'integration', section: 'AI 路由', order: 10, perm: '' },
-    { key: 'aiUpstreams', label: '上游账号', enLabel: 'Upstreams', href: '/ai-upstreams', icon: 'bot', section: 'AI 路由', order: 20, perm: '' },
-    { key: 'aiProxies', label: '上游代理', enLabel: 'Proxies', href: '/ai-proxies', icon: 'location', section: 'AI 路由', order: 25, perm: '' },
-    { key: 'aiModelRoutes', label: '模型路由', enLabel: 'Model Routes', href: '/ai-model-routes', icon: 'compass', section: 'AI 路由', order: 30, perm: '' },
-    { key: 'aiApiKeys', label: 'API 密钥', enLabel: 'API Keys', href: '/ai-api-keys', icon: 'key', section: 'AI 路由', order: 40, perm: '' },
-    { key: 'aiUsage', label: '用量统计', enLabel: 'Usage', href: '/ai-usage', icon: 'chart', section: 'AI 路由', order: 50, perm: '' },
-    { key: 'aiOpLogs', label: '审计日志', enLabel: 'Audit Log', href: '/ai-op-logs', icon: 'audit', section: 'AI 路由', order: 60, perm: '' },
+    { key: 'aiRouteGroups', label: '分组管理', enLabel: 'Groups', href: '/ai-route-groups', icon: 'integration', section: 'AI 路由', order: 10, perm: 'module:aiRouteGroups:read' },
+    { key: 'aiUpstreams', label: '上游账号', enLabel: 'Upstreams', href: '/ai-upstreams', icon: 'bot', section: 'AI 路由', order: 20, perm: 'module:aiUpstreams:read' },
+    { key: 'aiProxies', label: '上游代理', enLabel: 'Proxies', href: '/ai-proxies', icon: 'location', section: 'AI 路由', order: 25, perm: 'module:aiProxies:read' },
+    { key: 'aiModelRoutes', label: '模型路由', enLabel: 'Model Routes', href: '/ai-model-routes', icon: 'compass', section: 'AI 路由', order: 30, perm: 'module:aiModelRoutes:read' },
+    { key: 'aiApiKeys', label: 'API 密钥', enLabel: 'API Keys', href: '/ai-api-keys', icon: 'key', section: 'AI 路由', order: 40, perm: 'module:aiApiKeys:read' },
+    { key: 'aiUsage', label: '用量统计', enLabel: 'Usage', href: '/ai-usage', icon: 'chart', section: 'AI 路由', order: 50, perm: 'module:aiUsage:read' },
+    { key: 'aiOpLogs', label: '审计日志', enLabel: 'Audit Log', href: '/ai-op-logs', icon: 'audit', section: 'AI 路由', order: 60, perm: 'module:aiOpLogs:read' },
   ],
 };
 

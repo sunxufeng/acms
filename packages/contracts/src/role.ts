@@ -275,6 +275,9 @@ export const MENU_PERM_INHERIT: Record<string, readonly string[]> = {
   'aiagent:read': ['ai:config'],
   'aiskill:read': ['ai:admin'],
   'aiusage:read': ['ai:admin'],
+  // 部门管理（组织管理）：组织架构与成员属公开信息，所有角色都该看得到入口
+  // （前置为空数组 = 无条件获得）。它没有 legacy 权限点可挂，所以走这里而不是 legacyRead。
+  'module:departmentManagement:read': [],
 };
 
 function permissionParts(permission: string): { domain: string; action: string } {

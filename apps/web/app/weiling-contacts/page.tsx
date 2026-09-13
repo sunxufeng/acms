@@ -6,12 +6,6 @@ import type { CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 import { COLUMNS } from './columns';
 
-type FieldDesc = {
-  api_name: string;
-  view_name: string;
-  options?: { label: string; value: string }[];
-};
-
 export default function WeilingContactsPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
@@ -68,27 +62,22 @@ export default function WeilingContactsPage() {
     }
   }, []);
 
-  // 归属人没有枚举接口，从列表前几页取 distinct；阶段/渠道用字段描述的枚举
+  /**
+   * 筛选下拉选项：由后端按本地联系人表的**实际取值** distinct 出
+   * 「客户阶段 / 来源渠道 / 归属人」，并用字段描述里的枚举顺序排序
+   * （潜在客户 → 适龄 → 面访 → 面试 → 成交）。
+   *
+   * ⚠️ 历史坑（2026-09-13 用户反馈「下拉显示的是数字」）：
+   *   原先阶段/渠道用 `weilingFields()` 的枚举，但那套 options 的结构是
+   *   `{ label: '数字编码', value: '中文名' }` —— 取 `label` 就把数字渲染进了下拉框；
+   *   而「归属人」是从列表前 4 页凑 distinct，联系人 3500+ 条时覆盖不全。
+   *   ⇒ 现在统一走后端接口，取值与表里一致（选了就能筛出数据）。
+   */
   useEffect(() => {
-    void api.weilingFields().then((fields: FieldDesc[]) => {
-      const pick = (n: string) => (fields.find((f) => f.api_name === n)?.options ?? []).map((o) => o.label);
-      setOptions((prev) => ({ ...prev, 客户阶段: pick('customer_stage'), 来源渠道: pick('from_channel_id') }));
-    }).catch(() => undefined);
-    void (async () => {
-      try {
-        const names = new Set<string>();
-        let token: string | undefined;
-        for (let i = 0; i < 4; i += 1) {
-          const p = await api.listWeilingContacts({ pageSize: '100', pageToken: token });
-          for (const r of p.items) if (r['归属人']) names.add(String(r['归属人']));
-          if (!p.hasMore || !p.pageToken) break;
-          token = p.pageToken;
-        }
-        setOptions((prev) => ({ ...prev, 归属人: [...names].sort() }));
-      } catch {
-        /* 忽略 */
-      }
-    })();
+    void api
+      .weilingContactFilterOptions()
+      .then((opts) => setOptions(opts ?? {}))
+      .catch(() => undefined);
     void loadStatus();
   }, [loadStatus]);
 

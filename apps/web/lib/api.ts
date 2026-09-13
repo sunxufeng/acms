@@ -793,6 +793,14 @@ export const api = {
   listAiOpLogs: (params: Record<string, string | undefined> = {}) =>
     request<Page<Record<string, unknown>>>(`/ai-op-logs${qs(params)}`),
 
+  /**
+   * 联系人筛选下拉的可选值（客户阶段 / 来源渠道 / 归属人），取自本地联系人表的实际取值。
+   * ⚠️ 不要改用 weilingFields() 的枚举：那套 options 是 `{label: 数字编码, value: 中文名}`，
+   * 取 label 会在筛选框里显示成一串数字（2026-09-13 用户报的现场）；而且渠道有父子层级、
+   * 缓存的枚举值跟表里存的值对不上，拿它当筛选项会一条都筛不出来。
+   */
+  weilingContactFilterOptions: () => request<Record<string, string[]>>('/weiling/contact-filter-options'),
+
   weilingSyncStatus: () =>
     request<{
       lastSyncAt: number;

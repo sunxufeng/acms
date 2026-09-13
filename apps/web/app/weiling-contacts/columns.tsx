@@ -59,8 +59,10 @@ export const COLUMNS: CrudColumn[] = [
   { key: '联系人姓名', label: '联系人', width: '180px', openRecord: true },
   { key: '手机号', label: '手机号', width: '140px' },
   { key: '归属人', label: '归属人', width: '160px', filter: true },
-  { key: '客户阶段', label: '客户阶段', width: '110px', filter: true },
-  { key: '来源渠道', label: '来源渠道', width: '150px', filter: true },
+  // label 用简称「阶段」而 key 仍是数据字段名「客户阶段」——
+  // 键值双标识：key 是取值下标，永远不动；label 只影响界面文案。
+  { key: '客户阶段', label: '阶段', width: '110px', filter: true },
+  { key: '来源渠道', label: '来源', width: '150px', filter: true },
   { key: '互动分', label: '互动分', width: '80px' },
   {
     key: '流失状态',
@@ -138,7 +140,7 @@ export const COLUMNS: CrudColumn[] = [
   },
   {
     key: '关联学生',
-    label: '疑似关联学生',
+    label: '关联学生',
     width: '170px',
     filter: true,
     filterType: 'text',

@@ -25,6 +25,18 @@ export class WeilingController {
     return this.svc.fields(refresh === '1');
   }
 
+  /**
+   * 筛选下拉的可选值（客户阶段 / 来源渠道 / 归属人），取自**本地联系人表的实际取值**。
+   * 不用字段描述的枚举 —— 那套 options 是 `{label: 数字编码, value: 中文名}`，
+   * 前端取 label 就会显示成数字；而且渠道有父子层级，缓存的枚举值跟表里存的值对不上，
+   * 拿它做筛选项会一条都筛不出来。
+   */
+  @Get('contact-filter-options')
+  contactFilterOptions(@Req() req: Request) {
+    WeilingController.requireRead((req as Request & { user: SessionUser }).user);
+    return this.svc.contactFilterOptions();
+  }
+
   @Get('sync-status')
   syncStatus(@Req() req: Request) {
     WeilingController.requireRead((req as Request & { user: SessionUser }).user);

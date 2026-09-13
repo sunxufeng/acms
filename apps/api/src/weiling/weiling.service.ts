@@ -48,6 +48,8 @@ const HOST = 'https://openapi.weiling.cn';
 const TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 官方未明确有效期，按 2 小时刷新
 const FIELD_TTL_MS = 24 * 60 * 60 * 1000;
 const STAFF_TTL_MS = 24 * 60 * 60 * 1000;
+/** 筛选选项缓存的存活时间：取值来自联系人表 distinct，全表扫一次几百毫秒，进页面不该反复扫 */
+const FILTER_OPTION_TTL_MS = 10 * 60 * 1000;
 
 export interface WeilingFieldDesc {
   api_name: string;
@@ -66,6 +68,8 @@ export class WeilingService implements OnModuleInit {
   private readonly logger = new Logger(WeilingService.name);
   private tokenCache: TokenCache | null = null;
   private fieldCache: { at: number; fields: WeilingFieldDesc[] } | null = null;
+  /** 筛选下拉选项缓存（客户阶段 / 来源渠道 / 归属人，取自联系人表 distinct） */
+  private filterOptionCache: { at: number; data: Record<string, string[]> } | null = null;
   private staffCache = new Map<string, { name: string; at: number }>();
   /** 同步中标记：避免手动与定时任务并发跑两轮 37 次请求 */
   private syncing = false;
@@ -204,6 +208,80 @@ export class WeilingService implements OnModuleInit {
       }
     }
     return fields;
+  }
+
+  /**
+   * 筛选下拉的可选值（客户阶段 / 来源渠道 / 归属人）。
+   *
+   * ⚠️ 为什么不直接用字段描述里的枚举（`fields()` 的 options）：
+   *   1. 那套 options 的结构是 `{ label: '数字编码', value: '中文名' }` —— 前端早期取的是
+   *      `label`，于是在筛选框里显示成一串数字（2026-09-13 用户报的现场）；
+   *   2. 更要紧的是**值对不上**：卫瓴的渠道是**父子层级**（如「活动-公众号」），
+   *      字段描述里给的是扁平的各级名称，而联系人表里存的是上游算好的完整路径名，
+   *      拿缓存的 value 去筛会一条都命中不了。
+   *   ⇒ 所以选项**以本地联系人表的实际取值为准**（distinct），再用字段描述里的顺序做排序，
+   *     保证「显示中文」与「选了真能筛出数据」两件事同时成立。
+   *
+   * 归属人没有枚举可用，一并走这里（前端此前只从列表前 4 页取 distinct，覆盖不全）。
+   */
+  async contactFilterOptions(): Promise<Record<string, string[]>> {
+    if (this.filterOptionCache && Date.now() - this.filterOptionCache.at < FILTER_OPTION_TTL_MS) {
+      return this.filterOptionCache.data;
+    }
+    const sql = getSqlStore();
+    if (!sql) return {};
+    const keys = ['客户阶段', '来源渠道', '归属人'];
+    // 用 Map 而不是 Record：索引签名读出来是 `X | undefined`，多一处非空断言不如直接 Map
+    const sets = new Map<string, Set<string>>();
+    for (const k of keys) sets.set(k, new Set<string>());
+
+    let token: string | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const page = await sql.search(TABLES.weilingContact.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of page.items ?? []) {
+        const f = (((r as { fields?: Record<string, unknown> }).fields ?? r) as Record<string, unknown>);
+        for (const k of keys) {
+          const v = String(f[k] ?? '').trim();
+          if (v) sets.get(k)!.add(v);
+        }
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+
+    // 业务顺序：字段描述里 options 的先后就是卫瓴界面的顺序（潜在客户 → 适龄 → 面访 → 面试 → 成交），
+    // 按它排序比按中文拼音排更符合直觉；描述里没有的值（如数据里的历史渠道名）排在后面。
+    let order: Record<string, Map<string, number>> = {};
+    try {
+      const descs = await this.fields();
+      const of = (apiName: string) => {
+        const d = descs.find((x) => x.api_name === apiName);
+        const m = new Map<string, number>();
+        (d?.options ?? []).forEach((o, idx) => m.set(String(o.value), idx));
+        return m;
+      };
+      order = { 客户阶段: of('customer_stage'), 来源渠道: of('from_channel_id') };
+    } catch {
+      /* 拿不到描述就按名称排序 */
+    }
+
+    const data: Record<string, string[]> = {};
+    for (const k of keys) {
+      const rank = order[k];
+      data[k] = [...(sets.get(k) ?? [])].sort((a, b) => {
+        const ra = rank?.get(a);
+        const rb = rank?.get(b);
+        if (ra !== undefined && rb !== undefined) return ra - rb;
+        if (ra !== undefined) return -1;
+        if (rb !== undefined) return 1;
+        return a.localeCompare(b, 'zh-CN');
+      });
+    }
+    this.filterOptionCache = { at: Date.now(), data };
+    return data;
   }
 
   /** 员工姓名（带缓存；失败回退显示原 userid 的前 6 位） */

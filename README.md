@@ -1,6 +1,8 @@
 # ACMS
 
-Arete College Management System。数据层为飞书多维表格（Base），后端 NestJS，前端 Next.js 15，pnpm monorepo。
+Arete College Management System。数据层为 PostgreSQL 宽表（已从飞书 Base 全量切读），后端 NestJS，前端 Next.js 15，pnpm monorepo。
+
+📋 **项目计划与进度：[PLAN.md](PLAN.md)**（唯一真源）· 历史执行记录：[docs/TASKS-ARCHIVE.md](docs/TASKS-ARCHIVE.md)
 
 ## 结构
 

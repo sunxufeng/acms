@@ -349,11 +349,15 @@ export default function AppShell({
    */
   const canSeeItem = (item: NavMenuItem): boolean => {
     if (item.adminOnly && !isAdmin) return false;
-    // ⚠️ 必须走 moduleByMenuKey：有 4 个菜单的 key 与 MODULE_RESOURCES.key 不一致
-    //（weiling-contacts / lessonPlans / department-management / open-platform），
-    // 直接用 find 会找不到资源、静默退回 item.perm ⇒ 菜单显隐与后端守卫脱钩。
+    // ⚠️ 这里有两个配套动作，缺一个就会静默出 bug：
+    //  ① 用 moduleByMenuKey 找资源（4 个菜单的 key 与 MODULE_RESOURCES.key 不一致：
+    //     weiling-contacts / lessonPlans / department-management / open-platform）；
+    //  ② 用 **modRes.key** 拼权限点，不能用 item.key。
+    // 别名只解决「找得到资源」，权限点仍须用资源 key 拼 —— 若用 item.key 会拼出
+    // `module:weiling-contacts:enter` 这种**不存在的权限点**，该菜单对所有人永久隐藏，
+    // 而且不报错、不 403，只是"菜单不见了"（2026-09-14 踩过：系统管理员都少 4 个菜单）。
     const modRes = moduleByMenuKey(item.key);
-    const enterPerm = modRes ? modulePermission(item.key, 'enter') : item.perm;
+    const enterPerm = modRes ? modulePermission(modRes.key, 'enter') : item.perm;
     if (enterPerm && !(myPerms || []).includes(enterPerm)) return false;
     if (myMenus && !myMenus.includes(item.key)) return false;
     return true;

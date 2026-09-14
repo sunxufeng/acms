@@ -6,6 +6,16 @@ import { TABLES, USER_TABLE } from '@acms/contracts';
 import { BASE_CLIENT, getSqlStore } from '../base.provider.js';
 import { LoginLogService } from '../login-log/login-log.service.js';
 import { buildDedupGroups, toDedupRow, type DedupResult, type DedupRow } from './contact-dedup.js';
+import {
+  buildCodeTable,
+  computeAttendanceReport,
+  type AttendanceReport,
+  type AttendanceInputRow,
+  type RateCode,
+  type StudentInfo,
+} from './attendance-rate.js';
+import { linkIds } from '../shared/record.util.js';
+import { textOf } from '../markbook/markbook.logic.js';
 
 function toPrincipal(user: SessionUser): Principal {
   return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
@@ -532,5 +542,190 @@ export class ReportsService {
       byConverter: [...byConverterMap.values()].sort((a, b) => b.count - a.count),
       byDay: [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
     };
+  }
+
+  // ── 考勤出勤率（口径见 attendance-rate.ts 顶部说明）──────────────────────
+
+  /**
+   * 学生 / 班级 / 考勤码索引（5 分钟缓存）。
+   *
+   * 这三张都是配置型数据（学生档案 82 条、班级 6 条、考勤码十几条），
+   * 每次进报表都全量拉一遍纯属浪费；但它们与「考勤记录」不同 ——
+   * 考勤记录会因审核而立刻变化，**不能缓存**（否则刚审完页面数字不动）。
+   */
+  private attIndexCache: {
+    at: number;
+    students: Map<string, StudentInfo>;
+    classNames: Map<string, string>;
+    codes: RateCode[];
+    classes: string[];
+    grades: string[];
+  } | null = null;
+
+  private async attendanceIndex() {
+    const cached = this.attIndexCache;
+    if (cached && Date.now() - cached.at < 5 * 60 * 1000) return cached;
+
+    // 1) 班级表：考勤记录的「班级」是关联字段，存的是 record id，要解析成班级名
+    const classNames = new Map<string, string>();
+    try {
+      let token: string | undefined;
+      for (let i = 0; i < 10; i += 1) {
+        const page = await this.base.search(TABLES.classLink.tableId, {
+          pageSize: 500,
+          ...(token ? { pageToken: token } : {}),
+        });
+        for (const r of page.items ?? []) {
+          const rec = r as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+          const name = textOf((rec.fields ?? {})['班级名称']);
+          const id = String(rec.recordId ?? rec.id ?? '');
+          if (id && name) classNames.set(id, name);
+        }
+        if (!page.hasMore || !page.pageToken) break;
+        token = page.pageToken;
+      }
+    } catch (e) {
+      this.logger.warn(`班级表读取失败（班级维度会缺名）：${(e as Error).message.slice(0, 160)}`);
+    }
+
+    // 2) 学生档案：「当前年级」是唯一有值的分组维度（「当前班级」生产全为 null）
+    const students = new Map<string, StudentInfo>();
+    const grades = new Set<string>();
+    try {
+      let token: string | undefined;
+      for (let i = 0; i < 20; i += 1) {
+        const page = await this.base.search(TABLES.studentProfile.tableId, {
+          pageSize: 500,
+          ...(token ? { pageToken: token } : {}),
+        });
+        for (const r of page.items ?? []) {
+          const rec = r as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+          const f = (rec.fields ?? {}) as Record<string, unknown>;
+          const id = String(rec.recordId ?? rec.id ?? '');
+          if (!id) continue;
+          // ⚠️ 必须走 textOf：关联字段在 jsonb 里是对象，String() 会得到 "[object Object]"
+          const grade = textOf(f['当前年级']);
+          const clsId = linkIds(f['当前班级'])[0] ?? '';
+          students.set(id, {
+            id,
+            name: textOf(f['学生姓名']),
+            grade,
+            cls: clsId ? classNames.get(clsId) ?? '' : '',
+          });
+          if (grade) grades.add(grade);
+        }
+        if (!page.hasMore || !page.pageToken) break;
+        token = page.pageToken;
+      }
+    } catch (e) {
+      this.logger.warn(`学生档案读取失败（年级维度会缺名）：${(e as Error).message.slice(0, 160)}`);
+    }
+
+    // 3) 考勤码表：出勤率口径的配置真源（空表时由 buildCodeTable 回落到内置默认码）
+    let codeRows: Record<string, unknown>[] = [];
+    try {
+      let token: string | undefined;
+      for (let i = 0; i < 10; i += 1) {
+        const page = await this.base.search(TABLES.attendanceCode.tableId, {
+          pageSize: 500,
+          ...(token ? { pageToken: token } : {}),
+        });
+        for (const r of page.items ?? []) {
+          const rec = r as { fields?: Record<string, unknown> };
+          codeRows.push((rec.fields ?? {}) as Record<string, unknown>);
+        }
+        if (!page.hasMore || !page.pageToken) break;
+        token = page.pageToken;
+      }
+    } catch (e) {
+      // 码表读不到时不报错：按内置默认口径出报表（总比整页 500 好）
+      this.logger.warn(`考勤码表读取失败（按内置默认码口径出报表）：${(e as Error).message.slice(0, 160)}`);
+      codeRows = [];
+    }
+    const codes = buildCodeTable(codeRows);
+    if (!codeRows.length) {
+      this.logger.log('[考勤分析] 考勤码表为空/未配置，出勤率按内置默认码口径计算');
+    }
+
+    const idx = {
+      at: Date.now(),
+      students,
+      classNames,
+      codes,
+      classes: [...new Set(classNames.values())].sort(),
+      grades: [...grades].sort(),
+    };
+    this.attIndexCache = idx;
+    return idx;
+  }
+
+  /** 拉全部考勤记录（不缓存：审核完必须立刻反映到报表） */
+  private async attendanceRows(): Promise<{ rows: AttendanceInputRow[]; truncated: boolean }> {
+    const rows: AttendanceInputRow[] = [];
+    const MAX_PAGES = 60; // 500 × 60 = 3 万条上限，超出只统计前 3 万并标记 truncated
+    let truncated = false;
+    let token: string | undefined;
+    for (let i = 0; i < MAX_PAGES; i += 1) {
+      const page = await this.base.search(TABLES.attendance.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of page.items ?? []) {
+        const rec = r as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+        rows.push({
+          id: String(rec.recordId ?? rec.id ?? ''),
+          fields: (rec.fields ?? {}) as Record<string, unknown>,
+        });
+      }
+      if (!page.hasMore || !page.pageToken) return { rows, truncated };
+      token = page.pageToken;
+      if (i === MAX_PAGES - 1) truncated = true;
+    }
+    if (truncated) this.logger.warn(`考勤记录超过 ${MAX_PAGES * 500} 条，报表只统计了前 ${rows.length} 条`);
+    return { rows, truncated };
+  }
+
+  /**
+   * 考勤出勤率报表（权限点 `report:read`）。
+   *
+   * 只返回聚合结果，不含学生明细（与 students 报表一致的脱敏取向）。
+   * 口径：见 `attendance-rate.ts` 顶部 —— 特别是「只统计已通过终态」这一条。
+   */
+  async attendanceReport(
+    user: SessionUser,
+    query: { from?: string; to?: string; class?: string; grade?: string } = {},
+  ): Promise<AttendanceReport> {
+    if (!authorize(toPrincipal(user), 'report:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:report:read');
+    }
+    const idx = await this.attendanceIndex();
+    const { rows, truncated } = await this.attendanceRows();
+
+    const startOf = (d: string): number | undefined => {
+      const t = new Date(`${d}T00:00:00`).getTime();
+      return Number.isNaN(t) ? undefined : t;
+    };
+    const endOf = (d: string): number | undefined => {
+      const t = new Date(`${d}T23:59:59.999`).getTime();
+      return Number.isNaN(t) ? undefined : t;
+    };
+
+    const report = computeAttendanceReport({
+      rows,
+      students: idx.students,
+      classNames: idx.classNames,
+      codes: idx.codes,
+      // 不传 from/to = 全量（前端面板自己给默认区间，接口保持「所见即所选」）
+      ...(query.from ? { fromMs: startOf(query.from) } : {}),
+      ...(query.to ? { toMs: endOf(query.to) } : {}),
+      cls: query.class || undefined,
+      grade: query.grade || undefined,
+      truncated,
+    });
+
+    // 下拉可选项来自配置表（不是「当前结果里出现过的值」）—— 考勤记录 0 行时也要给出年级/班级，
+    // 否则用户在新环境里连筛选都看不到。
+    report.options = { classes: idx.classes, grades: idx.grades };
+    return report;
   }
 }

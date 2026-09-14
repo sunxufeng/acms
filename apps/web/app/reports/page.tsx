@@ -19,6 +19,7 @@ import { ActivityPanel } from '../../components/reports/activity';
 import { NotesPanel } from '../../components/reports/notes';
 import { WeilingPanel } from '../../components/reports/weiling';
 import { DedupPanel } from '../../components/reports/dedup';
+import { AttendancePanel } from '../../components/reports/attendance';
 
 interface ReportDef {
   key: string;
@@ -62,7 +63,15 @@ const REPORTS: ReportDef[] = [
   },
   { key: 'notes', label: '笔记统计', desc: '按人统计某段时间新增多少笔记、转了多少次', dims: '按人 · 来源 · 模块 · 趋势', ready: true, group: 'time' },
 { key: 'activity', label: '活跃时段', desc: '按人统计什么时间登录、什么时间有操作', dims: '人 × 小时热力 · 趋势', ready: true, group: 'time' },
-  { key: 'attendance', label: '考勤分析', desc: '出勤率、迟到/请假/缺勤次数排行与趋势', source: '考勤记录表', ready: false, href: '/student-attendances' },
+  {
+    // 不设 group：本报表自带筛选栏（起止日期 / 班级 / 年级），
+    // 公共的「学生类」条件（校区/入学年份…）对它无意义。
+    key: 'attendance',
+    label: '考勤分析',
+    desc: '出勤率、迟到/请假/缺勤次数排行与趋势；只统计已通过终态、计入统计的考勤记录',
+    dims: '班级 · 年级 · 学生排行 · 按日/周趋势',
+    ready: true,
+  },
   { key: 'grades', label: '学业成绩', desc: '按学科/学期统计均分、及格率、等级分布', source: '学业成绩表', ready: false, href: '/grades' },
   { key: 'comms', label: '家校沟通', desc: '沟通次数、闭环率、超期未闭环预警', source: '家校沟通表', ready: false, href: '/home-school-comms' },
   { key: 'evaluation', label: '阶段评价', desc: '评价等级分布、按周期变化趋势', source: '阶段评价表', ready: false, href: '/stage-evaluations' },
@@ -206,6 +215,7 @@ export default function ReportsPage() {
           {active === 'dedup' ? <DedupPanel /> : null}
           {active === 'notes' ? <NotesPanel from={from} to={to} /> : null}
           {active === 'activity' ? <ActivityPanel from={from} to={to} /> : null}
+          {active === 'attendance' ? <AttendancePanel /> : null}
           {!activeReport.ready ? (
             <EmptyReport name={tl(activeReport.label)} source={tl(activeReport.source ?? '')} href={activeReport.href} />
           ) : null}

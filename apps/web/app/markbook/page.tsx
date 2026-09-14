@@ -9,6 +9,7 @@ import {
   type MarkbookGrid,
   type MarkbookSaveRow,
 } from '../../lib/api';
+import HomeworkSyncPanel from '../../components/markbook/HomeworkSyncPanel';
 
 /**
  * 成绩册（Markbook）—— 参照 GibbonEdu/core v31 移植，2026-09-13。
@@ -320,6 +321,26 @@ export default function MarkbookPage() {
             }}
           />
         )}
+
+        {/* ── 作业 → 成绩册同步 ──────────────────────────────────────────
+            放在网格下方：它的产出就是上面那些格子，同步完直接看得到。
+            ⚠️ 有未保存改动时**不渲染面板**：同步成功后要 reload 网格，
+               而 reload 会丢弃 dirty 里的编辑 —— 先用一条提示挡一下，避免白录。 */}
+        {cls && grid && grid.students.length > 0
+          ? dirtyCount > 0
+            ? <div className="notice notice-info">{t('hwDirtyBlock', { count: dirtyCount })}</div>
+            : (
+              <HomeworkSyncPanel
+                cls={cls}
+                columns={grid.columns}
+                loadCatalog={api.markbookHomeworkCatalog}
+                loadPreview={api.markbookSyncHomeworkPreview}
+                runSync={api.markbookSyncHomework}
+                bindHomework={api.markbookHomeworkBind}
+                onSynced={() => loadGrid(cls)}
+              />
+            )
+          : null}
       </div>
     </div>
   );

@@ -50,4 +50,20 @@ export class ReportsController {
   ) {
     return this.svc.contactDedup(userOf(req), { level, channel, owner, refresh });
   }
+
+  /**
+   * 考勤分析：出勤率总览 + 按班级/按年级 + 学生排行 + 按日/周趋势。
+   * `class` / `grade` 传的是显示名（班级表「班级名称」/ 学生档案「当前年级」）；
+   * 不传 from/to 即全量，传了就是「所见即所选」。权限点同样是 `report:read`。
+   */
+  @Get('attendance')
+  attendance(
+    @Req() req: Request,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('class') cls?: string,
+    @Query('grade') grade?: string,
+  ) {
+    return this.svc.attendanceReport(userOf(req), { from, to, class: cls, grade });
+  }
 }

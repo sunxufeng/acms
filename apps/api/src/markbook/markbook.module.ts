@@ -1,6 +1,7 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { MarkbookController } from './markbook.controller.js';
 import { MarkbookService } from './markbook.service.js';
+import { HomeworkSyncService } from './homework-sync.service.js';
 
 /**
  * 成绩册模块（教学域第三块，参照 Gibbon v31 的 Markbook）。
@@ -17,8 +18,8 @@ import { MarkbookService } from './markbook.service.js';
  */
 @Module({
   controllers: [MarkbookController],
-  providers: [MarkbookService],
-  exports: [MarkbookService],
+  providers: [MarkbookService, HomeworkSyncService],
+  exports: [MarkbookService, HomeworkSyncService],
 })
 export class MarkbookModule implements OnModuleInit {
   constructor(private readonly svc: MarkbookService) {}

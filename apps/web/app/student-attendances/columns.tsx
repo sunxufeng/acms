@@ -1,11 +1,19 @@
 import type { CrudColumn } from '../../components/CrudPage';
 import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
+import { formatDateTime } from '../../lib/date';
 
 const 考勤状态_OPTS = ['正常', '异常'];
 const 时段_OPTS = ['上午', '下午', '晚间', '全天'];
 const 学期_OPTS = ['第一学期', '第二学期', '暑期'];
 const 考勤结果_OPTS = ['出勤', '迟到', '早退', '事假', '病假', '缺勤', '校内活动'];
 const 通知状态_OPTS = ['无需通知', '待通知', '已通知', '已确认'];
+/**
+ * 终态审核状态。
+ * ⚠️ 这几列**全部 readonly**（表单里只展示、不可改）：审核状态只能由「审核」动作写，
+ * 服务端还会再拦一道（`attendance-review.service.ts`），避免列表侧绕过审核链路。
+ * 新建时服务端默认写「待审核」；没有值的记录一律按待审核处理（不进 出勤率 分子分母）。
+ */
+const 审核状态_OPTS = ['待审核', '已通过', '已驳回'];
 
 export const COLUMNS: CrudColumn[] = [
   { key: '关联学生编号', label: '学生', width: '170px', form: true, type: 'studentLink', required: true, listOrder: 1 },
@@ -23,6 +31,20 @@ export const COLUMNS: CrudColumn[] = [
   { key: '记录人', label: '记录人', width: '100px', list: false },
   { key: '通知状态', label: '通知状态', width: '110px', filter: true, filterOptions: 通知状态_OPTS, form: true, type: 'select', options: 通知状态_OPTS, list: false },
   { key: '处理结果', label: '处理结果', form: true, type: 'textarea', list: false },
+  // ── 终态审核（教务审核后才计入出勤率与结算基数）──────────────────────────
+  { key: '审核状态', label: '审核状态', width: '100px', filter: true, filterOptions: 审核状态_OPTS, form: true, type: 'text', readonly: true, listOrder: 7 },
+  { key: '审核人', label: '审核人', width: '100px', form: true, type: 'text', readonly: true, listOrder: 8 },
+  {
+    key: '审核时间',
+    label: '审核时间',
+    width: '150px',
+    form: true,
+    type: 'text',
+    readonly: true,
+    listOrder: 9,
+    render: (v) => <span className="muted">{v ? formatDateTime(v) : '—'}</span>,
+  },
+  { key: '审核意见', label: '审核意见', form: true, type: 'textarea', readonly: true, list: false },
 ];
 
 /**

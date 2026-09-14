@@ -12,6 +12,12 @@ import {
   type ColumnDef,
   type LevelDef,
 } from './markbook.logic.js';
+import {
+  homeworkRatesOf,
+  readHomeworkTables,
+  type HomeworkRate,
+} from './homework-link.data.js';
+import { normHomeworkName } from './homework-link.logic.js';
 
 /** 列（一列 = 一次考核） */
 export interface GridColumn {
@@ -27,6 +33,10 @@ export interface GridColumn {
   studentVisible: string;
   parentVisible: string;
   completeDate: string;
+  /** 该列绑定的作业名称（列上的「关联作业」字段，空 = 未绑定） */
+  homeworkName: string;
+  /** 绑定作业后附带的完成率（只读展示，见 homework-link.data.ts） */
+  homework?: HomeworkRate;
 }
 
 /** 名单里的学生 */
@@ -71,6 +81,8 @@ export interface MarkbookGrid {
   levels: LevelDef[];
   scales: { id: string; name: string; isDefault: boolean }[];
   typeWeights: { type: string; weight: number }[];
+  /** 列 key → 该列绑定作业的完成率（仅含绑定了作业的列；见 HomeworkSyncService） */
+  homeworkRates: Record<string, HomeworkRate>;
 }
 
 export interface MarkbookClassOption {
@@ -176,6 +188,8 @@ export class MarkbookService implements OnModuleInit {
       studentVisible: String(f['学生可见'] ?? ''),
       parentVisible: String(f['家长可见'] ?? ''),
       completeDate: String(f['完成日期'] ?? ''),
+      // 作业绑定的唯一真源（值 = 作业名称，见 homework-link.logic.ts 文件头）
+      homeworkName: normHomeworkName(f['关联作业']),
     };
   }
 
@@ -268,6 +282,7 @@ export class MarkbookService implements OnModuleInit {
       levels: [],
       scales: [],
       typeWeights: [],
+      homeworkRates: {},
     };
     if (!c) return empty;
 
@@ -353,6 +368,28 @@ export class MarkbookService implements OnModuleInit {
       };
     });
 
+    // 「成绩册 → 作业」的反向展示：给绑定了作业的列附上该班完成率（已完成 / 应完成）。
+    // 纯只读增强，不引入任何写路径；读失败不影响网格本身（最多少一个列头角标）。
+    const homeworkRates: Record<string, HomeworkRate> = {};
+    try {
+      const binds = columns
+        .filter((x) => x.homeworkName)
+        .map((x) => ({ columnId: x.id, homeworkName: x.homeworkName }));
+      if (binds.length) {
+        const sql = getSqlStore();
+        if (sql) {
+          const tables = await readHomeworkTables(sql, c);
+          Object.assign(homeworkRates, homeworkRatesOf(tables, binds, students.map((s) => s.id)));
+          for (const col of columns) {
+            const r = homeworkRates[col.id];
+            if (r) col.homework = r;
+          }
+        }
+      }
+    } catch (e) {
+      this.logger.warn(`[markbook] 作业完成率读取失败（忽略）: ${(e as Error).message}`);
+    }
+
     return {
       cls: c,
       columns,
@@ -362,6 +399,7 @@ export class MarkbookService implements OnModuleInit {
       levels: cfg.levelList,
       scales: cfg.scaleList,
       typeWeights: cfg.typeWeights,
+      homeworkRates,
     };
   }
 

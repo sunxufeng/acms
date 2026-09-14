@@ -176,6 +176,10 @@ export class SignService {
       考勤状态: passed ? '正常' : '异常',
       签到方式: dto.mode,
       校区: matchedCampus,
+      // 终态审核：服务端写默认值「待审核」，用户不可选。
+      // 未审核的记录不计入出勤率（见 reports/attendance-rate.ts 的口径说明），
+      // 由教务在「学生考勤」列表里点「审核」确认终态。
+      审核状态: '待审核',
     };
     if (direction === '到达') fields['到校时间'] = at.toISOString();
     else fields['离校时间'] = at.toISOString();

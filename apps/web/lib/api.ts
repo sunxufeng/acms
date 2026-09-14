@@ -8,6 +8,17 @@ import type {
   RoleDef,
 } from '@acms/contracts';
 
+// 「作业 → 成绩册同步」的请求 / 返回形状由面板组件（apps/web/components/markbook/
+// HomeworkSyncPanel.tsx）单一维护 —— 那里是这套接口契约的文档所在（口径与坑都在注释里）。
+// ⚠️ 只 import type：编译期擦除，不会产生 lib → components 的运行时依赖，也不成环。
+//    两边字段一旦不一致，页面传参处会直接编译报错。
+import type {
+  HomeworkOption,
+  HomeworkSyncPreview,
+  HomeworkSyncQuery,
+  HomeworkSyncResult,
+} from '../components/markbook/HomeworkSyncPanel';
+
 /** 前端 API 客户端：统一 fetch 封装，自动带 cookie、统一错误处理、401 跳登录 */
 const API_BASE = '/api/v1';
 
@@ -1392,6 +1403,29 @@ export const api = {
   markbookDeleteColumn: (id: string) =>
     request<{ removedEntries: number }>(`/markbook/columns/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
+  // ── 作业 → 成绩册联动（2026-09-14）────────────────────────────────────
+  // 口径：作业**已完成**才写分（有提交就按得分，没有提交按满分），未完成 / 无提交**留空不写 0** ——
+  // 成绩册总评是自归一化的（分母只算已录入项），写 0 等于「参与了得 0 分」，与「没参与」是两回事。
+  /** 该班可选作业（含完成率与已绑定的考核列），供同步面板的「作业」下拉用 */
+  markbookHomeworkCatalog: (cls: string) =>
+    request<HomeworkOption[]>(`/markbook/homework-catalog?cls=${encodeURIComponent(cls)}`),
+  /** 写入预览：本次会改哪几格（与 sync 共用同一份计划器，预览到什么就写什么） */
+  markbookSyncHomeworkPreview: (q: HomeworkSyncQuery) =>
+    request<HomeworkSyncPreview>(
+      `/markbook/sync-homework/preview${qs({
+        cls: q.cls,
+        homeworkName: q.homeworkName,
+        columnId: q.columnId,
+        mode: q.mode,
+      })}`,
+    ),
+  /** 执行同步（真的写成绩册，不能盲写：页面上必须先预览） */
+  markbookSyncHomework: (b: HomeworkSyncQuery) =>
+    request<HomeworkSyncResult>('/markbook/sync-homework', { method: 'POST', body: JSON.stringify(b) }),
+  /** 绑定 / 解绑「考核列 ↔ 作业」（homeworkName 传空 = 解绑，不影响已写入的分数） */
+  markbookHomeworkBind: (b: { cls: string; columnId: string; homeworkName: string }) =>
+    request<{ ok: boolean }>('/markbook/homework-bind', { method: 'POST', body: JSON.stringify(b) }),
+
   /** 考勤码（教学域配置表，通用 CRUD）。出勤口径的可配置码表，见 /attendance-codes 页面 */
   attendanceCodes: crud('/attendance-codes'),
 
@@ -1460,6 +1494,27 @@ export const api = {
   /** 行为统计：按班级/年级汇总行为条数、涉及学生数、告警数（按等级） */
   getBehaviourStats: (params: { from?: string; to?: string; 班级?: string; 年级?: string } = {}) =>
     request<BehaviourStatsResult>(`/behaviour/stats${qs(params)}`),
+
+  // ── 考勤分析报表 + 考勤终态审核（2026-09-14）────────────────────────────
+  /**
+   * 出勤率报表（需 `report:read`）。
+   * 口径：只统计「已通过」终态的考勤记录；「计入统计=否」的考勤码整条排除；
+   * 方向=在校 计实到，不在校 计未出勤（语义范围=离校 记请假，其余记缺勤）。
+   */
+  reportAttendance: (params: { from?: string; to?: string; class?: string; grade?: string } = {}) =>
+    request<AttendanceReportPayload>(`/reports/attendance${qs(params)}`),
+  /** 单条考勤终态审核（审核人取会话用户，前端不传） */
+  reviewStudentAttendance: (id: string, data: { status: string; comment?: string }) =>
+    request<Record<string, unknown>>(`/student-attendances/${encodeURIComponent(id)}/review`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  /** 批量考勤终态审核 */
+  reviewStudentAttendances: (data: { ids: string[]; status: string; comment?: string }) =>
+    request<{ ok: number; failed: number; failedIds: string[]; status: string }>(
+      '/student-attendances/review-batch',
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
 };
 
 /** 知识库配置「立即收取」的实时进度（与 MailSyncProgress 同范式） */
@@ -1554,6 +1609,10 @@ export interface MarkbookColumn {
   studentVisible: string;
   parentVisible: string;
   completeDate: string;
+  /** 该列绑定的作业名称（列上的「关联作业」字段，空串 = 未绑定；绑定才能做作业同步） */
+  homeworkName: string;
+  /** 绑定作业后附带的完成率（只读展示：已完成 / 应完成） */
+  homework?: { done: number; total: number; rate: number };
 }
 export interface MarkbookStudent {
   id: string;
@@ -1604,6 +1663,8 @@ export interface MarkbookGrid {
   levels: MarkbookLevel[];
   scales: { id: string; name: string; isDefault: boolean }[];
   typeWeights: { type: string; weight: number }[];
+  /** 列 id → 该列绑定作业的完成率（只含已绑定的列） */
+  homeworkRates: Record<string, { done: number; total: number; rate: number }>;
 }
 /** 批量保存的一行（score 传 null/'' 表示清空该格） */
 export interface MarkbookSaveRow {
@@ -1968,3 +2029,95 @@ export interface BehaviourStatsResult {
   updatedAt: number;
 }
 
+
+// ── 考勤分析报表（/reports/attendance）────────────────────────────────────
+//
+// 口径唯一真源在后端 `apps/api/src/reports/attendance-rate.ts`（纯函数文件）。
+// 页面上的「口径说明」段落必须与它一致，改口径时两处一起改。
+
+/** 按班级 / 按年级 的分组行 */
+export interface AttendanceBucketRow {
+  key: string;
+  expected: number;
+  present: number;
+  rate: number;
+  late: number;
+  earlyLeave: number;
+  leave: number;
+  absent: number;
+  abnormal: number;
+}
+
+/** 学生排行行（带 studentId 便于下钻到学生列表） */
+export interface AttendanceStudentRow extends AttendanceBucketRow {
+  studentId: string;
+  studentName: string;
+  grade: string;
+  cls: string;
+}
+
+/** 趋势点（按日 / 按周共用） */
+export interface AttendanceTrendPoint {
+  key: string;
+  expected: number;
+  present: number;
+  rate: number;
+  late: number;
+  leave: number;
+  absent: number;
+  abnormal: number;
+}
+
+export interface AttendanceReportPayload {
+  from: string;
+  to: string;
+  /** 考勤记录超过拉取上限被截断时为 true（页面提示口径不完整） */
+  truncated: boolean;
+  summary: {
+    /** 应出勤人次（= 出勤率分母） */
+    expected: number;
+    /** 实到（= 出勤率分子） */
+    present: number;
+    /** 未出勤合计 = 请假 + 缺勤 */
+    absentTotal: number;
+    leave: number;
+    absent: number;
+    late: number;
+    earlyLeave: number;
+    abnormal: number;
+    rate: number;
+    total: number;
+    /** 待审核（含未标注），不进分子分母 */
+    pending: number;
+    /** 其中「审核状态」为空的条数 */
+    pendingUnlabeled: number;
+    rejected: number;
+    /** 「计入统计=否」被排除的条数 */
+    excluded: number;
+    /** 码表认不出口径被排除的条数 */
+    unknownCode: number;
+  };
+  byClass: AttendanceBucketRow[];
+  byGrade: AttendanceBucketRow[];
+  byStudent: AttendanceStudentRow[];
+  byDay: AttendanceTrendPoint[];
+  byWeek: AttendanceTrendPoint[];
+  options: { classes: string[]; grades: string[] };
+  codes: { short: string; name: string; direction: string; scope: string; counted: boolean; source: string }[];
+  /**
+   * 各桶实际出现的「考勤结果」原始值。
+   * 下钻只在该桶恰好一个原始值时给链接 —— 列表侧是等值筛选，多个值筛不出来。
+   */
+  bucketValues: {
+    present: string[];
+    late: string[];
+    earlyLeave: string[];
+    leave: string[];
+    absent: string[];
+    pending: string[];
+  };
+}
+
+/** 考勤终态审核状态（与后端 reports/attendance-rate.ts 的常量一致） */
+export const ATTENDANCE_REVIEW_STATUSES = ['待审核', '已通过', '已驳回'] as const;
+export type AttendanceReviewStatus = (typeof ATTENDANCE_REVIEW_STATUSES)[number];

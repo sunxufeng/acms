@@ -4,6 +4,8 @@ import { AttendanceController } from './attendance.controller.js';
 import { AttendanceService } from './attendance.service.js';
 import { SignController } from './sign.controller.js';
 import { SignService } from './sign.service.js';
+import { AttendanceReviewController } from './attendance-review.controller.js';
+import { AttendanceReviewService } from './attendance-review.service.js';
 import { baseClientProvider, getSqlStore } from '../base.provider.js';
 
 /**
@@ -18,8 +20,8 @@ import { baseClientProvider, getSqlStore } from '../base.provider.js';
  * 否则 /attendance-codes 全线 500（AI 路由那批表也是同一套路）。
  */
 @Module({
-  controllers: [AttendanceController, SignController],
-  providers: [AttendanceService, SignService, baseClientProvider],
+  controllers: [AttendanceController, SignController, AttendanceReviewController],
+  providers: [AttendanceService, SignService, AttendanceReviewService, baseClientProvider],
 })
 export class AttendanceModule implements OnModuleInit {
   private readonly logger = new Logger('Attendance');

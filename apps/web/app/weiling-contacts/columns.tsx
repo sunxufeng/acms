@@ -36,15 +36,36 @@ export function fmtDate(v: unknown): string {
 }
 
 /**
- * 卫瓴联系人 status 的显示文案。
+ * 卫瓴联系人 status（联系人状态）的官方枚举。
  *
- * ⚠️ 卫瓴字段描述接口（95 个字段）里**没有 status**，拿不到官方枚举。
- * 这里按数据分布推测：1 = 正常（3600 条，98%）、4 = 其它（63 条，都是 6–8 月创建、
- * 多半从未跟进的老线索）。因此显示时**保留原始数字**，便于日后与卫瓴官方口径对账。
- * 另：「流失状态」是独立字段 `lost_state`（官方枚举 0=未流失 / 1,2,3=已流失），
- * 与 status 无关，且目前全库为空。
+ * 口径来源：**卫瓴开放平台接口文档** https://openapi.weling.cn/openapi/contact/create
+ * （`status  enum<integer>  联系人状态`），2026-09-14 峰哥提供的截图确认：
+ *
+ *   | 值 | 含义 |
+ *   |---|---|
+ *   | 0 | 待认领（公海） —— 文档原文写的是「0-待认领（公海）」，前缀那个 0 是文档笔误 |
+ *   | 1 | 已认领 |
+ *   | 4 | 待分配 |
+ *
+ * 生产实测分布（3664 条）：1 = 3601、4 = 63，**没有 0**（公海线索不会同步进来）。
+ *
+ * 历史：这个字段之前查不到枚举（卫瓴「字段描述接口」的 95 个字段里没有 status），
+ * 只好按分布猜成「正常/其它」并把列藏起来。现在有官方口径 ⇒ **列恢复显示 + 可筛选**，
+ * 展示层一律出中文，原始码值留在数据里（导出仍能对账，鼠标悬停能看到原值）。
+ * 另：「流失状态」是独立字段 `lost_state`（官方枚举 0=未流失 / 1,2,3=已流失），与 status 无关。
  */
-export const STATUS_TEXT: Record<string, string> = { '1': '正常', '4': '其它' };
+export const STATUS_TEXT: Record<string, string> = {
+  '0': '待认领（公海）',
+  '1': '已认领',
+  '4': '待分配',
+};
+
+/** 状态码 → 中文（认不出的码**原样回显**，不要瞎猜，也不要显示成空白） */
+export function statusLabel(v: unknown): string {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  return STATUS_TEXT[s] ?? s;
+}
 
 /**
  * 卫瓴联系人列定义。
@@ -123,17 +144,26 @@ export const COLUMNS: CrudColumn[] = [
   {
     key: '状态',
     label: '状态',
-    width: '100px',
-    // 列表与筛选区都不显示：卫瓴没给 status 的官方枚举，1/4 的中文名是按分布推测的，
-    // 挂在列表上容易被当成权威口径。字段值仍在行数据里（导出/详情照旧）。
-    list: false,
+    width: '110px',
+    // 枚举已确认（见上方 STATUS_TEXT）⇒ 恢复列表显示 + 可筛选。
+    // ⚠️ filterOptions 是**发给后端的原始码值**（库里存的就是 0/1/4），
+    //    filterOptionLabels 只负责把下拉里的显示换成中文 —— 反过来做（选项写中文）
+    //    会一条都筛不出来（等值匹配 vs 数据里是数字）。同款坑见 2026-09-14 的「来源渠道」。
+    filter: true,
+    filterOptions: ['0', '1', '4'],
+    filterOptionLabels: { '0': '待认领（公海）', '1': '已认领', '4': '待分配' },
     render: (v) => {
       const s = String(v ?? '');
       if (!s) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-      const text = STATUS_TEXT[s];
+      const text = statusLabel(s);
+      // 认不出的码只回显原值，避免用猜测口径覆盖真实数据
+      const known = Boolean(STATUS_TEXT[s]);
       return (
-        <span style={{ fontSize: 'var(--font-xs)', color: text === '其它' ? 'var(--fg-tertiary)' : 'var(--fg-secondary)' }}>
-          {text ? `${text}（${s}）` : s}
+        <span
+          title={`卫瓴 status = ${s}`}
+          style={{ fontSize: 'var(--font-xs)', color: known ? 'var(--fg-secondary)' : 'var(--fg-tertiary)' }}
+        >
+          {text}
         </span>
       );
     },

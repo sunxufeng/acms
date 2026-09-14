@@ -2369,7 +2369,10 @@
     "计入统计=否 的考勤码（如校内活动）整条排除在分子分母之外。": "Attendance codes with Counted = No (e.g. on-campus activities) are excluded from both numerator and denominator entirely.",
     "异常 = 考勤状态为「异常」的记录数，与上述口径正交。": "Abnormal = the number of records whose attendance status is Abnormal; orthogonal to the methodology above.",
     "当前不计入统计的码：": "Codes currently not counted:",
-    "考勤码表当前为空，出勤率按内置默认码（出勤/迟到/早退/事假/病假/缺勤/校内活动）计算 —— 配好考勤码后以码表为准。": "The attendance-code table is empty, so the built-in defaults (present / late / early leave / personal leave / sick leave / absent / on-campus activity) are used — once codes are configured, the table takes precedence."
+    "考勤码表当前为空，出勤率按内置默认码（出勤/迟到/早退/事假/病假/缺勤/校内活动）计算 —— 配好考勤码后以码表为准。": "The attendance-code table is empty, so the built-in defaults (present / late / early leave / personal leave / sick leave / absent / on-campus activity) are used — once codes are configured, the table takes precedence.",
+    "待认领（公海）": "Unclaimed (public pool)",
+    "已认领": "Claimed",
+    "待分配": "Pending assignment"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

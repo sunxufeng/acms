@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
-import { COLUMNS, DETAIL_GROUPS, STATUS_TEXT, fmtTs } from '../columns';
+import { COLUMNS, DETAIL_GROUPS, STATUS_TEXT, statusLabel, fmtTs } from '../columns';
 
 type FieldDesc = {
   api_name: string;
@@ -51,9 +51,10 @@ function friendly(k: string, v: unknown): { text: string; full?: string } | null
     case 'related_customer':
       return arr.length ? { text: `${arr.length} 个关联客户`, full: JSON.stringify(v) } : { text: '—' };
     case 'status': {
-      // 卫瓴未给出该字段枚举，1/4 的含义是按分布推测的（详见 columns.tsx 的 STATUS_TEXT）
-      const text = STATUS_TEXT[String(v)];
-      return text ? { text: `${text}（${String(v)}）` } : { text: String(v) };
+      // 卫瓴官方枚举：0=待认领（公海）/ 1=已认领 / 4=待分配（见 columns.tsx 的 STATUS_TEXT）。
+      // 只出中文，原始码值在下面「原始字段」区块的 JSON 里仍可查，不用再往正文里塞数字。
+      const text = statusLabel(v);
+      return text ? { text } : { text: '—' };
     }
     // 这两项在上方「来源」与「自定义字段」区块已经翻译展示过，这里只留入口，避免重复堆 JSON
     case 'contact_custom':
@@ -222,6 +223,14 @@ export default function WeilingContactDetailPage() {
 
   const val = (k: string): React.ReactNode => {
     if (isTs(k)) return fmtTs(record[k]);
+    // 状态：库里存的是卫瓴码值（0/1/4），「基本信息」区块要出中文
+    // （这里是最常被看到的位置 —— 之前直接回显数字，用户反馈过）
+    if (k === '状态') {
+      const text = statusLabel(record[k]);
+      if (!text) return '—';
+      const known = Boolean(STATUS_TEXT[String(record[k])]);
+      return known ? text : `${text}（未收录的码值）`;
+    }
     // 关联学生：可点进学生档案
     if (k === '关联学生') {
       const name = String(record['关联学生'] ?? '');

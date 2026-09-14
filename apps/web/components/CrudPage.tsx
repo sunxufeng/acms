@@ -44,6 +44,15 @@ export interface CrudColumn {
   /** 筛选提交到后端的查询参数名（默认用 key，如审计页操作人→actor） */
   filterParam?: string;
   filterOptions?: string[];
+  /**
+   * 筛选项的**显示文案**（`值 → 显示名`）。用于「库里存码值、界面要出中文」的枚举：
+   * 下拉里显示中文、提交给后端的仍是 `filterOptions` 里的原始值。
+   *
+   * ⚠️ 反过来做（把 filterOptions 直接写成中文）会**一条都筛不出来** —— 通用 CRUD 的
+   * 裸字段筛选是等值匹配，而数据里存的是 `0/1/4` 这样的码值。
+   * （2026-09-14 卫瓴联系人「状态」：官方枚举 0=待认领（公海）/ 1=已认领 / 4=待分配。）
+   */
+  filterOptionLabels?: Record<string, string>;
   form?: boolean;
   /** 是否在列表表格中显示（默认 true；设为 false 仅保留在表单中，例如敏感列） */
   list?: boolean;
@@ -302,6 +311,13 @@ export function studentLabel(name: string, englishName?: unknown): string {
  * 直出原文，避免误命中 labels 里的同名词条。
  */
 function cellText(v: unknown, c: CrudColumn, tl: (k: string) => string, meta: DictMeta | null): string {
+  // 码值列（filterOptionLabels = 「值 → 显示名」）：列表显示与导出都要出中文，
+  // 不能把 0/1/4 直接丢进 Excel —— 导出一致性见 MEMORY 的「键值双标识」铁律。
+  if (c.filterOptionLabels) {
+    const labels = c.filterOptionLabels;
+    const one = (x: unknown): string => tl(labels[str(x)] ?? str(x));
+    return Array.isArray(v) ? v.map(one).join('、') : one(v);
+  }
   if (!c.dictKey && !c.options) return str(v);
   // 字典列：先把存储值（旧 label/别名/key）解析为当前展示名，再翻译
   const resolve = (s: string): string =>
@@ -338,11 +354,14 @@ function FilterSelect({
   value,
   onChange,
   options,
+  optionLabels,
 }: {
   label: string;
   value: string;
   onChange: (val: string) => void;
   options: string[];
+  /** 值 → 显示名（见 CrudColumn.filterOptionLabels）：只影响显示，提交的仍是值本身 */
+  optionLabels?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -356,14 +375,14 @@ function FilterSelect({
   return (
     <div className="filter-select" ref={ref}>
       <button type="button" className="filter-select-trigger" onClick={() => setOpen(!open)}>
-        <span>{label}{value ? `：${value}` : ''}</span>
+        <span>{label}{value ? `：${tl(optionLabels?.[value] ?? value)}` : ''}</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="m6 9 6 6 6-6" /></svg>
       </button>
       {open && (
         <div className="filter-select-dropdown">
           <div className={`filter-select-opt${!value ? ' active' : ''}`} onClick={() => { onChange(''); setOpen(false); }}>{t('crud.all')}</div>
           {options.map((o) => (
-            <div key={o} className={`filter-select-opt${o === value ? ' active' : ''}`} onClick={() => { onChange(o); setOpen(false); }}>{tl(o)}</div>
+            <div key={o} className={`filter-select-opt${o === value ? ' active' : ''}`} onClick={() => { onChange(o); setOpen(false); }}>{tl(optionLabels?.[o] ?? o)}</div>
           ))}
         </div>
       )}
@@ -1623,6 +1642,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               />
             ) : (
               <FilterSelect key={c.key} label={tl(c.label)} value={filters[c.key] ?? ''}
+                optionLabels={c.filterOptionLabels}
                 onChange={(v) => setFilters((f) => ({ ...f, [c.key]: v }))}
                 options={c.filterOptions ?? (c.dictKey ? (dicts[c.dictKey] ?? c.options ?? []) : c.type === 'department' ? departmentOptions.map((d) => d.value) : (c.options ?? []))} />
             ),

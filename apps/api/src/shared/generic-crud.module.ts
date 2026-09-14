@@ -43,6 +43,46 @@ function parseJsonObject(v: unknown): Record<string, unknown> {
   }
 }
 
+/** 行级数据范围的条件表达式（与列表查询共用同一份定义，见 RecordMeta.rowScope） */
+export type RowScopeFilter = FilterCondition | FilterGroup;
+
+/**
+ * rowScope / defaults 可用的**只读查询助手**。
+ *
+ * 为什么由引擎传进来：meta 是静态配置对象，拿不到依赖注入，而
+ * 「先查关联关系再拼范围条件」这类需求（如「我在哪些邮件账户的关联用户里」）
+ * 必须能查别的表。引擎在调用时把 base 客户端包一层传进来即可。
+ */
+export interface RowScopeContext {
+  /** 按表查记录（最多 500 条），返回扁平记录数组，每项带 `id` */
+  search: (tableId: string, filter?: RowScopeFilter) => Promise<Record<string, unknown>[]>;
+}
+
+/**
+ * 判断一行是否满足行级范围条件。
+ * 只实现 rowScope 用得到的子集：等值 / contains / and / or。
+ *
+ * 存在的意义：行级范围既要在**服务端查询**里表达（否则分页与 total 都是错的），
+ * 又要在**拿到单行之后**判断（详情、导出、内存深筛）。两处各写一套的话早晚漂移，
+ * 所以统一由本函数消费同一份条件对象。
+ */
+export function matchFilter(row: Record<string, unknown>, cond: RowScopeFilter | 'none' | null | undefined): boolean {
+  if (cond === null || cond === undefined) return true;
+  if (cond === 'none') return false;
+  if ('conjunction' in cond) {
+    const list = cond.conditions ?? [];
+    if (!list.length) return true;
+    return cond.conjunction === 'or'
+      ? list.some((c) => matchFilter(row, c))
+      : list.every((c) => matchFilter(row, c));
+  }
+  const want = (cond.value ?? []).map((v) => String(v));
+  if (!want.length) return true;
+  const raw = row[cond.field];
+  const have = (Array.isArray(raw) ? raw : [raw]).map((v) => String(toText(v)));
+  return want.some((w) => (cond.op === 'contains' ? have.some((h) => h.includes(w)) : have.includes(w)));
+}
+
 export interface RecordMeta {
   /** 路由前缀，如 'source-followups' */
   path: string;
@@ -64,7 +104,11 @@ export interface RecordMeta {
    */
   defaults?:
     | Record<string, unknown>
-    | ((fields: Record<string, unknown>) => Record<string, unknown>);
+    | ((
+        fields: Record<string, unknown>,
+        user?: SessionUser,
+        ctx?: RowScopeContext,
+      ) => Record<string, unknown> | Promise<Record<string, unknown>>);
   /** 状态字段（展示 + 可编辑） */
   statusField?: string;
   defaultStatus?: string;
@@ -107,6 +151,25 @@ export interface RecordMeta {
     query: Record<string, string | undefined>,
   ) => boolean | undefined | null | Promise<boolean | undefined | null>;
   /**
+   * 行级数据范围：非豁免角色**只允许访问满足该条件**的行。
+   *
+   * - 返回 `FilterCondition` / `FilterGroup`：合并进列表查询做服务端过滤（分页与 total 才正确），
+   *   详情 / 导出 / 内存深筛用**同一个条件对象**做判断（`matchFilter` 消费）
+   * - 返回 `'none'`：一条都看不到（例如「我不在任何账户的关联用户里」）
+   * - 返回 `null`：不限制
+   *
+   * ⚠️ 判据只写这一处。服务端查询与内存判断共用同一份条件，不要在两处各实现一遍 —— 必然漂移。
+   * ⚠️ 覆盖 list / listDeep / listByLinkSearch / detail / exportCsv；
+   *    `update` / `archive` / `transition` 都会先调 `detail()`，因此自动受保护。
+   * ⚠️ 行范围是**强制**的：与用户自己传的筛选是 AND 关系，前端无法绕过。
+   */
+  rowScope?: (
+    user: SessionUser,
+    ctx: RowScopeContext,
+  ) => RowScopeFilter | 'none' | null | Promise<RowScopeFilter | 'none' | null>;
+  /** 行级范围的豁免角色（默认只豁免 `系统管理员`） */
+  rowScopeBypassRoles?: string[];
+  /**
    * 审计四件套中「以业务字段为准」的字段名（如卫瓴的「创建时间」= 线索进入时间）。
    * 不配置时保持默认行为：审计字段一律以 PG 物理列（落库时间）为准。
    */
@@ -128,6 +191,41 @@ export class BaseRecordService {
   /** 操作人展示名 */
   private actorName(user: SessionUser): string {
     return user.name || user.openId || 'unknown';
+  }
+
+  /**
+   * 解析当前用户的行级数据范围：`null` = 不限制；`'none'` = 一条都看不到；否则为过滤条件。
+   * 是 rowScope 的唯一入口，列表/详情/导出/内存深筛都从这里取，保证口径一致。
+   */
+  private async rowScopeFor(user: SessionUser): Promise<RowScopeFilter | 'none' | null> {
+    const scope = this.meta.rowScope;
+    if (!scope) return null;
+    const bypass = this.meta.rowScopeBypassRoles ?? ['系统管理员'];
+    if ((user.roles ?? []).some((r) => bypass.includes(r))) return null;
+    return (await scope(user, this.scopeContext())) ?? null;
+  }
+
+  /**
+   * 给 rowScope / defaults 用的只读查询助手（见 RowScopeContext）。
+   * ⚠️ 跨表读时不要套用本表的 readonly / multi / link 字段集 —— 那是**本表**的元数据，
+   * 套到别的表上会把字段错误地扁平化。
+   */
+  private scopeContext(): RowScopeContext {
+    return {
+      search: async (tableId, filter) => {
+        const res = await this.base.search(tableId, {
+          pageSize: 500,
+          ...(filter ? { filter: buildFilter([filter]) } : {}),
+        });
+        // ⚠️ 返回**原始字段值**，不做 toFlatRecord 扁平化：关联/多值字段在原始形态下是数组，
+        // 扁平化会把它拼成「a、b」字符串，调用方就没法按成员判断了。
+        // 判断数组请用宽容解析（兼容 数组 / {link_record_ids:[...]} / JSON 字符串 三种形态）。
+        return (res.items ?? []).map((r) => ({
+          ...((r as unknown as { fields?: Record<string, unknown> }).fields ?? {}),
+          id: (r as unknown as { recordId?: string }).recordId,
+        }));
+      },
+    };
   }
 
   /** 审计：跳过审计日志表自身，避免自审计噪声 */
@@ -188,6 +286,12 @@ export class BaseRecordService {
 
   async list(user: SessionUser, query: Record<string, string | undefined>) {
     this.require(user, 'read');
+    // 行级数据范围：强制项，与用户自己传的筛选是 AND 关系（前端绕不过）。
+    // 'none' 直接短路成空页，不必打库。
+    const scope = await this.rowScopeFor(user);
+    if (scope === 'none') {
+      return { items: [], total: 0, hasMore: false, pageToken: undefined };
+    }
     // 审计日志：按操作人(模糊)/业务模块(模糊)/操作类型(精确)/时间范围 筛选，内存过滤
     // ⚠️ 以下几种也必须走内存过滤，否则会被主分支当成「字段名等值匹配」直接筛空：
     //  - `<字段>_from/_to` 时间区间、dim/dimval 自定义字段、meta.deepParams（如 follower）
@@ -203,13 +307,15 @@ export class BaseRecordService {
       !!(query.dim && query.dimval) ||
       (this.meta.deepParams ?? []).some((k) => query[k]);
     if (hasDeep) {
-      return this.listDeep(user, query);
+      return this.listDeep(user, query, scope);
     }
     // 关联字段（link）作为搜索目标时，飞书服务端 contains 对关联字段无效 → 走内存按解析文本过滤
     if (query.q && this.meta.searchField && this.linkSet().has(this.meta.searchField)) {
-      return this.listByLinkSearch(query);
+      return this.listByLinkSearch(query, scope);
     }
     const conditions: (FilterCondition | FilterGroup)[] = [];
+    // 行级范围最先入列：与后面的用户筛选取 AND
+    if (scope) conditions.push(scope);
     for (const [k, v] of Object.entries(query)) {
       if (['pageToken', 'sortBy', 'sortOrder', 'q', 'pageSize'].includes(k)) continue;
       if (!v) continue;
@@ -269,12 +375,16 @@ export class BaseRecordService {
   }
 
   /** 关联字段搜索：拉全量 → 解析可读名 → 按解析文本模糊过滤 */
-  private async listByLinkSearch(query: Record<string, string | undefined>) {
+  private async listByLinkSearch(
+    query: Record<string, string | undefined>,
+    scope: RowScopeFilter | 'none' | null = null,
+  ) {
     const sf = this.meta.searchField!;
     const q = String(query.q).toLowerCase();
     const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet()));
     await this.resolveLinks(rows);
-    const filtered = rows.filter((r) => String(r[sf] ?? '').toLowerCase().includes(q));
+    // 行级范围在内存路径同样强制（走的是与列表查询同一份条件）
+    const filtered = rows.filter((r) => matchFilter(r, scope) && String(r[sf] ?? '').toLowerCase().includes(q));
     if (this.meta.secretFields?.length) filtered.forEach((r) => this.maskSecrets(r));
     return { items: filtered, total: filtered.length, hasMore: false, pageToken: undefined };
   }
@@ -329,13 +439,18 @@ export class BaseRecordService {
   }
 
   /** 扩展筛选（仅审计日志使用）：拉全量后在内存做 模糊/精确/时间区间 过滤，保证 total 准确 */
-  private async listDeep(user: SessionUser, query: Record<string, string | undefined>) {
+  private async listDeep(
+    user: SessionUser,
+    query: Record<string, string | undefined>,
+    scope: RowScopeFilter | 'none' | null = null,
+  ) {
     const rangeField = this.meta.rangeField ?? this.meta.dateFields?.[0];
     const rows = (await this.fetchAll()).map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet()));
     // ⚠️ 内存过滤路径也必须解析关联字段：主分支（服务端过滤）走的是 resolveLinks，
     // 这条路径以前漏了 —— 结果 link 字段直接显示一串 record id，而且 `__has` 筛不到。
     await this.resolveLinks(rows);
-    let filtered = rows;
+    // 行级范围先过一遍（内存路径同样强制，判据与列表查询同源）
+    let filtered = scope ? rows.filter((r) => matchFilter(r, scope)) : rows;
     if (rangeField && (query.from || query.to)) {
       const from = query.from ? new Date(query.from + 'T00:00:00').getTime() : -Infinity;
       const to = query.to ? new Date(query.to + 'T23:59:59.999').getTime() : Infinity;
@@ -532,6 +647,10 @@ export class BaseRecordService {
     const rec = await this.base.get(this.tableId, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     const flat = toFlatRecord(rec, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet());
+    // 行级范围：越界按「不存在」处理（404 而非 403）—— 不向调用方暴露该记录是否存在。
+    // ⚠️ update / archive / transition 都会先调本方法，所以写操作一并受保护，不必逐个加。
+    const scope = await this.rowScopeFor(user);
+    if (!matchFilter(flat, scope)) throw new NotFoundException('NOT_FOUND');
     await this.resolveLinks([flat]);
     const out = this.mod ? this.mask.mask(user, this.mod.key, flat) : flat;
     return this.maskSecrets(out);
@@ -607,9 +726,12 @@ export class BaseRecordService {
     }
     // 模块级默认值：放在 writeFields 之后，才能给 readonly 的系统字段一个初始值。
     // 传函数时按**已写入的字段**推导（如「调度状态」要由 状态/可调度/过期时间 决定，
-    // 直接写死 '可调度' 会在用户显式停调时给出一致性错误的初始值）。
+    // 直接写死 '可调度' 会在用户显式停调时给出一致性错误的初始值）；第二个参数是当前用户，
+    // 用于「归属人默认成创建者」这类需要身份的字段（如邮件账户的「创建者openId」）。
     const defs =
-      typeof this.meta.defaults === 'function' ? this.meta.defaults(fields) : (this.meta.defaults ?? {});
+      typeof this.meta.defaults === 'function'
+        ? await this.meta.defaults(fields, user, this.scopeContext())
+        : (this.meta.defaults ?? {});
     for (const [k, v] of Object.entries(defs)) {
       if (!(k in fields)) fields[k] = v;
     }
@@ -649,8 +771,13 @@ export class BaseRecordService {
   /** 服务端导出 CSV：当前模块全量记录（上限 20000），UTF-8 BOM 防 Excel 乱码。 */
   async exportCsv(user: SessionUser): Promise<{ csv: string; filename: string }> {
     this.require(user, 'export');
+    // 行级范围：导出必须与列表同范围 —— 否则等于绕开隔离把全量数据拉走。
+    const scope = await this.rowScopeFor(user);
+    if (scope === 'none') return { csv: '﻿', filename: `${this.meta.path}.csv` };
     const rows = await this.fetchAll();
-    const flatRows = rows.map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet()));
+    const flatRows = rows
+      .map((r) => toFlatRecord(r, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet()))
+      .filter((r) => matchFilter(r, scope));
     const maskedRows = this.mod
       ? flatRows.map((r) => this.mask.mask(user, this.mod!.key, r))
       : flatRows;

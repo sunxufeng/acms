@@ -88,13 +88,16 @@ export class UsersService {
    * 用户管理页的完整数据仍走 list()（admin:user）。
    */
   async listDirectory(): Promise<
-    { name: string; openId: string; teacherType: string; campus: string; roles: string[] }[]
+    { id: string; name: string; openId: string; teacherType: string; campus: string; roles: string[] }[]
   > {
     const raw = await this.fetchAll();
     const out = raw.map((r) => {
       const f = this.flat(r);
       const roles = f['系统角色'];
       return {
+        // 用户记录 id：**关联字段**（如邮件账户的「关联用户」）存的是 record id，
+        // 而业务人字段（班主任/招生老师）存的是 Open ID —— 两个都给，调用方各取所需。
+        id: String((r as unknown as { recordId?: string }).recordId ?? ''),
         name: String(f['姓名'] ?? '').trim(),
         openId: String(f['飞书 Open ID'] ?? '').trim(),
         teacherType: String(f['教师类型'] ?? '').trim(),

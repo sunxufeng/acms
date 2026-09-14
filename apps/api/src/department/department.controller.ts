@@ -1,13 +1,21 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import type { SessionUser } from '@acms/contracts';
 import { SessionGuard } from '../auth/session.guard.js';
+import { requireModule } from '../shared/require-module.js';
 import { DepartmentService } from './department.service.js';
 
 /**
  * 部门管理控制器。
  *
  * 路由顺序：带后缀的子路由（sync / sync-status）必须先声明，否则会被 GET 通配吃掉。
- * 仅用 SessionGuard（校验登录态）→ 所有已登录用户可读（菜单 perm 为空 = 全员可见）。
- * 不调用 authorize：本模块只读、无写权限点，与「全员只读」需求一致。
+ *
+ * 权限分两档：
+ * - **读**（部门树 / 成员 / 同步进度）：只要求登录态。部门与成员属公开组织信息（页面下拉、
+ *   「点部门看员工」都要用），与菜单「部门管理」的可见性一致。
+ * - **写**（`POST /departments/sync`）：`module:departmentManagement:update`。
+ *   ⚠️ 2026-09-14 之前这里**没有任何权限守卫**，只挂 SessionGuard ⇒ 任何已登录用户
+ *   （含 student / parent 角色）都能触发飞书通讯录同步（会打上游并改写本地部门/成员快照）。
+ *   现在收口到 update，默认只有系统管理员持有；需要给别的角色用就在权限矩阵里勾。
  */
 @Controller('departments')
 @UseGuards(SessionGuard)
@@ -22,7 +30,8 @@ export class DepartmentController {
 
   /** 立即同步飞书部门：异步触发，立刻返回当前进度；前端轮询 /departments/sync-status */
   @Post('sync')
-  sync() {
+  sync(@Req() req: { user: SessionUser }) {
+    requireModule(req.user, 'departmentManagement', 'update');
     return this.svc.sync();
   }
 

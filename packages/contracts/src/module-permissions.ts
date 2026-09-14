@@ -141,13 +141,16 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'lessonPlan', label: '课时教案', path: '/lesson-plans', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'learningOutcomes', label: '学习成果', path: '/learning-outcomes', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
   // 部门管理（组织管理，2026-09-13 补登，2026-09-14 收敛）：只读同步飞书通讯录部门树 + 部门成员，
-  // 接口只要求登录态（部门/成员属公开组织信息），这里登记是为了**菜单可授权**：
+  // 读取接口只要求登录态（部门/成员属公开组织信息），这里登记是为了**菜单可授权**：
   // 之前菜单 perm 为空 => 所有人可见、权限矩阵里管不到，现在用 module:departmentManagement:read 控制入口。
-  // actions 只给 READ（本模块没有写接口）；genericCrud: false（controller 是自建的，不走通用 CRUD）。
+  // ⚠️ `update` 专指「同步飞书部门」这个**写动作**（部门页右上角那个按钮，会打飞书通讯录并把
+  //    部门/成员快照写进本地表），不是编辑部门。它跟读取分开授权：读取全员，同步**默认只给系统管理员**
+  //    （2026-09-14 之前 sync 只挂了 SessionGuard ⇒ 任何登录用户含 student/parent 都能触发，已收紧）。
+  // genericCrud: false（controller 是自建的，不走通用 CRUD）。
   // ⚠️ 曾经同时登记过 `departments`（legacyRead: department:read）与 `departmentManagement` 两条
   //    同 label、同 path 的资源 ⇒ 权限矩阵里出现两个「部门管理」，授权时极易勾错；
   //    `departments` 无人持有（没有任何角色有 department:read）且无代码引用，2026-09-14 已删除。
-  { key: 'departmentManagement', label: '部门管理', path: '/department-management', legacyRead: null, legacyWrite: null, menuPermission: null, actions: READ, genericCrud: false },
+  { key: 'departmentManagement', label: '部门管理', path: '/department-management', legacyRead: null, legacyWrite: null, menuPermission: null, actions: [...READ, 'update'], genericCrud: false },
 ];
 
 /** 返回值是 Permission 的子类型，供现有 authorize/hasPermission 直接使用。 */

@@ -10,6 +10,7 @@ import {
   type DepartmentSyncProgress,
 } from '../../lib/api';
 import { useTranslations } from 'next-intl';
+import { usePermissions } from '../../lib/permissions';
 
 /**
  * 部门管理（组织管理）。
@@ -66,6 +67,13 @@ function fmtTime(ts: number): string {
 
 export default function DepartmentManagementPage() {
   const t = useTranslations('departments');
+  const perms = usePermissions();
+  /**
+   * 「同步飞书部门」是**写动作**（打飞书通讯录 + 改写本地部门/成员快照），
+   * 后端走 `module:departmentManagement:update`（默认只给系统管理员）。
+   * 没有该权限就不渲染按钮 —— 否则点了必然 403。
+   */
+  const canSync = perms.includes('module:departmentManagement:update');
 
   const [data, setData] = useState<DepartmentListResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -248,11 +256,13 @@ export default function DepartmentManagementPage() {
             <h1 className="page-title">{t('title')}</h1>
             <p className="page-subtitle">{t('subtitle')}</p>
           </div>
-          <div className="page-header-actions">
-            <button className="btn btn-primary" onClick={() => void startSync()} disabled={sync?.running}>
-              {sync?.running ? t('syncing') : t('syncNow')}
-            </button>
-          </div>
+          {canSync && (
+            <div className="page-header-actions">
+              <button className="btn btn-primary" onClick={() => void startSync()} disabled={sync?.running}>
+                {sync?.running ? t('syncing') : t('syncNow')}
+              </button>
+            </div>
+          )}
         </div>
 
         {sync && (

@@ -1,6 +1,7 @@
 import {
   DATA_LEVEL_RANK,
   MENU_PERM_INHERIT,
+  MODULE_PERMISSIONS,
   MODULE_RESOURCES,
   PERMISSIONS,
   modulePermission,
@@ -257,6 +258,36 @@ let effectiveRoleMenus: Record<string, string[]> | null = null;
 /** 角色 key → 展示名（label）；供前端显示用，不含任何鉴权逻辑 */
 let effectiveRoleLabels: Record<string, string> | null = null;
 
+/** 全部 `module:<key>:enter` 权限点，用于规范化时判断「该模块确实有入口动作」再补，避免造出无效权限点。 */
+const MODULE_ENTER_PERMISSIONS = new Set<string>(MODULE_PERMISSIONS.filter((p) => p.endsWith(':enter')));
+
+/**
+ * 权限规范化：`module:<key>:read` 蕴含 `module:<key>:enter`。
+ *
+ * 为什么需要：ROLE_PERMISSION_VERSION=2 迁移里，read/create/update/delete 按**旧数据权限**
+ * （legacyRead / legacyWrite）派生，而 enter 按**旧菜单权限**（menuPermission）派生 —— 两者来源不同，
+ * 于是出现大量「有查看权限、没有菜单入口」的角色。2026-09-14 实测：13 个角色里 9 个中招
+ * （教师本人 / 教务 / 院级管理 / 学生事务 / HR行政 / 财务 / 招生 / student / parent），
+ * 表现是**接口 200、侧边栏却看不到菜单**（教师本人看不到成绩册、考勤码等 7 个菜单）。
+ *
+ * 语义上 enter ⊂ read：能读数据必然该能进菜单，所以在这里一次性收口，未来新增角色/模块也不会再踩。
+ *
+ * ⚠️ 只做单向补全。反向「有 enter 无 read」（如教务的调整冲销：菜单可见、点进去 403）**不在此处兜底** ——
+ *    那是单个角色的配置漏勾，补在这里会把「能进不能读」伪装成正常，掩盖真实的口径错误。
+ */
+function normalizeRolePermissions(perms: readonly string[]): Permission[] {
+  const out = new Set<string>(perms);
+  for (const p of perms) {
+    if (!p.startsWith('module:') || !p.endsWith(':read')) continue;
+    const enter = `${p.slice(0, p.length - ':read'.length)}:enter`;
+    if (MODULE_ENTER_PERMISSIONS.has(enter)) out.add(enter);
+  }
+  return [...out] as Permission[];
+}
+
+/** permsForRole 的规范化结果缓存（角色 → 权限点）。loadRolePermissionConfig 时整体失效。 */
+const normalizedRoleCache = new Map<string, Permission[]>();
+
 export interface RolePermissionSeed {
   key: string;
   /** 展示名（缺省等于 key）；仅用于显示，不参与鉴权 */
@@ -282,12 +313,21 @@ export function loadRolePermissionConfig(roles: RolePermissionSeed[]): void {
   effectiveMaxLevel = ml;
   effectiveRoleMenus = mn;
   effectiveRoleLabels = lb;
+  // 矩阵变了，规范化缓存必须整体失效，否则热更新（角色管理保存）后会继续用旧权限集。
+  normalizedRoleCache.clear();
 }
 
 function permsForRole(role: string): Permission[] {
-  if (effectiveRolePermissions) return effectiveRolePermissions[role] ?? [];
-  if (role in ROLE_PERMISSIONS) return [...ROLE_PERMISSIONS[role as Role]];
-  return [];
+  const cached = normalizedRoleCache.get(role);
+  if (cached) return cached;
+  const raw = effectiveRolePermissions
+    ? (effectiveRolePermissions[role] ?? [])
+    : role in ROLE_PERMISSIONS
+      ? [...ROLE_PERMISSIONS[role as Role]]
+      : [];
+  const normalized = normalizeRolePermissions(raw);
+  normalizedRoleCache.set(role, normalized);
+  return normalized;
 }
 
 function levelForRole(role: string): DataLevel {

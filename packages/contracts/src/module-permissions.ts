@@ -110,9 +110,6 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'menu-groups-settings', label: '菜单分组', path: '/homepage-config/menu-groups', aliases: ['/menu-groups-settings'], legacyRead: null, legacyWrite: null, menuPermission: null, actions: [...READ, 'update'], adminOnly: true },
   { key: 'note-convert', label: '转换配置', path: '/homepage-config/note-convert', aliases: ['/note-convert'], legacyRead: null, legacyWrite: null, menuPermission: null, actions: [...READ, 'update'], adminOnly: true },
   { key: 'student-users', label: '学生账号', path: '/student-auth/accounts', aliases: ['/student-users', '/student-auth/search', '/student-auth/admin/set-password'], legacyRead: 'admin:studentUser', legacyWrite: 'admin:studentUser', menuPermission: 'admin:studentUser', actions: [...READ, 'update'], adminOnly: true },
-  // 组织管理 / 部门管理：只读同步飞书通讯录部门树，全员可见（菜单 perm 空）。
-  // 无写权限点；同步动作由后端身份 system:department-sync 执行，不暴露给普通用户。
-  { key: 'departments', label: '部门管理', path: '/department-management', legacyRead: 'department:read', legacyWrite: null, menuPermission: null, actions: READ },
 
   // ── AI 路由（acapi 多租户网关移植，2026-09-12）────────────────────
   // 五张可写表用 RECORD（含批量导入导出），用量明细与操作日志只读（READ）。
@@ -143,16 +140,47 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'curriculum', label: '课程规划', path: '/curriculum', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'lessonPlan', label: '课时教案', path: '/lesson-plans', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'learningOutcomes', label: '学习成果', path: '/learning-outcomes', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
-  // 部门管理（组织管理，2026-09-13 补登）：只读同步飞书通讯录部门树 + 部门成员，
+  // 部门管理（组织管理，2026-09-13 补登，2026-09-14 收敛）：只读同步飞书通讯录部门树 + 部门成员，
   // 接口只要求登录态（部门/成员属公开组织信息），这里登记是为了**菜单可授权**：
   // 之前菜单 perm 为空 => 所有人可见、权限矩阵里管不到，现在用 module:departmentManagement:read 控制入口。
   // actions 只给 READ（本模块没有写接口）；genericCrud: false（controller 是自建的，不走通用 CRUD）。
+  // ⚠️ 曾经同时登记过 `departments`（legacyRead: department:read）与 `departmentManagement` 两条
+  //    同 label、同 path 的资源 ⇒ 权限矩阵里出现两个「部门管理」，授权时极易勾错；
+  //    `departments` 无人持有（没有任何角色有 department:read）且无代码引用，2026-09-14 已删除。
   { key: 'departmentManagement', label: '部门管理', path: '/department-management', legacyRead: null, legacyWrite: null, menuPermission: null, actions: READ, genericCrud: false },
 ];
 
 /** 返回值是 Permission 的子类型，供现有 authorize/hasPermission 直接使用。 */
 export function modulePermission(key: string, action: ModuleAction): ModulePermission {
   return `module:${key}:${action}`;
+}
+
+/**
+ * 菜单 key（DEFAULT_NAV_MENU_CONFIG）→ 模块资源 key 的别名表。
+ *
+ * 历史原因，4 个菜单的 key 与 MODULE_RESOURCES.key 不一致：
+ *   weiling-contacts → weilingContacts、lessonPlans → lessonPlan、
+ *   department-management → departmentManagement、open-platform → openPlatformApps；
+ *   aiDocs / system-monitor 没有对应模块资源，继续用菜单自身的 legacy perm 判定（见 AppShell）。
+ *
+ * 为什么不直接把菜单 key 改成模块 key：菜单 key 同时被 i18n（nav.*）、角色菜单白名单
+ * （role menus）、侧边栏折叠状态（localStorage）、笔记转换登记表引用，改一处牵动四处；别名收口成本最低。
+ *
+ * 为什么必须收口：AppShell.canSeeItem 原先用 `MODULE_RESOURCES.find(r => r.key === item.key)` 找模块，
+ * 找不到就退回菜单自身的 legacy perm ⇒ 这些菜单的显隐判据与后端守卫（走 module:<资源 key>:<action>）
+ * **脱钩**，是「看得见却点不动」的高发区。
+ */
+export const MENU_KEY_ALIASES: Record<string, string> = {
+  'weiling-contacts': 'weilingContacts',
+  lessonPlans: 'lessonPlan',
+  'department-management': 'departmentManagement',
+  'open-platform': 'openPlatformApps',
+};
+
+/** 按菜单 key 找模块资源：先查别名表，再按 key 直查。找不到返回 undefined，调用方回退菜单自身的 perm。 */
+export function moduleByMenuKey(menuKey: string): ModuleResource | undefined {
+  const target = MENU_KEY_ALIASES[menuKey] ?? menuKey;
+  return MODULE_RESOURCES.find((r) => r.key === target);
 }
 
 export const MODULE_PERMISSIONS: readonly ModulePermission[] = MODULE_RESOURCES.flatMap((resource) =>

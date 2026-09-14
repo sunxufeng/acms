@@ -7,7 +7,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { api } from '../lib/api';
 import LocaleSwitcher from './LocaleSwitcher';
 import { useRoleLabels } from './RoleLabels';
-import { modulePermission, MODULE_RESOURCES } from '@acms/contracts';
+import { modulePermission, moduleByMenuKey } from '@acms/contracts';
 import { loadPermissions } from '../lib/permissions';
 import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuGroup, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
 
@@ -349,7 +349,10 @@ export default function AppShell({
    */
   const canSeeItem = (item: NavMenuItem): boolean => {
     if (item.adminOnly && !isAdmin) return false;
-    const modRes = MODULE_RESOURCES.find((r) => r.key === item.key);
+    // ⚠️ 必须走 moduleByMenuKey：有 4 个菜单的 key 与 MODULE_RESOURCES.key 不一致
+    //（weiling-contacts / lessonPlans / department-management / open-platform），
+    // 直接用 find 会找不到资源、静默退回 item.perm ⇒ 菜单显隐与后端守卫脱钩。
+    const modRes = moduleByMenuKey(item.key);
     const enterPerm = modRes ? modulePermission(item.key, 'enter') : item.perm;
     if (enterPerm && !(myPerms || []).includes(enterPerm)) return false;
     if (myMenus && !myMenus.includes(item.key)) return false;

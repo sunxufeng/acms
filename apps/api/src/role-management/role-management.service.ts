@@ -218,9 +218,24 @@ export class RoleManagementService implements OnModuleInit {
     return changed;
   }
 
+  /**
+   * 把角色矩阵注入鉴权引擎。
+   *
+   * 🔴 **锁定角色必须在这里兜底自愈**（2026-09-14 事故复盘）：
+   * 本方法是「矩阵 → 引擎」的**唯一入口**，而 `persist()` / `updateRole()` 走的都是
+   * 「读存储 → 改 → applyToEngine(存储值)」这条路径。存储里锁定角色的权限是**历史快照**，
+   * 于是**只要有人保存过一次权限矩阵**，引擎里的系统管理员就被降级回快照 ——
+   * 表现为菜单凭空消失 + 接口 403（联系人管理、招生分析首当其冲）。
+   *
+   * 此前只在 `ensureLoaded()` 里 heal，那只在**启动时生效一次**：
+   * 部署重启后正常，之后任何一次矩阵保存都会重新踩坑（本次就是这么来的 ——
+   * 一次角色权限迁移写入 8 个角色，顺带把管理员打回 382 条）。
+   * 所以自愈必须放在这个唯一的收口处，让所有调用路径都绕不过去。
+   */
   private applyToEngine(roles: StoredRole[]): void {
+    const healed = this.healLockedRoles(roles);
     loadRolePermissionConfig(
-      roles.map((r) => ({
+      healed.map((r) => ({
         key: r.key,
         label: r.label?.trim() || r.key,
         permissions: r.permissions as Permission[],
@@ -254,7 +269,11 @@ export class RoleManagementService implements OnModuleInit {
   }
 
   private async persist(roles: StoredRole[]): Promise<void> {
-    const value = JSON.stringify({ roles });
+    // ⚠️ 落库前先对锁定角色自愈：存储里也应该是全量，否则任何「直接读存储再注入引擎」的
+    //    路径都会把管理员打回历史快照（2026-09-14 事故）。这不破坏「权限集不可编辑」的
+    //    锁定语义 —— 那道闸在 updateRole 里（传 permissions 直接 403）。
+    const healed = this.healLockedRoles(roles);
+    const value = JSON.stringify({ roles: healed });
     const rec = await this.findRecord();
     if (rec) {
       await this.base.update(TABLE_ID, rec.recordId, {

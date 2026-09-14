@@ -18,6 +18,25 @@ export class WeilingController {
     }
   }
 
+  /**
+   * 「报表 → 招生分析」专用：认 `report:read` **或** `weiling:read`。
+   *
+   * 为什么要单独一条：`/weiling/analyze` 是**报表**的数据源，而「报表管理」菜单本身就是
+   * 由 `report:read` 管控的（`homepage.ts` 里 `/reports` 的 perm）。但原先它复用
+   * `requireRead`（只认 `weiling:read` —— 那是「联系人管理」模块的权限点），
+   * 结果**除系统管理员外所有角色都能看见报表卡片、点进去却 403**
+   * （2026-09-14 吴倩反馈；实测 8 个角色全中，全站只有系统管理员有 `weiling:read`）。
+   *
+   * 收口原则：**能看见这张报表的人就该能取到它的数据**；
+   * 而联系人明细（列表 / 详情 / 字段 / 同步）仍只认 `weiling:read` + `module:weilingContacts:read`，
+   * 不因为能看报表就顺带拿到线索明细的读取权。
+   */
+  private static requireReportRead(user: SessionUser): void {
+    const principal = { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
+    if (authorize(principal, 'report:read').allowed || authorize(principal, 'weiling:read').allowed) return;
+    throw new HttpException('FORBIDDEN:report:read', HttpStatus.FORBIDDEN);
+  }
+
   /** 字段描述（中文名 + 枚举选项），前端用它渲染详情与翻译自定义字段 */
   @Get('fields')
   fields(@Req() req: Request, @Query('refresh') refresh?: string) {
@@ -43,7 +62,7 @@ export class WeilingController {
     return { ...this.svc.syncStatus(), progress: this.svc.progressStatus(), lost: this.svc.lostStatus() };
   }
 
-  /** 招生分析（报表用）：多维度聚合，支持按人/渠道/阶段/时间筛选 */
+  /** 招生分析（报表用）：多维度聚合，支持按人/渠道/阶段/时间筛选。权限：`report:read` 或 `weiling:read` */
   @Get('analyze')
   analyze(
     @Req() req: Request,
@@ -53,7 +72,7 @@ export class WeilingController {
     @Query('channel') channel?: string,
     @Query('stage') stage?: string,
   ) {
-    WeilingController.requireRead((req as Request & { user: SessionUser }).user);
+    WeilingController.requireReportRead((req as Request & { user: SessionUser }).user);
     return this.svc.analyze({ from, to, 归属人: owner, 来源渠道: channel, 客户阶段: stage });
   }
 

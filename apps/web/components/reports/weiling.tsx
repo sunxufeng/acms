@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
+import { usePermissions } from '../../lib/permissions';
+import { useTl } from '../../lib/useTl';
 
 interface Item {
   name: string;
@@ -135,7 +137,24 @@ export function WeilingPanel() {
    */
   const DEAL_STAGE = '成交客户';
 
+  /**
+   * 下钻到联系人名单需要「联系人管理」的读权限（`module:weilingContacts:read`）。
+   *
+   * 报表权限（`report:read`）与联系人明细权限是两件事：能看招生分析不等于能看线索明细。
+   * 没这个权限时**不跳转**，而是在面板顶部给一句说明 ——
+   * 否则点了会落到 /weiling-contacts 的 403 报错页，变成第二种「加载失败」。
+   */
+  const perms = usePermissions();
+  const tl = useTl();
+  const canOpenContacts = perms.includes('module:weilingContacts:read');
+  const [drillNotice, setDrillNotice] = useState('');
+
   const drill = (extra: Record<string, string>) => {
+    if (!canOpenContacts) {
+      setDrillNotice(tl('当前角色可以查看本报表，但没有「联系人管理」的查看权限，因此不能下钻到名单。需要的话请联系管理员在角色权限里授权。'));
+      return;
+    }
+    setDrillNotice('');
     const merged: Record<string, string> = {};
     if (from) merged.from = from;
     if (to) merged.to = to;
@@ -179,6 +198,11 @@ export function WeilingPanel() {
 
   return (
     <div>
+      {drillNotice ? (
+        <div className="notice notice-info" style={{ marginBottom: 'var(--space-md)' }}>
+          {drillNotice}
+        </div>
+      ) : null}
       {/* 筛选 */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: '1rem' }}>
         <input className="form-input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 150 }} />

@@ -2372,7 +2372,8 @@
     "考勤码表当前为空，出勤率按内置默认码（出勤/迟到/早退/事假/病假/缺勤/校内活动）计算 —— 配好考勤码后以码表为准。": "The attendance-code table is empty, so the built-in defaults (present / late / early leave / personal leave / sick leave / absent / on-campus activity) are used — once codes are configured, the table takes precedence.",
     "待认领（公海）": "Unclaimed (public pool)",
     "已认领": "Claimed",
-    "待分配": "Pending assignment"
+    "待分配": "Pending assignment",
+    "当前角色可以查看本报表，但没有「联系人管理」的查看权限，因此不能下钻到名单。需要的话请联系管理员在角色权限里授权。": "Your role can view this report but has no permission to open Contact Management, so drilling down to the contact list is unavailable. Ask an administrator to grant it in the role permissions."
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

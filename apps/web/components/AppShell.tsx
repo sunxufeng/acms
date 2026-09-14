@@ -335,6 +335,27 @@ export default function AppShell({
 
   const isAdmin = !!me?.roles?.includes('系统管理员');
 
+  /**
+   * 单个菜单项是否对当前用户可见（**唯一判据**，分组筛选与逐项渲染都用它，别写两份）。
+   *
+   *   1) adminOnly 只有系统管理员可见
+   *   2) 入口权限：优先 `module:<菜单key>:enter`（模块资源存在时），否则回退 legacy `item.perm`
+   *   3) 角色菜单白名单（仅作收敛，不放大权限）
+   *
+   * ⚠️ 曾经只在 renderItem 里判、**分组标题不判** —— 于是「组内条目全被过滤」的分组
+   * 依然会渲染出标题和展开箭头，展开后空空如也。用户会以为自己有这些菜单的权限
+   * （2026-09-14 吴倩就反馈过「能看到教学管理/教师管理/智能助手/邮件归档/后台管理菜单组」，
+   * 实际她在这些组里一个菜单都看不到）。所以分组筛选也必须过这道判据。
+   */
+  const canSeeItem = (item: NavMenuItem): boolean => {
+    if (item.adminOnly && !isAdmin) return false;
+    const modRes = MODULE_RESOURCES.find((r) => r.key === item.key);
+    const enterPerm = modRes ? modulePermission(item.key, 'enter') : item.perm;
+    if (enterPerm && !(myPerms || []).includes(enterPerm)) return false;
+    if (myMenus && !myMenus.includes(item.key)) return false;
+    return true;
+  };
+
   // Build navigable menu groups from config
   const sortedItems = menuConfig.items.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const childrenMap: Record<string, NavMenuItem[]> = {};
@@ -356,8 +377,9 @@ export default function AppShell({
   }
   const groups: { group: NavMenuGroup; items: NavMenuItem[] }[] = groupDefs.map((g) => ({
     group: g,
+    // ⚠️ 这里必须带上 canSeeItem：否则「组内条目全无权限」的分组会留下一个空标题
     items: sortedItems.filter(
-      (it) => !it.parentKey && (it.section === g.key || it.section === g.label),
+      (it) => !it.parentKey && (it.section === g.key || it.section === g.label) && canSeeItem(it),
     ),
   }));
   // 兜底：item.section 不在任何已配置分组中时，单独成组，避免菜单丢失。
@@ -369,7 +391,7 @@ export default function AppShell({
   for (const section of orphanSections) {
     groups.push({
       group: { key: section, label: section, enLabel: undefined, order: 99999 },
-      items: sortedItems.filter((it) => !it.parentKey && it.section === section),
+      items: sortedItems.filter((it) => !it.parentKey && it.section === section && canSeeItem(it)),
     });
   }
 
@@ -410,14 +432,8 @@ export default function AppShell({
             const expanded = expandedSections[group.key] ?? false;
             const renderItem = (item: NavMenuItem) => {
               const Icon = ICONS[item.icon] ?? (() => null);
-              if (item.adminOnly && !isAdmin) return null;
-              // 菜单入口优先用模块级 enter 权限（module:<key>:enter）；若该菜单无对应模块资源，回退 legacy item.perm。
-              // 这样「菜单可见性」在角色管理矩阵里可被单独控制，且撤销 enter 会真正隐藏菜单。
-              const modRes = MODULE_RESOURCES.find((r) => r.key === item.key);
-              const enterPerm = modRes ? modulePermission(item.key, 'enter') : item.perm;
-              if (enterPerm && !(myPerms || []).includes(enterPerm)) return null;
-              // 角色级菜单白名单：仅作收敛，不会放大权限
-              if (myMenus && !myMenus.includes(item.key)) return null;
+              // 可见性判据统一在 canSeeItem（分组筛选用的是同一份，别在这里再写一遍）
+              if (!canSeeItem(item)) return null;
               const label = locale === 'en' ? (item.enLabel || tn(item.key) || item.label) : item.label;
               if (item.disabled) {
                 return (

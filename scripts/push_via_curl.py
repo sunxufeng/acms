@@ -14,14 +14,19 @@
     python3 scripts/push_via_curl.py [分支，默认 main]
 
 行为：把本地 HEAD 相对远端同名分支 tip 的差异，按 blob → tree → commit → 更新 ref 推上去。
-远端会生成新 SHA（不追求 SHA 一致，但内容与提交信息一致）；
-推完请 `git fetch && git reset --hard origin/<分支>` 对齐本地。
+commit 的 tree / parent / author / committer / message 全部原样取自本地提交对象，
+**因此远端 SHA 与本地一致**（SHA-perfect）—— 这点很要紧：脚本下次要 `git diff 远端SHA HEAD`，
+若远端 SHA 是自己另算出来的对象，diff 会直接失败，而 github.com 不通、fetch 也补不回来。
 """
+
+# ⚠️ 网络在「小请求通、大 POST body 偶发超时」这个模式下工作（见 api() 的注释），
+#    所以每个请求都带重试 + 180s 超时；失败信息会打印出来，别当静默卡死。
 import base64
 import json
 import os
 import subprocess
 import sys
+import time
 
 REPO = os.environ.get('REPO', 'sunxufeng/acms')
 API = 'https://api.github.com/repos/' + REPO
@@ -41,9 +46,17 @@ def git(*args, strip=True):
     return r.stdout.strip() if strip else r.stdout
 
 
-def api(method, path, payload=None):
+def api(method, path, payload=None, attempts=4, timeout=180):
+    """发一次 GitHub API 请求。
+
+    ⚠️ 必须带重试与较长超时（2026-09-14 实测）：同一台机器 curl 打 api.github.com 是 200、
+    但**上传 blob 时随机 `curl: (28) Connection timed out after 60000 ms`** ——
+    网络在「小请求通、大 POST body 偶发卡住」这个模式下，单发不带重试会把推送打断在半路，
+    白等一分钟还要从头发。改 180s 超时 + 最多 4 次重试后稳定通过。
+    重试只对**幂等**的 Git Database 接口有意义：blob/tree/commit 都是按内容寻址，重复提交无副作用。
+    """
     args = [
-        'curl', '-sS', '--max-time', '60', '-X', method,
+        'curl', '-sS', '--max-time', str(timeout), '-X', method,
         '-H', 'Authorization: Bearer ' + TOKEN,
         '-H', 'Accept: application/vnd.github+json',
     ]
@@ -54,14 +67,22 @@ def api(method, path, payload=None):
     args.append(API + path)
     env = {k: v for k, v in os.environ.items()
            if k.lower() not in ('http_proxy', 'https_proxy', 'all_proxy')}
-    r = subprocess.run(args, input=data, capture_output=True, env=env)
-    out = r.stdout.decode('utf-8', 'replace')
-    if r.returncode != 0:
-        raise SystemExit('curl 失败(%s): %s' % (path, r.stderr.decode()[:200]))
-    try:
-        return json.loads(out)
-    except Exception:
-        raise SystemExit('响应不是 JSON（%s）：%s' % (path, out[:300]))
+
+    last = ''
+    for i in range(attempts):
+        r = subprocess.run(args, input=data, capture_output=True, env=env)
+        out = r.stdout.decode('utf-8', 'replace')
+        if r.returncode == 0:
+            try:
+                return json.loads(out)
+            except Exception:
+                last = '响应不是 JSON：' + out[:200]
+        else:
+            last = r.stderr.decode()[:200]
+        if i < attempts - 1:
+            print('   … %s 第 %d 次失败，2s 后重试：%s' % (path, i + 1, last.strip()[:110]))
+            time.sleep(2)
+    raise SystemExit('curl 失败(%s，重试 %d 次)：%s' % (path, attempts, last))
 
 
 local_sha = git('rev-parse', 'HEAD')

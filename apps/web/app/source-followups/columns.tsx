@@ -50,7 +50,10 @@ export const COLUMNS: CrudColumn[] = [
   { key: '跟进负责人', label: '负责人', width: '110px', listOrder: 6 },
   { key: '付款状态', label: '付款状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '付款状态', list: false },
   // ── 参考家校沟通编辑页面新增的字段 ──
-  { key: '家长', label: '家长', width: '110px', list: false, form: true, type: 'parent', dependsOn: '关联学生', required: true },
+  // ⚠️ 非必填（2026-09-14 用户反馈）：招生阶段常常还没确认学生，「家长」跟着「关联学生」
+  //    一起留空是常态；标成必填既误导（表单会显示红色 *），在笔记转换的新建流程里
+  //    还会真的拦提交（那条流程走 strictRequired 校验）。可选字段一律不标 required。
+  { key: '家长', label: '家长', width: '110px', list: false, form: true, type: 'parent', dependsOn: '关联学生', required: false },
   { key: '家长反馈态度', label: '家长反馈态度', width: '130px', list: false, filter: true, form: true, type: 'select', dictKey: '家长反馈态度' },
   // openRecord：首列已让给联系人（跳联系人详情），这里点击主题进入本条跟进的只读详情页
   { key: '沟通主题', label: '沟通主题', width: '120px', form: true, listOrder: 2, openRecord: true },

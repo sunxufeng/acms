@@ -61,6 +61,14 @@ export interface CrudColumn {
    * 走 tl() 解析，中英文都可覆盖。
    */
   filterPlaceholder?: string;
+  /**
+   * 文本筛选框的宽度（px），默认 160。
+   *
+   * 只用于「文案本身就短」的列：筛选区是按控件数量平铺的，一个宽框会把整行撑散，
+   * 视觉上也显得这个筛选比别的重要。占位文案只有三四个字时按字数收窄即可，
+   * 例如「关联学生」用 100。
+   */
+  filterWidth?: number;
   form?: boolean;
   /** 是否在列表表格中显示（默认 true；设为 false 仅保留在表单中，例如敏感列） */
   list?: boolean;
@@ -1643,7 +1651,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               <input
                 key={c.key}
                 className="form-input"
-                style={{ width: 160 }}
+                style={{ width: c.filterWidth ?? 160 }}
                 placeholder={c.filterPlaceholder ? tl(c.filterPlaceholder) : t('crud.filterBy', { label: tl(c.label) })}
                 value={filters[c.filterParam ?? c.key] ?? ''}
                 onChange={(e) => setFilters((f) => ({ ...f, [c.filterParam ?? c.key]: e.target.value }))}

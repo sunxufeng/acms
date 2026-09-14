@@ -53,6 +53,14 @@ export interface CrudColumn {
    * （2026-09-14 卫瓴联系人「状态」：官方枚举 0=待认领（公海）/ 1=已认领 / 4=待分配。）
    */
   filterOptionLabels?: Record<string, string>;
+  /**
+   * 文本筛选框的占位文案（默认走 `crud.filterBy` = 「筛选{字段名}」）。
+   *
+   * 个别列给「筛选」这类前缀会显得啰嗦（筛选区本身已有放大镜图标 + 周围都是筛选控件），
+   * 这时可用本字段直接给一句更短的文案，例如 `filterPlaceholder: '关联学生'`。
+   * 走 tl() 解析，中英文都可覆盖。
+   */
+  filterPlaceholder?: string;
   form?: boolean;
   /** 是否在列表表格中显示（默认 true；设为 false 仅保留在表单中，例如敏感列） */
   list?: boolean;
@@ -1636,7 +1644,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 key={c.key}
                 className="form-input"
                 style={{ width: 160 }}
-                placeholder={t('crud.filterBy', { label: tl(c.label) })}
+                placeholder={c.filterPlaceholder ? tl(c.filterPlaceholder) : t('crud.filterBy', { label: tl(c.label) })}
                 value={filters[c.filterParam ?? c.key] ?? ''}
                 onChange={(e) => setFilters((f) => ({ ...f, [c.filterParam ?? c.key]: e.target.value }))}
               />

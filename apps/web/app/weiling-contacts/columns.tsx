@@ -175,6 +175,9 @@ export const COLUMNS: CrudColumn[] = [
     filter: true,
     filterType: 'text',
     filterOp: 'contains',
+    // 占位文案直接用字段名（默认会拼成「筛选关联学生」）——
+    // 筛选区已有放大镜图标、左右也都是筛选控件，「筛选」二字属冗余。
+    filterPlaceholder: '关联学生',
     render: (v, row) => {
       const name = String(v ?? '');
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;

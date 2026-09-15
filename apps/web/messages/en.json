@@ -895,7 +895,7 @@
     "btnNext": "Next",
     "fldRoleKey": "Role Key",
     "fldDisplayName": "Display Name",
-    "phRoleKey": "e.g. teacher (English; cannot change after creation)",
+    "phRoleKey": "e.g. Homeroom-Pre1 or teacher (Chinese or English; cannot change after creation)",
     "phRoleDisplayName": "Leave blank to equal the key",
     "hintNewRole": "The role key syncs to the permission system after creation and cannot be changed",
     "legendNewRole": "New Role",
@@ -905,7 +905,16 @@
     "deleteFailed": "Delete failed",
     "roleKeyExists": "Role key already exists",
     "roleKeyRequired": "Please enter the role key",
-    "roleSyncSuffix": "(synced)"
+    "roleSyncSuffix": "(synced)",
+    "legendCopyRole": "Duplicate Role",
+    "btnCreateCopy": "Create copy and edit",
+    "btnCopyRole": "Duplicate this role",
+    "btnCopyRoleHint": "Create a new editable, deletable role from this one",
+    "copySourceInfo": "Source role: {name} ({perms} permissions)",
+    "copyWillBring": "Will copy: {perms} permissions · {menus} menu entries · max level {level} · data scope {scope}",
+    "copyScopeYes": "configured",
+    "copyScopeNo": "not configured",
+    "copyNotBring": "Built-in and locked flags are not copied — the copy stays fully editable and deletable"
   },
   "labels": {
     "(空)": "(empty)",

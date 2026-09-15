@@ -225,6 +225,45 @@ export class RoleManagementService implements OnModuleInit {
     }
   }
 
+  /**
+   * 删除角色后，把「系统角色」字段里的对应选项一并移除。
+   *
+   * 🔴 为什么要做：`syncRoleOptions` **只加不删** —— 删掉角色后选项仍留在字段里，
+   *    新建/编辑用户时还能选到一个已经不存在（或已被删除）的角色，很难排查。
+   *    （2026-09-15 实测发现：做契约测试建的临时角色删掉后，选项里一直留着它。）
+   *
+   * ⚠️ 保护：若仍有用户记录在用这个角色，**保留选项**并告警 ——
+   *    否则那些人的角色值会变成下拉里的"未知值"，比留个多余选项更难处理。
+   */
+  private async removeRoleOption(key: string): Promise<void> {
+    try {
+      const used = await this.base.search(USER_TABLE.tableId, {
+        pageSize: 200,
+        filter: buildFilter([{ field: ROLE_FIELD_NAME, value: [key] }]),
+      });
+      if ((used.items ?? []).length) {
+        this.logger.warn(`角色「${key}」仍有 ${used.items.length} 个用户在使用，保留「${ROLE_FIELD_NAME}」字段选项`);
+        return;
+      }
+      const fields = await this.base.listFields(USER_TABLE.tableId);
+      const roleField = fields.find((f) => f.name === ROLE_FIELD_NAME);
+      if (!roleField) return;
+      const prop = (roleField.property ?? {}) as { options?: { name: string; id?: string }[] };
+      const opts = prop.options ?? [];
+      const next = opts.filter((o) => o.name !== key);
+      if (next.length === opts.length) return;
+      await this.base.updateField(USER_TABLE.tableId, roleField.id, {
+        field_name: roleField.name,
+        type: roleField.type,
+        property: { ...prop, options: next },
+      });
+      this.logger.log(`已从「${ROLE_FIELD_NAME}」字段移除角色选项：${key}`);
+    } catch (e) {
+      // 选项清理失败不该影响删除本身（角色已经从配置里删掉了）
+      this.logger.warn(`移除角色选项失败（不影响删除）：${(e as Error).message}`);
+    }
+  }
+
   /** 只迁移旧角色；绝不补回已撤销的旧菜单权限，也不触碰 v2 的显式授权。 */
   private migratePermissions(roles: StoredRole[]): boolean {
     let changed = false;
@@ -341,8 +380,10 @@ export class RoleManagementService implements OnModuleInit {
   }> {
     const key = (dto.key ?? '').trim();
     if (!key) throw new BadRequestException('角色标识（key）不能为空');
-    if (!/^[一-龥A-Za-z0-9_]+$/.test(key)) {
-      throw new BadRequestException('角色标识仅支持中文、字母、数字与下划线');
+    // 允许短横线：角色复制生成的默认标识是「<源key>-副本」，需要它。
+    // （短横线只出现在「系统角色」字段的选项文本里，无副作用；存量 12 个角色均不含它。）
+    if (!/^[一-龥A-Za-z0-9_-]+$/.test(key)) {
+      throw new BadRequestException('角色标识仅支持中文、字母、数字、下划线与短横线');
     }
     const current = (await this.readStored()) ?? this.defaultConfig();
     if (current.some((r) => r.key === key)) throw new ConflictException('角色已存在');
@@ -416,6 +457,8 @@ export class RoleManagementService implements OnModuleInit {
     //    不清的话「刚配完的数据范围」要等 10 秒才生效，运营会以为没保存上。
     //    （2026-09-15 实测踩到：配完立即查询仍是旧的可见集合，误判成「范围没生效」）
     this.studentScope.clearCache();
+    // 同步移除「系统角色」字段里的选项（只加不删会留下"能选到已删除角色"的坑）
+    await this.removeRoleOption(key);
     return { ok: true };
   }
 }

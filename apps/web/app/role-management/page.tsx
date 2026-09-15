@@ -85,8 +85,16 @@ export default function RoleManagementPage() {
     total: number;
   } | null>(null);
   const [moduleQuery, setModuleQuery] = useState('');
-  /** 复制本角色模块权限的目标角色 */
+  /** 复制本角色模块权限的目标角色（权限矩阵里的「复制模块权限给」—— 并入既有角色，不新建） */
   const [copyTarget, setCopyTarget] = useState('');
+  /**
+   * 「复制此角色」的源角色 key（null = 普通新建）。
+   *
+   * ⚠️ 与上面的 copyTarget 是**两件事**，别混：
+   *   - copyTarget     → 把本角色的 module:* 权限**并入**另一个已存在的角色（不新建）
+   *   - copySourceKey  → 以某个角色为模板**新建**一个角色（本功能）
+   */
+  const [copySourceKey, setCopySourceKey] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -410,10 +418,38 @@ export default function RoleManagementPage() {
     }
   }
 
+  /** 生成不冲突的角色 key：已存在则追加 2、3… */
+  function uniqueKey(base: string): string {
+    const existing = new Set((config?.roles ?? []).map((r) => r.key));
+    if (!existing.has(base)) return base;
+    for (let i = 2; i < 1000; i++) {
+      const cand = `${base}${i}`;
+      if (!existing.has(cand)) return cand;
+    }
+    return `${base}-${Date.now()}`;
+  }
+
   function startCreate() {
     setNewKey('');
     setNewLabel('');
+    setCopySourceKey(null);
     setShowCreate(true);
+  }
+
+  /**
+   * 「复制此角色」：以 r 为模板创建新角色。
+   *
+   * 只做两件事 —— 预填 key/展示名、记住源角色；真正的继承发生在 confirmCreate。
+   * 这样用户在落库前仍可在编辑器里改动，且中途可放弃（不会留下半成品角色）。
+   */
+  function startCopy(r: RoleDef) {
+    setCopySourceKey(r.key);
+    setNewKey(uniqueKey(`${r.key}-副本`));
+    setNewLabel(`${r.label}（副本）`);
+    setShowCreate(true);
+    setMsg(null);
+    // 表单在页面顶部，编辑器很长时点了按钮要能看见
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   async function confirmCreate() {
@@ -426,21 +462,41 @@ export default function RoleManagementPage() {
       setMsg({ type: 'err', text: t('roleKeyExists') });
       return;
     }
+    /**
+     * 复制模式：把源角色的四项配置整体带过来 ——
+     *   权限点 / 菜单可见性白名单 / 数据密级上限 / 学生档案数据范围。
+     *
+     * 🔴 刻意**不继承** protected（内置）与 lockedPermissions（权限集锁定）：
+     *    副本必须是「可编辑、可删除」的普通角色，否则复制「系统管理员」
+     *    会得到一个连权限都改不动的角色，等于白复制。
+     */
+    const src = copySourceKey ? (config?.roles ?? []).find((r) => r.key === copySourceKey) : null;
     setDraft({
       key,
       label: newLabel.trim() || key,
-      permissions: [],
-      maxDataLevel: 'L1',
+      permissions: src ? [...src.permissions] : [],
+      maxDataLevel: src ? src.maxDataLevel : 'L1',
+      menus: src?.menus?.length ? [...src.menus] : undefined,
+      dataScope: src?.dataScope ? JSON.parse(JSON.stringify(src.dataScope)) : undefined,
       isNew: true,
     });
     setSelectedKey(key);
     setShowCreate(false);
+    // 继承只发生一次 —— 清掉源，避免之后点「新建角色」时误继承
+    setCopySourceKey(null);
     setMsg(null);
   }
 
   if (loading) return <div className="page"><div className="empty-state"><div className="empty-state-text">{tc('loading')}</div></div></div>;
   if (error) return <div className="page"><p className="msg-error">{error}</p></div>;
   if (!config) return null;
+
+  /** 复制模式下当前选中的源角色（null = 普通新建） */
+  const copySource = copySourceKey
+    ? ((config?.roles ?? []).find((r) => r.key === copySourceKey) ?? null)
+    : null;
+  /** 编辑器当前展示的角色对应的列表项（新建时没有） */
+  const editingRole = draft && !draft.isNew ? ((config.roles ?? []).find((r) => r.key === draft.key) ?? null) : null;
 
   const dirty =
     draft &&
@@ -484,7 +540,7 @@ export default function RoleManagementPage() {
 
       {showCreate && (
         <section className="form-fieldset" style={{ marginBottom: 'var(--space-lg)' }}>
-          <legend className="form-legend">{t('legendNewRole')}</legend>
+          <legend className="form-legend">{copySource ? t('legendCopyRole') : t('legendNewRole')}</legend>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div className="form-field" style={{ minWidth: 200 }}>
               <label className="form-label">{t('fldRoleKey')}</label>
@@ -504,12 +560,37 @@ export default function RoleManagementPage() {
                 placeholder={t('phRoleDisplayName')}
               />
             </div>
-            <button className="btn btn-primary" onClick={confirmCreate}>{t('btnNext')}</button>
-            <button className="btn btn-outline" onClick={() => setShowCreate(false)}>{tc('cancel')}</button>
+            <button className="btn btn-primary" onClick={confirmCreate}>
+              {copySource ? t('btnCreateCopy') : t('btnNext')}
+            </button>
+            <button
+              className="btn btn-outline"
+              onClick={() => {
+                setShowCreate(false);
+                setCopySourceKey(null);
+              }}
+            >
+              {tc('cancel')}
+            </button>
           </div>
-          <p style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 8 }}>
-            {t('hintNewRole')}
-          </p>
+          {copySource ? (
+            <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 10, lineHeight: 1.8 }}>
+              <div>{t('copySourceInfo', { name: copySource.label, perms: copySource.permissions.length })}</div>
+              <div>
+                {t('copyWillBring', {
+                  perms: copySource.permissions.length,
+                  menus: (copySource.menus ?? []).length,
+                  level: copySource.maxDataLevel,
+                  scope: copySource.dataScope ? t('copyScopeYes') : t('copyScopeNo'),
+                })}
+              </div>
+              <div>{t('copyNotBring')}</div>
+            </div>
+          ) : (
+            <p style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 8 }}>
+              {t('hintNewRole')}
+            </p>
+          )}
         </section>
       )}
 
@@ -546,12 +627,26 @@ export default function RoleManagementPage() {
                   <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{ts('roleKey')}</div>
                   <div style={{ fontWeight: 700 }}>{draft.key}</div>
                 </div>
-                {draft.protected && (
-                  <span className="tag tag-muted">{ts('builtInRoleNoDelete')}</span>
-                )}
-                {draft.lockedPermissions && (
-                  <span className="tag tag-muted">{ts('permissionsLocked')}</span>
-                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {draft.protected && (
+                    <span className="tag tag-muted">{ts('builtInRoleNoDelete')}</span>
+                  )}
+                  {draft.lockedPermissions && (
+                    <span className="tag tag-muted">{ts('permissionsLocked')}</span>
+                  )}
+                  {/* 复制此角色：以当前角色为模板新建一个角色（可编辑、可删除）。
+                      仅对已保存的角色显示 —— 新建态还没落库，没有可复制的"源"。 */}
+                  {editingRole && (
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={() => startCopy(editingRole)}
+                      disabled={saving}
+                      title={t('btnCopyRoleHint')}
+                    >
+                      {t('btnCopyRole')}
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: 'var(--space-lg)', flexWrap: 'wrap', marginBottom: 'var(--space-lg)' }}>

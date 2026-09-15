@@ -895,7 +895,7 @@
     "btnNext": "下一步",
     "fldRoleKey": "角色标识",
     "fldDisplayName": "显示名称",
-    "phRoleKey": "如 teacher（英文，创建后不可修改）",
+    "phRoleKey": "如 班主任-Pre-1 或 teacher（支持中英文，创建后不可修改）",
     "phRoleDisplayName": "留空则等同标识",
     "hintNewRole": "角色标识创建后将同步至权限系统，且不可修改",
     "legendNewRole": "新建角色",
@@ -905,7 +905,16 @@
     "deleteFailed": "删除失败",
     "roleKeyExists": "角色标识已存在",
     "roleKeyRequired": "请输入角色标识",
-    "roleSyncSuffix": "（已同步）"
+    "roleSyncSuffix": "（已同步）",
+    "legendCopyRole": "复制角色",
+    "btnCreateCopy": "创建副本并编辑",
+    "btnCopyRole": "复制此角色",
+    "btnCopyRoleHint": "以当前角色为模板创建一个新角色（可编辑、可删除）",
+    "copySourceInfo": "源角色：{name}（{perms} 项权限）",
+    "copyWillBring": "将一并复制：权限点 {perms} · 菜单白名单 {menus} 项 · 密级上限 {level} · 数据范围 {scope}",
+    "copyScopeYes": "已配置",
+    "copyScopeNo": "未配置（不限制）",
+    "copyNotBring": "不会复制「内置」与「权限集锁定」标记 —— 副本是可编辑、可删除的普通角色"
   },
   "labels": {
     "(空)": "(空)",

@@ -178,6 +178,17 @@ export class UsersService {
     const campus = toText(dto['默认校区']);
     const teacherType = toText(dto['教师类型']);
 
+    // 「默认校区」必填。为什么要在服务端拦（前端 required 只画星号、不拦提交）：
+    //   - 校区填错 ⇒ ABAC 按校区逐行过滤，该用户**一条学生/相关数据都看不到**
+    //   - 校区**留空** ⇒ 反而被 `userCampuses.length > 0` 判成「不受限制」，能看到全部数据
+    //     （2026-09-15 实测 Arete Developer 就是空校区、看到全部 82 人）
+    // 两个方向都出过事，所以这里必须硬拦，不能只靠前端默认值。
+    if (!campus) {
+      throw new BadRequestException(
+        'VALIDATION:默认校区 必填 —— 留空会不受校区限制、看到全部数据；填错则一条也看不到',
+      );
+    }
+
     const fields: Record<string, unknown> = {
       姓名: name,
       系统角色: roles.length ? roles : [ADMIN_ROLE],
@@ -216,6 +227,15 @@ export class UsersService {
       : (toText(existing['数据密级上限']) || 'L4');
     const name = this.resolve(dto, '姓名', existing['姓名'], false) as string;
     const openId = this.resolve(dto, '飞书 Open ID', existing['飞书 Open ID'], false) as string;
+    // 同 create 的硬拦：**显式**提交了空校区就明确报错。
+    // ⚠️ 必须在 resolve 之前判：`resolve` 把 '' 当成「没提供」、回退成原值，
+    //    写在其后这段就永远不会触发（表现为 200 + 静默保留原值 —— 想清空的人会以为改成功了）。
+    const campusRaw = dto['默认校区'];
+    if (campusRaw !== undefined && toText(campusRaw) === '') {
+      throw new BadRequestException(
+        'VALIDATION:默认校区 不能清空 —— 留空会不受校区限制、看到全部数据',
+      );
+    }
     const campus = this.resolve(dto, '默认校区', existing['默认校区'], false) as string;
     const teacherType = this.resolve(dto, '教师类型', existing['教师类型'], false) as string;
 

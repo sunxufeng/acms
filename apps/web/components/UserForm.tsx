@@ -91,10 +91,35 @@ export default function UserForm({ row, onDone }: UserFormProps) {
 
   const teacherTypes = dicts['教师类型']?.length ? dicts['教师类型'] : TEACHER_TYPE_FALLBACK;
   const campuses = dicts['校区'] ?? [];
+  const firstCampus = campuses[0] ?? '';
+
+  /**
+   * 新建时给「默认校区」预选第一个候选（字典第一项 =「申昆路校区」，即真实校区）。
+   *
+   * 为什么必须单独一个 effect：上面初始化表单的 effect 只依赖 `row`，
+   * 而**字典是异步拉的**，它跑的时候 `dicts` 还是空的 —— 把默认值写在那里会落成空串。
+   *
+   * 为什么非要给默认值：「校区」留空的后果是**反向**的 ——
+   * `authorize` 的判据是 `userCampuses.length > 0 && 无交集 ⇒ 拒绝`，
+   * 所以留空等于「不受校区限制、看到全部数据」（2026-09-15 实测 Arete Developer），
+   * 而选错校区又会一条数据都看不到。服务端也会拦（user.service.ts 的必填校验）。
+   *
+   * 只补空值：编辑态有原值、或用户已经手动选过，都不覆盖。
+   */
+  useEffect(() => {
+    if (row || !firstCampus) return;
+    setForm((f) => (asText(f['默认校区']) ? f : { ...f, 默认校区: firstCampus }));
+  }, [row, firstCampus]);
 
   async function submit() {
     if (!String(form['姓名'] ?? '').trim()) {
       setErr(tl('请填写姓名'));
+      return;
+    }
+    // 校区必填：留空会被鉴权判成「不受校区限制」（看到全部数据），填错又一条也看不到。
+    // 服务端同样会拦（user.service.ts），这里先拦一次只是省掉一次往返、把错误显示在表单里。
+    if (!asText(form['默认校区']).trim()) {
+      setErr(tl('请选择校区'));
       return;
     }
     setBusy(true);

@@ -108,6 +108,17 @@ export interface CrudColumn {
   /** 候选项来自字典表（优先于 options；options 作为离线兜底） */
   dictKey?: string;
   required?: boolean;
+  /**
+   * 新建时**默认选中候选项的第一项**（仅 `select` / `multiselect` 有意义）。
+   *
+   * 只给「留空的后果很严重」的字段用，别当常规默认值手段 ——
+   * 典型例子是用户表的「默认校区」：校区留空会被 ABAC 判成「**不受**校区限制」，
+   * 反而能看到全部数据（2026-09-15 实测 Arete Developer）；而选错校区又会一条都看不到。
+   * 所以这里默认选中字典第一项，配合字典把真实校区排在首位。
+   *
+   * ⚠️ 候选项来自字典时依赖 `dicts` 已加载：字典还没回来时保持空值，不会写入错误值。
+   */
+  defaultFirstOption?: boolean;
   /** 联动来源字段 key（如 parent 类型从 student 类型所选学生的父亲/母亲取候选） */
   dependsOn?: string;
   /** 点击该列单元格时打开当前记录的编辑/详情表单（而非导航到其它页面） */
@@ -1003,6 +1014,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         if (c.lngKey) init[c.lngKey] = '';
       } else {
         init[c.key] = c.type === 'multiselect' || c.type === 'attachment' || c.type === 'tags' ? [] : '';
+      }
+      // 「默认选中第一项」（见 CrudColumn.defaultFirstOption 的说明）：
+      // 放在上面赋空值之后覆盖，字典未加载时 optionsFor 返回空数组、保持空值不动。
+      if (c.defaultFirstOption && (c.type === 'select' || c.type === 'multiselect')) {
+        const opts = optionsFor(c);
+        const first = opts[0];
+        if (first !== undefined) init[c.key] = c.type === 'multiselect' ? [first] : first;
       }
     }
     if (prefill) {

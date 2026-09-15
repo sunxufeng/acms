@@ -13,7 +13,11 @@ const COLUMNS: CrudColumn[] = [
   { key: '系统角色', label: '系统角色', width: '200px', form: true, type: 'multiselect', render: (v) => <RoleLabelsCell value={v} /> },
   { key: '教师类型', label: '教师类型', width: '120px', form: true, type: 'select', dictKey: '教师类型', options: ['班主任', '招生老师'], filter: true },
   { key: '数据密级上限', label: '数据密级', width: '110px', form: true, type: 'select', options: LEVEL_OPTS, list: false },
-  { key: '默认校区', label: '校区', width: '180px', form: true, type: 'select', dictKey: '校区', render: (v) => Array.isArray(v) ? v.join('、') : String(v ?? ''), list: false },
+  // 校区：默认选中字典第一项（=「申昆路校区」，真实校区）。
+  // 原因：ABAC 会按校区逐行过滤 —— 选错校区 ⇒ 一条数据都看不到；
+  // 而**留空**反而会被判成「不受校区限制」，能看到全部数据，是更危险的反向口子。
+  // 所以既给默认值，又标 required（服务端也会拦，见 user.service.ts 的校验）。
+  { key: '默认校区', label: '校区', width: '180px', form: true, type: 'select', dictKey: '校区', required: true, defaultFirstOption: true, render: (v) => Array.isArray(v) ? v.join('、') : String(v ?? ''), list: false },
   { key: '账号状态', label: '状态', width: '100px', form: true, type: 'select', options: STATUS_OPTS, filter: true },
 ];
 

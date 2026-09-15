@@ -1,7 +1,7 @@
 import type { CrudColumn } from '../../components/CrudPage';
 
 /**
- * 列表页只展示 邮箱地址 / 归属人员 / 收取频率 / 最后收取时间 / 最后收取结果 / 状态 / 操作，
+ * 列表页只展示 邮箱地址 / 用户 / 收取频率 / 最后收取时间 / 最后收取结果 / 状态 / 操作，
  * 其余字段仅出现在新建、编辑表单中（list: false）。
  *
  * 注意：CrudPage 的表格列与表单字段共用这一份数组（表格取 list !== false，表单取 form），
@@ -29,8 +29,10 @@ export const COLUMNS: CrudColumn[] = [
     hint: '可关联多人，被关联的人能共同查询本账户的邮件。新建账户时自动归属本人；需要他人共管请联系系统管理员。',
   },
   // 「归属人员」是 2026-09-15 之前的自由填写文本，并入「关联用户」后保留为**只读历史字段**：
-  // 老账户仍能看到当时填的是谁，新数据一律写「关联用户」。
-  { key: '归属人员', label: '归属人员（历史）', width: '130px', form: false, list: true, filter: true },
+  // 数据仍留在库里（后端 meta 的 readonly 里也保留该字段），但**不再出现在列表**上 ——
+  // 迁移完成、新数据一律写「关联用户」后，这一列对日常使用已无意义（2026-09-15 峰哥确认隐藏）。
+  // 筛选保留（filter: true）：万一要核对历史归属，还能按它筛。
+  { key: '归属人员', label: '归属人员（历史）', width: '130px', form: false, list: false, filter: true },
   { key: '收取频率', label: '收取频率', width: '120px', form: true, type: 'select', options: ['每15分钟', '每30分钟', '每小时', '每天'], required: true },
   { key: '最后收取时间', label: '最后收取时间', width: '160px', form: false, type: 'datetime' },
   { key: '最后收取结果', label: '最后收取结果', width: '320px', form: false },

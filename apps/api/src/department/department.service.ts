@@ -217,20 +217,36 @@ export class DepartmentService {
         // 0) 根部门（公司）：部门列表接口只返回「根的子孙」、不含根自身，
         //    不补这一条，前端树就永远缺最上层「公司」（2026-09-13 用户反馈的现场）。
         let rootName = '';
+        // ⚠️ 根部门对象要留给下面的**成员**同步用（见 1)）：只补部门行、不补成员，
+        //    会漏掉「直属挂在公司下、不在任何子部门」的人。
+        let rootDept: Record<string, any> | null = null;
         const rr = await getRootDepartment(undefined);
         if (rr && 'error' in rr) {
           this.logger.warn(`[department] 根部门读取失败（不影响子部门同步）：${rr.error}`);
         } else if (rr && 'department' in rr) {
-          rootName = String(rr.department.name || '');
-          await upsertDept(rr.department as Record<string, any>, true);
+          rootDept = rr.department as Record<string, any>;
+          rootName = String(rootDept.name || '');
+          await upsertDept(rootDept, true);
         }
 
         for (const d of depts) await upsertDept(d, false);
 
         // 1) 成员快照：逐部门拉「直属」成员（飞书该接口不含子部门，含下级由查询侧递归子树）。
         //    记录 id = `${部门ID}__${成员open_id}`，用 bulkInsert 批量 upsert（多值 INSERT + ON CONFLICT）。
+        //
+        // 🔴 **根部门要单独补一次，且只补「不在任何子部门里的人」**（2026-09-15）：
+        //    ① 为什么要补：`listDepartments()` 用的是 parent_department_id=0 + fetch_child=true，
+        //       只返回「根的子孙、不含根自身」，所以只遍历 `depts` 会漏掉
+        //       「**直属**挂在公司下、不在任何子部门里」的人 ——
+        //       实例：刘玉蓉｜Yvonne，飞书 `find_by_department(0)` 返回 28 人含她，
+        //       而本地快照只有 27 人、她在「部门管理」页永远看不到。
+        //    ② 为什么只补缺口：同一个人常常**既是公司的直属成员、又挂在某个子部门下**
+        //       （公司直属 28 人里 27 人如此）。全量收进来的话，`listMembers` 是按行返回、
+        //       **不会**按 open_id 去重（它有意支持多部门），于是「公司」节点的成员列表
+        //       会出现 27 个重复、total 从 28 虚高到 55。所以根部门只收去重后剩下的人。
         const memberRows: { id: string; fields: Record<string, unknown> }[] = [];
         const failedDepts = new Set<string>();
+        const seenOpenIds = new Set<string>();
         for (const d of depts) {
           const id = String(d.open_department_id || '');
           if (!id) continue;
@@ -244,6 +260,7 @@ export class DepartmentService {
           }
           for (const u of (mr as { users: Array<Record<string, any>> }).users || []) {
             if (!u.open_id) continue;
+            seenOpenIds.add(String(u.open_id));
             memberRows.push({
               id: `${id}__${u.open_id}`,
               fields: {
@@ -263,6 +280,45 @@ export class DepartmentService {
           }
           // 上游 QPS 保护（部门数不多，但别打太密）
           await new Promise((res) => setTimeout(res, 120));
+        }
+
+        // 1b) 根部门（公司）成员：只补「子部门里都没有」的人（原因见上面 1) 的注释）
+        if (rootDept) {
+          const rootId = String(rootDept.open_department_id ?? '');
+          const rootDisplayName =
+            String(rootDept.name ?? '').trim() || String(rootDept.i18n_name ?? '').trim() || '公司';
+          const mr = await listDepartmentMembers(undefined, rootId);
+          if (mr && 'error' in mr) {
+            failedDepts.add(rootId);
+            this.logger.warn(`[department] 根部门(${rootId}) 成员读取失败：${mr.error}`);
+          } else {
+            let filled = 0;
+            for (const u of (mr as { users: Array<Record<string, any>> }).users || []) {
+              const oid = String(u.open_id ?? '');
+              if (!oid || seenOpenIds.has(oid)) continue; // 已在子部门里 ⇒ 不重复收
+              seenOpenIds.add(oid);
+              filled++;
+              memberRows.push({
+                id: `${rootId}__${oid}`,
+                fields: {
+                  open_department_id: rootId,
+                  department_name: rootDisplayName,
+                  user_open_id: oid,
+                  user_id: String(u.user_id ?? ''),
+                  name: String(u.name ?? ''),
+                  en_name: String(u.en_name ?? ''),
+                  job_title: String(u.job_title ?? ''),
+                  employee_no: String(u.employee_no ?? ''),
+                  avatar: String(u.avatar ?? ''),
+                  status: u.is_resigned ? 'resigned' : u.is_activated ? 'active' : 'inactive',
+                  synced_at: now,
+                },
+              });
+            }
+            if (filled) {
+              this.logger.log(`[department] 根部门「${rootDisplayName}」补录了 ${filled} 名不在任何子部门的成员`);
+            }
+          }
         }
         let memberStored = 0;
         if (memberRows.length) {

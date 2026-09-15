@@ -524,7 +524,123 @@ export default function RoleManagementPage() {
                 </div>
               </div>
 
-              <div className="form-legend" style={{ marginBottom: 10 }}>{ts('permissionAssignment')}</div>
+              {/* ① 菜单可见性（入口层）。2026-09-15 从「权限分配」之后上移到前面 ——
+                  先定「能进哪些页面」、再定「进去能做什么」，符合从粗到细的配置习惯，
+                  也避免出现「权限配了一堆、结果菜单没开」的白配。 */}
+              <div className="form-legend" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: 15, height: 15, borderRadius: '50%', flex: '0 0 auto',
+                    background: 'var(--accent-soft)', color: 'var(--accent)',
+                    fontSize: 10, fontWeight: 700, letterSpacing: 0,
+                  }}
+                >
+                  1
+                </span>
+                {tl('菜单可见性')}
+              </div>
+              <p style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginTop: 0, marginBottom: 12 }}>
+                {tl('留空 = 按权限点自动显隐；勾选后该角色只能看到所选菜单。此处只做收敛，不会放大权限。')}
+                <br />
+                {tl('建议先在这里收敛菜单，再到下方配置操作权限。')}
+              </p>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                <input
+                  className="input"
+                  style={{ maxWidth: 220 }}
+                  value={menuQuery}
+                  onChange={(e) => setMenuQuery(e.target.value)}
+                  placeholder={tl('搜索菜单')}
+                />
+                <span className={draft.menus ? 'tag tag-accent' : 'tag'}>
+                  {draft.menus ? `${tl('白名单模式')}：${draft.menus.length} / ${allMenuKeys.length}` : tl('自动模式（不限制）')}
+                </span>
+                <button
+                  className="btn btn-outline"
+                  onClick={resetMenus}
+                  disabled={saving || !!draft.lockedPermissions || !draft.menus}
+                >
+                  {tl('恢复自动')}
+                </button>
+              </div>
+              <div className="data-table-wrap" style={{ maxHeight: '40vh', overflowY: 'auto' }}>
+                <table className="data-table">
+                  <tbody>
+                    {filteredMenuGroups.map((g) => {
+                      const keys = g.items.map((i) => i.key);
+                      const selected = draft.menus ?? allMenuKeys;
+                      const allOn = keys.every((k) => selected.includes(k));
+                      return (
+                        <tr key={g.section}>
+                          <td style={{ width: 180, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-elevated)' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: draft.lockedPermissions ? 'default' : 'pointer' }}>
+                              {!draft.lockedPermissions && (
+                                <input
+                                  type="checkbox"
+                                  checked={allOn}
+                                  ref={(el) => {
+                                    if (el) el.indeterminate = !allOn && keys.some((k) => selected.includes(k));
+                                  }}
+                                  onChange={(e) => toggleMenuSection(keys, e.target.checked)}
+                                />
+                              )}
+                              {g.section}
+                            </label>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                              {g.items.map((item) => {
+                                const on = selected.includes(item.key);
+                                return (
+                                  <label
+                                    key={item.key}
+                                    className="tag"
+                                    style={{
+                                      cursor: draft.lockedPermissions ? 'default' : 'pointer',
+                                      opacity: on ? 1 : 0.55,
+                                      borderColor: on ? 'var(--accent)' : undefined,
+                                      background: on ? 'var(--accent-soft)' : undefined,
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={on}
+                                      disabled={draft.lockedPermissions}
+                                      onChange={() => toggleMenu(item.key)}
+                                      style={{ marginRight: 6 }}
+                                    />
+                                    {item.label}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* ② 权限分配（操作层）：具体能做什么。上移到下面的间距由这里带，
+                  否则会与上面「菜单可见性」的表格贴在一起。 */}
+              <div
+                className="form-legend"
+                style={{ marginTop: 'var(--space-lg)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <span
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: 15, height: 15, borderRadius: '50%', flex: '0 0 auto',
+                    background: 'var(--accent-soft)', color: 'var(--accent)',
+                    fontSize: 10, fontWeight: 700, letterSpacing: 0,
+                  }}
+                >
+                  2
+                </span>
+                {ts('permissionAssignment')}
+              </div>
               {draft.lockedPermissions && (
                 <p style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginTop: 0, marginBottom: 12 }}>
                   系统管理员拥有全部权限，此处为只读展示。
@@ -732,90 +848,6 @@ export default function RoleManagementPage() {
                   </table>
                 </div>
               )}
-
-              <div className="form-legend" style={{ marginTop: 'var(--space-lg)', marginBottom: 10 }}>
-                {tl('菜单可见性')}
-              </div>
-              <p style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginTop: 0, marginBottom: 12 }}>
-                {tl('留空 = 按权限点自动显隐；勾选后该角色只能看到所选菜单。此处只做收敛，不会放大权限。')}
-              </p>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-                <input
-                  className="input"
-                  style={{ maxWidth: 220 }}
-                  value={menuQuery}
-                  onChange={(e) => setMenuQuery(e.target.value)}
-                  placeholder={tl('搜索菜单')}
-                />
-                <span className={draft.menus ? 'tag tag-accent' : 'tag'}>
-                  {draft.menus ? `${tl('白名单模式')}：${draft.menus.length} / ${allMenuKeys.length}` : tl('自动模式（不限制）')}
-                </span>
-                <button
-                  className="btn btn-outline"
-                  onClick={resetMenus}
-                  disabled={saving || !!draft.lockedPermissions || !draft.menus}
-                >
-                  {tl('恢复自动')}
-                </button>
-              </div>
-              <div className="data-table-wrap" style={{ maxHeight: '40vh', overflowY: 'auto' }}>
-                <table className="data-table">
-                  <tbody>
-                    {filteredMenuGroups.map((g) => {
-                      const keys = g.items.map((i) => i.key);
-                      const selected = draft.menus ?? allMenuKeys;
-                      const allOn = keys.every((k) => selected.includes(k));
-                      return (
-                        <tr key={g.section}>
-                          <td style={{ width: 180, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-elevated)' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: draft.lockedPermissions ? 'default' : 'pointer' }}>
-                              {!draft.lockedPermissions && (
-                                <input
-                                  type="checkbox"
-                                  checked={allOn}
-                                  ref={(el) => {
-                                    if (el) el.indeterminate = !allOn && keys.some((k) => selected.includes(k));
-                                  }}
-                                  onChange={(e) => toggleMenuSection(keys, e.target.checked)}
-                                />
-                              )}
-                              {g.section}
-                            </label>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                              {g.items.map((item) => {
-                                const on = selected.includes(item.key);
-                                return (
-                                  <label
-                                    key={item.key}
-                                    className="tag"
-                                    style={{
-                                      cursor: draft.lockedPermissions ? 'default' : 'pointer',
-                                      opacity: on ? 1 : 0.55,
-                                      borderColor: on ? 'var(--accent)' : undefined,
-                                      background: on ? 'var(--accent-soft)' : undefined,
-                                    }}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={on}
-                                      disabled={draft.lockedPermissions}
-                                      onChange={() => toggleMenu(item.key)}
-                                      style={{ marginRight: 6 }}
-                                    />
-                                    {item.label}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
 
               <div style={{ display: 'flex', gap: 12, marginTop: 'var(--space-lg)' }}>
                 <button className="btn btn-primary" onClick={handleSave} disabled={saving || !dirty}>

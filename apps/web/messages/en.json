@@ -2383,7 +2383,8 @@
     "含下级部门": "Include sub-departments",
     "含下级": "incl. sub-departments",
     "筛选中": "Filtering",
-    "清除筛选": "Clear filter"
+    "清除筛选": "Clear filter",
+    "建议先在这里收敛菜单，再到下方配置操作权限。": "Set the menu whitelist here first, then configure action permissions below."
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

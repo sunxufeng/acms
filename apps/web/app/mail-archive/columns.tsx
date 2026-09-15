@@ -234,6 +234,10 @@ function LinkRelatedCell({ row }: { row: Record<string, unknown> }) {
       background: student ? 'var(--accent-muted)' : 'var(--success-muted)',
       color: student ? 'var(--accent)' : 'var(--success)',
       fontSize: 'var(--font-xs)',
+      // ⚠️ nowrap 是必须的：列宽被同排的其它列挤窄后，按钮里的文字会**逐字换行**，
+      // 变成竖排的「+ 学 生」，非常难看。nowrap 让按钮作为整体换行 —— 两个按钮仍能并排。
+      whiteSpace: 'nowrap',
+      flexShrink: 0,
     };
     return (
       <span key={`${kind}:${l.id}`} style={style}>
@@ -277,6 +281,9 @@ function LinkRelatedCell({ row }: { row: Record<string, unknown> }) {
     color: 'var(--fg-secondary)',
     cursor: saving ? 'progress' : 'pointer',
     fontSize: 'var(--font-xs)',
+    // 同 chip：不加 nowrap 会被挤成逐字竖排
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   };
 
   return (

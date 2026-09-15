@@ -274,7 +274,8 @@
     "selectPage": "Select page",
     "unselectPage": "Unselect page",
     "selectAllResults": "Select all results ({count})",
-    "clearSelection": "Clear selection"
+    "clearSelection": "Clear selection",
+    "noEditPerm": "No edit permission"
   },
   "ai": {
     "config": {
@@ -2373,7 +2374,10 @@
     "待认领（公海）": "Unclaimed (public pool)",
     "已认领": "Claimed",
     "待分配": "Pending assignment",
-    "当前角色可以查看本报表，但没有「联系人管理」的查看权限，因此不能下钻到名单。需要的话请联系管理员在角色权限里授权。": "Your role can view this report but has no permission to open Contact Management, so drilling down to the contact list is unavailable. Ask an administrator to grant it in the role permissions."
+    "当前角色可以查看本报表，但没有「联系人管理」的查看权限，因此不能下钻到名单。需要的话请联系管理员在角色权限里授权。": "Your role can view this report but has no permission to open Contact Management, so drilling down to the contact list is unavailable. Ask an administrator to grant it in the role permissions.",
+    "用户": "User",
+    "关联": "Related",
+    "归属人员（历史）": "Owner (legacy)"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",
@@ -2485,7 +2489,13 @@
     "attachmentUrlFailed": "Failed to get the attachment download link. Please try again later.",
     "searchStudentNamePlaceholder": "Search by Chinese / English name",
     "noMatchStudent": "No matching students",
-    "enterKeywordSearch": "Type a keyword to search"
+    "enterKeywordSearch": "Type a keyword to search",
+    "linkStudent": "+ Student",
+    "linkContact": "+ Contact",
+    "searchContactPlaceholder": "Search contact name",
+    "noMatchContact": "No matching contact",
+    "chipStudent": "Student",
+    "chipContact": "Contact"
   },
   "homeSchool": {
     "preparing": "Preparing…",

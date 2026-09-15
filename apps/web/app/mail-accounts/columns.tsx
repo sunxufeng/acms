@@ -13,7 +13,24 @@ export const COLUMNS: CrudColumn[] = [
   { key: '邮箱地址', label: '邮箱地址', width: '220px', form: true },
   // 账户名称是归档记录「归属账户」的取值依据，必填但不在列表展示
   { key: '账户名称', label: '账户名称', width: '140px', form: true, required: true, list: false },
-  { key: '归属人员', label: '归属人员', width: '120px', form: true, filter: true },
+  // 「关联用户」取代原「归属人员」（2026-09-15 两者合并）：可多选，被关联的人能共同查询该账户的邮件。
+  // 候选项来自用户目录（linkSource:'users'，value 是用户 record id）。
+  // ⚠️ readonlyPerm = mail:manage：改这份名单等于能决定「谁能看这些邮件」，
+  //    比能改 IMAP 密码更敏感，所以单独用权限点控制，前端只读、服务端同样会拒绝。
+  {
+    key: '关联用户',
+    label: '用户',
+    width: '150px',
+    form: true,
+    type: 'link',
+    linkMulti: true,
+    linkSource: 'users',
+    readonlyPerm: 'mail:manage',
+    hint: '可关联多人，被关联的人能共同查询本账户的邮件。新建账户时自动归属本人；需要他人共管请联系系统管理员。',
+  },
+  // 「归属人员」是 2026-09-15 之前的自由填写文本，并入「关联用户」后保留为**只读历史字段**：
+  // 老账户仍能看到当时填的是谁，新数据一律写「关联用户」。
+  { key: '归属人员', label: '归属人员（历史）', width: '130px', form: false, list: true, filter: true },
   { key: '收取频率', label: '收取频率', width: '120px', form: true, type: 'select', options: ['每15分钟', '每30分钟', '每小时', '每天'], required: true },
   { key: '最后收取时间', label: '最后收取时间', width: '160px', form: false, type: 'datetime' },
   { key: '最后收取结果', label: '最后收取结果', width: '320px', form: false },

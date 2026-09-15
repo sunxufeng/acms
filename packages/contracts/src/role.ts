@@ -124,6 +124,10 @@ export const PERMISSIONS = [
   // 邮件自动归档（招生与国外学校沟通留存）
   'mail:read',
   'mail:write',
+  // 邮件归档管理：管理**所有人的**邮件账户归属与共管名单（改「关联用户」名单）。
+  // 与 mail:write 的区别是范围不同：mail:write = 有权限就能建/改**自己范围内**的账户；
+  // mail:manage = 能替别人分配账户归属。默认只有系统管理员持有（系统管理员恒持有全部权限点）。
+  'mail:manage',
   // 得到大脑（Get笔记）知识库：全局单账号，鉴权只控制「能不能用」，不隔离数据
   'getnote:read',
   'getnote:write',
@@ -222,6 +226,9 @@ const PERMISSION_LABEL_OVERRIDES: Record<string, string> = {
   'admin:user': '用户管理',
   'admin:studentUser': '学生账号',
   'admin:audit': '审计查看',
+  'mail:read': '邮件归档·查看',
+  'mail:write': '邮件归档·编辑账户',
+  'mail:manage': '邮件归档·管理所有人账户',
   'weiling:read': '卫瓴联系人·查看',
   'weiling:write': '卫瓴联系人·编辑（暂未开放）',
   'weiling:sync': '卫瓴联系人·同步',

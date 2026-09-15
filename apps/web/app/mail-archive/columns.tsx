@@ -103,61 +103,95 @@ function AttachmentCell({ row }: { row: Record<string, unknown> }) {
 
 type Linked = { id: string; name: string };
 
+/** 「关联」列的两种目标：学生走学生档案，联系人走招生侧的卫瓴联系人 */
+type LinkKind = 'student' | 'contact';
+
 /**
- * 列表页「关联学生」单元格：内联搜索 + 关联/解除，无需进入详情页。
- * 与详情页逻辑一致，区别在于此处自维护本地 linked 状态以获得即时反馈；
+ * 列表页「关联」单元格：**学生与联系人并列展示**（2026-09-15 由两列合并为一列）。
+ *
+ * 两类值分别落在两个字段里 ——「关联学生」(→ 学生档案) 与「关联联系人」(→ 卫瓴联系人)，
+ * 展示时合成一列，写入时各走各的接口（只传一类时另一类保持不动）。
+ * 与详情页逻辑一致，区别在于此处自维护本地状态以获得即时反馈；
  * 父级 CrudPage 重新拉取数据时（过滤/翻页）通过 seed 同步重置。
  */
-function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
+function LinkRelatedCell({ row }: { row: Record<string, unknown> }) {
   const t = useTranslations('mailArchive');
   const recordId = String(row.id ?? '');
-  const seedIds = Array.isArray(row['关联学生__link']) ? (row['关联学生__link'] as string[]) : [];
-  const seedNames = String(row['关联学生'] ?? '')
-    .split('、')
-    .map((s) => s.trim())
-    .filter(Boolean);
 
-  const [linked, setLinked] = useState<Linked[]>(() =>
-    seedIds.map((id, i) => ({ id, name: seedNames[i] || id })),
-  );
-  const [open, setOpen] = useState(false);
+  /** 从行里还原某一类关联（后端把 id 数组放在 `<字段>__link`，姓名串放在 `<字段>`） */
+  function seedOf(field: string): Linked[] {
+    const ids = Array.isArray(row[field + '__link']) ? (row[field + '__link'] as string[]) : [];
+    const names = String(row[field] ?? '')
+      .split('、')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return ids.map((id, i) => ({ id, name: names[i] || id }));
+  }
+
+  const seedStudents = seedOf('关联学生');
+  const seedContacts = seedOf('关联联系人');
+  const [students, setStudents] = useState<Linked[]>(seedStudents);
+  const [contacts, setContacts] = useState<Linked[]>(seedContacts);
+  const [open, setOpen] = useState<LinkKind | null>(null);
   const [q, setQ] = useState('');
   const [cands, setCands] = useState<Linked[]>([]);
   const [saving, setSaving] = useState(false);
 
   // 父级重拉数据后保持同步（row.id 不变、仅关联值变化时也会重置面板）
   useEffect(() => {
-    setLinked(seedIds.map((id, i) => ({ id, name: seedNames[i] || id })));
-    setOpen(false);
+    setStudents(seedOf('关联学生'));
+    setContacts(seedOf('关联联系人'));
+    setOpen(null);
     setQ('');
     setCands([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recordId, seedIds.join(','), seedNames.join(',')]);
+  }, [recordId, seedStudents.map((x) => x.id).join(','), seedContacts.map((x) => x.id).join(',')]);
 
-  async function doSearch(term: string) {
+  async function doSearch(kind: LinkKind, term: string) {
+    setOpen(kind);
     setQ(term);
     if (!term.trim()) {
       setCands([]);
       return;
     }
+    const kw = term.trim();
     try {
-      const data = await api.listStudents({ q: term.trim() });
-      const next = data.items
-        .map((s) => ({ id: s.id, name: String(s['学生姓名'] ?? s['英文名'] ?? s.id) }))
-        .filter((c) => !linked.some((l) => l.id === c.id));
-      setCands(next);
+      if (kind === 'student') {
+        const data = await api.listStudents({ q: kw });
+        setCands(
+          data.items
+            .map((s) => ({ id: String(s.id), name: String(s['学生姓名'] ?? s['英文名'] ?? s.id) }))
+            .filter((c) => !students.some((l) => l.id === c.id)),
+        );
+      } else {
+        // 联系人来自卫瓴同步表；没有 weiling 读权限的角色在这里会 403，
+        // 静默降级成「无候选」（不弹错），避免把权限问题伪装成功能坏了。
+        const data = await api.listWeilingContacts({ q: kw });
+        setCands(
+          data.items
+            .map((s) => ({ id: String(s.id), name: String(s['联系人姓名'] ?? s.id) }))
+            .filter((c) => !contacts.some((l) => l.id === c.id)),
+        );
+      }
     } catch {
       setCands([]);
     }
   }
 
-  async function addLink(student: Linked) {
-    if (linked.some((l) => l.id === student.id)) return;
+  async function addLink(kind: LinkKind, target: Linked) {
+    const cur = kind === 'student' ? students : contacts;
+    if (cur.some((l) => l.id === target.id)) return;
     setSaving(true);
     try {
-      await api.linkMailStudents(recordId, [...linked.map((l) => l.id), student.id]);
-      setLinked([...linked, student]);
-      setOpen(false);
+      const nextIds = [...cur.map((l) => l.id), target.id];
+      if (kind === 'student') {
+        await api.linkMailStudents(recordId, nextIds);
+        setStudents([...students, target]);
+      } else {
+        await api.linkMailContacts(recordId, nextIds);
+        setContacts([...contacts, target]);
+      }
+      setOpen(null);
       setQ('');
       setCands([]);
     } catch (e) {
@@ -167,14 +201,18 @@ function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
     }
   }
 
-  async function removeLink(id: string) {
+  async function removeLink(kind: LinkKind, id: string) {
     setSaving(true);
     try {
-      await api.linkMailStudents(
-        recordId,
-        linked.filter((l) => l.id !== id).map((l) => l.id),
-      );
-      setLinked(linked.filter((l) => l.id !== id));
+      const cur = kind === 'student' ? students : contacts;
+      const nextIds = cur.filter((l) => l.id !== id).map((l) => l.id);
+      if (kind === 'student') {
+        await api.linkMailStudents(recordId, nextIds);
+        setStudents(students.filter((l) => l.id !== id));
+      } else {
+        await api.linkMailContacts(recordId, nextIds);
+        setContacts(contacts.filter((l) => l.id !== id));
+      }
     } catch (e) {
       alert(t('unlinkFailed', { msg: String((e as { message?: string })?.message ?? e) }));
     } finally {
@@ -182,65 +220,94 @@ function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
     }
   }
 
-  const chipStyle: CSSProperties = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '1px 4px 1px 6px',
+  const isStudent = open === 'student';
+
+  /** 关联标签：学生用主色、联系人用成功色，一眼能分辨类型（各自可点进对应详情页） */
+  function chip(kind: LinkKind, l: Linked) {
+    const student = kind === 'student';
+    const style: CSSProperties = {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: '1px 4px 1px 6px',
+      borderRadius: 6,
+      background: student ? 'var(--accent-muted)' : 'var(--success-muted)',
+      color: student ? 'var(--accent)' : 'var(--success)',
+      fontSize: 'var(--font-xs)',
+    };
+    return (
+      <span key={`${kind}:${l.id}`} style={style}>
+        <a
+          href={student ? `/students/${l.id}` : `/weiling-contacts/${l.id}`}
+          title={student ? t('chipStudent') : t('chipContact')}
+          style={{ color: 'inherit', textDecoration: 'none' }}
+        >
+          {l.name}
+        </a>
+        <button
+          type="button"
+          title={t('unlink')}
+          disabled={saving}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            removeLink(kind, l.id);
+          }}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            color: 'inherit',
+            cursor: saving ? 'progress' : 'pointer',
+            padding: 0,
+            lineHeight: 1,
+            fontSize: 'var(--font-sm)',
+          }}
+        >
+          ×
+        </button>
+      </span>
+    );
+  }
+
+  const addBtnStyle: CSSProperties = {
+    padding: '1px 6px',
     borderRadius: 6,
-    background: 'var(--accent-muted)',
-    color: 'var(--accent)',
+    border: '1px dashed var(--border)',
+    background: 'transparent',
+    color: 'var(--fg-secondary)',
+    cursor: saving ? 'progress' : 'pointer',
     fontSize: 'var(--font-xs)',
   };
 
   return (
     <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', position: 'relative' }}>
-      {linked.map((l) => (
-        <span key={l.id} style={chipStyle}>
-          <a href={`/students/${l.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
-            {l.name}
-          </a>
-          <button
-            type="button"
-            title={t('unlink')}
-            disabled={saving}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              removeLink(l.id);
-            }}
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              cursor: saving ? 'progress' : 'pointer',
-              padding: 0,
-              lineHeight: 1,
-              fontSize: 'var(--font-sm)',
-            }}
-          >
-            ×
-          </button>
-        </span>
-      ))}
+      {students.map((l) => chip('student', l))}
+      {contacts.map((l) => chip('contact', l))}
       <button
         type="button"
         disabled={saving}
         onClick={(e) => {
           e.stopPropagation();
-          setOpen((o) => !o);
+          setOpen(isStudent ? null : 'student');
+          setQ('');
+          setCands([]);
         }}
-        style={{
-          padding: '1px 6px',
-          borderRadius: 6,
-          border: '1px dashed var(--border)',
-          background: 'transparent',
-          color: 'var(--fg-secondary)',
-          cursor: saving ? 'progress' : 'pointer',
-          fontSize: 'var(--font-xs)',
-        }}
+        style={addBtnStyle}
       >
-        + 关联学生
+        {t('linkStudent')}
+      </button>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(open === 'contact' ? null : 'contact');
+          setQ('');
+          setCands([]);
+        }}
+        style={addBtnStyle}
+      >
+        {t('linkContact')}
       </button>
       {open && (
         <div
@@ -262,8 +329,8 @@ function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
           <input
             autoFocus
             value={q}
-            onChange={(e) => doSearch(e.target.value)}
-            placeholder={t('searchStudentNamePlaceholder')}
+            onChange={(e) => doSearch(open, e.target.value)}
+            placeholder={isStudent ? t('searchStudentNamePlaceholder') : t('searchContactPlaceholder')}
             style={{
               width: '100%',
               padding: '4px 8px',
@@ -277,14 +344,14 @@ function LinkStudentCell({ row }: { row: Record<string, unknown> }) {
           <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto' }}>
             {cands.length === 0 && (
               <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-xs)' }}>
-                {q.trim() ? t('noMatchStudent') : t('enterKeywordSearch')}
+                {q.trim() ? (isStudent ? t('noMatchStudent') : t('noMatchContact')) : t('enterKeywordSearch')}
               </span>
             )}
             {cands.map((c) => (
               <button
                 key={c.id}
                 type="button"
-                onClick={() => addLink(c)}
+                onClick={() => addLink(open, c)}
                 style={{
                   textAlign: 'left',
                   padding: '4px 8px',
@@ -333,15 +400,45 @@ export const COLUMNS: CrudColumn[] = [
   { key: '发件人', label: '发件人', width: '200px', filter: true, openRecord: true },
   { key: '收件人', label: '收件人', width: '200px', filter: true },
   { key: '主题', label: '主题', width: '300px', openRecord: true },
-  { key: '归属账户', label: '归属账户', width: '130px', filter: true },
+  {
+    // 原「归属账户」列 → 改为「用户」列（2026-09-15）：显示的是该账户的「关联用户」，
+    // 管理人员就是能查这批邮件的人。值由后端 list() 实时按账户注入（字段名「归属用户」），
+    // 不是表里的真实字段 —— 所以不可筛选、也不出现在表单里。
+    key: '归属用户',
+    label: '用户',
+    width: '130px',
+    render: (v) => {
+      const names = String(v ?? '')
+        .split('、')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!names.length) {
+        return (
+          <span
+            style={{ color: 'var(--fg-tertiary)' }}
+            title="该账户尚未关联用户 —— 其邮件目前只有系统管理员可见"
+          >
+            —
+          </span>
+        );
+      }
+      return <span>{names.join('、')}</span>;
+    },
+  },
   { key: '邮箱文件夹', label: '文件夹', width: '140px', filter: true },
   {
+    // 原「关联学生」列 → 改为「关联」列：学生与联系人并列展示、各自可点。
+    // 筛选走 filterParam 'related'：一个输入框同时搜学生姓名与联系人姓名，结果取并集
+    //（后端 deepParams/deepFilter 内存匹配 —— 两类都是关联字段，服务端 contains 对它们无效）。
     key: '关联学生',
-    label: '关联学生',
-    width: '160px',
+    label: '关联',
+    width: '220px',
     filter: true,
-    // API（linkField）返回：关联学生=姓名串；关联学生__link=学生 id 数组。列表页内联交互关联。
-    render: (_v, row) => <LinkStudentCell row={row} />,
+    filterType: 'text',
+    filterParam: 'related',
+    filterPlaceholder: '学生/联系人',
+    filterWidth: 120,
+    render: (_v, row) => <LinkRelatedCell row={row} />,
   },
   { key: '发送时间', label: '发送时间', width: '170px', type: 'datetime' },
   { key: '附件数', label: '附件', width: '190px', type: 'number', render: (_v, row) => <AttachmentCell row={row} /> },

@@ -85,7 +85,7 @@ export default function MailAccountsPage() {
       <CrudPage
         title="邮件账户"
         subtitle="邮件账户"
-        search={{ placeholder: '搜索账户名称 / 归属人员…' }}
+        search={{ placeholder: '搜索账户名称…' }}
         columns={COLUMNS}
         inlineEdit
         standaloneForm

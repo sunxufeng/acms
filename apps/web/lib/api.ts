@@ -1058,9 +1058,10 @@ export const api = {
    *  （listUsers 需要 admin:user，普通角色会 403 导致下拉为空） */
   listUserNames: () => request<string[]>('/users/names'),
   /** 人员目录：全员可读，含 Open ID / 教师类型 / 校区 / 角色（不含密级、账号状态）。
-   *  班主任、招生老师等字段存的是 Open ID，只拿姓名无法完成还原。 */
+   *  班主任、招生老师等字段存的是 Open ID，只拿姓名无法完成还原。
+   *  `id` 是用户记录的 record id —— 「关联字段」存的是 record id，选人控件需要它。 */
   listUserDirectory: () =>
-    request<{ name: string; openId: string; teacherType: string; campus: string; roles: string[] }[]>(
+    request<{ id: string; name: string; openId: string; teacherType: string; campus: string; roles: string[] }[]>(
       '/users/directory',
     ),
   listUsers: (params: Record<string, string | undefined> = {}) => {
@@ -1225,9 +1226,13 @@ export const api = {
   /** 列表页筛选下拉的动态候选项（发件人/收件人/归属账户/邮箱文件夹/关联学生的真实去重值） */
   listMailArchiveFilterOptions: () =>
     request<Record<string, string[]>>('/mail-archive/filter-options'),
-  /** 手动关联/解除关联学生：studentIds 为完整列表，传 [] 即清空 */
+  /** 手动关联/解除关联**学生**：studentIds 为完整列表，传 [] 即清空 */
   linkMailStudents: (id: string, studentIds: string[]) =>
     request<{ ok: boolean }>(`/mail-archive/${id}/link`, { method: 'PUT', body: JSON.stringify({ studentIds }) }),
+  /** 手动关联/解除关联**联系人**（卫瓴）：contactIds 为完整列表，传 [] 即清空。
+   *  与学生共用同一个接口，只传一类时另一类保持不动。 */
+  linkMailContacts: (id: string, contactIds: string[]) =>
+    request<{ ok: boolean }>(`/mail-archive/${id}/link`, { method: 'PUT', body: JSON.stringify({ contactIds }) }),
   syncAllMail: () => request<{ synced: number; results: Record<string, unknown> }>('/mail-archive/sync-all', { method: 'POST' }),
   getMailAttachmentUrl: (id: string, fileToken: string) =>
     request<{ url: string }>(`/mail-archive/${id}/attachment-url?file_token=${encodeURIComponent(fileToken)}`),

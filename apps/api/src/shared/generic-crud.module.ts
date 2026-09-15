@@ -194,10 +194,30 @@ export class BaseRecordService {
   }
 
   /**
+   * 判断某条记录是否落在当前用户的**行级数据范围**内（供子类 / 自建接口复用）。
+   *
+   * 为什么需要它：`detail()` 已能拦住越界读，但**自建接口不经过 detail** ——
+   * 例如「解析附件下载链接」「手动关联学生」这类带 `:id` 的自定义路由，
+   * 只在 controller 里判了 `mail:read` 就放行 ⇒ 知道一个 record id 就能越权取别人的附件。
+   * 这类入口必须自己过一道范围，判据与列表/详情同源（同一个 rowScopeFor）。
+   *
+   * 越界返回 false，由调用方决定语义（读场景建议按 404 处理，不暴露记录是否存在）。
+   */
+  async rowVisible(user: SessionUser, recordId: string): Promise<boolean> {
+    const rec = await this.base.get(this.tableId, recordId);
+    if (!rec) return false;
+    const scope = await this.rowScopeFor(user);
+    if (!scope) return true;
+    if (scope === 'none') return false;
+    const flat = toFlatRecord(rec, this.readonlySet(), this.multiSet(), this.linkSet(), this.auditOverrideSet());
+    return matchFilter(flat, scope);
+  }
+
+  /**
    * 解析当前用户的行级数据范围：`null` = 不限制；`'none'` = 一条都看不到；否则为过滤条件。
    * 是 rowScope 的唯一入口，列表/详情/导出/内存深筛都从这里取，保证口径一致。
    */
-  private async rowScopeFor(user: SessionUser): Promise<RowScopeFilter | 'none' | null> {
+  protected async rowScopeFor(user: SessionUser): Promise<RowScopeFilter | 'none' | null> {
     const scope = this.meta.rowScope;
     if (!scope) return null;
     const bypass = this.meta.rowScopeBypassRoles ?? ['系统管理员'];
@@ -210,7 +230,7 @@ export class BaseRecordService {
    * ⚠️ 跨表读时不要套用本表的 readonly / multi / link 字段集 —— 那是**本表**的元数据，
    * 套到别的表上会把字段错误地扁平化。
    */
-  private scopeContext(): RowScopeContext {
+  protected scopeContext(): RowScopeContext {
     return {
       search: async (tableId, filter) => {
         const res = await this.base.search(tableId, {

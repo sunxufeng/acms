@@ -2,7 +2,7 @@ import { TABLES, USER_TABLE } from '@acms/contracts';
 import type { RecordMeta } from '../shared/generic-crud.module.js';
 
 /** 宽容地把「关联/多值字段」的原始值解析成 id 数组：兼容 数组 / {link_record_ids:[...]} / JSON 字符串。 */
-function idsOf(v: unknown): string[] {
+export function idsOf(v: unknown): string[] {
   if (Array.isArray(v)) return v.map((x) => String(x));
   if (v && typeof v === 'object') {
     const inner = (v as { link_record_ids?: unknown }).link_record_ids;
@@ -44,6 +44,21 @@ export const MAIL_ARCHIVE_META: RecordMeta = {
     { field: '关联学生', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
     { field: '关联联系人', table: TABLES.weilingContact.tableId, nameField: '联系人姓名' },
   ],
+  /**
+   * 「关联」列的**联合筛选**：一个输入框同时搜学生姓名与联系人姓名，结果取并集。
+   *
+   * 为什么走内存深筛而不走服务端条件：两个字段都是**关联字段**，服务端 `contains`
+   * 对关联字段无效（会恒返回 0 条），只能先解析出可读名再在内存里匹配。
+   * `listDeep` 里已先调 resolveLinks 把 `关联学生` / `关联联系人` 换成姓名串，这里直接读。
+   */
+  deepParams: ['related'],
+  deepFilter: (row, query) => {
+    const kw = String(query['related'] ?? '').trim().toLowerCase();
+    if (!kw) return undefined;
+    const s = String(row['关联学生'] ?? '').toLowerCase();
+    const c = String(row['关联联系人'] ?? '').toLowerCase();
+    return s.includes(kw) || c.includes(kw);
+  },
   /**
    * 行级数据范围：非系统管理员**只能看到自己关联账户的邮件**。
    *

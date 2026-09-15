@@ -1,6 +1,6 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, NotFoundException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { TABLES } from '@acms/contracts';
+import { TABLES, USER_TABLE } from '@acms/contracts';
 import { BaseClient } from '@acms/base-adapter';
 import { BASE_CLIENT, baseClientProvider } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -9,7 +9,7 @@ import { FileStorageService } from '../file-storage/file-storage.service.js';
 import { BaseRecordService } from '../shared/generic-crud.module.js';
 import { FieldMaskService } from '../shared/field-mask.service.js';
 import { buildFilter } from '../shared/record.util.js';
-import { MAIL_ARCHIVE_META } from './mail-archive.meta.js';
+import { MAIL_ARCHIVE_META, idsOf } from './mail-archive.meta.js';
 import { MailAccountService } from './mail-account.service.js';
 
 interface ParsedAccount {
@@ -534,11 +534,83 @@ export class MailArchiveService extends BaseRecordService {
   }
 
   /**
+   * 「我」可见的**账户名 → 关联用户姓名**映射。
+   *
+   * ⚠️ 不能直接复用「邮件账户」列表接口：两张表的行级范围口径**不同** ——
+   *    账户表 = 「自己创建的」，归档表 = 「我关联的账户」（关联用户里包含我）。
+   *    别人创建、把我加进关联名单的账户，在账户列表里看不到，但它的邮件我该看得到；
+   *    若这里按账户表口径算，「用户」列对这类账户会是空的。
+   * 管理员（rowScope 豁免角色）拿全部账户。
+   */
+  private async visibleAccounts(user: SessionUser): Promise<Map<string, string>> {
+    const bypass = this.meta.rowScopeBypassRoles ?? ['系统管理员'];
+    const isAdmin = (user.roles ?? []).some((r) => bypass.includes(r));
+    const users = await this.scopeContext().search(USER_TABLE.tableId);
+    const nameById = new Map<string, string>();
+    for (const u of users) nameById.set(String(u.id ?? ''), String(u['姓名'] ?? '').trim());
+    const me = users.find((r) => String(r['飞书 Open ID'] ?? '').trim() === user.openId);
+    const myId = String(me?.id ?? '');
+    const accounts = await this.scopeContext().search(TABLES.mailAccount.tableId);
+    const out = new Map<string, string>();
+    for (const a of accounts) {
+      const ids = idsOf(a['关联用户']);
+      if (!isAdmin && (!myId || !ids.includes(myId))) continue;
+      const name = String(a['账户名称'] ?? '').trim();
+      if (!name) continue;
+      out.set(name, ids.map((id) => nameById.get(id) ?? '').filter(Boolean).join('、'));
+    }
+    return out;
+  }
+
+  /**
+   * 列表：给每行注入「归属用户」= 该账户的关联人姓名（多人用「、」并列）。
+   *
+   * 决策 10：**不把归属冗余进归档记录**，展示时实时按账户算 ——
+   * 管理员改了某个账户的关联人，列表立刻跟着变，不需要回填 6328 封历史数据。
+   * 账户只有几十条，一次拉全表即可；非管理员只会拿到自己可见的账户，不构成越权。
+   */
+  async list(user: SessionUser, query: Record<string, string | undefined>) {
+    const res = await super.list(user, query);
+    if (!res.items.length) return res;
+    const map = await this.visibleAccounts(user);
+    for (const it of res.items) {
+      it['归属用户'] = map.get(String(it['归属账户'] ?? '').trim()) ?? '';
+    }
+    return res;
+  }
+
+  /**
+   * 手动关联/解除关联，一次可只改一类。
+   * @param ids.studentIds 关联学生的**完整**列表（传 [] 即清空）；`undefined` 表示不动该字段
+   * @param ids.contactIds 关联联系人的完整列表，语义同上
+   */
+  async link(
+    user: SessionUser,
+    recordId: string,
+    ids: { studentIds?: string[]; contactIds?: string[] },
+  ): Promise<void> {
+    // ⚠️ 自建写接口**不经过 detail()**，必须自己过一道行级数据范围 ——
+    // 否则知道一个 record id 就能往别人的邮件上挂学生/联系人。
+    if (!(await this.rowVisible(user, recordId))) throw new NotFoundException('NOT_FOUND');
+    const clean = (arr: string[] | undefined): string[] =>
+      (arr ?? []).filter((id) => typeof id === 'string' && id.trim().length > 0);
+    const patch: Record<string, unknown> = {};
+    // 关联字段（type=18）写入格式为 record_id 字符串数组：["recxxx"]
+    if (ids.studentIds !== undefined) patch['关联学生'] = clean(ids.studentIds);
+    if (ids.contactIds !== undefined) patch['关联联系人'] = clean(ids.contactIds);
+    if (!Object.keys(patch).length) return;
+    await this.base.update(this.meta.tableId, recordId, patch);
+  }
+
+  /**
    * 返回邮件归档各筛选列（发件人/收件人/归属账户/邮箱文件夹/关联学生）的
    * 真实去重候选项，供列表页下拉框动态加载（避免写死枚举、也避免只显示空「全部」）。
    * 一次翻页扫描全表，关联字段取解析后的名称（text）。每个字段上限 300 项，按中文排序。
+   *
+   * ⚠️ 「归属账户」的候选项必须收在调用方自己的可见范围内：否则非管理员的下拉里会列出
+   *    全公司的邮箱账户名 —— 既是信息泄露，选了也筛不出东西（会被行范围 AND 掉）。
    */
-  async getFilterOptions(): Promise<Record<string, string[]>> {
+  async getFilterOptions(user: SessionUser): Promise<Record<string, string[]>> {
     const fields = ['发件人', '收件人', '归属账户', '邮箱文件夹', '关联学生'];
     const sets: Record<string, Set<string>> = {};
     for (const f of fields) sets[f] = new Set();
@@ -571,6 +643,9 @@ export class MailArchiveService extends BaseRecordService {
       const set = sets[f];
       out[f] = set ? Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN')).slice(0, 300) : [];
     }
+    // 「归属账户」只留可见范围内的（管理员 = 全部，非管理员 = 自己关联的账户）
+    const visible = await this.visibleAccounts(user);
+    out['归属账户'] = (out['归属账户'] ?? []).filter((n) => visible.has(n));
     return out;
   }
 
@@ -818,17 +893,5 @@ export class MailArchiveService extends BaseRecordService {
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .trim();
-  }
-
-  /**
-   * 手动关联/解除关联学生（招生老师在 UI 上操作）。
-   * studentIds 为完整列表：传 [] 即清空关联；传若干 record_id 即设为这些学生。
-   * 关联字段（type=18）写入格式为 [{ record_id }]，base-adapter 透传。
-   */
-  async linkStudents(recordId: string, studentIds: string[]): Promise<void> {
-    // 飞书单向关联（type=18）写入格式为 record_id 字符串数组：["recxxx"]
-    const links = (studentIds || [])
-      .filter((id) => typeof id === 'string' && id.length > 0);
-    await this.base.update(this.meta.tableId, recordId, { '关联学生': links });
   }
 }

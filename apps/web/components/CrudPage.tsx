@@ -88,6 +88,23 @@ export interface CrudColumn {
    * ⚠️ 必须同时在 RecordMeta 的 multi 里登记该字段，否则会被当成字符串写入。
    */
   linkMulti?: boolean;
+  /**
+   * 关联字段的候选项**来源**：
+   *  - `'users'` → 从「用户目录」(`/users/directory`) 动态加载，value = 用户 record id、label = 姓名
+   *  - 不填 → 用 `linkOptions` 的静态候选项
+   *
+   * 为什么要有它：`linkOptions` 是 columns.tsx 里的静态数组，而人员名单是运行期数据
+   * （会增删人），写死必然过期；由 CrudPage 统一拉取也免去每个页面各写一遍 useState + useEffect。
+   */
+  linkSource?: 'users';
+  /**
+   * 编辑该字段所需的权限点：**没有该权限时字段渲染为只读**（可看不可改）。
+   *
+   * 与模块级 `module:<key>:update` 的区别：模块权限管「能不能改这张表」，
+   * 本字段管「能不能改**这一个字段**」。典型场景是「关联用户」这类归属名单 ——
+   * 能编辑账户（改密码/服务器）的人，不代表能改归属名单（那等于能越权看别人邮件）。
+   */
+  readonlyPerm?: string;
   /** 候选项来自字典表（优先于 options；options 作为离线兜底） */
   dictKey?: string;
   required?: boolean;
@@ -790,6 +807,40 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     return () => { alive = false; };
   }, [columns]);
 
+  /**
+   * 关联字段候选项（`linkSource: 'users'`）：从用户目录动态加载。
+   * ⚠️ 用 `/users/directory`（全员可读）而不是 `/users`（需 admin:user）——
+   *    后者会让没有 admin:user 的角色拿到 403、候选项恒为空。
+   * value 必须是用户**记录 id**：关联字段存的是 record id，用姓名或 openId 都写不进去。
+   */
+  const [userLinkOptions, setUserLinkOptions] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    if (!columns.some((c) => c.linkSource === 'users')) return;
+    let alive = true;
+    apiClient
+      .listUserDirectory()
+      .then((list) => {
+        if (!alive) return;
+        setUserLinkOptions(
+          list
+            .filter((u) => u.id && u.name)
+            .map((u) => ({ value: String(u.id), label: String(u.name) })),
+        );
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [columns]);
+
+  /** 关联字段的候选项：声明了 linkSource 就走动态来源，否则用列上的静态 linkOptions */
+  const linkOptionsOf = (c: CrudColumn) =>
+    c.linkSource === 'users' ? userLinkOptions : (c.linkOptions ?? []);
+  /**
+   * 字段级只读：`readonly` 或缺少 `readonlyPerm` 指定的权限点。
+   * 注意它是**提示性**的，服务端仍会独立校验（前端只影响能不能点，不影响能不能改）。
+   */
+  const fieldReadonly = (c: CrudColumn) =>
+    !!c.readonly || (!!c.readonlyPerm && !perms.includes(c.readonlyPerm));
+
   // 学生字段（student / studentLink / parent 联动）候选项：从学生档案读取「学生姓名 → 父亲/母亲 + record id」
   const [studentOptions, setStudentOptions] = useState<{ value: string; label: string }[]>([]);
   const [studentLinkOptions, setStudentLinkOptions] = useState<{ value: string; label: string }[]>([]);
@@ -1425,13 +1476,16 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               const cur = Array.isArray(form[c.key])
                 ? (form[c.key] as unknown[]).map(String)
                 : str(form[c.key]).split(',').map((x) => x.trim()).filter(Boolean);
+              const opts = linkOptionsOf(c);
+              const ro = fieldReadonly(c);
               return (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {(c.linkOptions ?? []).map((o) => {
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, opacity: ro ? 0.75 : 1 }}>
+                  {opts.map((o) => {
                     const on = cur.includes(o.value);
                     return (
                       <label
                         key={o.value}
+                        title={ro ? t('crud.noEditPerm') : undefined}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -1441,12 +1495,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                           border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
                           background: on ? 'var(--accent-soft)' : 'transparent',
                           fontSize: 'var(--font-sm)',
-                          cursor: 'pointer',
+                          cursor: ro ? 'not-allowed' : 'pointer',
                         }}
                       >
                         <input
                           type="checkbox"
                           checked={on}
+                          disabled={ro}
                           onChange={(e) =>
                             setForm((f) => ({
                               ...f,
@@ -1460,17 +1515,27 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                       </label>
                     );
                   })}
-                  {(c.linkOptions ?? []).length === 0 ? (
+                  {opts.length === 0 ? (
                     <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>暂无可选项</span>
                   ) : null}
                 </div>
               );
             })()
+          ) : c.type === 'link' && fieldReadonly(c) ? (
+            // 只读关联字段：显示已选名称（后端已解析成姓名串）而不是把 id 露出来，
+            // 且不挂 onChange —— 服务端同样会拒绝，这里只是不给出「以为能改」的假象。
+            <div
+              className="form-input"
+              title={t('crud.noEditPerm')}
+              style={{ background: 'var(--bg-subtle)', color: 'var(--fg-secondary)' }}
+            >
+              {str(form[c.key]) || t('common.notFilled')}
+            </div>
           ) : c.type === 'link' ? (
             <Combobox
               value={str(form[c.key])}
               onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))}
-              options={c.linkOptions ?? []}
+              options={linkOptionsOf(c)}
               placeholder={`输入${c.label}筛选…`}
             />
           ) : c.type === 'department' ? (

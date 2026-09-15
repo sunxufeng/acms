@@ -274,7 +274,8 @@
     "selectPage": "本页全选",
     "unselectPage": "取消本页",
     "selectAllResults": "全选所有结果（{count}）",
-    "clearSelection": "清除选择"
+    "clearSelection": "清除选择",
+    "noEditPerm": "无编辑权限"
   },
   "ai": {
     "config": {
@@ -2373,7 +2374,10 @@
     "待认领（公海）": "待认领（公海）",
     "已认领": "已认领",
     "待分配": "待分配",
-    "当前角色可以查看本报表，但没有「联系人管理」的查看权限，因此不能下钻到名单。需要的话请联系管理员在角色权限里授权。": "当前角色可以查看本报表，但没有「联系人管理」的查看权限，因此不能下钻到名单。需要的话请联系管理员在角色权限里授权。"
+    "当前角色可以查看本报表，但没有「联系人管理」的查看权限，因此不能下钻到名单。需要的话请联系管理员在角色权限里授权。": "当前角色可以查看本报表，但没有「联系人管理」的查看权限，因此不能下钻到名单。需要的话请联系管理员在角色权限里授权。",
+    "用户": "用户",
+    "关联": "关联",
+    "归属人员（历史）": "归属人员（历史）"
   },
   "idp": {
     "idpPlanNotFound": "未找到该 IDP 方案",
@@ -2485,7 +2489,13 @@
     "attachmentUrlFailed": "附件下载链接获取失败，请稍后重试",
     "searchStudentNamePlaceholder": "搜索学生姓名 / 英文名",
     "noMatchStudent": "无匹配学生",
-    "enterKeywordSearch": "输入关键字搜索"
+    "enterKeywordSearch": "输入关键字搜索",
+    "linkStudent": "+ 学生",
+    "linkContact": "+ 联系人",
+    "searchContactPlaceholder": "搜索联系人姓名",
+    "noMatchContact": "没有匹配的联系人",
+    "chipStudent": "学生",
+    "chipContact": "联系人"
   },
   "homeSchool": {
     "preparing": "准备中…",

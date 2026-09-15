@@ -21,6 +21,7 @@ import { DashboardModule } from './dashboard/dashboard.module.js';
 import { ExportModule } from './export/export.module.js';
 import { GenericCrudModule } from './shared/generic-crud.module.js';
 import { FieldMaskModule } from './shared/field-mask.module.js';
+import { StudentScopeModule } from './shared/student-scope.module.js';
 import { DepartmentModule } from './department/department.module.js';
 import { MeetingMinutesModule } from './meeting-minutes/meeting-minutes.module.js';
 import { SystemMonitorModule } from './system-monitor/system-monitor.module.js';
@@ -113,6 +114,7 @@ import { BehaviourModule } from './behaviour/behaviour.module.js';
     GetnoteSourceModule,
     ReportsModule,
     FieldMaskModule,
+    StudentScopeModule,
     DepartmentModule,
     MeetingMinutesModule,
     SystemMonitorModule,

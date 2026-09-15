@@ -18,6 +18,7 @@ import { BASE_CLIENT, baseClientProvider } from '../base.provider.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { AuditService } from '../audit/audit.service.js';
 import { FieldMaskService } from './field-mask.service.js';
+import { StudentScopeService } from './student-scope.service.js';
 import { encryptSecret, isEncrypted, isSecretMask, maskSecret } from './secret-cipher.js';
 import { buildWriteFields, toFlatRecord, buildFilter } from './record.util.js';
 
@@ -124,6 +125,26 @@ export interface RecordMeta {
    *  - { field: '关联学生编号', by: 'id' }：关联字段为 link，存 record id（考勤/成绩/实践/评价/校友）
    *  - { field: '关联学生', by: 'name' }：关联字段为文本，存学生姓名（招生/家校/日常跟进） */
   studentMatch?: { field: string; by: 'id' | 'name' };
+  /**
+   * 本模块是否按**学生档案数据范围**过滤（2026-09-15）。
+   *
+   * 声明为 true 后，用户看到的本模块记录会被限制在「他能看的学生」范围内
+   * （判据取自 studentMatch 声明的那个字段），与 rowScope 是 AND 关系。
+   *
+   * 为什么用显式声明而不是「有 studentMatch 就自动生效」：
+   * 招生跟进（source-followups）也有 studentMatch，但招生老师需要看自己负责的线索，
+   * 不应当被学生档案范围牵连。要接入哪个模块，逐个显式打开。
+   */
+  studentScoped?: boolean;
+  /**
+   * 「关联学生要经中间表跳转」时的声明（2026-09-15）。
+   *
+   * 用于**子表**：IDP 沟通记录不直接关联学生，而是挂在 IDP 方案下（「关联IDP方案」→ 方案 →「关联学生」）。
+   * 声明后，本模块的范围判据变成「该行关联的中间记录，其学生是否可见」：
+   *   先查中间表筛出可见记录 id，再用这些 id 过滤本表。
+   * ⚠️ 与 studentScoped 二选一，同时声明时以 studentVia 为准（它更具体）。
+   */
+  studentVia?: { linkField: string; linkTable: string; innerMatchField: string; innerMatchBy: 'id' | 'name' };
   /** 时间范围筛选字段（用于审计日志等的操作时间区间过滤，内存过滤） */
   rangeField?: string;
   /** 跨字段校验：结束时间必须晚于开始时间（如会议纪要的开始时间/结束时间） */
@@ -186,6 +207,12 @@ export class BaseRecordService {
     @Inject(BASE_CLIENT) protected readonly base: BaseClient,
     @Inject(AuditService) protected readonly audit: AuditService,
     @Inject(FieldMaskService) protected readonly mask: FieldMaskService,
+    /**
+     * 学生档案数据范围服务（2026-09-15，**可选**）。
+     * 只有声明了 `studentScoped: true` 的模块需要它（由 makeService 注入）；
+     * 其它子类（邮件归档 / IDP / getnote / behaviour）不传即可，行为完全不变。
+     */
+    protected readonly studentScope?: StudentScopeService,
   ) {}
 
   /** 操作人展示名 */
@@ -218,11 +245,60 @@ export class BaseRecordService {
    * 是 rowScope 的唯一入口，列表/详情/导出/内存深筛都从这里取，保证口径一致。
    */
   protected async rowScopeFor(user: SessionUser): Promise<RowScopeFilter | 'none' | null> {
+    const parts: RowScopeFilter[] = [];
+
     const scope = this.meta.rowScope;
-    if (!scope) return null;
-    const bypass = this.meta.rowScopeBypassRoles ?? ['系统管理员'];
-    if ((user.roles ?? []).some((r) => bypass.includes(r))) return null;
-    return (await scope(user, this.scopeContext())) ?? null;
+    if (scope) {
+      const bypass = this.meta.rowScopeBypassRoles ?? ['系统管理员'];
+      if (!(user.roles ?? []).some((r) => bypass.includes(r))) {
+        const s = await scope(user, this.scopeContext());
+        if (s === 'none') return 'none';
+        if (s) parts.push(s);
+      }
+    }
+
+    // 学生档案数据范围（2026-09-15）：本模块声明了 studentScoped 时才生效。
+    // 判据 = 「该行关联的学生」是否落在用户可见范围内（组织级角色 / 未配范围 → 不限制）。
+    if (this.meta.studentScoped && this.meta.studentMatch && this.studentScope) {
+      const by = this.meta.studentMatch.by === 'name' ? 'name' : 'id';
+      const keys = await this.studentScope.visibleKeys(await this.studentScope.resolve(user), by);
+      if (keys) {
+        if (!keys.length) return 'none'; // 一个学生都看不到 ⇒ 本模块一条也不可见
+        // ⚠️ 算子选择（安全优先）：
+        //   by=id   → contains：record id 是长随机串，子串误匹配几乎不可能，
+        //              且能同时命中「单值」与「多值 JSON 数组」两种存储形态
+        //   by=name → is（精确等值）：姓名用 contains 会「张三」匹配到「张三丰」，
+        //              属于越权放行；宁可少看不可多看
+        parts.push({
+          field: this.meta.studentMatch.field,
+          op: by === 'id' ? 'contains' : 'is',
+          value: keys,
+        });
+      }
+    }
+
+    // 子表：经中间表间接关联学生（如 IDP 沟通记录 → IDP 方案 → 关联学生）
+    if (this.meta.studentVia && this.studentScope) {
+      const via = this.meta.studentVia;
+      const keys = await this.studentScope.visibleKeys(await this.studentScope.resolve(user), via.innerMatchBy);
+      if (keys) {
+        if (!keys.length) return 'none';
+        const mid = await this.base.search(via.linkTable, {
+          pageSize: 500,
+          filter: buildFilter([
+            { field: via.innerMatchField, op: via.innerMatchBy === 'name' ? 'is' : 'contains', value: keys },
+          ]),
+        });
+        const ids = (mid.items ?? [])
+          .map((r) => String((r as { recordId?: string }).recordId ?? (r as { id?: string }).id ?? ''))
+          .filter(Boolean);
+        if (!ids.length) return 'none'; // 中间表里没有可见记录 ⇒ 本表也不可见
+        parts.push({ field: via.linkField, op: 'contains', value: ids });
+      }
+    }
+
+    if (!parts.length) return null;
+    return parts.length === 1 ? parts[0]! : { conjunction: 'and', conditions: parts };
   }
 
   /**
@@ -845,8 +921,9 @@ function makeService(meta: RecordMeta): Type<BaseRecordService> {
       @Inject(BASE_CLIENT) base: BaseClient,
       @Inject(AuditService) audit: AuditService,
       @Inject(FieldMaskService) mask: FieldMaskService,
+      @Inject(StudentScopeService) studentScope: StudentScopeService,
     ) {
-      super(meta, base, audit, mask);
+      super(meta, base, audit, mask, studentScope);
     }
   }
   return GService as unknown as Type<BaseRecordService>;

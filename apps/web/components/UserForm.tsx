@@ -40,6 +40,18 @@ export default function UserForm({ row, onDone }: UserFormProps) {
   const [kw, setKw] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  /**
+   * 学生档案范围（人级，2026-09-15）：默认「跟随角色」。
+   * 放在用户表单里的原因：4 位班主任同属 Phase1 角色、各自带的班不同，
+   * 角色级表达不了「各自只看自己班」，必须能在人这一级单独配。
+   */
+  const [scopeMode, setScopeMode] = useState<'role' | 'all' | 'custom'>('role');
+  const [scopeSel, setScopeSel] = useState<{ 当前年级?: string[]; 当前状态?: string[] }>({});
+  const [scopeOpts, setScopeOpts] = useState<{
+    dims: { dim: string; values: { value: string; count: number }[] }[];
+    cross: { 当前年级: string; 当前状态: string; count: number }[];
+    total: number;
+  } | null>(null);
 
   // 角色定义 + 字典（教师类型/校区）
   useEffect(() => {
@@ -89,6 +101,33 @@ export default function UserForm({ row, onDone }: UserFormProps) {
     });
   };
 
+  /** 编辑态回显人级范围；新建默认「跟随角色」 */
+  useEffect(() => {
+    const raw = row?.['学生档案范围'] as { mode?: string; scope?: { 当前年级?: string[]; 当前状态?: string[] } } | undefined;
+    if (raw && typeof raw === 'object') {
+      const mode = raw.mode === 'all' || raw.mode === 'custom' ? raw.mode : 'role';
+      setScopeMode(mode);
+      setScopeSel(mode === 'custom' && raw.scope ? { ...raw.scope } : {});
+    } else {
+      setScopeMode('role');
+      setScopeSel({});
+    }
+  }, [row]);
+
+  /** 候选值（实际数据值 + 人数），进表单拉一次 */
+  useEffect(() => {
+    let alive = true;
+    api
+      .studentScopeOptions()
+      .then((r) => {
+        if (alive) setScopeOpts(r);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const teacherTypes = dicts['教师类型']?.length ? dicts['教师类型'] : TEACHER_TYPE_FALLBACK;
   const campuses = dicts['校区'] ?? [];
   const firstCampus = campuses[0] ?? '';
@@ -136,6 +175,15 @@ export default function UserForm({ row, onDone }: UserFormProps) {
       // 飞书 Open ID 不在表单里编辑；仅编辑态原样带出，新建留空则不提交
       const openId = String(form['飞书 Open ID'] ?? '').trim();
       if (openId) payload['飞书 Open ID'] = openId;
+      /**
+       * 人级范围随表单一起提交（后端 users.update 拦截它写进系统配置表，
+       * **不写进用户表**）。custom 但一个维度都没勾 → 退回「跟随角色」，
+       * 避免「配了自定义却什么都没选」被误判成一条都看不到。
+       */
+      if (scopeMode === 'all') payload['学生档案范围'] = { mode: 'all' };
+      else if (scopeMode === 'custom' && (scopeSel.当前年级?.length || scopeSel.当前状态?.length)) {
+        payload['学生档案范围'] = { mode: 'custom', scope: scopeSel };
+      } else payload['学生档案范围'] = { mode: 'role' };
 
       if (row?.id != null) await api.updateUser(String(row.id), payload);
       else await api.createUser(payload);
@@ -246,6 +294,73 @@ export default function UserForm({ row, onDone }: UserFormProps) {
                 {STATUS_OPTS.map((o) => <option key={o} value={o}>{tl(o)}</option>)}
               </select>
             </div>
+          </div>
+
+          {/* 学生档案范围（人级）：在这台账号上覆盖角色级配置 */}
+          <div style={{ marginTop: 12 }}>
+            <div style={labelStyle}>{tl('学生档案范围')}</div>
+            <select
+              className="form-input"
+              value={scopeMode}
+              onChange={(e) => setScopeMode(e.target.value as 'role' | 'all' | 'custom')}
+            >
+              <option value="role">{tl('跟随角色')}</option>
+              <option value="all">{tl('全部学生')}</option>
+              <option value="custom">{tl('自定义')}</option>
+            </select>
+            <p style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', margin: '6px 0 0' }}>
+              {tl('跟随角色 = 按所属角色的数据范围；全部学生 = 例外放宽（临时跨班查看）；自定义 = 在本账号上单独指定')}
+            </p>
+
+            {scopeMode === 'custom' && (
+              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(scopeOpts?.dims ?? []).map((d) => (
+                  <div key={d.dim} style={{ display: 'grid', gridTemplateColumns: '78px minmax(0,1fr)', gap: 10 }}>
+                    <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-secondary)', paddingTop: 4 }}>{tl(d.dim)}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {d.values.map((v) => {
+                        const dim = d.dim as '当前年级' | '当前状态';
+                        const on = (scopeSel[dim] ?? []).includes(v.value);
+                        return (
+                          <label
+                            key={v.value}
+                            className="tag"
+                            style={{
+                              cursor: 'pointer',
+                              opacity: on ? 1 : 0.55,
+                              borderColor: on ? 'var(--accent)' : undefined,
+                              background: on ? 'var(--accent-soft)' : undefined,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              style={{ marginRight: 6 }}
+                              onChange={() =>
+                                setScopeSel((prev) => {
+                                  const cur = prev[dim] ?? [];
+                                  const next = cur.includes(v.value)
+                                    ? cur.filter((x) => x !== v.value)
+                                    : [...cur, v.value];
+                                  const out = { ...prev };
+                                  if (next.length) out[dim] = next;
+                                  else delete out[dim];
+                                  return out;
+                                })
+                              }
+                            />
+                            {tl(v.value)}
+                            <span style={{ marginLeft: 6, fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
+                              {v.count}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

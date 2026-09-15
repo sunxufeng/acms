@@ -1160,9 +1160,9 @@ export const api = {
     const q = qs.toString();
     return request<ActivityPayload>(`/reports/activity${q ? `?${q}` : ''}`);
   },
-  createRole: (data: { key: string; label?: string; permissions: string[]; maxDataLevel: string; menus?: string[] }) =>
+  createRole: (data: { key: string; label?: string; permissions: string[]; maxDataLevel: string; menus?: string[]; dataScope?: unknown }) =>
     request<RoleManagementPayload>('/role-management', { method: 'POST', body: JSON.stringify(data) }),
-  updateRole: (key: string, data: { label?: string; permissions?: string[]; maxDataLevel?: string; menus?: string[] }) =>
+  updateRole: (key: string, data: { label?: string; permissions?: string[]; maxDataLevel?: string; menus?: string[]; dataScope?: unknown }) =>
     request<RoleManagementPayload>(`/role-management/${encodeURIComponent(key)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -1374,6 +1374,25 @@ export const api = {
   getGetnoteSourceSyncStatus: (id: string) => request<SourceSyncProgress>(`/getnote-sources/${id}/sync-status`),
   // ── 部门管理（组织管理）：只读同步飞书通讯录部门树 ──
   /** 读取全部部门（前端构建树；已删除部门 status='invalid' 由前端过滤） */
+  /**
+   * 学生档案「数据范围」的候选值（当前年级 / 当前状态 的实际去重值 + 人数 + 两维交叉计数）。
+   * 配置界面（角色管理 ③ 数据范围、用户管理 学生档案范围）用它渲染可选项并实时算预览人数。
+   * ⚠️ 取的是**学生表实际值**而不是字典：字典的入学年级是托班~高三 + G1~G12，与实际数据不符。
+   */
+  /**
+   * 我自己的学生数据范围说明（学生档案页顶部提示条用）。
+   * level: org / user-all / user-custom / role / none —— 用来区分是哪一层在限制。
+   */
+  myStudentScope: () =>
+    request<{ level: string; visible: number; total: number; campuses: string[]; orgWide: boolean }>(
+      '/students/my-scope',
+    ),
+  studentScopeOptions: () =>
+    request<{
+      dims: { dim: string; values: { value: string; count: number }[] }[];
+      cross: { 当前年级: string; 当前状态: string; count: number }[];
+      total: number;
+    }>('/students/scope-options'),
   listDepartments: () => request<DepartmentListResult>('/departments'),
   /**
    * 部门成员快照的轻量索引（一次拿全，约几十行）。

@@ -8,6 +8,8 @@ import { FileUploadService } from '../file-upload/file-upload.service.js';
 import { FileStorageService } from '../file-storage/file-storage.service.js';
 import { DictService } from '../dictionary/dict.service.js';
 import { FieldMaskService } from '../shared/field-mask.service.js';
+import { StudentScopeService } from '../shared/student-scope.service.js';
+import { isScopeUnrestricted, studentInScope } from '../shared/student-scope.js';
 
 import type { CreateStudentDto, UpdateStudentDto, StudentFilterDto, ExportQueryDto } from './student.dto.js';
 
@@ -43,6 +45,11 @@ export class StudentService {
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
     private readonly dict: DictService,
     @Inject(FieldMaskService) private readonly mask: FieldMaskService,
+    /**
+     * 学生档案「数据范围」（2026-09-15 新增）：角色级 / 人级配置的可查看范围。
+     * 与上面的 ABAC（校区 + 密级）是两条独立的闸门，都要过。
+     */
+    @Inject(StudentScopeService) private readonly scopeSvc: StudentScopeService,
   ) {}
 
   /** DTO → Base 写入字段（跳过只读字段，单选纯串、多选数组） */
@@ -182,7 +189,16 @@ export class StudentService {
     // 服务端分页路径的 total 是未过滤的原始计数，行过滤后 total 与 items 会失真
     // （表现为「共 82 条但列表为空」）。此类用户改走内存全量路径，保证 total 一致。
     const orgWide = principal.roles.some((r) => r === '系统管理员' || r === '院级管理');
-    const hasMemoryFilter = hasQ || multiStatus || !orgWide;
+    /**
+     * 学生「数据范围」（2026-09-15 新增，角色级/人级配置）：与 ABAC 独立叠加的两道闸门。
+     * - 组织级角色豁免、未配置范围 → resolve 返回 null ⇒ 行为与改造前**完全一致**；
+     * - 有范围时必须在内存路径过滤（见下），否则「先取一页再过滤」会让 total 与页数失真。
+     */
+    const scope = await this.scopeSvc.resolve(user);
+    const scoped = !isScopeUnrestricted(scope);
+    const scopePass = (s: StudentRecord) => studentInScope(s as unknown as Record<string, unknown>, scope);
+    // 非组织级本来就走内存全量路径（!orgWide），而范围只对非组织级生效 —— 组合自洽，无需改分页逻辑
+    const hasMemoryFilter = hasQ || multiStatus || !orgWide || scoped;
     const filter = this.buildFilter(query);
     const sort = query.sortBy
       ? [{ field: query.sortBy, desc: query.sortOrder !== 'asc' }]
@@ -206,14 +222,20 @@ export class StudentService {
         ? this.buildFilter({ ...query, q: undefined })
         : filter;
       const all = await this.fetchAll(TABLE, { filter: serverFilter, sort });
-      let students = all.map((r) => this.toStudent(r)).filter(abacPass);
+      let students = all.map((r) => this.toStudent(r)).filter(abacPass).filter(scopePass);
       students = students.filter((s) => this.matchesNonQ(s, query));
       await enrichAll(students);
       // 内存分页（pageToken 为偏移量字符串）
       const start = query.pageToken ? Number(query.pageToken) || 0 : 0;
       const slice = students.slice(start, start + pageSize);
       const next = students.length > start + pageSize ? String(start + pageSize) : undefined;
-      return { items: slice, total: students.length, hasMore: !!next, pageToken: next };
+      // 字段级密级脱敏：此前**只有详情页**调用，列表页会直接吐出完整学籍号/证件号（2026-09-15 补齐）
+      return {
+        items: this.mask.maskMany(user, 'students', slice as unknown as Record<string, unknown>[]),
+        total: students.length,
+        hasMore: !!next,
+        pageToken: next,
+      };
     }
 
     const res = await this.base.search(TABLE, {
@@ -222,15 +244,54 @@ export class StudentService {
       filter,
       sort,
     });
-    let items = res.items.map((r) => this.toStudent(r)).filter(abacPass);
+    let items = res.items.map((r) => this.toStudent(r)).filter(abacPass).filter(scopePass);
     await enrichAll(items);
 
     return {
-      items,
+      items: this.mask.maskMany(user, 'students', items as unknown as Record<string, unknown>[]),
       total: res.total,
       hasMore: res.hasMore,
       pageToken: res.pageToken,
     };
+  }
+
+  /**
+   * 当前用户自己的学生范围说明（2026-09-15，学生档案页顶部提示条用）。
+   *
+   * 为什么要单独给一个接口：范围导致的「看不到数据」有三个层次
+   * （人级配置 / 角色级配置 / ABAC 校区），三者表现都是空列表 ——
+   * 页面上不解释清楚，以后排查又得从头查一遍（上次丁懿那次就是校区拦的）。
+   */
+  async myScope(user: SessionUser) {
+    const principal = toPrincipal(user);
+    if (!authorize(principal, 'student:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:student:read');
+    }
+    const info = await this.scopeSvc.explain(user);
+    return {
+      ...info,
+      campuses: user.campuses ?? [],
+      orgWide: (user.roles ?? []).some((r) => r === '系统管理员' || r === '院级管理'),
+    };
+  }
+
+  /**
+   * 学生范围候选值（2026-09-15）：配置界面（角色管理 ③ 数据范围 / 用户管理 学生档案范围）用。
+   *
+   * 返回三个维度的**实际去重值 + 人数**，以及「当前年级 × 当前状态」的交叉计数 ——
+   * 前端据此在勾选时实时算出「按当前配置可见 N 个学生」，无需每次预览都打一次接口。
+   *
+   * ⚠️ 候选值取**学生表实际值**而不是字典：字典的「入学年级」是托班~高三 + G1~G12（28 项），
+   *    与实际数据（Pre-x / 大一 / 未来企业家班 / 全球领航计划）完全不符，直接用会出现
+   *    「选了候选值 → 筛出 0 人」。同理「当前状态」字典 8 项而数据只有 1 项。
+   * ⚠️ 这里刻意**不套用户自己的范围**：配置界面要看到全量候选，否则低权限管理员配不出范围。
+   */
+  async scopeOptions(user: SessionUser) {
+    const principal = toPrincipal(user);
+    if (!authorize(principal, 'admin:user').allowed) {
+      throw new ForbiddenException('FORBIDDEN:admin:user');
+    }
+    return this.scopeSvc.options();
   }
 
   /** 详情（ABAC 校验） */
@@ -247,6 +308,11 @@ export class StudentService {
       dataLevel: student.数据密级 as string | undefined,
     });
     if (!decision.allowed) throw new ForbiddenException('FORBIDDEN:campus/data-level');
+    // 数据范围（角色级/人级）不通过 → **404**：不暴露「这条学生存在」，
+    // 与「校区不匹配给 403」刻意不同 —— 范围是运营配置出来的，不该让人靠状态码探测学生是否存在。
+    if (!studentInScope(student as unknown as Record<string, unknown>, await this.scopeSvc.resolve(user))) {
+      throw new NotFoundException('NOT_FOUND');
+    }
     // 解析「证件与文件」关联字段为可读附件列表（[{file_token,name}]）
     student['证件与文件'] = await this.resolveDocFiles(student['证件与文件']);
     // 为学生照片/证件文件生成浏览器可直接访问的临时下载链接
@@ -444,12 +510,28 @@ export class StudentService {
     if (!authorize(principal, 'export:run').allowed) {
       throw new ForbiddenException('FORBIDDEN:export:run');
     }
-    // 导出最多 500 条
-    const res = await this.base.search(TABLE, {
-      pageSize: 500,
-      filter: this.buildFilter({ ...query, includeArchived: 'true' }),
-    });
-    const students = res.items.map((r) => this.mask.mask(user, 'students', this.toStudent(r)));
+    /**
+     * 导出必须与列表**同源过滤**（2026-09-15）：
+     *  1) 数据范围（角色级/人级）—— 否则配了范围的班主任一按导出就把全体学生拉走了，
+     *     这是最容易越权的路径（列表看着只有 33 个，导出却 82 条）；
+     *  2) ABAC 校区 —— 同理，否则「列表 0 条、导出 82 条」。
+     * 顺带把「最多 500 条」的语义修正为**过滤后**的条数：原来直接 pageSize=500，
+     * 若前 500 条里大部分被过滤掉，导出的会比允许的少，现在先全量取回、过滤、再截断。
+     */
+    const all = await this.fetchAll(TABLE, { filter: this.buildFilter({ ...query, includeArchived: 'true' }) });
+    const principal0 = toPrincipal(user);
+    const scope = await this.scopeSvc.resolve(user);
+    const students = all
+      .map((r) => this.toStudent(r))
+      .filter((s) =>
+        authorize(principal0, 'student:read', {
+          campus: s.校区 as string | undefined,
+          dataLevel: s.数据密级 as string | undefined,
+        }).allowed,
+      )
+      .filter((s) => studentInScope(s as unknown as Record<string, unknown>, scope))
+      .slice(0, 500)
+      .map((s) => this.mask.mask(user, 'students', s));
 
     const cols = ['学生编号', '学生姓名', '性别', '当前年级', '校区', '当前状态', '数据密级', '证件号码（脱敏）', '学籍号（脱敏）', '学生手机号', '学生邮箱'];
     const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;

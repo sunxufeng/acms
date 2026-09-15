@@ -216,10 +216,36 @@ export default function StudentsPage() {
   const [recruitOptions, setRecruitOptions] = useState<string[]>([]);
   /** 通讯录映射是否已就绪（下钻筛选要等它，见下方 effect） */
   const [userReady, setUserReady] = useState(false);
+  /**
+   * 我自己的学生数据范围说明（2026-09-15）。
+   * 范围导致「看不到学生」有三层（人级配置 / 角色级 / ABAC 校区），
+   * 表现都是空列表 —— 提示条要能说清是哪一层，否则排查又得从头查。
+   */
+  const [scopeInfo, setScopeInfo] = useState<{
+    level: string;
+    visible: number;
+    total: number;
+    campuses: string[];
+    orgWide: boolean;
+  } | null>(null);
   /** 来自报表下钻、但页面上没有筛选控件的条件（提示给用户，避免误以为筛选没生效） */
   const [drillChips, setDrillChips] = useState<{ label: string; value: string }[]>([]);
   /** 姓名 → 飞书 Open ID 映射（学生字段存的是 Open ID，筛选时需还原） */
   const nameToOpenId = useRef<Record<string, string>>({});
+  /** 拉一次自己的范围说明（只读展示用，失败静默 —— 不该因为提示条拉不到就影响列表） */
+  useEffect(() => {
+    let alive = true;
+    api
+      .myStudentScope()
+      .then((r) => {
+        if (alive) setScopeInfo(r);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   useEffect(() => {
     let alive = true;
     const collected: { name: string; openId: string; teacherType: string }[] = [];
@@ -490,6 +516,40 @@ export default function StudentsPage() {
           </div>
         </div>
       </div>
+
+      {/* ── 数据范围提示条 ─────────────────────
+          范围受限时必须让用户知道「为什么少」，并区分是哪一层限制的
+          （人级 / 角色级 / 校区），否则表现和「系统坏了」没区别。 */}
+      {scopeInfo && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flexWrap: 'wrap',
+            padding: '8px 12px',
+            marginBottom: 'var(--space-md)',
+            borderRadius: 8,
+            fontSize: 'var(--font-sm)',
+            background: scopeInfo.level === 'none' || scopeInfo.level === 'org' ? 'var(--bg-subtle)' : 'var(--accent-muted)',
+            border: `1px solid ${scopeInfo.level === 'none' || scopeInfo.level === 'org' ? 'var(--border)' : 'var(--accent-soft)'}`,
+            color: scopeInfo.level === 'none' || scopeInfo.level === 'org' ? 'var(--fg-secondary)' : 'var(--accent)',
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>{t('scopeBannerTitle')}</span>
+          <span>
+            {scopeInfo.level === 'none' || scopeInfo.level === 'org'
+              ? t('scopeBannerOrg', { total: scopeInfo.total })
+              : t('scopeBannerRestricted', { visible: scopeInfo.visible, total: scopeInfo.total })}
+          </span>
+          {scopeInfo.level === 'user-custom' && <span>· {t('scopeSrcUser')}</span>}
+          {scopeInfo.level === 'user-all' && <span>· {t('scopeSrcUserAll')}</span>}
+          {scopeInfo.level === 'role' && <span>· {t('scopeSrcRole')}</span>}
+          {!scopeInfo.orgWide && scopeInfo.campuses.length > 0 && (
+            <span>· {t('scopeCampus', { campuses: scopeInfo.campuses.join('、') })}</span>
+          )}
+        </div>
+      )}
 
       {/* ── Search + filters ─────────────────── */}
       <form onSubmit={handleSearch} className="filter-bar">

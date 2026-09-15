@@ -12,6 +12,8 @@ import { BaseClient, toText, toStringArray } from '@acms/base-adapter';
 import { BASE_CLIENT } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
 import { DepartmentService } from '../department/department.service.js';
+import { StudentScopeService } from '../shared/student-scope.service.js';
+import { normalizeUserScopeEntry } from '../shared/student-scope.js';
 import { buildWriteFields, toFlatRecord } from '../shared/record.util.js';
 
 const MULTI_FIELDS = new Set(['系统角色']);
@@ -41,6 +43,11 @@ export class UsersService {
      * 必然要站在成员快照上做，复用它的子树展开逻辑。
      */
     @Inject(DepartmentService) private readonly dept: DepartmentService,
+    /**
+     * 学生档案「数据范围」（2026-09-15）：人级配置存在系统配置表（不动飞书用户表结构），
+     * 用户管理页负责读写它 —— 列表回显 + 保存时拦截写入。
+     */
+    @Inject(StudentScopeService) private readonly scopeSvc: StudentScopeService,
   ) {}
 
   private requireAdmin(user: SessionUser): void {
@@ -146,6 +153,20 @@ export class UsersService {
     }));
   }
 
+  /**
+   * 给列表行注入「学生档案范围」（人级配置）。
+   * ⚠️ 与「所属部门」一样是**注入字段**：用户表里并不存在它 —— 人级范围存在系统配置表
+   *    （`user_scope_config`，刻意不动飞书用户表结构）。create/update 是逐字段白名单取值，
+   *    不会把它写回 Base；写入走 update 里的显式拦截（见下）。
+   */
+  private async withScope(flats: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+    const entries = await this.scopeSvc.allUserEntries();
+    return flats.map((f) => ({
+      ...f,
+      学生档案范围: entries[String(f['飞书 Open ID'] ?? '').trim()] ?? { mode: 'role' },
+    }));
+  }
+
   /** 关键字过滤：姓名 / 飞书 Open ID（用户管理页搜索框的口径，保持原行为） */
   private applyKeyword(flats: Record<string, unknown>[], q?: string): Record<string, unknown>[] {
     if (!q) return flats;
@@ -192,7 +213,7 @@ export class UsersService {
           q,
         ),
       );
-      const items = this.withDepartment(flats, await this.departmentByOpenId());
+      const items = await this.withScope(this.withDepartment(flats, await this.departmentByOpenId()));
       return { items, total: items.length, hasMore: false, pageToken: undefined };
     }
 
@@ -208,7 +229,7 @@ export class UsersService {
      */
     const raw = await this.fetchAll();
     const flats = sortByName(this.applyKeyword(raw.map((r) => this.flat(r)), q));
-    const items = this.withDepartment(flats, await this.departmentByOpenId());
+    const items = await this.withScope(this.withDepartment(flats, await this.departmentByOpenId()));
     return { items, total: items.length, hasMore: false, pageToken: undefined };
   }
 
@@ -264,6 +285,14 @@ export class UsersService {
     if (campus) fields['默认校区'] = campus;
     if (teacherType) fields['教师类型'] = teacherType;
     const recordId = await this.base.create(USER_TABLE.tableId, fields);
+    /**
+     * 人级「学生档案范围」：新建时也能直接配（UserForm 会随表单一起提交）。
+     * 落在 systemConfig（`user_scope_config`），**不写进飞书用户表** —— 与 update 同一套。
+     * 放在 create 之后：需要 openId 已确定，且失败时用户记录已经建好（可再编辑修正）。
+     */
+    if (openId && '学生档案范围' in dto) {
+      await this.scopeSvc.setUserEntry(openId, normalizeUserScopeEntry(dto['学生档案范围']));
+    }
     await this.audit.log({
       actor: this.actor(user),
       action: '创建',
@@ -318,6 +347,19 @@ export class UsersService {
         (toStringArray(r.fields['系统角色']) as string[]).includes(ADMIN_ROLE),
       ).length;
       if (adminCount <= 1) throw new BadRequestException('SAFETY:至少保留一名系统管理员');
+    }
+
+    /**
+     * 「学生档案范围」（人级）：不是用户表字段 —— 它存在系统配置表（`user_scope_config`），
+     * 刻意不动飞书用户表结构。这里显式拦截并写配置；下面的 fields 是白名单，
+     * 所以这个字段**不会**被写进 Base。
+     * 权限与改账号同级（update 已要求 admin:user）—— 改它等于改「这个人能看哪些学生」。
+     */
+    if ('学生档案范围' in dto) {
+      const targetOpenId = String(openId || existingOpenId || '').trim();
+      if (targetOpenId) {
+        await this.scopeSvc.setUserEntry(targetOpenId, normalizeUserScopeEntry(dto['学生档案范围']));
+      }
     }
 
     const fields: Record<string, unknown> = {

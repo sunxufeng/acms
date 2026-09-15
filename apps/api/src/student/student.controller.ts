@@ -51,6 +51,21 @@ export class StudentController {
     return csv;
   }
 
+  /**
+   * 学生范围候选值（配置界面用）。
+   * ⚠️ 必须声明在 `@Get(':id')` **之前**，否则会被当成 id（本项目踩过多次的坑）。
+   */
+  @Get('scope-options')
+  scopeOptions(@Req() req: Request) {
+    return this.svc.scopeOptions(this.user(req));
+  }
+
+  /** 当前用户自己的学生范围说明（学生档案页顶部提示条用） */
+  @Get('my-scope')
+  myScope(@Req() req: Request) {
+    return this.svc.myScope(this.user(req));
+  }
+
   /** 详情 */
   @Get(':id')
   detail(@Req() req: Request, @Param('id') id: string) {

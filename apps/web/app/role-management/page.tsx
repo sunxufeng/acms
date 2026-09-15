@@ -52,6 +52,8 @@ interface Draft {
   maxDataLevel: string;
   /** 菜单可见性白名单；undefined = 不限制（按权限点自动显隐） */
   menus?: string[];
+  /** 学生档案数据范围（undefined = 不限制）；维度：当前年级 / 当前状态 */
+  dataScope?: { 当前年级?: string[]; 当前状态?: string[] };
   protected?: boolean;
   lockedPermissions?: boolean;
   isNew?: boolean;
@@ -76,6 +78,12 @@ export default function RoleManagementPage() {
   const [menuQuery, setMenuQuery] = useState('');
   /** 权限分配视图：矩阵（模块×操作）/ 列表（按权限域） */
   const [permView, setPermView] = useState<'matrix' | 'list'>('matrix');
+  /** 学生范围候选值（实际数据值 + 人数 + 交叉计数），进页面拉一次 */
+  const [scopeOpts, setScopeOpts] = useState<{
+    dims: { dim: string; values: { value: string; count: number }[] }[];
+    cross: { 当前年级: string; 当前状态: string; count: number }[];
+    total: number;
+  } | null>(null);
   const [moduleQuery, setModuleQuery] = useState('');
   /** 复制本角色模块权限的目标角色 */
   const [copyTarget, setCopyTarget] = useState('');
@@ -109,6 +117,7 @@ export default function RoleManagementPage() {
       permissions: [...r.permissions],
       maxDataLevel: r.maxDataLevel,
       menus: r.menus && r.menus.length ? [...r.menus] : undefined,
+      dataScope: r.dataScope ? JSON.parse(JSON.stringify(r.dataScope)) : undefined,
       protected: r.protected,
       lockedPermissions: r.lockedPermissions,
       isNew: false,
@@ -294,6 +303,52 @@ export default function RoleManagementPage() {
     });
   }
 
+  /** 拉一次候选值（实际数据值 + 人数 + 两维交叉计数） */
+  useEffect(() => {
+    let alive = true;
+    api
+      .studentScopeOptions()
+      .then((r) => {
+        if (alive) setScopeOpts(r);
+      })
+      .catch(() => {
+        if (alive) setScopeOpts(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /** 勾选/取消某个维度的某个值；两个维度都空时收敛为 undefined（= 不限制） */
+  function toggleScopeDim(dim: '当前年级' | '当前状态', value: string) {
+    if (!draft || draft.lockedPermissions) return;
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const cur = prev.dataScope?.[dim] ?? [];
+      const next = cur.includes(value) ? cur.filter((x) => x !== value) : [...cur, value];
+      const scope = { ...(prev.dataScope ?? {}) };
+      if (next.length) scope[dim] = next;
+      else delete scope[dim];
+      const empty = !scope.当前年级?.length && !scope.当前状态?.length;
+      return { ...prev, dataScope: empty ? undefined : scope };
+    });
+  }
+
+  /**
+   * 预览：按当前 draft 的范围算「可见学生数」。
+   * 用后端给的「当前年级 × 当前状态」**交叉计数**精确算 —— 两个维度是 AND，不能把各维度人数相加。
+   * 未配置的维度视为不限制（该维度全部算命中）。
+   */
+  const scopePreview = useMemo(() => {
+    if (!scopeOpts) return null;
+    const g = draft?.dataScope?.当前年级 ?? [];
+    const s = draft?.dataScope?.当前状态 ?? [];
+    if (!g.length && !s.length) return scopeOpts.total;
+    return scopeOpts.cross
+      .filter((r) => (!g.length || g.includes(r.当前年级)) && (!s.length || s.includes(r.当前状态)))
+      .reduce((sum, r) => sum + r.count, 0);
+  }, [scopeOpts, draft?.dataScope]);
+
   async function handleSave() {
     if (!draft) return;
     setSaving(true);
@@ -301,6 +356,8 @@ export default function RoleManagementPage() {
     try {
       // menus 传空数组 = 清除白名单（恢复按权限点自动显隐）
       const menus = draft.menus ?? [];
+      // dataScope 传 null 表示清空（= 不限制）—— 后端把「全空」当删除处理
+      const dataScope = draft.dataScope ?? null;
       const payload = draft.isNew
         ? await api.createRole({
             key: draft.key,
@@ -308,12 +365,14 @@ export default function RoleManagementPage() {
             permissions: draft.permissions,
             maxDataLevel: draft.maxDataLevel,
             menus,
+            dataScope,
           })
         : await api.updateRole(draft.key, {
             label: draft.label,
             permissions: draft.permissions,
             maxDataLevel: draft.maxDataLevel,
             menus,
+            dataScope,
           });
       setConfig(payload);
       setShowCreate(false);
@@ -848,6 +907,86 @@ export default function RoleManagementPage() {
                   </table>
                 </div>
               )}
+
+              {/* ③ 数据范围（2026-09-15）：决定该角色能看到哪些学生的档案。
+                  空 = 不限制（默认态，因此上线不改变任何人的可见范围）；
+                  维度之间 AND、同一维度内 OR；多角色取并集（见 student-scope.ts）。 */}
+              <div
+                className="form-legend"
+                style={{ marginTop: 'var(--space-lg)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <span
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: 15, height: 15, borderRadius: '50%', flex: '0 0 auto',
+                    background: 'var(--accent-soft)', color: 'var(--accent)',
+                    fontSize: 10, fontWeight: 700, letterSpacing: 0,
+                  }}
+                >
+                  3
+                </span>
+                {tl('数据范围')}
+              </div>
+              <p style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginTop: 0, marginBottom: 12 }}>
+                {tl('决定该角色能查看哪些学生的档案。两个维度都留空 = 不限制（看全部）；维度之间同时满足，同一维度勾选多个是满足任一。')}
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {(scopeOpts?.dims ?? []).map((d) => (
+                  <div
+                    key={d.dim}
+                    style={{ display: 'grid', gridTemplateColumns: '78px minmax(0,1fr)', gap: 10, alignItems: 'start' }}
+                  >
+                    <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)', paddingTop: 4 }}>{d.dim}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {d.values.map((v) => {
+                        const dim = d.dim as '当前年级' | '当前状态';
+                        const on = (draft.dataScope?.[dim] ?? []).includes(v.value);
+                        return (
+                          <label
+                            key={v.value}
+                            className="tag"
+                            style={{
+                              cursor: draft.lockedPermissions ? 'default' : 'pointer',
+                              opacity: on ? 1 : 0.55,
+                              borderColor: on ? 'var(--accent)' : undefined,
+                              background: on ? 'var(--accent-soft)' : undefined,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              disabled={draft.lockedPermissions}
+                              onChange={() => toggleScopeDim(dim, v.value)}
+                              style={{ marginRight: 6 }}
+                            />
+                            {v.value}
+                            <span style={{ marginLeft: 6, fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
+                              {v.count}
+                            </span>
+                          </label>
+                        );
+                      })}
+                      {d.values.length === 0 && (
+                        <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>
+                          {tl('暂无可选值（学生表里该字段还没有数据）')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>{tl('按当前配置可见')}</span>
+                <span style={{ fontSize: 'var(--font-lg)', fontWeight: 700 }}>
+                  {scopePreview === null ? '—' : scopePreview}
+                </span>
+                <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>{tl('个学生')}</span>
+                {draft.lockedPermissions && (
+                  <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
+                    {tl('系统管理员不受数据范围限制，此处仅作展示')}
+                  </span>
+                )}
+              </div>
 
               <div style={{ display: 'flex', gap: 12, marginTop: 'var(--space-lg)' }}>
                 <button className="btn btn-primary" onClick={handleSave} disabled={saving || !dirty}>

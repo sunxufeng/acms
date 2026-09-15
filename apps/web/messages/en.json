@@ -879,7 +879,14 @@
     "filterByNamePlaceholder": "Type a student name to filter…",
     "selected": "Selected: ",
     "unknownContact": "Unknown contact",
-    "aiSubjectSelectedContact": "Selected {count} records / {contacts} contacts"
+    "aiSubjectSelectedContact": "Selected {count} records / {contacts} contacts",
+    "scopeBannerTitle": "Data scope",
+    "scopeBannerOrg": "You can see all {total} students",
+    "scopeBannerRestricted": "Showing only students you can access ({visible} of {total})",
+    "scopeSrcUser": "Scope set individually on your account",
+    "scopeSrcUserAll": "Your account is set to all students",
+    "scopeSrcRole": "Scope comes from your role configuration",
+    "scopeCampus": "Also limited by campus: {campuses}"
   },
   "admin": {
     "titleRoleManagement": "Role Management",
@@ -2384,7 +2391,18 @@
     "含下级": "incl. sub-departments",
     "筛选中": "Filtering",
     "清除筛选": "Clear filter",
-    "建议先在这里收敛菜单，再到下方配置操作权限。": "Set the menu whitelist here first, then configure action permissions below."
+    "建议先在这里收敛菜单，再到下方配置操作权限。": "Set the menu whitelist here first, then configure action permissions below.",
+    "数据范围": "Data scope",
+    "决定该角色能查看哪些学生的档案。两个维度都留空 = 不限制（看全部）；维度之间同时满足，同一维度勾选多个是满足任一。": "Determines which students this role can view. Leave both dims empty = unrestricted; dims are AND-ed, multiple values within a dim are OR-ed.",
+    "暂无可选值（学生表里该字段还没有数据）": "No options available (this field has no data yet)",
+    "按当前配置可见": "Visible with current setting",
+    "个学生": "students",
+    "系统管理员不受数据范围限制，此处仅作展示": "System admins are exempt from data scope; shown for reference only",
+    "学生档案范围": "Student data scope",
+    "跟随角色": "Follow role",
+    "全部学生": "All students",
+    "自定义": "Custom",
+    "跟随角色 = 按所属角色的数据范围；全部学生 = 例外放宽（临时跨班查看）；自定义 = 在本账号上单独指定": "Follow role = use the role scope; All students = exception (cross-class access); Custom = set for this account only"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

@@ -30,6 +30,8 @@ import {
 import { BASE_CLIENT } from '../base.provider.js';
 import { runAs, systemActor } from '../shared/actor-context.js';
 import { buildFilter } from '../shared/record.util.js';
+import { normalizeScope, type StudentScope } from '../shared/student-scope.js';
+import { StudentScopeService } from '../shared/student-scope.service.js';
 
 const TABLE_ID = TABLES.systemConfig.tableId;
 
@@ -52,11 +54,19 @@ interface StoredRole {
   protected?: boolean;
   /** 菜单可见性白名单；空/缺省 = 不额外限制 */
   menus?: string[];
+  /**
+   * 学生档案「数据范围」（2026-09-15）：该角色的人能看到哪些学生。
+   * 空/缺省 = 不限制（看全部）—— 这也是默认值，所以上线不改变任何人的可见范围。
+   * 多角色取**并集**（见 student-scope.ts 的 mergeScopes）。
+   */
+  dataScope?: StudentScope;
 }
 
 export interface CreateRoleInput {
   key: string;
   label?: string;
+  /** 学生档案数据范围（可选；留空 = 不限制） */
+  dataScope?: unknown;
   permissions: string[];
   maxDataLevel: string;
   menus?: string[];
@@ -67,13 +77,22 @@ export interface UpdateRoleInput {
   permissions?: string[];
   maxDataLevel?: string;
   menus?: string[];
+  /** 学生档案数据范围；传 null/{} 表示清空（= 不限制） */
+  dataScope?: unknown;
 }
 
 @Injectable()
 export class RoleManagementService implements OnModuleInit {
   private readonly logger = new Logger(RoleManagementService.name);
 
-  constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
+  constructor(
+    @Inject(BASE_CLIENT) private readonly base: BaseClient,
+    /**
+     * 只用来在角色配置变更后**清掉范围缓存** —— 否则改了「数据范围」要等 TTL（10 秒）
+     * 才生效，运营会以为没保存成功。
+     */
+    @Inject(StudentScopeService) private readonly studentScope: StudentScopeService,
+  ) {}
 
   /**
    * 应用启动即把已持久化的角色权限矩阵载入引擎，确保鉴权与配置一致。
@@ -252,6 +271,7 @@ export class RoleManagementService implements OnModuleInit {
       permissions: r.permissions as Permission[],
       maxDataLevel: (r.maxDataLevel as DataLevel) ?? 'L1',
       menus: r.menus,
+      dataScope: r.dataScope,
       protected: !!r.protected || PROTECTED_ROLES.has(r.key),
       lockedPermissions: LOCKED_PERMISSION_ROLES.has(r.key),
     };
@@ -333,9 +353,14 @@ export class RoleManagementService implements OnModuleInit {
       permissions: this.sanitizePerms(dto.permissions),
       maxDataLevel: this.normalizeLevel(dto.maxDataLevel),
       menus: this.sanitizeMenus(dto.menus),
+      dataScope: normalizeScope(dto.dataScope) ?? undefined,
     };
     const merged = [...current, next];
     await this.persist(merged);
+    // 🔴 角色配置写完后必须清范围缓存：StudentScopeService 有 10 秒 TTL，
+    //    不清的话「刚配完的数据范围」要等 10 秒才生效，运营会以为没保存上。
+    //    （2026-09-15 实测踩到：配完立即查询仍是旧的可见集合，误判成「范围没生效」）
+    this.studentScope.clearCache();
     // 新建角色即时同步为「系统角色」字段选项，便于分配给用户
     const syncedRoleOptions = EXTERNAL_ROLES.has(key) ? [] : await this.syncRoleOptions(merged);
     return { ...(await this.getConfig()), syncedRoleOptions };
@@ -363,10 +388,20 @@ export class RoleManagementService implements OnModuleInit {
       if (menus) role.menus = menus;
       else delete role.menus;
     }
+    // 学生档案数据范围：只做「有值就设、全空就删」——空 = 不限制，不写空对象进配置
+    if (dto.dataScope !== undefined) {
+      const scope = normalizeScope(dto.dataScope);
+      if (scope) role.dataScope = scope;
+      else delete role.dataScope;
+    }
 
     role.permissionVersion = ROLE_PERMISSION_VERSION;
     current[idx] = role;
     await this.persist(current);
+    // 🔴 角色配置写完后必须清范围缓存：StudentScopeService 有 10 秒 TTL，
+    //    不清的话「刚配完的数据范围」要等 10 秒才生效，运营会以为没保存上。
+    //    （2026-09-15 实测踩到：配完立即查询仍是旧的可见集合，误判成「范围没生效」）
+    this.studentScope.clearCache();
     return this.getConfig();
   }
 
@@ -377,6 +412,10 @@ export class RoleManagementService implements OnModuleInit {
     if (idx < 0) throw new NotFoundException('角色不存在');
     current.splice(idx, 1);
     await this.persist(current);
+    // 🔴 角色配置写完后必须清范围缓存：StudentScopeService 有 10 秒 TTL，
+    //    不清的话「刚配完的数据范围」要等 10 秒才生效，运营会以为没保存上。
+    //    （2026-09-15 实测踩到：配完立即查询仍是旧的可见集合，误判成「范围没生效」）
+    this.studentScope.clearCache();
     return { ok: true };
   }
 }

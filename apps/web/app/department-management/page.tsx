@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   type DepartmentListResult,
@@ -11,6 +11,7 @@ import {
 } from '../../lib/api';
 import { useTranslations } from 'next-intl';
 import { usePermissions } from '../../lib/permissions';
+import DepartmentTree from '../../components/DepartmentTree';
 
 /**
  * 部门管理（组织管理）。
@@ -45,18 +46,6 @@ function Banner({
   );
 }
 
-/** 部门状态徽标（停用/已删除才显示，正常不打标） */
-function StatusBadge({
-  status,
-  t,
-}: {
-  status: DepartmentStatus;
-  t: (k: string, v?: Record<string, string | number>) => string;
-}) {
-  if (status === 'disabled') return <span className="dept-status dept-status-inactive">{t('statusDisabled')}</span>;
-  if (status === 'invalid') return <span className="dept-status dept-status-resigned">{t('statusInvalid')}</span>;
-  return null;
-}
 
 function fmtTime(ts: number): string {
   if (!ts) return '';
@@ -77,9 +66,7 @@ export default function DepartmentManagementPage() {
 
   const [data, setData] = useState<DepartmentListResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [query, setQuery] = useState('');
   const [sync, setSync] = useState<DepartmentSyncProgress | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   /** 当前选中的部门（右侧员工列表据此加载） */
   const [selectedId, setSelectedId] = useState('');
   /** 是否含子部门 —— 默认开：飞书按部门取人只给直属成员，不含下级的话点「公司」永远是空的 */
@@ -101,8 +88,6 @@ export default function DepartmentManagementPage() {
     try {
       const r = await api.listDepartments();
       setData(r);
-      // 默认展开全部（部门层级不深，全展开比逐层点开好用）
-      setExpanded(new Set(r.items.map((n) => n.open_department_id)));
     } finally {
       setLoading(false);
     }
@@ -136,31 +121,11 @@ export default function DepartmentManagementPage() {
   }, [stopPolling, reload]);
 
   // 构建树：过滤掉 status='invalid'（已删除不展示），按 parent 分组，根节点 = 无父或父不在集合内
-  const { roots, childrenMap, depthOf, validCount } = useMemo(() => {
-    const valid = (data?.items ?? []).filter((n) => n.status !== 'invalid');
-    const byId = new Map(valid.map((n) => [n.open_department_id, n]));
-    const cMap = new Map<string, DepartmentNode[]>();
-    const rootNodes: DepartmentNode[] = [];
-    for (const n of valid) {
-      const parent = n.parent_department_id && byId.has(n.parent_department_id) ? n.parent_department_id : '';
-      if (!parent) rootNodes.push(n);
-      else {
-        if (!cMap.has(parent)) cMap.set(parent, []);
-        cMap.get(parent)!.push(n);
-      }
-    }
-    const sortByOrder = (arr: DepartmentNode[]) => arr.sort((a, b) => b.order - a.order);
-    sortByOrder(rootNodes);
-    for (const arr of cMap.values()) sortByOrder(arr);
-    // 深度（搜索平铺时用于缩进）
-    const depth: Record<string, number> = {};
-    const walk = (n: DepartmentNode, d: number) => {
-      depth[n.open_department_id] = d;
-      for (const c of cMap.get(n.open_department_id) ?? []) walk(c, d + 1);
-    };
-    for (const r of rootNodes) walk(r, 0);
-    return { roots: rootNodes, childrenMap: cMap, depthOf: depth, validCount: valid.length };
-  }, [data]);
+  /** 部门总数（顶部「共 N 个部门」用）：已删除的不计 */
+  const validCount = useMemo(
+    () => (data?.items ?? []).filter((n) => n.status !== 'invalid').length,
+    [data],
+  );
 
   /** 数据变化后决定默认选中：优先根部门（id='0' = 公司），否则第一个根 */
   useEffect(() => {
@@ -194,58 +159,12 @@ export default function DepartmentManagementPage() {
     void loadMembers(selectedId, includeSub);
   }, [selectedId, includeSub, loadMembers]);
 
-  const hasQuery = query.trim().length > 0;
-  const matched = useMemo(() => {
-    if (!hasQuery) return [];
-    const q = query.trim().toLowerCase();
-    return (data?.items ?? [])
-      .filter((n) => n.status !== 'invalid' && n.name.toLowerCase().includes(q))
-      .sort((a, b) => (depthOf[a.open_department_id] ?? 0) - (depthOf[b.open_department_id] ?? 0) || b.order - a.order);
-  }, [hasQuery, query, data, depthOf]);
-
-  const toggle = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   const selectedNode = useMemo(
     () => (data?.items ?? []).find((n) => n.open_department_id === selectedId) ?? null,
     [data, selectedId],
   );
 
-  const renderNode = (n: DepartmentNode, depth: number): ReactNode => {
-    const kids = childrenMap.get(n.open_department_id) ?? [];
-    const isOpen = expanded.has(n.open_department_id);
-    const active = selectedId === n.open_department_id;
-    return (
-      <div key={n.open_department_id}>
-        <div className={`dept-row${active ? ' dept-row-active' : ''}`} style={{ paddingLeft: depth * 14 + 6 }}>
-          {kids.length > 0 ? (
-            <button
-              type="button"
-              className="dept-caret"
-              onClick={() => toggle(n.open_department_id)}
-              aria-label={isOpen ? t('collapseAll') : t('expandAll')}
-            >
-              {isOpen ? '▾' : '▸'}
-            </button>
-          ) : (
-            <span className="dept-caret" />
-          )}
-          <button type="button" className="dept-name" onClick={() => setSelectedId(n.open_department_id)} title={n.name}>
-            <span className="dept-name-text">{n.name}</span>
-            <StatusBadge status={n.status} t={t} />
-          </button>
-          <span className="dept-count">{n.member_count}</span>
-        </div>
-        {isOpen && kids.map((c) => renderNode(c, depth + 1))}
-      </div>
-    );
-  };
 
   return (
     <div className="page">
@@ -286,67 +205,14 @@ export default function DepartmentManagementPage() {
         </div>
 
         <div className="dept-layout">
-          <div className="card dept-tree-card">
-            <div className="dept-card-head">
-              <span className="dept-card-title">{t('treeTitle')}</span>
-              <span className="dept-card-meta">
-                {t('expandAll')} / {t('collapseAll')}
-              </span>
-            </div>
-            <div className="dept-tree-tools">
-              <input
-                className="form-input"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t('searchPlaceholder')}
-              />
-              <div className="dept-tree-ops">
-                <button
-                  type="button"
-                  className="link-btn"
-                  onClick={() => setExpanded(new Set((data?.items ?? []).map((n) => n.open_department_id)))}
-                >
-                  {t('expandAll')}
-                </button>
-                <button type="button" className="link-btn" onClick={() => setExpanded(new Set())}>
-                  {t('collapseAll')}
-                </button>
-              </div>
-            </div>
-            <div className="dept-tree">
-              {loading && !data ? (
-                <div className="dept-loading">…</div>
-              ) : hasQuery ? (
-                matched.length === 0 ? (
-                  <div className="dept-loading">{t('empty')}</div>
-                ) : (
-                  matched.map((n) => (
-                    <div
-                      key={n.open_department_id}
-                      className={`dept-row${selectedId === n.open_department_id ? ' dept-row-active' : ''}`}
-                      style={{ paddingLeft: (depthOf[n.open_department_id] ?? 0) * 14 + 6 }}
-                    >
-                      <span className="dept-caret" />
-                      <button
-                        type="button"
-                        className="dept-name"
-                        onClick={() => setSelectedId(n.open_department_id)}
-                        title={n.name}
-                      >
-                        <span className="dept-name-text">{n.name}</span>
-                        <StatusBadge status={n.status} t={t} />
-                      </button>
-                      <span className="dept-count">{n.member_count}</span>
-                    </div>
-                  ))
-                )
-              ) : roots.length === 0 ? (
-                <div className="dept-loading">{t('empty')}</div>
-              ) : (
-                roots.map((r) => renderNode(r, 0))
-              )}
-            </div>
-          </div>
+          {/* 部门架构树：与用户管理页共用同一个组件（components/DepartmentTree）
+              —— 那边是「点部门筛账号」，这边是「点部门看员工」，树本身完全一致 */}
+          <DepartmentTree
+            data={data}
+            loading={loading}
+            selectedId={selectedId}
+            onSelect={(id) => setSelectedId(id)}
+          />
 
           <div className="card dept-main-card">
             <div className="dept-card-head">

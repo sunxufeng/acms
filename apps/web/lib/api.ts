@@ -1375,6 +1375,13 @@ export const api = {
   // ── 部门管理（组织管理）：只读同步飞书通讯录部门树 ──
   /** 读取全部部门（前端构建树；已删除部门 status='invalid' 由前端过滤） */
   listDepartments: () => request<DepartmentListResult>('/departments'),
+  /**
+   * 部门成员快照的轻量索引（一次拿全，约几十行）。
+   * 用户管理页左树用它给每个节点算「点进去能筛出几个系统账号」——
+   * 逐部门调 listDepartmentMembers 会发 N 次请求。
+   */
+  departmentMemberIndex: () =>
+    request<{ departmentId: string; departmentName: string; openId: string }[]>('/departments/member-index'),
   /** 立即同步飞书部门：异步触发，立刻返回当前进度；之后轮询 sync-status */
   syncDepartments: () => request<DepartmentSyncProgress>('/departments/sync', { method: 'POST' }),
   getDepartmentSyncStatus: () => request<DepartmentSyncProgress>('/departments/sync-status'),

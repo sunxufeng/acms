@@ -2378,7 +2378,12 @@
     "用户": "User",
     "关联": "Related",
     "归属人员（历史）": "Owner (legacy)",
-    "请选择校区": "Please select a campus"
+    "请选择校区": "Please select a campus",
+    "全部用户": "All users",
+    "含下级部门": "Include sub-departments",
+    "含下级": "incl. sub-departments",
+    "筛选中": "Filtering",
+    "清除筛选": "Clear filter"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

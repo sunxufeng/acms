@@ -42,6 +42,17 @@ export class DepartmentController {
   }
 
   /**
+   * 成员快照的轻量索引 `[{ departmentId, openId }]`（读本地快照，只读、不打上游）。
+   * 供用户管理页左树一次算清「每个部门能筛出几个系统账号」——
+   * 逐部门调下面的 :id/members 会发 N 次请求。
+   * ⚠️ 静态路由必须排在带参数的路由之前（同 sync / sync-status 的约定）。
+   */
+  @Get('member-index')
+  memberIndex() {
+    return this.svc.memberIndex();
+  }
+
+  /**
    * 某部门下的员工（读本地成员快照，不打上游）。
    * includeSub 默认 **true**：飞书的按部门取人只给直属成员，
    * 不含下级的话点「公司」/中间层部门永远是空的。传 0 只看直属。

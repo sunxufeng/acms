@@ -147,6 +147,43 @@ export class DepartmentService {
     return { items, total: items.length, department_ids: ids, synced_at: syncedAt };
   }
 
+  /**
+   * 某部门（含/不含下级）下所有成员的 **open_id 集合**。
+   *
+   * 供其它模块做「按部门筛人」使用（用户管理页：系统账号按部门过滤）。
+   * 刻意复用上面 listMembers 的子树展开，不写第二份子树逻辑 ——
+   * 「含下级」的口径必须全站一致，否则会出现「部门管理页看到 12 人、
+   * 用户管理页只筛出 1 人」这种对不上的情况。
+   */
+  async memberOpenIds(openDepartmentId: string, includeSub = true): Promise<Set<string>> {
+    const r = await this.listMembers(openDepartmentId, includeSub);
+    return new Set(r.items.map((m) => m.open_id).filter(Boolean));
+  }
+
+  /**
+   * 成员快照的轻量索引：`[{ departmentId, departmentName, openId }]`（全量，几十行）。
+   *
+   * 用途：前端/服务端要**一次**拿到「部门 → 成员」的全貌 —— 用户管理页左树要给每个节点
+   * 标注「点进去能看到几个账号」，逐部门调 listMembers 会发 N 次请求；
+   * 用户列表要显示「所属部门」列也要用它做 openId → 部门名 的映射。
+   * 只返回 id 与部门名，不含头像等字段（明细走 listMembers）。
+   */
+  async memberIndex(): Promise<{ departmentId: string; departmentName: string; openId: string }[]> {
+    const sql = getSqlStore();
+    if (!sql) return [];
+    const res = await sql.search(TABLES.departmentMembers.tableId, { pageSize: 5000 });
+    return (res.items || [])
+      .map((r) => {
+        const f = (r.fields || {}) as Record<string, unknown>;
+        return {
+          departmentId: String(f.open_department_id ?? ''),
+          departmentName: String(f.department_name ?? ''),
+          openId: String(f.user_open_id ?? ''),
+        };
+      })
+      .filter((x) => x.departmentId && x.openId);
+  }
+
   /** 触发一次同步（异步）：HTTP 立即返回当前进度，后台跑 listDepartments 并落库 */
   sync(): DepartmentSyncProgress {
     if (this.syncState.running) return this.syncState;

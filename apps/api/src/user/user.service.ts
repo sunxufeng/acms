@@ -11,6 +11,7 @@ import { authorize, getRoleList, type Principal } from '@acms/domain';
 import { BaseClient, toText, toStringArray } from '@acms/base-adapter';
 import { BASE_CLIENT } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
+import { DepartmentService } from '../department/department.service.js';
 import { buildWriteFields, toFlatRecord } from '../shared/record.util.js';
 
 const MULTI_FIELDS = new Set(['系统角色']);
@@ -33,6 +34,13 @@ export class UsersService {
   constructor(
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
     @Inject(AuditService) private readonly audit: AuditService,
+    /**
+     * 部门服务：用户管理页的「按部门筛选」与列表「部门」列都要用。
+     * 用户表本身**没有部门字段** —— 人与部门的关系只存在于部门成员快照里
+     * （飞书同步落下，记录 id = `${部门ID}__${open_id}`），所以按部门筛人
+     * 必然要站在成员快照上做，复用它的子树展开逻辑。
+     */
+    @Inject(DepartmentService) private readonly dept: DepartmentService,
   ) {}
 
   private requireAdmin(user: SessionUser): void {
@@ -110,41 +118,98 @@ export class UsersService {
       .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
   }
 
+  /** openId → 所属部门名（可能多个，飞书允许多人多部门）。列表页「部门」列用它 */
+  private async departmentByOpenId(): Promise<Map<string, string[]>> {
+    const idx = await this.dept.memberIndex();
+    const m = new Map<string, string[]>();
+    for (const it of idx) {
+      if (!it.departmentName) continue;
+      const arr = m.get(it.openId) ?? [];
+      if (!arr.includes(it.departmentName)) arr.push(it.departmentName);
+      m.set(it.openId, arr);
+    }
+    return m;
+  }
+
+  /**
+   * 给列表行注入「所属部门」。
+   * ⚠️ 这是**只读展示字段**，用户表里并不存在它 —— create/update 都是逐字段白名单式取值
+   *（见 resolve 的用法），不会把这个注入字段写回 Base；列定义里也是 form: false。
+   */
+  private withDepartment(
+    flats: Record<string, unknown>[],
+    map: Map<string, string[]>,
+  ): Record<string, unknown>[] {
+    return flats.map((f) => ({
+      ...f,
+      所属部门: (map.get(String(f['飞书 Open ID'] ?? '').trim()) ?? []).join('、'),
+    }));
+  }
+
+  /** 关键字过滤：姓名 / 飞书 Open ID（用户管理页搜索框的口径，保持原行为） */
+  private applyKeyword(flats: Record<string, unknown>[], q?: string): Record<string, unknown>[] {
+    if (!q) return flats;
+    const s = String(q).toLowerCase();
+    return flats.filter(
+      (f) =>
+        String(f['姓名'] ?? '').toLowerCase().includes(s) ||
+        String(f['飞书 Open ID'] ?? '').toLowerCase().includes(s),
+    );
+  }
+
   async list(
     user: SessionUser,
-    query: { q?: string; pageSize?: string; pageToken?: string } = {},
+    query: {
+      q?: string;
+      pageSize?: string;
+      pageToken?: string;
+      /** 左侧组织架构树选中的部门 id（飞书 open_department_id） */
+      departmentId?: string;
+      /** 传 '0' 表示只看该部门**直属**成员；缺省 = 含下级部门 */
+      includeSub?: string;
+    } = {},
   ) {
     this.requireAdmin(user);
     const q = query.q;
-    // 传入 pageSize 时走服务端游标分页（用户管理列表页每页 N 条）；
-    // 不传 pageSize 时返回全部用户（学生表单的班主任/招生选择器依赖全量）。
-    if (query.pageSize) {
-      const ps = Number(query.pageSize) || 50;
-      const res = await this.base.search(USER_TABLE.tableId, { pageSize: ps, pageToken: query.pageToken });
-      let flats = res.items.map((r) => this.flat(r));
-      if (q) {
-        const s = String(q).toLowerCase();
-        flats = flats.filter(
-          (f) =>
-            String(f['姓名'] ?? '').toLowerCase().includes(s) ||
-            String(f['飞书 Open ID'] ?? '').toLowerCase().includes(s),
-        );
-      }
-      flats.sort((a, b) => String(a['姓名']).localeCompare(String(b['姓名']), 'zh'));
-      return { items: flats, total: res.total, hasMore: res.hasMore, pageToken: res.pageToken };
-    }
-    const raw = await this.fetchAll();
-    let flats = raw.map((r) => this.flat(r));
-    if (q) {
-      const s = String(q).toLowerCase();
-      flats = flats.filter(
-        (f) =>
-          String(f['姓名'] ?? '').toLowerCase().includes(s) ||
-          String(f['飞书 Open ID'] ?? '').toLowerCase().includes(s),
+    const deptId = String(query.departmentId ?? '').trim();
+    const sortByName = (arr: Record<string, unknown>[]) =>
+      arr.sort((a, b) => String(a['姓名']).localeCompare(String(b['姓名']), 'zh'));
+
+    /**
+     * 按部门筛选（用户管理页左树）。
+     *
+     * ⚠️ 必须**先过滤再分页**：下面的 pageSize 分支是「先取一页、再在内存里过滤关键字」，
+     * 那套做法在带部门条件时会把「本页里属于该部门的那几条」当成全部，total 与页数全错。
+     * 所以这里走「全量拉 → 过滤 → 返回**全集**（不带 pageToken）」，由 CrudPage 前端切片分页
+     * （它已有 fallback：无 pageToken 且条数 > 每页大小 ⇒ 前端分页）。用户量级几十条，可忽略代价。
+     */
+    if (deptId) {
+      const openIds = await this.dept.memberOpenIds(deptId, query.includeSub !== '0');
+      const raw = await this.fetchAll();
+      const flats = sortByName(
+        this.applyKeyword(
+          raw.map((r) => this.flat(r)).filter((f) => openIds.has(String(f['飞书 Open ID'] ?? '').trim())),
+          q,
+        ),
       );
+      const items = this.withDepartment(flats, await this.departmentByOpenId());
+      return { items, total: items.length, hasMore: false, pageToken: undefined };
     }
-    flats.sort((a, b) => String(a['姓名']).localeCompare(String(b['姓名']), 'zh'));
-    return { items: flats, total: flats.length, hasMore: false, pageToken: undefined };
+
+    /**
+     * 其余情况一律返回**过滤后的全集**（不带 pageToken），由前端切片分页。
+     *
+     * 为什么要改掉原来的「pageSize 走服务端游标分页」（2026-09-15）：
+     * 旧实现是「先按 Base 物理顺序取一页 → 再在**这一页内**按姓名排序」，
+     * 于是列表呈现的是「本页内有序、跨页无序」—— 翻页时名字会来回跳，
+     * 用户管理页尤其明显（第一页首个是「郝瑞玲」，翻到第二页又冒出「曹德强」）。
+     * 现在改成先全量排序再交给前端切片，全局顺序稳定；用户量级几十条，代价可忽略，
+     * 也与上面「按部门筛选」的口径统一（都走同一条路径）。
+     */
+    const raw = await this.fetchAll();
+    const flats = sortByName(this.applyKeyword(raw.map((r) => this.flat(r)), q));
+    const items = this.withDepartment(flats, await this.departmentByOpenId());
+    return { items, total: items.length, hasMore: false, pageToken: undefined };
   }
 
   async get(user: SessionUser, id: string) {

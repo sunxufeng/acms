@@ -1667,8 +1667,12 @@ select.form-input:disabled { color: var(--fg); }
 }
 .dept-meta-hint { margin-left: auto; text-align: right; }
 
-.dept-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: var(--space-lg); align-items: start; }
-@media (max-width: 900px) { .dept-layout { grid-template-columns: 1fr; } }
+/* 通用「左栏 + 右栏主内容」两栏布局（.split-layout，2026-09-15 从 .dept-layout 泛化而来）。
+   用于用户管理页的组织架构树等场景 —— 与部门管理页共用同一套尺寸，避免两份近似实现。
+   min-width:0 是关键：否则右栏里的宽表格会把网格撑破、整页出现横向滚动。 */
+.dept-layout, .split-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: var(--space-lg); align-items: start; }
+@media (max-width: 900px) { .dept-layout, .split-layout { grid-template-columns: 1fr; } }
+.split-side, .split-main { min-width: 0; }
 
 .dept-tree-card, .dept-main-card { overflow: hidden; }
 

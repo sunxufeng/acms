@@ -316,6 +316,21 @@ export interface CrudPageProps {
    * 默认不会触发英文名映射。
    */
   studentNameKeys?: string[];
+  /**
+   * 左侧栏插槽（如用户管理页的「组织架构」部门树）。
+   * 传入后页面在标题下方变成「左栏 + 右侧列表」两栏（`.split-layout`，窄屏自动堆叠）；
+   * 不传则完全保持原来的整宽列表，其它模块不受影响。
+   * ⚠️ 建议配合 `standaloneForm` 使用：独立表单页需要整宽，而进入表单时左栏会被自动隐藏
+   * （条件是 `sidebar && !showingStandaloneForm`）；若用弹窗式表单（非 standaloneForm），
+   * 表单会落在右栏里，需要另行调整。
+   */
+  sidebar?: React.ReactNode;
+  /**
+   * 额外的列表查询参数（如左侧栏选中的部门）：原样并入 list 请求。
+   * 与列筛选是「与」的关系；任一项变化都会自动重新拉取列表并回到第 1 页。
+   * 空值（'' / undefined）不参与请求，保持 URL/接口干净。
+   */
+  extraParams?: Record<string, string | undefined>;
 }
 
 function str(v: unknown): string {
@@ -451,7 +466,7 @@ const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: '
  */
 let weilingContactCache: { value: string; label: string }[] | null = null;
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, studentNameKeys }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, studentNameKeys, sidebar, extraParams }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -643,6 +658,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const filtersRef = useRef(filters); filtersRef.current = filters;
   const rangeRef = useRef(rangeFilters); rangeRef.current = rangeFilters;
   const passRef = useRef(passthroughParams); passRef.current = passthroughParams;
+  /** 调用方注入的额外查询条件（如左侧树选中的部门）。用 ref 持有，避免 load 反复重建 */
+  const extraRef = useRef(extraParams); extraRef.current = extraParams;
 
   const buildParams = useCallback(
     (token?: string): Record<string, string | undefined> => {
@@ -665,6 +682,10 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       for (const k of passRef.current ?? []) {
         if (f[k]) params[k] = f[k];
       }
+      // 调用方注入的额外条件（左侧树选中的部门等）：空值不发，避免污染接口
+      for (const [k, v] of Object.entries(extraRef.current ?? {})) {
+        if (v) params[k] = v;
+      }
       if (f.q) params.q = f.q;
       if (token) params.pageToken = token;
       return params;
@@ -672,13 +693,26 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     [PAGE_SIZE],
   );
 
+  /**
+   * 请求序号：并发请求回来时**只认最新那一次**。
+   *
+   * 为什么必须有（2026-09-15 实测踩到）：条件变化会立刻发新请求，而响应不保证按发出顺序返回
+   * —— 先发的「无条件」请求若后返回，就会把新条件的结果覆盖掉。
+   * 现场：用户管理页打开带部门的链接时，先发 `?pageSize=10`（28 条）、URL 恢复后再发
+   * `?pageSize=10&departmentId=…`（6 条）；若前者后返回，左树高亮着部门、右边却列出全量。
+   * 这类竞态在「手快连点筛选」时同样会触发，属通用问题。
+   */
+  const reqSeqRef = useRef(0);
+
   /** 拉取指定页（token 已知时直接拉；拉取后用返回 token 续填下一页游标） */
   const fetchPage = useCallback(
     async (target: number, token?: string) => {
+      const seq = ++reqSeqRef.current;
       setLoading(true);
       setError(null);
       try {
         const res = await apiRef.current.list(buildParams(token));
+        if (seq !== reqSeqRef.current) return; // 已被更晚的请求取代，整包丢弃
         setTotal(res.total);
         // 后端若一次性返回超过一页（如审计日志深度筛选），改为前端切片分页
         if (!res.pageToken && res.items.length > PAGE_SIZE) {
@@ -691,9 +725,11 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         }
         setPage(target);
       } catch (e: unknown) {
+        if (seq !== reqSeqRef.current) return;
         setError(e instanceof Error ? e.message : t('common.loadFailed'));
       } finally {
-        setLoading(false);
+        // 只有最新那次请求可以关掉 loading —— 否则旧请求结束时会把新请求的转圈提前熄灭
+        if (seq === reqSeqRef.current) setLoading(false);
       }
     },
     [buildParams],
@@ -729,7 +765,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     fetchPage(1, undefined);
   }, [fetchPage]);
 
-  useEffect(() => { reload(); }, [filters, reload]);
+  /**
+   * 额外参数的序列化指纹：用字符串做 effect 依赖。
+   * 直接依赖对象会因每次渲染的新字面量而无限重载（调用方通常写成 `{ departmentId: x }`）。
+   */
+  const extraKey = JSON.stringify(extraParams ?? {});
+
+  useEffect(() => { reload(); }, [filters, extraKey, reload]);
 
   /**
    * 自动刷新：只在「页面可见 + 没打开表单」时轮询。
@@ -1617,101 +1659,15 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     </div>
   );
 
-  return (
-    <div className="page">
-      {!showingStandaloneForm && (
-        <div className="page-header page-header-row">
-          {backHref && (
-            <Link
-              href={backHref}
-              className="btn btn-icon"
-              title={t('crud.back')}
-              aria-label={t('crud.back')}
-              style={{ marginRight: 'var(--space-md)' }}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
-            </Link>
-          )}
-          <div>
-            <h1 className="page-title">{tl(title)}</h1>
-            {subtitle && <p className="page-subtitle">{tl(subtitle)}</p>}
-          </div>
-          <div className="page-actions">
-            {extraActions?.map((a) => (
-              <button key={a.label} className="btn btn-outline" disabled={loading}
-                onClick={() => a.run(() => reload())}>{tl(a.label)}</button>
-            ))}
-            {extraLinks?.map((l) => (
-              <Link key={l.href} href={l.href} className="btn btn-outline">{tl(l.label)}</Link>
-            ))}
-            {autoRefresh?.length ? (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{t('crud.autoRefresh')}</span>
-                <select
-                  className="form-input"
-                  style={{ width: 104 }}
-                  value={String(autoSec)}
-                  onChange={(e) => setAutoSec(Number(e.target.value))}
-                >
-                  <option value="0">{t('crud.off')}</option>
-                  {autoRefresh.map((sec) => (
-                    <option key={sec} value={sec}>{sec} {t('crud.seconds')}</option>
-                  ))}
-                </select>
-              </span>
-            ) : null}
-            {columnSettings ? (
-              <span style={{ position: 'relative' }}>
-                <button className="btn btn-outline" onClick={() => setColMenuOpen((v) => !v)}>
-                  {t('crud.columns')}
-                </button>
-                {colMenuOpen ? (
-                  <span
-                    style={{
-                      position: 'absolute', right: 0, top: '100%', zIndex: 30, marginTop: 4,
-                      display: 'block', padding: 10, width: 210, maxHeight: 320, overflow: 'auto',
-                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                      borderRadius: 10, boxShadow: '0 6px 20px rgba(0,0,0,0.08)',
-                    }}
-                  >
-                    {columns.filter((c) => c.list !== false).map((c) => (
-                      <label
-                        key={c.key}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 'var(--font-sm)' }}
-                      >
-                        <input type="checkbox" checked={!hiddenCols.includes(c.key)} onChange={() => toggleCol(c.key)} />
-                        {tl(c.label)}
-                      </label>
-                    ))}
-                  </span>
-                ) : null}
-              </span>
-            ) : null}
-            {canImport && (
-              <>
-                <button className="btn btn-outline" disabled={loading || importing} onClick={() => fileInputRef.current?.click()}>
-                  {importing ? `${t('crud.importing')}…` : t('crud.import')}
-                </button>
-                <input ref={fileInputRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImportFile} />
-              </>
-            )}
-            {canExport && (
-              <button className="btn btn-outline" disabled={loading || items.length === 0} onClick={downloadCsv}>
-                {t('crud.export')}
-              </button>
-            )}
-            <button className="btn btn-ghost" disabled={loading} onClick={() => reload()} title={t('crud.refresh')}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></svg>
-            </button>
-            {canCreate && (createHref ? (
-              <Link href={createHref} className="btn btn-primary">+ {t('crud.create')}</Link>
-            ) : (
-              <button className="btn btn-primary" onClick={() => openCreate()} disabled={loading || readonly}>+ {t('crud.create')}</button>
-            ))}
-          </div>
-        </div>
-      )}
+  /** 左侧栏开关：进入独立表单页（新建/编辑）时让位给整宽表单 */
+  const showSidebar = Boolean(sidebar) && !showingStandaloneForm;
 
+  /**
+   * 列表区（搜索 / 筛选 / 内联表单 / 批量栏 / 表格 / 分页）。
+   * 有左侧栏时装进右栏，否则整宽渲染 —— 两种情形用的是同一份 JSX，不存在两份实现。
+   */
+  const listSection = (
+    <>
       {!showingStandaloneForm && (filterCols.length > 0 || (rangeFilters ?? []).length > 0 || search) && (
         <div className="filter-bar">
           {search && (
@@ -2021,6 +1977,112 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         onPageSizeChange={setSize}
       />
       </>)}
+    </>
+  );
+
+  return (
+    <div className="page">
+      {!showingStandaloneForm && (
+        <div className="page-header page-header-row">
+          {backHref && (
+            <Link
+              href={backHref}
+              className="btn btn-icon"
+              title={t('crud.back')}
+              aria-label={t('crud.back')}
+              style={{ marginRight: 'var(--space-md)' }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
+            </Link>
+          )}
+          <div>
+            <h1 className="page-title">{tl(title)}</h1>
+            {subtitle && <p className="page-subtitle">{tl(subtitle)}</p>}
+          </div>
+          <div className="page-actions">
+            {extraActions?.map((a) => (
+              <button key={a.label} className="btn btn-outline" disabled={loading}
+                onClick={() => a.run(() => reload())}>{tl(a.label)}</button>
+            ))}
+            {extraLinks?.map((l) => (
+              <Link key={l.href} href={l.href} className="btn btn-outline">{tl(l.label)}</Link>
+            ))}
+            {autoRefresh?.length ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{t('crud.autoRefresh')}</span>
+                <select
+                  className="form-input"
+                  style={{ width: 104 }}
+                  value={String(autoSec)}
+                  onChange={(e) => setAutoSec(Number(e.target.value))}
+                >
+                  <option value="0">{t('crud.off')}</option>
+                  {autoRefresh.map((sec) => (
+                    <option key={sec} value={sec}>{sec} {t('crud.seconds')}</option>
+                  ))}
+                </select>
+              </span>
+            ) : null}
+            {columnSettings ? (
+              <span style={{ position: 'relative' }}>
+                <button className="btn btn-outline" onClick={() => setColMenuOpen((v) => !v)}>
+                  {t('crud.columns')}
+                </button>
+                {colMenuOpen ? (
+                  <span
+                    style={{
+                      position: 'absolute', right: 0, top: '100%', zIndex: 30, marginTop: 4,
+                      display: 'block', padding: 10, width: 210, maxHeight: 320, overflow: 'auto',
+                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                      borderRadius: 10, boxShadow: '0 6px 20px rgba(0,0,0,0.08)',
+                    }}
+                  >
+                    {columns.filter((c) => c.list !== false).map((c) => (
+                      <label
+                        key={c.key}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 'var(--font-sm)' }}
+                      >
+                        <input type="checkbox" checked={!hiddenCols.includes(c.key)} onChange={() => toggleCol(c.key)} />
+                        {tl(c.label)}
+                      </label>
+                    ))}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
+            {canImport && (
+              <>
+                <button className="btn btn-outline" disabled={loading || importing} onClick={() => fileInputRef.current?.click()}>
+                  {importing ? `${t('crud.importing')}…` : t('crud.import')}
+                </button>
+                <input ref={fileInputRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImportFile} />
+              </>
+            )}
+            {canExport && (
+              <button className="btn btn-outline" disabled={loading || items.length === 0} onClick={downloadCsv}>
+                {t('crud.export')}
+              </button>
+            )}
+            <button className="btn btn-ghost" disabled={loading} onClick={() => reload()} title={t('crud.refresh')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></svg>
+            </button>
+            {canCreate && (createHref ? (
+              <Link href={createHref} className="btn btn-primary">+ {t('crud.create')}</Link>
+            ) : (
+              <button className="btn btn-primary" onClick={() => openCreate()} disabled={loading || readonly}>+ {t('crud.create')}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showSidebar ? (
+        <div className="split-layout">
+          <div className="split-side">{sidebar}</div>
+          <div className="split-main">{listSection}</div>
+        </div>
+      ) : (
+        listSection
+      )}
 
       {!inlineEdit && editing && (
         <div style={overlayStyle} onClick={() => setEditing(null)}>

@@ -349,6 +349,8 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'export', label: '数据导出', enLabel: 'Export', href: '/export', icon: 'reports', section: '后台管理', order: 20, perm: 'export:run' },
     { key: 'audit-logs', label: '审计日志', enLabel: 'Audit Logs', href: '/audit-logs', icon: 'audit', section: '后台管理', order: 30, adminOnly: true },
     { key: 'users', label: '用户管理', enLabel: 'Users', href: '/users', icon: 'userGroup', section: '后台管理', order: 40, adminOnly: true },
+    // 身份模拟（2026-09-16）：系统管理员以任意账号身份浏览，排障用。仅 adminOnly，与权限矩阵无关。
+    { key: 'impersonate', label: '身份模拟', enLabel: 'Impersonate', href: '/impersonate', icon: 'lock', section: '后台管理', order: 45, adminOnly: true },
     { key: 'permissions', label: '权限授权', enLabel: 'Permissions', href: '/permissions', icon: 'shield', section: '后台管理', order: 50, adminOnly: true },
     { key: 'role-management', label: '角色管理', enLabel: 'Role Management', href: '/role-management', icon: 'key', section: '后台管理', order: 52, adminOnly: true, perm: 'admin:user' },
     { key: 'notifications', label: '通知任务', enLabel: 'Notifications', href: '/notifications', icon: 'notifications', section: '后台管理', order: 60, perm: 'notification:read' },

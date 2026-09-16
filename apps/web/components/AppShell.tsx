@@ -8,13 +8,17 @@ import { api } from '../lib/api';
 import LocaleSwitcher from './LocaleSwitcher';
 import { useRoleLabels } from './RoleLabels';
 import { modulePermission, moduleByMenuKey } from '@acms/contracts';
-import { loadPermissions } from '../lib/permissions';
+import { loadPermissions, resetPermissions } from '../lib/permissions';
 import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuGroup, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
 
 interface Me {
   name: string;
   openId: string;
   roles: string[];
+  /** 身份模拟（2026-09-16）：存在即表示当前会话是「以他人身份浏览」 */
+  impersonatedBy?: { openId: string; name: string };
+  /** 会话到期时间戳：模拟态横幅用它算「剩余 X 分钟」 */
+  expiresAt?: number;
 }
 
 /** 图标名称 → 组件（与 NavMenuItem.icon 对应） */
@@ -129,6 +133,7 @@ const LEGACY_NAV_ITEMS: LegacyNavGroup[] = [
       { key: 'export', label: '数据导出', href: '/export', icon: ReportsIcon },
       { key: 'audit-logs', label: '审计日志', href: '/audit-logs', icon: AuditIcon },
       { key: 'users', label: '用户管理', href: '/users', icon: UserGroupIcon, adminOnly: true },
+      { key: 'impersonate', label: '身份模拟', href: '/impersonate', icon: LockIcon, adminOnly: true },
       { key: 'permissions', label: '权限授权', href: '/permissions', icon: ShieldIcon, adminOnly: true },
       { key: 'notifications', label: '通知任务', href: '/notifications', icon: NotificationsIcon },
       { key: 'notification-templates', label: '通知模板', href: '/notification-templates', icon: NotificationsIcon },
@@ -182,7 +187,13 @@ export default function AppShell({
   const tns = useTranslations('navSection');
   const tb = useTranslations('breadcrumb');
   const tTop = useTranslations('topbar');
+  /** 身份模拟横幅的文案（2026-09-16） */
+  const tImp = useTranslations('impersonate');
   const [me, setMe] = useState<Me | null>(null);
+  /** 退出模拟的进行态 */
+  const [exitingImp, setExitingImp] = useState(false);
+  /** 横幅「剩余 X 分钟」的刷新时钟（每 30s 走一格，不必每秒渲染） */
+  const [nowTs, setNowTs] = useState(() => Date.now());
   const { labelOf } = useRoleLabels();
   const [myPerms, setMyPerms] = useState<string[]>([]);
   /** 菜单白名单：null = 不限制（按权限点自动显隐）；数组 = 仅这些菜单可见 */
@@ -310,6 +321,37 @@ export default function AppShell({
   }
 
   /**
+   * 退出身份模拟（2026-09-16）。
+   *
+   * 与 handleLogout 的关键区别：**不登出管理员**，只是把身份换回他本人 ——
+   * 后端保留了管理员原会话，这里把 Cookie 换回去。
+   * `restored=false` 表示原会话已过期（后端已清 Cookie），此时回登录页，
+   * 而不是留在一个悬空状态里。
+   */
+  async function handleExitImpersonate() {
+    if (exitingImp) return;
+    setExitingImp(true);
+    try {
+      const r = await api.impersonateExit();
+      resetPermissions();
+      window.location.href = r.restored ? '/' : '/login';
+    } catch {
+      setExitingImp(false);
+      window.alert(tImp('exitFailed'));
+    }
+  }
+
+  // 模拟态横幅上的「剩余 X 分钟」需要走时钟（30 秒一格即可，不必每秒渲染）
+  useEffect(() => {
+    if (!me?.impersonatedBy) return;
+    const id = window.setInterval(() => setNowTs(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [me?.impersonatedBy]);
+
+  /** 模拟会话剩余分钟数（非模拟态为 0，不参与渲染） */
+  const impLeftMin = me?.expiresAt ? Math.max(0, Math.ceil((me.expiresAt - nowTs) / 60000)) : 0;
+
+  /**
    * 精确匹配菜单高亮：只高亮「最具体」的那一项。
    *
    * 问题：/getnote 用 startsWith 会同时匹配 /getnote/sources，导致两个菜单都亮。
@@ -410,6 +452,41 @@ export default function AppShell({
 
   return (
     <div className="app-shell">
+      {/* ── 身份模拟横幅（2026-09-16）───────────────────────────────
+          只要是模拟会话就**常驻**显示（不是 toast）。为什么这条不能省：
+          管理员忘记自己在模拟态 → 以为在改自己的数据、实际以他人名义改了 → 事故。
+          它是 .app-shell 的第一个子元素 ⇒ 横贯整行（含侧栏上方）；
+          配合 globals.css 里的 `:has(> .imp-banner)` 开启 flex 换行，
+          非模拟态页面完全不受影响。 */}
+      {me?.impersonatedBy && (
+        <div className="imp-banner">
+          <span className="imp-banner-eye">👁</span>
+          <span>
+            {tImp('browsingAs')}{' '}
+            <span className="imp-banner-who">
+              {tImp('identityWho', {
+                name: me.name,
+                role: labelOf(me.roles[0] ?? '') || me.roles[0] || '',
+              })}
+            </span>
+          </span>
+          <span className="imp-banner-meta">
+            {tImp('bannerBy', { by: me.impersonatedBy.name })} ·{' '}
+            {impLeftMin >= 2 ? tImp('bannerLeft', { min: impLeftMin }) : tImp('bannerLeftSoon')}
+          </span>
+          <span className="imp-banner-spacer" />
+          <button
+            type="button"
+            className="imp-banner-btn"
+            onClick={handleExitImpersonate}
+            disabled={exitingImp}
+            title={tImp('exitFromBanner', { name: me.impersonatedBy.name })}
+          >
+            ⏏ {exitingImp ? tImp('exiting') : tImp('exit')}
+          </button>
+        </div>
+      )}
+
       {/* ── Sidebar ─────────────────────────────── */}
       <aside className={`sidebar${sidebarOpen ? '' : ' collapsed'}`} style={sidebarStyle}>
         <div className="sidebar-header">
@@ -520,9 +597,23 @@ export default function AppShell({
             <button className="theme-toggle" onClick={toggleTheme} title={themeMode === 'light' ? tTop('toggleTheme') : tTop('toggleTheme')}>
               {themeMode === 'light' ? <SunIcon /> : <MoonIcon />}
             </button>
-            <button className="btn-icon" onClick={handleLogout} title={t('auth.logout')} disabled={loggingOut}>
-              <LogoutIcon />
-            </button>
+            {/* 模拟态下这个位置是「退出模拟」而不是登出：点它只回到管理员本人，
+                不会把管理员一起登出（否则很容易"想退模拟、结果自己也被踢下线"）。 */}
+            {me?.impersonatedBy ? (
+              <button
+                type="button"
+                className="imp-banner-btn"
+                onClick={handleExitImpersonate}
+                disabled={exitingImp}
+                title={tImp('exitFromBanner', { name: me.impersonatedBy.name })}
+              >
+                ⏏ {exitingImp ? tImp('exiting') : tImp('exit')}
+              </button>
+            ) : (
+              <button className="btn-icon" onClick={handleLogout} title={t('auth.logout')} disabled={loggingOut}>
+                <LogoutIcon />
+              </button>
+            )}
           </div>
         </header>
 
@@ -548,6 +639,7 @@ function breadcrumbLabel(path: string, t: (k: string) => string): string {
     '/menu-settings': 'menu-settings',
     '/notification-templates': 'notification-templates',
     '/students': 'students',
+    '/impersonate': 'impersonate',
   };
   for (const prefix of Object.keys(map)) {
     if (path === prefix || path.startsWith(prefix + '/')) return t(map[prefix]);

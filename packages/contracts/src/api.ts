@@ -43,6 +43,14 @@ export interface SessionUser {
   maxDataLevel: string;
   /** 学生端/家长端会话：绑定的学生档案 record_id（同时作为关联学生编号的 link 值） */
   studentId?: string;
+  /**
+   * 身份模拟（2026-09-16）：本会话由哪位系统管理员发起。缺省 = 本人真实登录。
+   *
+   * 存在的意义有两个：
+   *  1. 前端据此渲染全局提醒横幅 + 把登出按钮换成「退出模拟」
+   *  2. 服务端据此拒绝嵌套模拟，并让审计摘要在写入时标注「由 XXX 代为操作」
+   */
+  impersonatedBy?: { openId: string; name: string };
   sessionId: string;
   expiresAt: number;
 }

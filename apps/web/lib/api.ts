@@ -1541,6 +1541,29 @@ export const api = {
       `/exam-grades/report-card?studentId=${encodeURIComponent(studentId)}&batchId=${encodeURIComponent(batchId)}`,
     ),
 
+  // ── 身份模拟（2026-09-16）────────────────────────────────────────────
+  // 全部接口都要求「已登录 + 系统管理员」；除 unlock 外还要求解锁凭证
+  // （凭证缺失时后端返回 **403** 而不是 401，避免被 request() 当成未登录踢回登录页）。
+  /** ① 校验二次密码，成功则解锁 10 分钟 */
+  impersonateUnlock: (password: string) =>
+    request<ImpersonateUnlockResult>('/impersonate/unlock', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+  /** 主动锁定：清掉解锁凭证，回到密码屏 */
+  impersonateLock: () => request<{ ok: true }>('/impersonate/lock', { method: 'POST' }),
+  /** ② 账号清单（不含邮箱/手机/密级） */
+  impersonateUsers: () => request<ImpersonateListResult>('/impersonate/users'),
+  /** ③ 进入模拟：后端会把 Cookie 换成模拟会话 */
+  impersonateEnter: (openId: string) =>
+    request<ImpersonateEnterResult>('/impersonate/enter', {
+      method: 'POST',
+      body: JSON.stringify({ openId }),
+    }),
+  /** ④ 退出模拟：后端把 Cookie 换回管理员原会话。restored=false 表示原会话已过期 */
+  impersonateExit: () =>
+    request<{ ok: true; restored: boolean }>('/impersonate/exit', { method: 'POST' }),
+
   // ── 课程规划 / 学习成果 / 课时教案（教学域第四块，参照 Gibbon v31 的 Planner）────
   // 这 10 张表全部由后端 generic-crud 承载，端点形状完全一致
   // （GET / | POST / | PUT /:id | DELETE /:id | POST /:id/transition），
@@ -1908,6 +1931,39 @@ export interface ExamReportCard {
   summaryComment: string;
   summaryStatus: string;
   confirmedAt: string;
+}
+
+// ── 身份模拟（2026-09-16）：系统管理员以任意账号身份浏览，排障用 ──────────────
+export interface ImpersonateUserRow {
+  openId: string;
+  name: string;
+  teacherType: string;
+  campus: string;
+  roles: string[];
+  status: string;
+  /** false = 不可模拟（停用 / 无 Open ID），原因见 reason */
+  canEnter: boolean;
+  reason: string;
+}
+export interface ImpersonateListResult {
+  users: ImpersonateUserRow[];
+  total: number;
+  enterable: number;
+  disabled: number;
+  currentOpenId: string;
+}
+/**
+ * 解锁结果。密码错与被锁定都走 **HTTP 200 + 结构体**（而不是抛异常），
+ * 因为页面需要 `remaining` 才能显示「还可以尝试 2 次」。
+ */
+export type ImpersonateUnlockResult =
+  | { ok: true; expiresIn: number }
+  | { ok: false; code: 'BAD_PASSWORD'; fails: number; remaining: number }
+  | { ok: false; code: 'LOCKED'; lockedSeconds: number };
+export interface ImpersonateEnterResult {
+  ok: true;
+  target: { openId: string; name: string; roles: string[]; campus: string };
+  expiresIn: number;
 }
 
 export interface MarkbookColumnPayload {

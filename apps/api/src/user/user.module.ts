@@ -15,5 +15,8 @@ import { DepartmentModule } from '../department/department.module.js';
   imports: [DepartmentModule],
   controllers: [UsersController],
   providers: [UsersService, baseClientProvider],
+  // UsersService 对外导出：身份模拟（impersonate）要用它的 listForImpersonation()
+  // 列账号 —— 复用同一份「用户表 → 可模拟清单」的判定，避免页面与接口口径不一致。
+  exports: [UsersService],
 })
 export class UsersModule {}

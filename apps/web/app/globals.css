@@ -1850,3 +1850,109 @@ select.form-input:disabled { color: var(--fg); }
   .exam-paper-table tr, .exam-paper-kv > div { break-inside: avoid; }
   @page { size: A4; margin: 12mm; }
 }
+
+/* ============================================================================
+   身份模拟（Impersonate）2026-09-16
+   ----------------------------------------------------------------------------
+   三块：
+     ① .notice-warn —— 现有 notice 只有 info / ok / error 三档，缺「需要注意但
+        不一定是错误」这一档。用金色（--gold / --gold-muted），与模拟态横幅同色系。
+     ② .imp-banner —— 模拟态全局横幅。**必须常驻**（不是 toast）：管理员忘记自己在
+        模拟态 → 以为在改自己的数据、实际以别人名义改了 → 事故。
+        它插在 .app-shell 里占满一整行（含侧栏上方），用 :has() 只在横幅存在时开启
+        换行，从而不影响其他页面的 flex 布局。
+     ③ 解锁卡与列表的少量自有类（输入框一律复用 .form-input，不另造一套）。
+   配色全部走主题变量 —— 深色「月之暗面」与浅色「月之明面」共用同一套声明。
+   ============================================================================ */
+
+.notice-warn { border-color: var(--gold); background: var(--gold-muted); }
+
+/* ── ② 模拟态全局横幅 ───────────────────────────────────────────────── */
+
+.app-shell:has(> .imp-banner) { flex-wrap: wrap; }
+
+.imp-banner {
+  flex: 0 0 100%; width: 100%;
+  display: flex; align-items: center; gap: var(--space-sm) var(--space-md); flex-wrap: wrap;
+  padding: 10px var(--space-xl);
+  background: var(--gold-muted);
+  border-bottom: 1px solid var(--gold);
+  font-size: var(--font-sm); color: var(--fg);
+}
+.imp-banner-eye { font-size: var(--font-md); line-height: 1; }
+.imp-banner-who {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--gold); color: #3A2D00;
+  border-radius: var(--radius-full); padding: 2px 10px; font-weight: 700;
+}
+.imp-banner-meta { color: var(--fg-secondary); font-size: var(--font-xs); }
+.imp-banner-spacer { flex: 1; min-width: 8px; }
+.imp-banner-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: inherit; font-size: var(--font-sm); font-weight: 800; cursor: pointer;
+  padding: 5px 14px; border-radius: var(--radius-md);
+  background: var(--gold); color: #3A2D00; border: 1px solid var(--gold);
+  transition: filter var(--dur-fast) var(--ease);
+}
+.imp-banner-btn:hover { filter: brightness(1.08); }
+.imp-banner-btn:disabled { opacity: 0.6; cursor: default; filter: none; }
+
+/* ── ③ 解锁卡 ───────────────────────────────────────────────────────── */
+
+.imp-warn { display: flex; gap: var(--space-sm); align-items: flex-start; }
+
+.imp-lock-wrap { display: flex; justify-content: center; padding: var(--space-2xl) 0; }
+.imp-lock-card {
+  width: 100%; max-width: 420px;
+  padding: var(--space-xl) var(--space-lg) var(--space-lg);
+  text-align: center;
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
+}
+.imp-lock-ic {
+  width: 54px; height: 54px; margin: 0 auto var(--space-md);
+  display: flex; align-items: center; justify-content: center; font-size: 24px;
+  border-radius: var(--radius-lg);
+  background: var(--gold-muted); border: 1px solid var(--gold);
+}
+.imp-lock-title { margin: 0 0 var(--space-sm); font-size: var(--font-lg); font-weight: 700; color: var(--fg); }
+.imp-lock-desc { margin: 0 0 var(--space-md); font-size: var(--font-sm); color: var(--fg-secondary); line-height: 1.7; }
+.imp-lockin { width: 100%; text-align: center; letter-spacing: 0.22em; }
+.imp-lockin::placeholder { letter-spacing: 0.02em; }
+.imp-lockin.imp-lockin-bad { border-color: var(--danger); background: var(--danger-muted); }
+.imp-lock-fail {
+  margin-top: var(--space-sm); display: flex; align-items: center; justify-content: center;
+  gap: 6px; font-size: var(--font-sm); color: var(--danger);
+}
+.imp-lock-rest { margin: var(--space-sm) 0 0; font-size: var(--font-xs); color: var(--fg-tertiary); }
+.imp-lock-act { margin-top: var(--space-md); display: flex; gap: var(--space-sm); }
+.imp-lock-act .btn { flex: 1; justify-content: center; }
+.imp-lock-tip {
+  margin-top: var(--space-lg); padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  text-align: left; font-size: var(--font-xs); color: var(--fg-tertiary); line-height: 1.7;
+}
+.imp-lock-tip b { display: block; color: var(--fg-secondary); margin-bottom: 4px; }
+.imp-lock-tip ul { margin: 0; padding-left: 16px; }
+
+/* ── ③ 账号列表 ─────────────────────────────────────────────────────── */
+
+.imp-unlocked-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--gold-muted); border: 1px solid var(--gold);
+  color: var(--fg); border-radius: var(--radius-full);
+  padding: 4px 12px; font-size: var(--font-sm); font-weight: 600;
+}
+.imp-toolbar { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; margin-bottom: var(--space-md); }
+.imp-toolbar .imp-stat { margin-left: auto; font-size: var(--font-xs); color: var(--fg-tertiary); }
+.imp-select { width: auto; min-width: 130px; }
+.imp-select-w { min-width: 170px; }
+.imp-search { min-width: 200px; }
+.imp-role {
+  display: inline-block; margin-right: 4px; padding: 1px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs); font-weight: 600;
+  background: var(--accent-muted); color: var(--accent);
+}
+.imp-self { font-size: var(--font-xs); font-weight: 600; color: var(--fg-tertiary); }
+.imp-muted { color: var(--fg-tertiary); }

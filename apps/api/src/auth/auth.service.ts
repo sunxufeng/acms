@@ -132,7 +132,14 @@ export class AuthService {
   }
 
   /** 从系统用户表解析角色/校区/密级；未注册用户拒绝（引导管理员开通） */
-  private async resolvePrincipal(
+  /**
+   * 用户表 → 会话身份（角色 / 校区 / 密级）的**唯一口径**。
+   *
+   * 从 private 提为 public 是给「身份模拟」用的（2026-09-16）：模拟必须以目标用户的真实身份
+   * 建会话，自己拼一份必然漏掉「有效角色清单过滤」与「校区」规则 ——
+   * 校区算错会让模拟会话一条数据都看不到，还会被误判成功能坏了。
+   */
+  async resolvePrincipal(
     openId: string,
     name: string,
   ): Promise<Omit<SessionUser, 'sessionId' | 'expiresAt'>> {

@@ -63,6 +63,8 @@ import { BehaviourModule } from './behaviour/behaviour.module.js';
 // 考试与成绩（2026-09-16 参照 RosarioSIS v13 Grades 移植）：期末总评结转 / 成绩单 / PDF 导出
 import { EXAM_GRADE_METAS } from './exam-grade/exam-grade.meta.js';
 import { ExamGradeModule } from './exam-grade/exam-grade.module.js';
+// 身份模拟（2026-09-16）：系统管理员以任意账号身份浏览，用于排查权限/数据范围问题
+import { ImpersonateModule } from './impersonate/impersonate.module.js';
 
 @Module({
   imports: [
@@ -103,6 +105,8 @@ import { ExamGradeModule } from './exam-grade/exam-grade.module.js';
     // 建表在 ExamGradeModule（通用 CRUD 不建表）
     GenericCrudModule.registerAll(EXAM_GRADE_METAS),
     ExamGradeModule,
+    // 身份模拟：建「身份模拟记录表」在模块内 onModuleInit（通用 CRUD 不建表）
+    ImpersonateModule,
     Student360Module,
     IdpModule,
     UsersModule,

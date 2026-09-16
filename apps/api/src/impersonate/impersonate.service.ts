@@ -1,0 +1,379 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
+import type { Redis } from 'ioredis';
+import { TABLES, type SessionUser } from '@acms/contracts';
+import { getSqlStore } from '../base.provider.js';
+import { REDIS } from '../redis.provider.js';
+import { AuthService } from '../auth/auth.service.js';
+import { SessionService } from '../auth/session.service.js';
+import { UsersService } from '../user/user.service.js';
+
+/**
+ * 身份模拟（Impersonation）—— 2026-09-16 新增，系统管理员排障用。
+ *
+ * 用途：管理员以任意账号的身份浏览 ACMS，用来回答「他为什么看不到这条数据」这类
+ * 权限 / 数据范围问题，而不是靠猜配置。
+ *
+ * ⚠️ 这是风险等级最高的功能之一：模拟会话拿到的是**目标用户的完整数据视野**。
+ * 因此四条防线缺一不可：
+ *   ① 必须是已登录的系统管理员（服务端硬校验 roles，不信前端）
+ *   ② 二次密码（默认值写在源码里 ⇒ 防的是误操作，不是攻击）
+ *   ③ 同 IP 连续失败 5 次锁 15 分钟
+ *   ④ 进入 / 退出 / 解锁失败全部落「身份模拟记录表」
+ *
+ * 设计要点（都是踩过的坑，改之前先读）：
+ *  - 模拟 = **另建一个会话 + 换 Cookie**，管理员原会话保留并续期 ⇒ 退出能回到原身份。
+ *    原会话若被销毁或过期，"退出模拟"会变成"被登出"。
+ *  - 会话身份**必须**走 `AuthService.resolvePrincipal()`（用户表 → 角色/校区/密级的唯一口径）。
+ *    自己拼会漏掉「有效角色清单过滤」与校区规则，校区算错 ⇒ 模拟进去一条数据都看不到。
+ *  - 建会话时 `recordLogin:false`（模拟不是登录，否则污染「活跃时段统计」）、
+ *    `indexByOpenid:false`（否则会覆盖目标用户真实会话的反向索引，强制下线会打错人）。
+ */
+
+/** 建表用的字段 type（与飞书 Base / 生产 `acms_fields` 实测口径一致） */
+const T = { TEXT: 1, NUMBER: 2, SELECT: 3 } as const;
+type FieldDef = { name: string; type: number; property?: unknown };
+const sel = (...names: string[]): FieldDef['property'] => ({ options: names.map((name) => ({ name })) });
+
+/**
+ * 兜底密码。生产建议设 `IMPERSONATE_PASSWORD` 环境变量覆盖 ——
+ * 默认值写在源码里，任何拿到代码的人都能看到，它拦的是误操作而不是攻击。
+ */
+const DEFAULT_PASSWORD = 'season69130';
+
+/** 解锁凭证有效期：10 分钟（刷新页面不用重输，超时回落到密码屏） */
+export const UNLOCK_TTL_SECONDS = 600;
+/** 模拟会话时长：30 分钟（短于常规 1 小时，降低"忘记自己在模拟态"的风险） */
+export const IMPERSONATE_TTL_SECONDS = 1800;
+/** 连续失败阈值 / 锁定时长（与应急登录 auth.service 的 EMERGENCY_* 保持一致） */
+const MAX_FAILS = 5;
+const LOCK_SECONDS = 15 * 60;
+const ADMIN_ROLE = '系统管理员';
+
+/** 解锁结果：密码错与锁定时**不抛异常**，返回 200 + 结构体 —— 前端要拿到剩余次数才能提示 */
+export type UnlockResult =
+  | { ok: true; expiresIn: number }
+  | { ok: false; code: 'BAD_PASSWORD'; fails: number; remaining: number }
+  | { ok: false; code: 'LOCKED'; lockedSeconds: number };
+
+export interface ImpersonateUserRow {
+  openId: string;
+  name: string;
+  teacherType: string;
+  campus: string;
+  roles: string[];
+  status: string;
+  canEnter: boolean;
+  reason: string;
+}
+
+export interface ImpersonateListResult {
+  users: ImpersonateUserRow[];
+  total: number;
+  enterable: number;
+  disabled: number;
+  currentOpenId: string;
+}
+
+export interface EnterResult {
+  target: { openId: string; name: string; roles: string[]; campus: string };
+  expiresIn: number;
+}
+
+export interface ExitResult {
+  /** 恢复出来的管理员会话 id；null = 原会话已过期，需要重新登录 */
+  adminSessionId: string | null;
+}
+
+@Injectable()
+export class ImpersonateService {
+  private readonly logger = new Logger('Impersonate');
+
+  constructor(
+    @Inject(REDIS) private readonly redis: Redis,
+    private readonly auth: AuthService,
+    private readonly sessions: SessionService,
+    private readonly users: UsersService,
+  ) {}
+
+  // ── 建表 ───────────────────────────────────────────────────────────
+
+  /** 启动期幂等建表（通用 CRUD 不建表；漏了会导致记录写入静默失败） */
+  async ensureTables(): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql) {
+      this.logger.warn('[impersonate] 未配置 DATABASE_URL，跳过建表（模拟记录不可查）');
+      return;
+    }
+    await sql.ensureTable(TABLES.impersonateLog.tableId, TABLES.impersonateLog.name, [
+      // 存毫秒时间戳（NUMBER）而不是 DATE：读取端自己做格式化，不受时区口径影响
+      { name: '操作时间', type: T.NUMBER, property: { formatter: '0' } },
+      { name: '动作', type: T.SELECT, property: sel('进入', '退出', '解锁失败') },
+      { name: '操作人', type: T.TEXT },
+      { name: '操作人OpenID', type: T.TEXT },
+      { name: '目标用户', type: T.TEXT },
+      { name: '目标OpenID', type: T.TEXT },
+      { name: 'IP', type: T.TEXT },
+      { name: '详情', type: T.TEXT },
+    ]);
+    this.logger.log('[impersonate] 身份模拟记录表已就绪');
+  }
+
+  // ── 权限与状态校验 ─────────────────────────────────────────────────
+
+  private requireAdmin(user: SessionUser): void {
+    if (!user?.roles?.includes(ADMIN_ROLE)) throw new ForbiddenException('ADMIN_ONLY');
+  }
+
+  /**
+   * 模拟态下不允许再模拟：会让"谁在操作"变成糊涂账，也造出无法追溯的会话链。
+   *
+   * ⚠️ 本方法必须在 `requireAdmin` **之前**调用。原因：模拟会话的角色是**目标用户**的，
+   * 绝大多数情况不含「系统管理员」，若先判 requireAdmin 会返回 ADMIN_ONLY ——
+   * 前端于是显示"仅系统管理员可用"，而真正的原因是"你正在模拟中"。
+   * 同一件事给出错误的原因，排查成本立刻翻倍。（2026-09-16 线上实测踩到）
+   */
+  private denyIfImpersonating(user: SessionUser): void {
+    if (user?.impersonatedBy) throw new ForbiddenException('IMPERSONATE_NESTED_DENIED');
+  }
+
+  private unlockKey(openId: string): string {
+    return `impersonate:unlock:${openId}`;
+  }
+
+  /**
+   * 校验解锁凭证（列表 / 进入都要过这一关，密码没输对就不该看到任何账号）。
+   *
+   * ⚠️ 这里刻意用 **403 而不是 401**：前端的 `request()` 把 401 一律当成「未登录」并
+   * 强制跳 `/login` —— 用一个 401 会让"解锁超时"表现成"被登出"，用户会以为掉线了。
+   * 403 + 明确的 message 让页面自己回到密码屏。
+   */
+  private async requireUnlocked(user: SessionUser): Promise<void> {
+    const v = await this.redis.get(this.unlockKey(user.openId));
+    if (!v) throw new ForbiddenException('IMPERSONATE_UNLOCK_REQUIRED');
+  }
+
+  private expectedPassword(): string {
+    return (process.env.IMPERSONATE_PASSWORD ?? '').trim() || DEFAULT_PASSWORD;
+  }
+
+  // ── ① 解锁 ─────────────────────────────────────────────────────────
+
+  /**
+   * 校验二次密码。成功则发放解锁凭证（Redis，10 分钟）。
+   *
+   * 密码错 / 被锁定**不抛 HTTP 异常**，直接返回结构体：前端需要 `remaining`
+   * 才能显示"还可以尝试 2 次"，抛异常会把这个信息埋在错误体里、还得解析。
+   */
+  async unlock(user: SessionUser, password: string, ip: string): Promise<UnlockResult> {
+    this.denyIfImpersonating(user);
+    this.requireAdmin(user);
+
+    const lockKey = `impersonate:lock:${ip}`;
+    const failKey = `impersonate:fail:${ip}`;
+    if (await this.redis.get(lockKey)) {
+      const ttl = await this.redis.ttl(lockKey);
+      return { ok: false, code: 'LOCKED', lockedSeconds: ttl > 0 ? ttl : LOCK_SECONDS };
+    }
+
+    // 定长比较，避免通过响应耗时逐字节爆破（与应急登录同一手法）
+    const input = Buffer.from(password ?? '');
+    const want = Buffer.from(this.expectedPassword());
+    const match = input.length === want.length && timingSafeEqual(input, want);
+
+    if (!match) {
+      const fails = await this.redis.incr(failKey);
+      await this.redis.expire(failKey, LOCK_SECONDS);
+      if (fails >= MAX_FAILS) {
+        await this.redis.set(lockKey, '1', 'EX', LOCK_SECONDS);
+        this.logger.warn(`身份模拟解锁连续失败 ${fails} 次，锁定 IP=${ip} ${LOCK_SECONDS}s`);
+        void this.log({ openId: user.openId, name: user.name }, '', '解锁失败', ip, `连续失败 ${fails} 次，已锁定`);
+        return { ok: false, code: 'LOCKED', lockedSeconds: LOCK_SECONDS };
+      }
+      this.logger.warn(`身份模拟解锁失败 IP=${ip}（第 ${fails}/${MAX_FAILS} 次）`);
+      void this.log({ openId: user.openId, name: user.name }, '', '解锁失败', ip, `第 ${fails} 次`);
+      return { ok: false, code: 'BAD_PASSWORD', fails, remaining: MAX_FAILS - fails };
+    }
+
+    await this.redis.del(failKey);
+    await this.redis.set(this.unlockKey(user.openId), '1', 'EX', UNLOCK_TTL_SECONDS);
+    return { ok: true, expiresIn: UNLOCK_TTL_SECONDS };
+  }
+
+  /** 主动锁定（页面上的「立即锁定」）：删掉解锁凭证即可 */
+  async lock(user: SessionUser): Promise<{ ok: true }> {
+    this.denyIfImpersonating(user);
+    this.requireAdmin(user);
+    await this.redis.del(this.unlockKey(user.openId));
+    return { ok: true };
+  }
+
+  // ── ② 列账号 ───────────────────────────────────────────────────────
+
+  async listUsers(user: SessionUser): Promise<ImpersonateListResult> {
+    this.denyIfImpersonating(user);
+    this.requireAdmin(user);
+    await this.requireUnlocked(user);
+    const rows = await this.users.listForImpersonation();
+    const enterable = rows.filter((r) => r.canEnter).length;
+    return {
+      users: rows,
+      total: rows.length,
+      enterable,
+      disabled: rows.length - enterable,
+      currentOpenId: user.openId,
+    };
+  }
+
+  // ── ③ 进入模拟 ─────────────────────────────────────────────────────
+
+  /**
+   * 以 `targetOpenId` 的身份建模拟会话。
+   *
+   * 返回新的会话 id，由 controller 写进 Cookie（覆盖 `acms_sid`）。
+   * **不销毁管理员原会话**，只把 sid 存进 `impersonate:return:<新sid>`，退出时换回来。
+   */
+  async enter(
+    user: SessionUser,
+    adminSid: string,
+    targetOpenId: string,
+    ip: string,
+  ): Promise<{ sessionId: string; result: EnterResult }> {
+    this.denyIfImpersonating(user);
+    this.requireAdmin(user);
+    await this.requireUnlocked(user);
+
+    const target = String(targetOpenId ?? '').trim();
+    if (!target) throw new BadRequestException('TARGET_REQUIRED');
+    if (target === user.openId) throw new BadRequestException('TARGET_IS_SELF');
+
+    // 复用与页面**同一份**清单做资格判定，避免"页面能点、接口拒绝"的不一致
+    const rows = await this.users.listForImpersonation();
+    const row = rows.find((r) => r.openId === target);
+    if (!row) throw new NotFoundException('TARGET_NOT_FOUND');
+    if (!row.canEnter) throw new BadRequestException(`TARGET_NOT_ALLOWED:${row.reason}`);
+
+    // 身份的唯一口径：与飞书登录链路走同一个 resolvePrincipal()
+    const principal = await this.auth.resolvePrincipal(row.openId, row.name);
+
+    const session = await this.sessions.create(
+      { ...principal, impersonatedBy: { openId: user.openId, name: user.name } },
+      IMPERSONATE_TTL_SECONDS,
+      { recordLogin: false, indexByOpenid: false },
+    );
+
+    // 记住「从哪来」；同时把管理员原会话续到满 —— 否则模拟久了回来已过期，
+    // 用户看到的现象就是"退出模拟把我自己登出了"。
+    await this.redis.set(
+      this.returnKey(session.sessionId),
+      adminSid,
+      'EX',
+      IMPERSONATE_TTL_SECONDS,
+    );
+    const keepAlive = Math.max(Number(process.env.SESSION_TTL_SECONDS ?? 3600), IMPERSONATE_TTL_SECONDS);
+    try {
+      await this.sessions.refresh(adminSid, keepAlive);
+    } catch {
+      /* 原会话不存在时忽略：退出会走「已过期」分支提示重新登录 */
+    }
+
+    this.logger.warn(
+      `身份模拟进入：${user.name}（${user.openId}）→ ${row.name}（${row.openId}）IP=${ip}`,
+    );
+    void this.log(
+      { openId: user.openId, name: user.name },
+      row.name,
+      '进入',
+      ip,
+      `目标 ${row.openId} · 角色 ${row.roles.join('、') || '（空）'} · 校区 ${row.campus || '（空）'}`,
+      row.openId,
+    );
+
+    return {
+      sessionId: session.sessionId,
+      result: {
+        target: { openId: row.openId, name: row.name, roles: row.roles, campus: row.campus },
+        expiresIn: IMPERSONATE_TTL_SECONDS,
+      },
+    };
+  }
+
+  // ── ④ 退出模拟 ─────────────────────────────────────────────────────
+
+  /**
+   * 销毁模拟会话并把 Cookie 换回管理员原会话。
+   *
+   * 原会话已过期时返回 `adminSessionId: null`（controller 清 Cookie）——
+   * 诚实报错并销毁模拟会话，不留下悬空会话，也不隐式提权。
+   */
+  async exit(user: SessionUser, sid: string, ip: string): Promise<ExitResult> {
+    const by = user.impersonatedBy;
+    if (!by) throw new BadRequestException('NOT_IMPERSONATING');
+
+    const adminSid = await this.redis.get(this.returnKey(sid));
+    await this.redis.del(this.returnKey(sid));
+    // 销毁模拟会话（SessionService.destroy 不会动 openid 反向索引，见那里的注释）
+    await this.sessions.destroy(sid);
+
+    const admin = adminSid ? await this.sessions.get(adminSid) : null;
+    this.logger.warn(
+      `身份模拟退出：${by.name}（${by.openId}）← ${user.name}（${user.openId}）IP=${ip}` +
+        (admin ? '' : ' · 管理员原会话已过期'),
+    );
+    void this.log(
+      { openId: by.openId, name: by.name },
+      user.name,
+      '退出',
+      ip,
+      admin ? `目标 ${user.openId}` : `目标 ${user.openId} · 管理员原会话已过期`,
+      user.openId,
+    );
+
+    return { adminSessionId: admin ? adminSid : null };
+  }
+
+  private returnKey(sid: string): string {
+    return `impersonate:return:${sid}`;
+  }
+
+  // ── 留痕 ───────────────────────────────────────────────────────────
+
+  /**
+   * 写「身份模拟记录表」。fire-and-forget —— 留痕失败绝不能影响主流程。
+   *
+   * 注意与审计日志的分工：审计日志记**业务写操作**（含模拟标记，见 AuditService.log），
+   * 这里记**模拟进出本身**。两者合起来才答得全"谁在什么时候以谁的身份做了什么"。
+   */
+  private async log(
+    actor: { openId: string; name: string },
+    targetName: string,
+    action: '进入' | '退出' | '解锁失败',
+    ip: string,
+    detail: string,
+    targetOpenId = '',
+  ): Promise<void> {
+    try {
+      const sql = getSqlStore();
+      if (!sql) return;
+      await sql.create(TABLES.impersonateLog.tableId, {
+        操作时间: Date.now(),
+        动作: action,
+        操作人: actor.name || actor.openId || '',
+        操作人OpenID: actor.openId ?? '',
+        目标用户: targetName,
+        目标OpenID: targetOpenId,
+        IP: ip,
+        详情: detail,
+      });
+    } catch (e) {
+      this.logger.error(`身份模拟记录写入失败: ${(e as Error).message}`);
+    }
+  }
+}

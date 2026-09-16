@@ -14,6 +14,13 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface Actor {
   id: string;
   name: string;
+  /**
+   * 身份模拟（2026-09-16）：本操作实际由谁发起。
+   *
+   * 模拟态下 `id/name` 是**被模拟的目标用户**（因为业务字段「创建人」要反映数据归属），
+   * `via` 才是真正动手的管理员。审计层据此标注，避免事后追责断链 —— 见 AuditService.log。
+   */
+  via?: { id: string; name: string };
 }
 
 interface ActorStore {
@@ -80,8 +87,25 @@ export function systemLabel(id: string): string {
   return SYSTEM_LABELS[id] ?? (id.startsWith('system:') ? `系统 · ${id.slice(7)}` : '');
 }
 
-/** 由会话用户构造操作人（openId 作稳定 key，姓名作展示名） */
-export function actorFromUser(user: { openId?: string; name?: string } | undefined | null): Actor {
+/**
+ * 由会话用户构造操作人（openId 作稳定 key，姓名作展示名）。
+ *
+ * 会话带 `impersonatedBy` 时（身份模拟态），额外填 `via` 记下真正的操作人，
+ * 供审计日志标注「[模拟] 由 XXX 代为操作」。业务字段仍按目标用户记，两者互不干扰。
+ */
+export function actorFromUser(
+  user:
+    | {
+        openId?: string;
+        name?: string;
+        impersonatedBy?: { openId: string; name: string };
+      }
+    | undefined
+    | null,
+): Actor {
   if (!user?.openId) return UNKNOWN_ACTOR;
-  return { id: user.openId, name: user.name || user.openId };
+  const actor: Actor = { id: user.openId, name: user.name || user.openId };
+  const by = user.impersonatedBy;
+  if (by?.openId) actor.via = { id: by.openId, name: by.name || by.openId };
+  return actor;
 }

@@ -125,6 +125,58 @@ export class UsersService {
       .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
   }
 
+  /**
+   * 身份模拟（2026-09-16）：列出可模拟的账号。
+   *
+   * 与 listDirectory() 的区别：
+   *  - 多返回「账号状态」与「能否进入 + 原因」，页面据此置灰并说明，而不是让用户点了才报错
+   *  - **刻意不返回**邮箱、手机、数据密级、学生档案范围配置 —— 模拟页用不到，少暴露一点是一点
+   *  - 不返回 record id：建模拟会话只需要 openId
+   *
+   * 权限由调用方（ImpersonateService）先行校验（必须是系统管理员且已解锁）。
+   */
+  async listForImpersonation(): Promise<
+    {
+      openId: string;
+      name: string;
+      teacherType: string;
+      campus: string;
+      roles: string[];
+      status: string;
+      canEnter: boolean;
+      reason: string;
+    }[]
+  > {
+    const raw = await this.fetchAll();
+    const out = raw.map((r) => {
+      const f = this.flat(r);
+      const rolesRaw = f['系统角色'];
+      const roles = Array.isArray(rolesRaw)
+        ? rolesRaw.map((x) => String(x))
+        : rolesRaw
+          ? [String(rolesRaw)]
+          : [];
+      const openId = String(f['飞书 Open ID'] ?? '').trim();
+      const status = String(f['账号状态'] ?? '').trim() || STATUS_ENABLED;
+      // 不可模拟的两种情形 —— 与正常登录口径完全一致，不为模拟开后门：
+      //   ① 无 openId ⇒ 建不出会话；② 停用 ⇒ 正常登录也会被 USER_DISABLED 拒绝
+      let reason = '';
+      if (!openId) reason = '缺少飞书 Open ID，无法建立会话';
+      else if (status === STATUS_DISABLED) reason = '账号已停用';
+      return {
+        openId,
+        name: String(f['姓名'] ?? '').trim(),
+        teacherType: String(f['教师类型'] ?? '').trim(),
+        campus: String(f['默认校区'] ?? '').trim(),
+        roles,
+        status,
+        canEnter: !reason,
+        reason,
+      };
+    });
+    return out.filter((u) => u.name).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  }
+
   /** openId → 所属部门名（可能多个，飞书允许多人多部门）。列表页「部门」列用它 */
   private async departmentByOpenId(): Promise<Map<string, string[]>> {
     const idx = await this.dept.memberIndex();

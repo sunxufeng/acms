@@ -18,7 +18,7 @@
 | 技术栈 | pnpm monorepo：`apps/api`（NestJS 10）+ `apps/web`（Next.js 15）+ `packages/contracts`、`packages/domain`（共享契约与权限） |
 | 数据层 | **PostgreSQL 宽表**（每表 `id` + `data jsonb`），已从飞书 Base 全量切读；飞书仅剩 IM / 通讯录 / 日历 / 任务 |
 | 部署 | 阿里云 114.215.186.106 · **Blue-Green 零停机**（API 3001/3002 ↔ Web 3101/3102），nginx 按 `.deploy_slot` 切换 |
-| 当前状态 | 全部 47 项计划中 **42 项已完成上线**，**1 项进行中**（考试与成绩，详见第三节），4 项待排期 |
+| 当前状态 | 全部 47 项计划中 **42 项已完成上线**，**1 项进行中**（考试与成绩 Phase 1 已上线、Phase 2 待排期），4 项待排期 |
 
 ---
 
@@ -117,7 +117,7 @@
 
 | 优先级 | 标题 | Issue | 依赖 / 说明 |
 |---|---|---|---|
-| **P0** | 考试与成绩（考核类型 / 期末总评结转 / 各科教师评语 / 成绩单 + PDF 导出） | [#5](https://github.com/sunxufeng/acms/issues/5) | **进行中**（2026-09-16 开工）：4 张表 / 纯函数口径 / 考核类型配置页已落地；设计稿见 `outputs/ACMS-考试与成绩-设计方案.md` 与 `ACMS-考试与成绩-UI设计.html` |
+| **P0** | 考试与成绩（考核类型 / 期末总评结转 / 各科教师评语 / 成绩单 + PDF 导出） | [#5](https://github.com/sunxufeng/acms/issues/5) | **Phase 1 已上线**（2026-09-16，commit `3c87e4c`，slot 3002/3102）：4 张表 + 结转 + 各科评语 + 成绩单 + PDF 全部落地并线上验证；**Phase 2 待排期**（成绩分布报表 / GPA 排名 / 常用评语库 / 学生全景成绩单分区）。设计稿见 `outputs/ACMS-考试与成绩-设计方案.md` 与 `ACMS-考试与成绩-UI设计.html` |
 | **P0** | 教学班数据补录 | [#1](https://github.com/sunxufeng/acms/issues/1) | **阻塞其他项**：教学班表为空，课程规划的「部署环节到课次」无法验收 |
 | **P0** | 家长 / 学生门户 | [#2](https://github.com/sunxufeng/acms/issues/2) | 需要消费已就绪的可见性开关（学生/家长两个正交开关 + 成绩完成闸门） |
 | **P2** | AI 路由用户管理 | [#3](https://github.com/sunxufeng/acms/issues/3) | 需先定方案（复用 vs 新建），再排期 |

@@ -66,4 +66,28 @@ export class ReportsController {
   ) {
     return this.svc.attendanceReport(userOf(req), { from, to, class: cls, grade });
   }
+
+  /**
+   * 考试成绩分布：按批次 × 班级 × 科目看均分 / 中位数 / 及格率 / 达标率 / 等级与分数段分布。
+   * 数据源是**期末总评快照**（与成绩单同一份），口径随批次。
+   */
+  @Get('exam-dist')
+  examDist(
+    @Req() req: Request,
+    @Query('batchId') batchId?: string,
+    @Query('cls') cls?: string,
+    @Query('subject') subject?: string,
+  ) {
+    return this.svc.examDistribution(userOf(req), { batchId, cls, subject });
+  }
+
+  /** GPA 与班级排名：按学生聚合加权/不加权 GPA，给出总榜与班内排名、GPA 分布 */
+  @Get('exam-gpa')
+  examGpa(
+    @Req() req: Request,
+    @Query('batchId') batchId?: string,
+    @Query('cls') cls?: string,
+  ) {
+    return this.svc.examGpaRank(userOf(req), { batchId, cls });
+  }
 }

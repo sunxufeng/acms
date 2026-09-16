@@ -167,6 +167,11 @@ export const TABLES = {
   termGrade: { tableId: 'tbltermgrade0001', name: '期末总评表' },
   /** 成绩单：学生 × 批次。承载班主任总评语与 PDF 生成记录 */
   reportCard: { tableId: 'tblreportcard0001', name: '成绩单表' },
+  /**
+   * 常用评语库（2026-09-16）：各科老师写评语时一键套用的句子。
+   * 批量评语页按「科目」过滤后点选填入，避免 33 个学生重复敲同样的话。
+   */
+  examComment: { tableId: 'tblexamcmt0000001', name: '常用评语库表' },
 
   // ── 身份模拟留痕（2026-09-16）──────────────────────────────────────
   /**

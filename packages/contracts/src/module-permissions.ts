@@ -144,6 +144,9 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'examGrades', label: '考试与成绩', path: '/exam-grades', legacyRead: null, legacyWrite: null, menuPermission: null, actions: FLOW, genericCrud: true },
   // 考核类型是本模块的配置表，但作为独立页面/菜单项（与「考勤码」同一套做法）
   { key: 'examTypes', label: '考核类型', path: '/exam-types', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  // 常用评语库（2026-09-16）：各科老师写评语时套用的句子。独立权限点 ——
+  // 它是「写评语」的生产资料，跟考试与成绩的 admin 类操作分开授权。
+  { key: 'examComments', label: '常用评语库', path: '/exam-comments', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'behaviour', label: '行为记录', path: '/behaviour', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'curriculum', label: '课程规划', path: '/curriculum', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'lessonPlan', label: '课时教案', path: '/lesson-plans', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },

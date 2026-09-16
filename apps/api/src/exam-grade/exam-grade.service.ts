@@ -1,6 +1,7 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { TABLES } from '@acms/contracts';
-import { getSqlStore } from '../base.provider.js';
+import { BaseClient, toText } from '@acms/base-adapter';
+import { getSqlStore, BASE_CLIENT } from '../base.provider.js';
 import { MarkbookService } from '../markbook/markbook.service.js';
 import { effectiveWeight, type LevelDef } from '../markbook/markbook.logic.js';
 import {
@@ -52,6 +53,40 @@ const sel = (...names: string[]): FieldDef['property'] => ({ options: names.map(
 
 /** 科目筛选里表示「未填科目」的那一组（成绩册列的「科目」为空） */
 export const SUBJECT_NONE = '__none__';
+
+/** 成绩口径设置的配置键（存在通用系统配置表里，与登录页配置同一套机制） */
+const EXAM_SETTINGS_KEY = 'exam_grade_settings';
+
+/**
+ * 全局成绩口径。定位：**批次上的同名字段优先，这里只是缺省值**。
+ * 这样不用改批次表的历史数据，也能让新批次默认带上统一口径。
+ */
+export interface ExamGradeSettings {
+  /** 总评舍入方式（batch.舍入口径 为空时用它） */
+  roundMode: RoundMode;
+  /** 免考处理（batch.免考处理 为空时用它） */
+  excusedMode: ExcusedMode;
+  /** 缺考处理（batch.缺考处理 为空时用它） */
+  absentMode: AbsentMode;
+  /** GPA 显示小数位（0–3） */
+  gpaDecimals: number;
+  /** 异常审查：离群高倍（≥ 班级均值 × 该值判离群高） */
+  highFactor: number;
+  /** 异常审查：离群低倍 */
+  lowFactor: number;
+  /** 异常审查：突变分差 */
+  swingScore: number;
+}
+
+export const DEFAULT_EXAM_SETTINGS: ExamGradeSettings = {
+  roundMode: '保留1位小数',
+  excusedMode: '不计入分母',
+  absentMode: '计0分',
+  gpaDecimals: 2,
+  highFactor: DEFAULT_ANOMALY_THRESHOLDS.highFactor,
+  lowFactor: DEFAULT_ANOMALY_THRESHOLDS.lowFactor,
+  swingScore: DEFAULT_ANOMALY_THRESHOLDS.swingScore,
+};
 
 /** 评语长度上限（成绩单是打印件，太长会排版崩；前端也按这个数提示） */
 export const COMMENT_MAX = 200;
@@ -149,7 +184,14 @@ export interface ReportCardData {
 export class ExamGradeService implements OnModuleInit {
   private readonly logger = new Logger('ExamGrade');
 
-  constructor(private readonly markbook: MarkbookService) {}
+  constructor(
+    private readonly markbook: MarkbookService,
+    /**
+     * 口径设置（2026-09-16 Phase 2）存在**通用系统配置表**里（键 = exam_grade_settings），
+     * 与登录页配置同一套机制 —— 不为此新建一张表。
+     */
+    @Inject(BASE_CLIENT) private readonly base: BaseClient,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     await this.ensureTables();
@@ -250,7 +292,20 @@ export class ExamGradeService implements OnModuleInit {
       { name: '备注', type: T.TEXT },
     ]);
 
-    this.logger.log('[exam-grade] 已就绪 4 张表（考核类型 / 成绩批次 / 期末总评 / 成绩单）');
+    // ── 5. 常用评语库表（2026-09-16 Phase 2）──────────────────────
+    // 配置表归「使用它的模块」负责建（通用 CRUD 只生成路由、不建表）
+    await sql.ensureTable(TABLES.examComment.tableId, '常用评语库表', [
+      { name: '评语内容', type: T.TEXT },
+      // 科目留空 = 通用（任何科目都能套）；填了就只在该科目的评语页出现
+      { name: '科目', type: T.TEXT },
+      { name: '标签', type: T.SELECT, property: sel('鼓励', '进步', '提醒', '待改进', '通用') },
+      { name: '排序', type: T.NUMBER, property: { formatter: '0' } },
+      { name: '状态', type: T.SELECT, property: sel('启用', '停用') },
+      { name: '使用次数', type: T.NUMBER, property: { formatter: '0' } },
+      { name: '备注', type: T.TEXT },
+    ]);
+
+    this.logger.log('[exam-grade] 已就绪 5 张表（考核类型 / 成绩批次 / 期末总评 / 成绩单 / 常用评语库）');
   }
 
   // ────────────────────────────────────────────────────────────
@@ -449,9 +504,15 @@ export class ExamGradeService implements OnModuleInit {
     const useScale = batchScaleId || (scaleIds.size === 1 ? [...scaleIds][0] : '');
     const levels: LevelDef[] = useScale ? grid.levels.filter((l) => l.scaleId === useScale) : grid.levels;
 
-    const excused = (String(batch.f['免考处理'] ?? '不计入分母') as ExcusedMode) || '不计入分母';
-    const absent = (String(batch.f['缺考处理'] ?? '计0分') as AbsentMode) || '计0分';
-    const round = (String(batch.f['舍入口径'] ?? '保留1位小数') as RoundMode) || '保留1位小数';
+    /**
+     * 口径优先级：**批次字段 → 全局设置 → 代码缺省**（2026-09-16 Phase 2）。
+     * 批次上留空即继承「成绩口径设置」页里配的全局值 —— 这样历史批次不用改数据，
+     * 新建批次也能天然带上一套统一口径。
+     */
+    const settings = await this.getSettings();
+    const excused = (String(batch.f['免考处理'] ?? '') as ExcusedMode) || settings.excusedMode;
+    const absent = (String(batch.f['缺考处理'] ?? '') as AbsentMode) || settings.absentMode;
+    const round = (String(batch.f['舍入口径'] ?? '') as RoundMode) || settings.roundMode;
 
     const tw = new Map(grid.typeWeights.map((x) => [x.type, x.weight]));
     const cellMap = new Map(grid.cells.map((c) => [`${c.columnId}__${c.studentId}`, c]));
@@ -605,6 +666,74 @@ export class ExamGradeService implements OnModuleInit {
   }
 
   /** 结转预览（**不落库**） */
+  // ────────────────────────────────────────────────────────────
+  // 成绩口径设置（Phase 2）
+  // ────────────────────────────────────────────────────────────
+
+  /**
+   * 读全局成绩口径（存在系统配置表，键 = exam_grade_settings）。
+   *
+   * 定位：**批次上的同名字段优先，这里只是缺省值与全局开关**。
+   * 这样既不用改批次表的历史数据，也能让「以后新建的批次」默认带上一套统一口径。
+   */
+  async getSettings(): Promise<ExamGradeSettings> {
+    try {
+      const res = await this.base.search(TABLES.systemConfig.tableId, {
+        pageSize: 1,
+        filter: { conjunction: 'and', conditions: [{ field: '配置键', value: [EXAM_SETTINGS_KEY] }] },
+      });
+      const raw = toText(res.items[0]?.fields?.['配置值']);
+      if (!raw) return DEFAULT_EXAM_SETTINGS;
+      const parsed = JSON.parse(raw) as Partial<ExamGradeSettings>;
+      return { ...DEFAULT_EXAM_SETTINGS, ...parsed };
+    } catch {
+      // 读不到（表不可用 / JSON 坏了）就用默认值，绝不让设置页 500
+      return DEFAULT_EXAM_SETTINGS;
+    }
+  }
+
+  /** 保存全局成绩口径。非法枚举值一律回落到默认值（不报错，避免前端一个脏值卡死整页） */
+  async saveSettings(dto: Partial<ExamGradeSettings>): Promise<ExamGradeSettings> {
+    const cur = await this.getSettings();
+    const pick = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T =>
+      allowed.includes(v as T) ? (v as T) : fallback;
+    const numOr = (v: unknown, fallback: number): number => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const next: ExamGradeSettings = {
+      roundMode: pick(dto.roundMode ?? cur.roundMode, ROUND_MODES, DEFAULT_EXAM_SETTINGS.roundMode),
+      excusedMode: pick(dto.excusedMode ?? cur.excusedMode, EXCUSED_MODES, DEFAULT_EXAM_SETTINGS.excusedMode),
+      absentMode: pick(dto.absentMode ?? cur.absentMode, ABSENT_MODES, DEFAULT_EXAM_SETTINGS.absentMode),
+      gpaDecimals: Math.min(3, Math.max(0, Math.round(numOr(dto.gpaDecimals ?? cur.gpaDecimals, 2)))),
+      highFactor: numOr(dto.highFactor ?? cur.highFactor, DEFAULT_EXAM_SETTINGS.highFactor),
+      lowFactor: numOr(dto.lowFactor ?? cur.lowFactor, DEFAULT_EXAM_SETTINGS.lowFactor),
+      swingScore: numOr(dto.swingScore ?? cur.swingScore, DEFAULT_EXAM_SETTINGS.swingScore),
+    };
+
+    const value = JSON.stringify(next);
+    const res = await this.base.search(TABLES.systemConfig.tableId, {
+      pageSize: 1,
+      filter: { conjunction: 'and', conditions: [{ field: '配置键', value: [EXAM_SETTINGS_KEY] }] },
+    });
+    const hit = res.items[0] as { recordId?: string; id?: string } | undefined;
+    if (hit) {
+      await this.base.update(TABLES.systemConfig.tableId, String(hit.recordId ?? hit.id ?? ''), {
+        配置值: value,
+        状态: '启用',
+      } as Record<string, unknown>);
+    } else {
+      await this.base.create(TABLES.systemConfig.tableId, {
+        配置键: EXAM_SETTINGS_KEY,
+        配置值: value,
+        分组: '教学配置',
+        说明: '成绩口径（舍入 / 免考 / 缺考 / 异常阈值 / GPA 小数位）',
+        状态: '启用',
+      } as Record<string, unknown>);
+    }
+    return next;
+  }
+
   async preview(batchId: string, cls: string, subject = ''): Promise<TermGradePreview> {
     return this.compute(batchId, cls, subject);
   }
@@ -878,10 +1007,12 @@ export class ExamGradeService implements OnModuleInit {
     cls: string,
   ): Promise<{ rows: AnomalyRow[]; thresholds: AnomalyThresholds; scanned: number }> {
     const batch = await this.batchOf(batchId);
+    const settings = await this.getSettings();
+    // 阈值同样三级回落：批次字段 → 全局设置 → 代码缺省
     const th: AnomalyThresholds = {
-      highFactor: num(batch?.f['异常阈值高倍']) ?? DEFAULT_ANOMALY_THRESHOLDS.highFactor,
-      lowFactor: num(batch?.f['异常阈值低倍']) ?? DEFAULT_ANOMALY_THRESHOLDS.lowFactor,
-      swingScore: num(batch?.f['异常突变分差']) ?? DEFAULT_ANOMALY_THRESHOLDS.swingScore,
+      highFactor: num(batch?.f['异常阈值高倍']) ?? settings.highFactor,
+      lowFactor: num(batch?.f['异常阈值低倍']) ?? settings.lowFactor,
+      swingScore: num(batch?.f['异常突变分差']) ?? settings.swingScore,
     };
 
     const [grid, typeIdx] = await Promise.all([this.markbook.getGrid(cls), this.examTypeIndex()]);
@@ -1074,6 +1205,44 @@ export class ExamGradeService implements OnModuleInit {
     };
     if (hit) await sql.update(TABLES.reportCard.tableId, hit.id, fields);
     else await sql.create(TABLES.reportCard.tableId, { ...fields, 评语状态: '未写' });
+  }
+
+  /**
+   * 整班成绩单数据（Phase 2 的「整班导出 ZIP」用）。
+   *
+   * 只组装数据、**不渲染 PDF** —— 渲染在 controller（那里才 import pdf.ts），
+   * 避免 service ↔ pdf 互相 import 造成阅读上的环。
+   *
+   * 按「学生」去重：一个班 × 一个批次下，一个学生会有多条期末总评（每个科目一条），
+   * 但成绩单是「学生 × 批次」一份 —— 不去重会导出 N 份重复的表。
+   */
+  async classReportCards(
+    batchId: string,
+    cls: string,
+    subject = '',
+  ): Promise<{
+    students: { studentId: string; studentName: string; cls: string }[];
+    data: ReportCardData[];
+    skipped: number;
+  }> {
+    const { rows } = await this.listTermGrades({ batchId, cls, subject });
+    const uniq = new Map<string, { studentId: string; studentName: string; cls: string }>();
+    for (const r of rows) {
+      if (!r.studentId) continue;
+      if (!uniq.has(r.studentId)) {
+        uniq.set(r.studentId, { studentId: r.studentId, studentName: r.studentName, cls: r.cls });
+      }
+    }
+    const students = [...uniq.values()].sort((a, b) => a.studentName.localeCompare(b.studentName, 'zh-CN'));
+
+    const data: ReportCardData[] = [];
+    let skipped = 0;
+    for (const s of students) {
+      const card = await this.buildReportCard(s.studentId, batchId);
+      if (card) data.push(card);
+      else skipped += 1;
+    }
+    return { students, data, skipped };
   }
 }
 

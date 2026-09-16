@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -57,6 +58,29 @@ export class ImpersonateController {
     return this.svc.lock(req.user);
   }
 
+  /**
+   * ⑤ 模拟记录（只读审计，**不需要二次密码**）。
+   * 与「进入」分开授权：查历史是低风险的只读操作，越方便查越好。
+   */
+  @Get('logs')
+  logs(
+    @Req() req: Request & { user: SessionUser },
+    @Query('action') action?: string,
+    @Query('actor') actor?: string,
+    @Query('target') target?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.listLogs(req.user, { action, actor, target, from, to, limit: Number(limit) || undefined });
+  }
+
+  /** ⑥ 模块清单（模块白名单的候选项；不需要解锁） */
+  @Get('modules')
+  modules(@Req() req: Request & { user: SessionUser }) {
+    return this.svc.listModuleOptions(req.user);
+  }
+
   /** ② 账号清单（需解锁凭证；不含邮箱/手机/密级等敏感字段） */
   @Get('users')
   users(@Req() req: Request & { user: SessionUser }) {
@@ -72,13 +96,14 @@ export class ImpersonateController {
   async enter(
     @Req() req: Request & { user: SessionUser; sessionId: string },
     @Res({ passthrough: true }) res: Response,
-    @Body() body: { openId?: string },
+    @Body() body: { openId?: string; readOnly?: boolean; modules?: string[] },
   ) {
     const { sessionId, result } = await this.svc.enter(
       req.user,
       req.sessionId,
       String(body?.openId ?? ''),
       this.ipOf(req),
+      { readOnly: !!body?.readOnly, modules: body?.modules },
     );
     res.cookie(process.env.SESSION_COOKIE ?? 'acms_sid', sessionId, {
       httpOnly: true,

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { api, type ImpersonateListResult } from '../../lib/api';
+import { api, type ImpersonateListResult, type ImpersonateUserRow } from '../../lib/api';
 import { resetPermissions } from '../../lib/permissions';
 
 /**
@@ -58,6 +58,11 @@ export default function ImpersonatePage() {
   const [expiresAt, setExpiresAt] = useState(0);
   const [entering, setEntering] = useState('');
   const [exiting, setExiting] = useState(false);
+  // 进入前的选项（Phase 2）：只读 / 模块白名单
+  const [enterTarget, setEnterTarget] = useState<ImpersonateUserRow | null>(null);
+  const [enterReadOnly, setEnterReadOnly] = useState(false);
+  const [enterModules, setEnterModules] = useState<string[]>([]);
+  const [moduleOptions, setModuleOptions] = useState<{ key: string; label: string }[]>([]);
 
   // 筛选
   const [q, setQ] = useState('');
@@ -92,6 +97,15 @@ export default function ImpersonatePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 模块清单：点「进入」时才拉（省一次请求）；清单来自后端 MODULE_RESOURCES，不在前端硬编码
+  useEffect(() => {
+    if (!enterTarget || moduleOptions.length) return;
+    api
+      .impersonateModules()
+      .then(setModuleOptions)
+      .catch(() => setModuleOptions([]));
+  }, [enterTarget, moduleOptions.length]);
 
   async function doUnlock() {
     if (!password || busy) return;
@@ -128,19 +142,27 @@ export default function ImpersonatePage() {
     setNotice(t('lockedBack'));
   }
 
-  async function doEnter(openId: string) {
+  async function doEnter(openId: string, opts?: { readOnly?: boolean; modules?: string[] }) {
     if (entering) return;
     setEntering(openId);
     setError('');
     try {
-      await api.impersonateEnter(openId);
+      await api.impersonateEnter(openId, opts);
       // 清前端权限单例缓存，然后整页跳转 —— 让 RSC / SSR 用新身份全部重跑
       resetPermissions();
       window.location.href = '/';
     } catch (e) {
       setError(`${t('enterFailed')}：${(e as Error).message || ''}`);
       setEntering('');
+      setEnterTarget(null);
     }
+  }
+
+  /** 打开「进入」确认框：默认不加限制（管理员需要时才勾只读 / 限模块） */
+  function openEnterDialog(row: ImpersonateUserRow) {
+    setEnterTarget(row);
+    setEnterReadOnly(false);
+    setEnterModules([]);
   }
 
   async function doExit() {
@@ -393,7 +415,7 @@ export default function ImpersonatePage() {
                               className="btn btn-primary btn-sm"
                               disabled={!!entering}
                               title={u.roles.includes('系统管理员') ? u.name : undefined}
-                              onClick={() => doEnter(u.openId)}
+                              onClick={() => openEnterDialog(u)}
                             >
                               {entering === u.openId ? t('entering') : `${t('enter')} →`}
                             </button>
@@ -419,6 +441,87 @@ export default function ImpersonatePage() {
               </div>
             </div>
           </>
+        )}
+
+        {/* ── 进入前的选项（Phase 2）──────────────────────────────
+            限制项由**服务端**在 SessionGuard 里统一拦截（业务接口零改动），
+            这里只是收集参数。默认都不勾 —— 排查权限问题九成只需要读，
+            但「他能不能提交这条考勤」这类验证需要写，所以不强制只读。 */}
+        {enterTarget && (
+          <div className="modal-overlay" onClick={() => (entering ? null : setEnterTarget(null))}>
+            <div className="imp-enter-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="imp-enter-head">
+                <h3>{t('enterTitle', { name: enterTarget.name })}</h3>
+                <p>{t('enterDesc')}</p>
+              </div>
+
+              <label className="imp-enter-row">
+                <input
+                  type="checkbox"
+                  checked={enterReadOnly}
+                  onChange={(e) => setEnterReadOnly(e.target.checked)}
+                />
+                <span>
+                  <b>{t('enterReadOnly')}</b>
+                  <span className="imp-muted">　{t('enterReadOnlyHint')}</span>
+                </span>
+              </label>
+
+              <div className="imp-enter-row" style={{ alignItems: 'flex-start' }}>
+                <span style={{ flex: 1 }}>
+                  <b>{t('enterModules')}</b>
+                  <div className="imp-muted" style={{ marginTop: 2, fontSize: 'var(--font-xs)' }}>
+                    {t('enterModulesHint')}
+                  </div>
+                  <select
+                    className="form-input"
+                    multiple
+                    size={6}
+                    style={{ width: '100%', marginTop: 6 }}
+                    value={enterModules}
+                    onChange={(e) =>
+                      setEnterModules(Array.from(e.target.selectedOptions).map((o) => o.value))
+                    }
+                  >
+                    {moduleOptions.map((m) => (
+                      <option key={m.key} value={m.key}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="imp-muted" style={{ marginTop: 4, fontSize: 'var(--font-xs)' }}>
+                    {enterModules.length
+                      ? t('modulesPicked', { n: enterModules.length })
+                      : t('modulesAll')}
+                  </div>
+                </span>
+              </div>
+
+              <div className="imp-enter-foot">
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={!!entering}
+                  onClick={() => setEnterTarget(null)}
+                >
+                  {t('enterCancel')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!!entering}
+                  onClick={() =>
+                    void doEnter(enterTarget.openId, {
+                      readOnly: enterReadOnly,
+                      modules: enterModules,
+                    })
+                  }
+                >
+                  {entering ? t('entering') : t('enterConfirm')}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

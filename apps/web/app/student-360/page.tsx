@@ -35,6 +35,27 @@ const COMM_MODULES: Record<string, { time: string; owner: string; theme: string 
 };
 
 const SECTION_COLUMNS: Record<string, { key: string; label: string; width?: string }[]> = {
+  // 考试与成绩（2026-09-16 Phase 2）：后端 examSections() 返回的分区
+  termGrades: [
+    { key: '批次', label: '批次', width: '220px' },
+    { key: '科目', label: '科目', width: '90px' },
+    { key: '总评', label: '总评', width: '80px' },
+    { key: '等级', label: '等级', width: '70px' },
+    { key: '是否达标', label: '达标', width: '80px' },
+    { key: '班级排名', label: '班内排名', width: '90px' },
+    { key: '参与项数', label: '参与项', width: '80px' },
+    { key: '教师评语', label: '任课教师评语' },
+    { key: '状态', label: '状态', width: '90px' },
+    { key: '结转人', label: '结转人', width: '110px' },
+  ],
+  reportCards: [
+    { key: '批次', label: '批次', width: '220px' },
+    { key: '学年学期', label: '学年学期', width: '150px' },
+    { key: '班主任总评语', label: '班主任总评语' },
+    { key: '评语状态', label: '评语状态', width: '100px' },
+    { key: '生成时间', label: '生成时间', width: '120px' },
+    { key: '导出次数', label: '导出次数', width: '90px' },
+  ],
   'student-attendances': [
     { key: '考勤日期', label: '考勤日期', width: '120px' },
     { key: '考勤状态', label: '考勤状态', width: '100px' },

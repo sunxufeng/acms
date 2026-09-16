@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { timingSafeEqual } from 'node:crypto';
 import type { Redis } from 'ioredis';
-import { TABLES, type SessionUser } from '@acms/contracts';
+import { MODULE_RESOURCES, TABLES, type SessionUser } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { REDIS } from '../redis.provider.js';
 import { AuthService } from '../auth/auth.service.js';
@@ -215,6 +215,19 @@ export class ImpersonateService {
     return { ok: true };
   }
 
+  /**
+   * 模块白名单的候选项（Phase 2）。
+   *
+   * 清单来自 `MODULE_RESOURCES` 这个**单一真源** —— 不在前端硬编码一份，
+   * 否则以后新增模块时白名单会静默缺项（用户勾不到自己想要的模块）。
+   */
+  listModuleOptions(user: SessionUser): { key: string; label: string }[] {
+    this.requireAdmin(user);
+    return MODULE_RESOURCES.map((m) => ({ key: m.key, label: m.label })).sort((a, b) =>
+      a.label.localeCompare(b.label, 'zh-CN'),
+    );
+  }
+
   // ── ② 列账号 ───────────────────────────────────────────────────────
 
   async listUsers(user: SessionUser): Promise<ImpersonateListResult> {
@@ -245,6 +258,7 @@ export class ImpersonateService {
     adminSid: string,
     targetOpenId: string,
     ip: string,
+    limits: { readOnly?: boolean; modules?: string[] } = {},
   ): Promise<{ sessionId: string; result: EnterResult }> {
     this.denyIfImpersonating(user);
     this.requireAdmin(user);
@@ -263,8 +277,16 @@ export class ImpersonateService {
     // 身份的唯一口径：与飞书登录链路走同一个 resolvePrincipal()
     const principal = await this.auth.resolvePrincipal(row.openId, row.name);
 
+    // 限制项（Phase 2）：只读 / 模块白名单。写进会话，由 SessionGuard 统一拦截。
+    const modules = (limits.modules ?? []).map((x) => String(x)).filter(Boolean);
+    const readOnly = !!limits.readOnly;
+
     const session = await this.sessions.create(
-      { ...principal, impersonatedBy: { openId: user.openId, name: user.name } },
+      {
+        ...principal,
+        impersonatedBy: { openId: user.openId, name: user.name },
+        ...(readOnly || modules.length ? { impersonation: { readOnly, modules } } : {}),
+      },
       IMPERSONATE_TTL_SECONDS,
       { recordLogin: false, indexByOpenid: false },
     );
@@ -292,7 +314,9 @@ export class ImpersonateService {
       row.name,
       '进入',
       ip,
-      `目标 ${row.openId} · 角色 ${row.roles.join('、') || '（空）'} · 校区 ${row.campus || '（空）'}`,
+      `目标 ${row.openId} · 角色 ${row.roles.join('、') || '（空）'} · 校区 ${row.campus || '（空）'}` +
+        (readOnly ? ' · 只读' : '') +
+        (modules.length ? ` · 限定模块 ${modules.join('/')}` : ''),
       row.openId,
     );
 
@@ -337,6 +361,83 @@ export class ImpersonateService {
     );
 
     return { adminSessionId: admin ? adminSid : null };
+  }
+
+  // ── ⑤ 模拟历史（Phase 2）──────────────────────────────────────────
+
+  /**
+   * 模拟记录查询（只读审计）。
+   *
+   * **不需要二次密码**：它是纯只读的历史留痕，越方便查越好；
+   * 而「以他人身份进入」才需要密码。两者风险完全不同，不该共用一个门禁。
+   *
+   * 读的是「身份模拟记录表」，字段在 jsonb 里（`data->>'动作'`），
+   * 所以这里内存过滤而不走 SQL 条件 —— 量级（每次进出两条）完全撑得住。
+   */
+  async listLogs(
+    user: SessionUser,
+    opts: { action?: string; actor?: string; target?: string; from?: string; to?: string; limit?: number } = {},
+  ): Promise<{
+    rows: {
+      id: string;
+      at: number;
+      action: string;
+      actor: string;
+      target: string;
+      ip: string;
+      detail: string;
+    }[];
+    total: number;
+    actions: string[];
+  }> {
+    this.requireAdmin(user);
+    const sql = getSqlStore();
+    if (!sql) return { rows: [], total: 0, actions: [] };
+
+    const all: { id: string; at: number; action: string; actor: string; target: string; ip: string; detail: string }[] = [];
+    const PAGE = 500;
+    let tok: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      // 分页用 pageToken（ListOptions 没有 offset —— 2026-09-16 实测）
+      const res = (await sql.search(TABLES.impersonateLog.tableId, {
+        pageSize: PAGE,
+        ...(tok ? { pageToken: tok } : {}),
+      })) as unknown as { items?: unknown[]; hasMore?: boolean; pageToken?: string };
+      const items = res?.items ?? [];
+      for (const raw of items) {
+        const r = raw as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+        const f = r.fields ?? {};
+        all.push({
+          id: String(r.recordId ?? r.id ?? ''),
+          at: Number(f['操作时间']) || 0,
+          action: String(f['动作'] ?? ''),
+          actor: String(f['操作人'] ?? ''),
+          target: String(f['目标用户'] ?? ''),
+          ip: String(f['IP'] ?? ''),
+          detail: String(f['详情'] ?? ''),
+        });
+      }
+      tok = res?.hasMore ? res.pageToken : undefined;
+      if (!tok) break;
+    }
+    all.sort((a, b) => b.at - a.at);
+
+    const kw = (s: string) => s.trim().toLowerCase();
+    const fromMs = opts.from ? new Date(`${opts.from}T00:00:00`).getTime() : -Infinity;
+    const toMs = opts.to ? new Date(`${opts.to}T23:59:59.999`).getTime() : Infinity;
+    const filtered = all.filter((r) => {
+      if (opts.action && r.action !== opts.action) return false;
+      if (opts.actor && !r.actor.toLowerCase().includes(kw(opts.actor))) return false;
+      if (opts.target && !r.target.toLowerCase().includes(kw(opts.target))) return false;
+      if (r.at < fromMs || r.at > toMs) return false;
+      return true;
+    });
+    const limit = Math.min(2000, Math.max(1, Number(opts.limit) || 500));
+    return {
+      rows: filtered.slice(0, limit),
+      total: filtered.length,
+      actions: [...new Set(all.map((r) => r.action).filter(Boolean))],
+    };
   }
 
   private returnKey(sid: string): string {

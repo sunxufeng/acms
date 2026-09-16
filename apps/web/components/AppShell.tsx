@@ -19,6 +19,8 @@ interface Me {
   impersonatedBy?: { openId: string; name: string };
   /** 会话到期时间戳：模拟态横幅用它算「剩余 X 分钟」 */
   expiresAt?: number;
+  /** 模拟的限制项（Phase 2）：只读 / 模块白名单 —— 横幅上要如实显示 */
+  impersonation?: { readOnly: boolean; modules: string[] };
 }
 
 /** 图标名称 → 组件（与 NavMenuItem.icon 对应） */
@@ -474,6 +476,13 @@ export default function AppShell({
             {tImp('bannerBy', { by: me.impersonatedBy.name })} ·{' '}
             {impLeftMin >= 2 ? tImp('bannerLeft', { min: impLeftMin }) : tImp('bannerLeftSoon')}
           </span>
+          {/* 限制项必须露在横幅上，否则用户会以为「怎么改不了/怎么进不去」是系统坏了 */}
+          {me.impersonation?.readOnly && <span className="imp-banner-tag">👁 {tImp('tagReadOnly')}</span>}
+          {!!me.impersonation?.modules?.length && (
+            <span className="imp-banner-tag">
+              {tImp('tagModules', { n: me.impersonation.modules.length })}
+            </span>
+          )}
           <span className="imp-banner-spacer" />
           <button
             type="button"

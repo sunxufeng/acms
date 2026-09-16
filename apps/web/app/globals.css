@@ -1956,3 +1956,31 @@ select.form-input:disabled { color: var(--fg); }
 }
 .imp-self { font-size: var(--font-xs); font-weight: 600; color: var(--fg-tertiary); }
 .imp-muted { color: var(--fg-tertiary); }
+/* 模拟横幅上的限制项标记（只读 / 限定模块） */
+.imp-banner-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(0,0,0,.22); border: 1px solid rgba(255,215,0,.45);
+  color: #FFE68A; border-radius: var(--radius-full);
+  padding: 1px 9px; font-size: var(--font-xs); font-weight: 700;
+}
+/* 模拟记录页的统计徽标与等宽时间列 */
+.imp-stat-badge {
+  display: inline-flex; align-items: center;
+  background: var(--gold-muted); border: 1px solid var(--gold);
+  color: var(--fg); border-radius: var(--radius-full);
+  padding: 4px 12px; font-size: var(--font-sm); font-weight: 600;
+}
+.imp-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-xs); }
+.imp-date { width: 150px; }
+/* 进入模拟前的选项弹窗（Phase 2）：只读 / 模块白名单 */
+.imp-enter-modal {
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg); width: 100%; max-width: 520px;
+  box-shadow: var(--shadow-modal); overflow: hidden;
+}
+.imp-enter-head { padding: var(--space-lg) var(--space-lg) var(--space-md); border-bottom: 1px solid var(--border); }
+.imp-enter-head h3 { margin: 0; font-size: var(--font-md); font-weight: 700; color: var(--fg); }
+.imp-enter-head p { margin: 6px 0 0; font-size: var(--font-sm); color: var(--fg-secondary); line-height: 1.7; }
+.imp-enter-row { display: flex; gap: 10px; align-items: center; padding: var(--space-md) var(--space-lg); border-bottom: 1px solid var(--border); font-size: var(--font-sm); color: var(--fg); cursor: pointer; }
+.imp-enter-foot { display: flex; gap: var(--space-sm); justify-content: flex-end; padding: var(--space-md) var(--space-lg); background: var(--bg-subtle); }
+.imp-enter-foot .btn { min-width: 96px; justify-content: center; }

@@ -49,6 +49,9 @@ const SECTION_LABELS: Record<string, string> = {
   'stage-evaluations': '阶段评价',
   'alumni-followups': '校友跟进',
   'idp-plans': 'IDP方案',
+  // 考试与成绩（2026-09-16 Phase 2）：不是 RecordMeta 驱动的表，见 examSections()
+  termGrades: '期末总评',
+  reportCards: '成绩单',
 };
 
 export interface Student360Section {
@@ -98,7 +101,122 @@ export class Student360Service {
       const maskedItems = mod ? this.mask.maskMany(user, mod.key, items) : items;
       resultSections.push({ key: meta.path, label, items: maskedItems });
     }
+    // ── 考试与成绩分区（Phase 2）────────────────────────────────
+    // 这两块不是 LIFECYCLE_METAS 里的表（是 exam-grade 的自建表 + 自定义接口），
+    // 所以单独处理，但**同样按区块权限与维度过滤**，行为与上面一致。
+    resultSections.push(...(await this.examSections(user, studentId, sections)));
+
     return { student, sections: resultSections };
+  }
+
+  /**
+   * 拉一张表的所有行（分页拉完）。
+   * 与 fetchSection 里的循环同源，抽出来避免第三份拷贝。
+   */
+  private async fetchAllRows(tableId: string): Promise<{ id: string; f: Record<string, unknown> }[]> {
+    const out: { id: string; f: Record<string, unknown> }[] = [];
+    let tok: string | undefined;
+    let guard = 0;
+    do {
+      const res = await this.base.search(tableId, { pageSize: 100, pageToken: tok });
+      for (const r of res.items) {
+        out.push({
+          id: String((r as { recordId?: string }).recordId ?? (r as { id?: string }).id ?? ''),
+          f: r.fields as Record<string, unknown>,
+        });
+      }
+      tok = res.hasMore ? res.pageToken : undefined;
+    } while (tok && guard++ < 200);
+    return out;
+  }
+
+  /**
+   * 考试与成绩分区（2026-09-16 Phase 2）。
+   *
+   * 两块：
+   *  - `termGrades` 期末总评明细（学生 × 批次 × 科目，含任课教师评语）
+   *  - `reportCards` 成绩单（学生 × 批次，含班主任总评语与导出记录）
+   *
+   * 权限与别的分区一致：没有 `module:examGrades:read` 就整块不返回（而不是返回空表 ——
+   * 空表会让老师以为自己没成绩，实际是没权限）。
+   */
+  private async examSections(
+    user: SessionUser,
+    studentId: string,
+    wanted: string[] | undefined,
+  ): Promise<Student360Section[]> {
+    const mod = moduleByPath('/exam-grades');
+    if (mod && !authorize(toPrincipal(user), modulePermission(mod.key, 'read')).allowed) return [];
+
+    const want = (label: string) => !wanted?.length || wanted.includes(label);
+    const needTerms = want('期末总评');
+    const needCards = want('成绩单');
+    if (!needTerms && !needCards) return [];
+
+    const [terms, cards, batches] = await Promise.all([
+      needTerms ? this.fetchAllRows(TABLES.termGrade.tableId) : Promise.resolve([]),
+      needCards ? this.fetchAllRows(TABLES.reportCard.tableId) : Promise.resolve([]),
+      this.fetchAllRows(TABLES.gradeBatch.tableId),
+    ]);
+    const batchName = new Map(batches.map((b) => [b.id, toText(b.f['批次名称'])]));
+    const batchMeta = new Map(
+      batches.map((b) => [
+        b.id,
+        `${toText(b.f['学年'])} ${toText(b.f['学期'])}`.trim(),
+      ]),
+    );
+    const mine = (f: Record<string, unknown>) => linkIds(f['学生']).includes(studentId);
+    const out: Student360Section[] = [];
+
+    if (needTerms) {
+      const items = terms
+        .filter((r) => mine(r.f))
+        .map((r) => {
+          const bid = String(linkIds(r.f['批次'])[0] ?? '');
+          const obj: Record<string, unknown> = { id: r.id, 批次: batchName.get(bid) ?? '' };
+          for (const k of [
+            '科目',
+            '总评',
+            '等级',
+            '是否达标',
+            '参与项数',
+            '班级排名',
+            '教师评语',
+            '状态',
+            '结转人',
+          ]) {
+            obj[k] = toText(r.f[k]);
+          }
+          const at = parseRecordDate(r.f['结转时间']);
+          obj['结转时间'] = at ? new Date(at).toISOString() : '';
+          return obj;
+        })
+        // 新批次在前（批次名里带学年，倒序即最新在前）
+        .sort((a, b) => String(b['批次']).localeCompare(String(a['批次']), 'zh'));
+      out.push({ key: 'termGrades', label: '期末总评', items });
+    }
+
+    if (needCards) {
+      const items = cards
+        .filter((r) => mine(r.f))
+        .map((r) => {
+          const bid = String(linkIds(r.f['批次'])[0] ?? '');
+          const obj: Record<string, unknown> = {
+            id: r.id,
+            批次: batchName.get(bid) ?? '',
+            学年学期: batchMeta.get(bid) ?? '',
+          };
+          for (const k of ['班主任总评语', '评语状态', '生成人', '导出次数']) {
+            obj[k] = toText(r.f[k]);
+          }
+          const at = parseRecordDate(r.f['生成时间']);
+          obj['生成时间'] = at ? new Date(at).toISOString() : '';
+          return obj;
+        })
+        .sort((a, b) => String(b['批次']).localeCompare(String(a['批次']), 'zh'));
+      out.push({ key: 'reportCards', label: '成绩单', items });
+    }
+    return out;
   }
 
   private async fetchSection(

@@ -51,6 +51,14 @@ export interface SessionUser {
    *  2. 服务端据此拒绝嵌套模拟，并让审计摘要在写入时标注「由 XXX 代为操作」
    */
   impersonatedBy?: { openId: string; name: string };
+  /**
+   * 身份模拟的**限制项**（2026-09-16 Phase 2）：
+   *  - `readOnly: true` ⇒ 拦截一切写操作（排查权限问题九成只需要读）
+   *  - `modules` 非空 ⇒ 只允许访问这些模块（键 = MODULE_RESOURCES.key），越界 403
+   *
+   * 由 SessionGuard 在读会话后统一判定，业务代码零改动（与操作人上下文同一手法）。
+   */
+  impersonation?: { readOnly: boolean; modules: string[] };
   sessionId: string;
   expiresAt: number;
 }

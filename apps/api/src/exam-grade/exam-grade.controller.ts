@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
 import { SessionGuard } from '../auth/session.guard.js';
 import { requireModule } from '../shared/require-module.js';
 import { ExamGradeService, SUBJECT_NONE, type ReportCardData } from './exam-grade.service.js';
 import { renderReportCardPdf } from './exam-grade.pdf.js';
+import { buildZip, uniqueNames } from './zip.js';
+import type { ExamGradeSettings } from './exam-grade.service.js';
 
 /**
  * 考试与成绩的「专用接口」。
@@ -13,6 +15,8 @@ import { renderReportCardPdf } from './exam-grade.pdf.js';
  *
  *  1. `GET  exam-grades/batches`        —— 批次下拉
  *  2. `GET  exam-grades/subjects`       —— 该班可用科目（取**实际去重值**，不读字典）
+ *  2b.`GET/PUT exam-grades/settings`    —— 成绩口径设置（全局缺省，批次字段优先）
+ *  2c.`GET  exam-grades/report-cards.zip` —— 整班成绩单打包下载（零依赖 zip）
  *  3. `GET  exam-grades/preview`        —— 结转**预览**（不落库）
  *  4. `POST exam-grades/roll`           —— 一键结转（幂等 upsert，已确认跳过）
  *  5. `POST exam-grades/confirm[/:id]`  —— 确认单条 / 批量确认（状态流转）
@@ -55,6 +59,28 @@ export class ExamGradeController {
   }
 
   /** 结转预览（读，不落库） */
+  /**
+   * 成绩口径设置（Phase 2）。
+   *
+   * 定位：**批次上的同名字段优先，这里只是缺省值与全局开关** ——
+   * 批次留空即继承这里配的值，所以历史批次不用改数据。
+   * 存在通用系统配置表（键 `exam_grade_settings`），不为此新建表。
+   */
+  @Get('settings')
+  async settings(@Req() req: { user: SessionUser }): Promise<ExamGradeSettings> {
+    requireModule(req.user, 'examGrades', 'read');
+    return this.svc.getSettings();
+  }
+
+  @Put('settings')
+  async saveSettings(
+    @Req() req: { user: SessionUser },
+    @Body() body: Partial<ExamGradeSettings>,
+  ): Promise<ExamGradeSettings> {
+    requireModule(req.user, 'examGrades', 'update');
+    return this.svc.saveSettings(body ?? {});
+  }
+
   @Get('preview')
   preview(
     @Req() req: { user: SessionUser },
@@ -146,6 +172,66 @@ export class ExamGradeController {
       });
     } catch {
       /* 留痕失败不当成下载失败 */
+    }
+  }
+
+  /**
+   * 整班成绩单 ZIP（Phase 2）。
+   *
+   * 一份 PDF 约 34 KB、一个班 30 人解压前约 1 MB —— 一次性在内存里打完再发，不做流式
+   * （流式要处理客户端中断与背压，收益不值这个复杂度）。
+   *
+   * ZIP 用自带实现（`zip.ts`，零依赖）：生产不能跑 pnpm install，能不加依赖就不加，
+   * 而 zip 格式本身足够简单。同名条目会自动加序号，避免解压互相覆盖。
+   *
+   * 取不到成绩单的学生直接跳过（响应头 `X-Skipped` 给出数量），
+   * 不因为一个人没结转就让整包失败。
+   */
+  @Get('report-cards.zip')
+  async reportCardsZip(
+    @Req() req: { user: SessionUser },
+    @Res() res: any,
+    @Query('batchId') batchId?: string,
+    @Query('cls') cls?: string,
+    @Query('subject') subject?: string,
+  ) {
+    requireModule(req.user, 'examGrades', 'export');
+    if (!batchId || !cls) {
+      res.status(400).json({ message: '缺少批次或班级' });
+      return;
+    }
+    const { data, skipped } = await this.svc.classReportCards(batchId, cls, subject ?? '');
+    if (!data.length) {
+      res.status(404).json({ message: '该班级在该批次下还没有可导出的成绩单（请先完成结转）' });
+      return;
+    }
+    const safe = (t: string) => t.replace(/[\\/:*?"<>|]/g, '_');
+    const names = uniqueNames(data.map((d) => `${safe(`成绩单_${d.studentName}_${d.cls || ''}`)}.pdf`));
+    const entries: { name: string; data: Buffer }[] = [];
+    for (const [i, d] of data.entries()) {
+      entries.push({ name: names[i] ?? `成绩单_${i + 1}.pdf`, data: await renderReportCardPdf(d) });
+    }
+    const zip = buildZip(entries);
+    const cn = `${safe(`成绩单_${cls}_${data[0]?.batchName ?? ''}`)}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="report-cards.zip"; filename*=UTF-8''${encodeURIComponent(cn)}`,
+    );
+    res.setHeader('Content-Length', String(zip.length));
+    res.setHeader('X-Skipped', String(skipped));
+    res.end(zip);
+
+    // 留痕：每份 +1 导出次数（失败不影响下载）
+    try {
+      for (const d of data) {
+        await this.svc.markExported(d.batchId, d.studentId, req.user?.name ?? '', {
+          studentName: d.studentName,
+          cls: d.cls,
+        });
+      }
+    } catch {
+      /* 留痕失败不当成导出失败 */
     }
   }
 

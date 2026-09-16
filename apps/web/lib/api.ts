@@ -1541,6 +1541,26 @@ export const api = {
       `/exam-grades/report-card?studentId=${encodeURIComponent(studentId)}&batchId=${encodeURIComponent(batchId)}`,
     ),
 
+  // ── 考试与成绩 Phase 2（2026-09-16）───────────────────────────────────
+  /** 成绩口径设置（全局缺省；批次上的同名字段优先） */
+  examSettings: () => request<ExamGradeSettings>('/exam-grades/settings'),
+  saveExamSettings: (dto: Partial<ExamGradeSettings>) =>
+    request<ExamGradeSettings>('/exam-grades/settings', { method: 'PUT', body: JSON.stringify(dto) }),
+  /** 常用评语库（标准 CRUD，路径 /exam-comments） */
+  examComments: crud('/exam-comments'),
+  /** 报表：考试成绩分布 */
+  reportExamDist: (o: { batchId?: string; cls?: string; subject?: string }) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(o)) if (v) q.set(k, String(v));
+    return request<ExamDistReport>(`/reports/exam-dist${q.toString() ? `?${q}` : ''}`);
+  },
+  /** 报表：GPA 与班级排名 */
+  reportExamGpa: (o: { batchId?: string; cls?: string }) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(o)) if (v) q.set(k, String(v));
+    return request<ExamGpaReport>(`/reports/exam-gpa${q.toString() ? `?${q}` : ''}`);
+  },
+
   // ── 身份模拟（2026-09-16）────────────────────────────────────────────
   // 全部接口都要求「已登录 + 系统管理员」；除 unlock 外还要求解锁凭证
   // （凭证缺失时后端返回 **403** 而不是 401，避免被 request() 当成未登录踢回登录页）。
@@ -1554,12 +1574,23 @@ export const api = {
   impersonateLock: () => request<{ ok: true }>('/impersonate/lock', { method: 'POST' }),
   /** ② 账号清单（不含邮箱/手机/密级） */
   impersonateUsers: () => request<ImpersonateListResult>('/impersonate/users'),
-  /** ③ 进入模拟：后端会把 Cookie 换成模拟会话 */
-  impersonateEnter: (openId: string) =>
+  /**
+   * ③ 进入模拟：后端会把 Cookie 换成模拟会话。
+   * `opts.readOnly` / `opts.modules` 是 Phase 2 的限制项 —— 由服务端在 SessionGuard 里统一拦截。
+   */
+  impersonateEnter: (openId: string, opts?: { readOnly?: boolean; modules?: string[] }) =>
     request<ImpersonateEnterResult>('/impersonate/enter', {
       method: 'POST',
-      body: JSON.stringify({ openId }),
+      body: JSON.stringify({ openId, ...(opts ?? {}) }),
     }),
+  /** ⑥ 模块清单（模块白名单的候选项） */
+  impersonateModules: () => request<{ key: string; label: string }[]>('/impersonate/modules'),
+  /** ⑤ 模拟记录（只读审计，不需要二次密码） */
+  impersonateLogs: (opts?: { action?: string; actor?: string; target?: string; from?: string; to?: string }) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(opts ?? {})) if (v) q.set(k, String(v));
+    return request<ImpersonateLogResult>(`/impersonate/logs${q.toString() ? `?${q}` : ''}`);
+  },
   /** ④ 退出模拟：后端把 Cookie 换回管理员原会话。restored=false 表示原会话已过期 */
   impersonateExit: () =>
     request<{ ok: true; restored: boolean }>('/impersonate/exit', { method: 'POST' }),
@@ -1960,6 +1991,92 @@ export type ImpersonateUnlockResult =
   | { ok: true; expiresIn: number }
   | { ok: false; code: 'BAD_PASSWORD'; fails: number; remaining: number }
   | { ok: false; code: 'LOCKED'; lockedSeconds: number };
+// ── 考试与成绩 Phase 2（2026-09-16）：口径设置 / 评语库 / 两张报表 / 整班 ZIP ──
+export interface ExamGradeSettings {
+  roundMode: string;
+  excusedMode: string;
+  absentMode: string;
+  /** GPA 显示小数位 0–3 */
+  gpaDecimals: number;
+  highFactor: number;
+  lowFactor: number;
+  swingScore: number;
+}
+
+export interface ExamDistReport {
+  batches?: { id: string; name: string; status: string; year: string; term: string }[];
+  batchId: string;
+  batchName: string;
+  classes: string[];
+  subjects: string[];
+  /** 数据范围口径说明（页面「口径」段直接展示） */
+  scopeNote?: string;
+  reason?: string;
+  summary: {
+    students: number;
+    records: number;
+    avg: number | null;
+    median: number | null;
+    max: number | null;
+    min: number | null;
+    passRate: number | null;
+    attainedRate: number | null;
+  };
+  bands: { label: string; count: number }[];
+  byLevel: { level: string; count: number }[];
+  bySubject: { subject: string; count: number; avg: number | null; attainedRate: number | null }[];
+  top: { studentId: string; studentName: string; cls: string; subject: string; total: number | null; level: string }[];
+  bottom: { studentId: string; studentName: string; cls: string; subject: string; total: number | null; level: string }[];
+}
+
+export interface ExamGpaRow {
+  studentId: string;
+  studentName: string;
+  cls: string;
+  subjectCount: number;
+  gpaSubjectCount: number;
+  weightedGpa: number | null;
+  unweightedGpa: number | null;
+  avgTotal: number | null;
+  level: string;
+  levelOrder: number | null;
+  attainedCount: number;
+  subjects: string;
+  rank: number | null;
+  clsRank: number | null;
+  clsTotal: number;
+}
+
+export interface ExamGpaReport {
+  batches?: { id: string; name: string; status: string; year: string; term: string }[];
+  batchId: string;
+  batchName: string;
+  classes: string[];
+  /** 等级表一个绩点都没配时为 false —— 页面要明说「未配置绩点」，不显示 0.00 */
+  gpaConfigured: boolean;
+  scopeNote?: string;
+  reason?: string;
+  summary: { students: number; avgGpa: number | null; fullMarks: number };
+  distribution: { label: string; count: number }[];
+  rows: ExamGpaRow[];
+}
+
+export interface ImpersonateLogRow {
+  id: string;
+  /** 毫秒时间戳 */
+  at: number;
+  action: string;
+  actor: string;
+  target: string;
+  ip: string;
+  detail: string;
+}
+export interface ImpersonateLogResult {
+  rows: ImpersonateLogRow[];
+  total: number;
+  actions: string[];
+}
+
 export interface ImpersonateEnterResult {
   ok: true;
   target: { openId: string; name: string; roles: string[]; campus: string };
@@ -2157,6 +2274,55 @@ export async function exportTable(table: string): Promise<void> {
  * 文件名走后端 `Content-Disposition` 的 `filename*`（RFC 5987 中文名）；
  * 这里再兜一层解析，取不到就用「成绩单_{学生名}.pdf」。
  */
+/**
+ * 下载整班成绩单 ZIP（服务端零依赖打包，见 `apps/api/src/exam-grade/zip.ts`）。
+ *
+ * 与单份 PDF 同一套错误处理：401 跳登录、其它错误尽量把后端的 JSON message 抛出来
+ *（「该班级还没有可导出的成绩单」这类话比一个状态码有用得多）。
+ */
+export async function downloadClassReportCardsZip(
+  batchId: string,
+  cls: string,
+  subject = '',
+  filenameHint = '',
+): Promise<void> {
+  const q = new URLSearchParams({ batchId, cls });
+  if (subject) q.set('subject', subject);
+  const res = await fetch(`${API_BASE}/exam-grades/report-cards.zip?${q.toString()}`, {
+    credentials: 'include',
+  });
+  if (res.status === 401) {
+    if (typeof window !== 'undefined') window.location.href = '/login';
+    throw new Error('UNAUTHENTICATED');
+  }
+  if (!res.ok) {
+    let msg = `导出失败 HTTP ${res.status}`;
+    try {
+      const j = (await res.json()) as { message?: string };
+      if (j?.message) msg = j.message;
+    } catch {
+      /* 非 JSON 响应，保留状态码 */
+    }
+    throw new Error(msg);
+  }
+  const cd = res.headers.get('Content-Disposition') || '';
+  let filename = `${filenameHint || `成绩单_${cls}`}.zip`;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  const plain = /filename="([^"]+)"/i.exec(cd);
+  if (star && star[1]) filename = decodeURIComponent(star[1]);
+  else if (plain && plain[1]) filename = plain[1];
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function downloadReportCardPdf(studentId: string, batchId: string, studentName = ''): Promise<void> {
   const res = await fetch(
     `${API_BASE}/exam-grades/report-card.pdf?studentId=${encodeURIComponent(studentId)}&batchId=${encodeURIComponent(batchId)}`,

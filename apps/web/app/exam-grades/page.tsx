@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   api,
+  type ExamGradeSettings,
+  downloadClassReportCardsZip,
   downloadReportCardPdf,
   type ExamAnomalyRow,
   type ExamBatch,
@@ -32,7 +34,7 @@ import {
  *   ② 已确认的总评与评语**会被锁定**，要改先撤销确认
  *   ③ 已确认的记录**不会被结转覆盖**
  */
-type Tab = 'term' | 'card' | 'comments' | 'anomaly';
+type Tab = 'term' | 'card' | 'comments' | 'anomaly' | 'settings';
 
 /** 与后端一致的「未填科目」哨兵值 */
 const SUBJECT_NONE = '__none__';
@@ -66,6 +68,12 @@ export default function ExamGradesPage() {
   const [onlyMissing, setOnlyMissing] = useState(false);
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
   const [savingComment, setSavingComment] = useState('');
+
+  // 成绩口径设置（Phase 2）
+  const [settings, setSettings] = useState<ExamGradeSettings | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  // 常用评语库（Phase 2）：批量评语页一键套用
+  const [commentLib, setCommentLib] = useState<{ id: string; text: string; subject: string; tag: string }[]>([]);
 
   // 异常审查
   const [anomalies, setAnomalies] = useState<ExamAnomalyRow[]>([]);
@@ -101,6 +109,26 @@ export default function ExamGradesPage() {
       })
       .catch(() => setSubjects([]));
   }, [cls]);
+
+  /**
+   * 从 URL 初始化筛选（报表下钻进来时带上 `?tab=term&batchId=..&cls=..&subject=..`）。
+   *
+   * 时序是安全的：URL effect 先写入，随后「载入批次/班级」的 effect 只在
+   * **当前值不在候选列表里**时才覆盖（见上面 `setBatchId((cur) => (cur && bs.some(...) ? cur : ...))`），
+   * 所以从 URL 带进来的值会被保留，而科目也有同样的保护。
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const q = new URLSearchParams(window.location.search);
+    const t0 = q.get('tab');
+    if (t0 && ['term', 'card', 'comments', 'anomaly', 'settings'].includes(t0)) setTab(t0 as Tab);
+    const b = q.get('batchId');
+    if (b) setBatchId(b);
+    const c0 = q.get('cls');
+    if (c0) setCls(c0);
+    const s0 = q.get('subject');
+    if (s0) setSubject(s0);
+  }, []);
 
   const batch = useMemo(() => batches.find((b) => b.id === batchId) ?? null, [batches, batchId]);
 
@@ -301,6 +329,61 @@ export default function ExamGradesPage() {
   };
 
   /** 套用上一条评语（老师写的评语大量重复，一键复制再改几个字比从空白开始快得多） */
+  // 口径设置：进 Tab 才拉（省一次请求）
+  useEffect(() => {
+    if (tab !== 'settings' || settings) return;
+    api
+      .examSettings()
+      .then(setSettings)
+      .catch(() => setMsg({ tone: 'error', text: t('loadFailed') }));
+  }, [tab, settings, t]);
+
+  // 常用评语库：进「批量评语」才拉；按科目过滤（空科目 = 通用）
+  useEffect(() => {
+    if (tab !== 'comments' || commentLib.length) return;
+    api
+      .examComments
+      .list({ pageSize: '200' })
+      .then((r) => {
+        const items = (r as unknown as { items?: Record<string, unknown>[] }).items ?? [];
+        setCommentLib(
+          items.map((x) => ({
+            id: String(x['id'] ?? ''),
+            text: String(x['评语内容'] ?? ''),
+            subject: String(x['科目'] ?? ''),
+            tag: String(x['标签'] ?? ''),
+          })),
+        );
+      })
+      .catch(() => null);
+  }, [tab, commentLib.length]);
+
+  const saveSettings = async () => {
+    if (!settings) return;
+    setSavingSettings(true);
+    try {
+      const next = await api.saveExamSettings(settings);
+      setSettings(next);
+      setMsg({ tone: 'ok', text: t('settingsSaved') });
+    } catch (e) {
+      setMsg({ tone: 'error', text: `${t('settingsFailed')}：${(e as Error).message}` });
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  /** 整班导出：把一个班的成绩单打成 zip（服务端零依赖打包） */
+  const exportZip = async (cls: string, batchId: string, batchName: string) => {
+    setBusy(true);
+    try {
+      await downloadClassReportCardsZip(batchId, cls, subject, `成绩单_${cls}_${batchName}`);
+    } catch (e) {
+      setMsg({ tone: 'error', text: `${t('zipFailed')}：${(e as Error).message}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const copyPrevComment = (idx: number) => {
     if (idx <= 0) return;
     const prev = commentRows[idx - 1];
@@ -387,6 +470,7 @@ export default function ExamGradesPage() {
               ['card', t('tabCard')],
               ['comments', t('tabComments')],
               ['anomaly', t('tabAnomaly')],
+              ['settings', t('tabSettings')],
             ] as [Tab, string][]
           ).map(([k, label]) => (
             <button
@@ -622,6 +706,14 @@ export default function ExamGradesPage() {
                     <button className="btn btn-primary" disabled={busy} onClick={() => void exportPdf()}>
                       {t('exportPdf')}
                     </button>
+                    {/* 整班打包：一个班 30 份 PDF 逐个点太慢，一次拿走 */}
+                    <button
+                      className="btn btn-outline"
+                      disabled={busy || !card.cls}
+                      onClick={() => void exportZip(card.cls, card.batchId, card.batchName)}
+                    >
+                      {t('exportZip')}
+                    </button>
                   </div>
 
                   <div className="exam-paper-wrap">
@@ -796,6 +888,33 @@ export default function ExamGradesPage() {
                             <td>{r.total == null ? '—' : r.total}</td>
                             <td>{r.level ? <span className={levelClass(r.level, r.total)}>{r.level}</span> : '—'}</td>
                             <td>
+                              {commentLib.length > 0 && (
+                                <select
+                                  className="form-input"
+                                  style={{ width: '100%', marginBottom: 4, fontSize: 'var(--font-xs)' }}
+                                  value=""
+                                  onChange={(e) => {
+                                    const hit = commentLib.find((x) => x.id === e.target.value);
+                                    if (!hit) return;
+                                    setCommentDraft((d) => {
+                                      const cur = d[r.id] ?? '';
+                                      // 追加而不是覆盖：老师常把两句拼起来
+                                      const next = cur ? `${cur} ${hit.text}` : hit.text;
+                                      return { ...d, [r.id]: next.slice(0, 200) };
+                                    });
+                                  }}
+                                >
+                                  <option value="">{t('applyFromLibrary')}</option>
+                                  {commentLib
+                                    .filter((x) => !x.subject || x.subject === subject)
+                                    .map((x) => (
+                                      <option key={x.id} value={x.id}>
+                                        {x.tag ? `[${x.tag}] ` : ''}
+                                        {x.text.slice(0, 34)}
+                                      </option>
+                                    ))}
+                                </select>
+                              )}
                               <textarea
                                 className="form-input"
                                 style={{ width: '100%', minHeight: 40 }}
@@ -992,6 +1111,81 @@ export default function ExamGradesPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── 成绩口径设置（Phase 2）──────────────────────────────
+          定位：**批次上的同名字段优先，这里只是缺省值**。
+          批次留空即继承这里配的值 —— 所以历史批次不用改数据，
+          新建批次也能天然带上一套统一口径。 */}
+      {tab === 'settings' && (
+        <div className="card" style={{ padding: 20 }}>
+          <div className="dept-card-head" style={{ marginBottom: 12 }}>
+            <span className="dept-card-title">{t('settingsTitle')}</span>
+            <span className="dept-card-meta">{t('settingsMeta')}</span>
+          </div>
+          {!settings ? (
+            <div className="dept-loading">{t('loading')}</div>
+          ) : (
+            <>
+              <div className="notice notice-info" style={{ marginBottom: 14 }}>{t('settingsNotice')}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 16 }}>
+                {(
+                  [
+                    ['roundMode', t('setRound'), ['四舍五入', '保留1位小数', '向上取整', '向下取整', '不处理']],
+                    ['excusedMode', t('setExcused'), ['不计入分母', '计0分']],
+                    ['absentMode', t('setAbsent'), ['计0分', '不计入分母']],
+                  ] as [keyof ExamGradeSettings, string, string[]][]
+                ).map(([key, label, opts]) => (
+                  <label key={String(key)} style={{ display: 'block' }}>
+                    <span style={{ display: 'block', marginBottom: 4, fontSize: 'var(--font-sm)' }}>{label}</span>
+                    <select
+                      className="form-input"
+                      style={{ width: '100%' }}
+                      value={String(settings[key] ?? '')}
+                      onChange={(e) => setSettings({ ...settings, [key]: e.target.value } as ExamGradeSettings)}
+                    >
+                      {opts.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+                {(
+                  [
+                    ['gpaDecimals', t('setGpaDecimals'), 0, 3],
+                    ['highFactor', t('setHigh'), 1.1, 3],
+                    ['lowFactor', t('setLow'), 0.1, 1],
+                    ['swingScore', t('setSwing'), 5, 60],
+                  ] as [keyof ExamGradeSettings, string, number, number][]
+                ).map(([key, label, min, max]) => (
+                  <label key={String(key)} style={{ display: 'block' }}>
+                    <span style={{ display: 'block', marginBottom: 4, fontSize: 'var(--font-sm)' }}>{label}</span>
+                    <input
+                      className="form-input"
+                      style={{ width: '100%' }}
+                      type="number"
+                      min={min}
+                      max={max}
+                      step={key === 'gpaDecimals' ? 1 : 0.1}
+                      value={String(settings[key] ?? '')}
+                      onChange={(e) =>
+                        setSettings({ ...settings, [key]: Number(e.target.value) } as ExamGradeSettings)
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+              <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <button className="btn btn-primary" disabled={savingSettings} onClick={() => void saveSettings()}>
+                  {savingSettings ? t('working') : t('settingsSave')}
+                </button>
+                <span className="muted" style={{ fontSize: 'var(--font-xs)' }}>{t('settingsHint')}</span>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

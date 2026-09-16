@@ -572,4 +572,20 @@ export const TEACHING_CONFIG_METAS: RecordMeta[] = [
     searchField: '类型',
     sortField: '更新时间',
   },
+  {
+    path: 'exam-comments',
+    tableId: TABLES.examComment.tableId,
+    readPerm: 'module:examComments:read',
+    writePerm: 'module:examComments:update',
+    /**
+     * 常用评语库（2026-09-16）：各科老师写评语时一键套用。
+     * 「科目」留空 = 通用（任何科目都能套）；填了就只在该科目的评语页出现。
+     * 建表由 `ExamGradeService.ensureTables()` 负责（配置表归使用它的模块）。
+     */
+    numbers: ['排序'],
+    statusField: '状态',
+    defaultStatus: '启用',
+    searchFields: ['评语内容', '科目', '标签'],
+    sortField: '排序',
+  },
 ];

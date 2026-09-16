@@ -16,6 +16,16 @@ import {
 } from './attendance-rate.js';
 import { linkIds } from '../shared/record.util.js';
 import { textOf } from '../markbook/markbook.logic.js';
+import { StudentScopeService } from '../shared/student-scope.service.js';
+import {
+  aggregateByStudent,
+  competitionRanks,
+  computeBands,
+  gpaBands,
+  mean,
+  quantile,
+  type TermGradeLike,
+} from './exam-stats.js';
 
 function toPrincipal(user: SessionUser): Principal {
   return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
@@ -117,6 +127,12 @@ export class ReportsService {
   constructor(
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
     private readonly loginLog: LoginLogService,
+    /**
+     * 学生档案「行级数据范围」（2026-09-16 加）。
+     * 成绩类报表**含学生姓名与分数明细**（GPA 排名榜尤其明显），
+     * 不套范围就等于把全校成绩单开给了每个班主任 —— 与列表页同一口径，必须过滤。
+     */
+    @Inject(StudentScopeService) private readonly scope: StudentScopeService,
   ) {}
 
   /**
@@ -691,6 +707,265 @@ export class ReportsService {
    * 只返回聚合结果，不含学生明细（与 students 报表一致的脱敏取向）。
    * 口径：见 `attendance-rate.ts` 顶部 —— 特别是「只统计已通过终态」这一条。
    */
+  // ────────────────────────────────────────────────────────────
+  // 成绩类报表（考试与成绩 Phase 2，2026-09-16）
+  // ────────────────────────────────────────────────────────────
+
+  /**
+   * 批次下拉（最新在前）。
+   * 不是「已发布」优先 —— 期末总评在草稿批次里也能看，报表只是呈现快照。
+   */
+  private async examBatchOptions(): Promise<
+    { id: string; name: string; status: string; year: string; term: string }[]
+  > {
+    const out: { id: string; name: string; status: string; year: string; term: string; at: number }[] = [];
+    let tok: string | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const page = await this.base.search(TABLES.gradeBatch.tableId, {
+        pageSize: 200,
+        ...(tok ? { pageToken: tok } : {}),
+      });
+      for (const r of page.items) {
+        const f = r.fields as Record<string, unknown>;
+        const id = String((r as { recordId?: string }).recordId ?? (r as { id?: string }).id ?? '');
+        out.push({
+          id,
+          name: textOf(f['批次名称']),
+          status: textOf(f['状态']),
+          year: textOf(f['学年']),
+          term: textOf(f['学期']),
+          at: Number(f['创建时间']) || 0,
+        });
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      tok = page.pageToken;
+    }
+    // 有创建时间的按时间倒序；没有的（老数据）按名字倒序兜底
+    out.sort((a, b) => (b.at || 0) - (a.at || 0) || b.name.localeCompare(a.name, 'zh-CN'));
+    return out.map(({ at: _at, ...rest }) => rest);
+  }
+
+  /** 期末总评全表（分页拉完）—— 学生×批次×科目 量级，单校内存里聚合完全够 */
+  private async examTermRows(): Promise<(TermGradeLike & { batchId: string })[]> {
+    const out: (TermGradeLike & { batchId: string })[] = [];
+    const num = (v: unknown): number | null => {
+      if (v === '' || v == null) return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    let tok: string | undefined;
+    for (let i = 0; i < 40; i += 1) {
+      const page = await this.base.search(TABLES.termGrade.tableId, {
+        pageSize: 500,
+        ...(tok ? { pageToken: tok } : {}),
+      });
+      for (const r of page.items) {
+        const f = r.fields as Record<string, unknown>;
+        out.push({
+          batchId: String(linkIds(f['批次'])[0] ?? ''),
+          studentId: String(linkIds(f['学生'])[0] ?? ''),
+          studentName: textOf(f['学生姓名']),
+          cls: textOf(f['班级']),
+          subject: textOf(f['科目']),
+          total: num(f['总评']),
+          level: textOf(f['等级']),
+          levelOrder: num(f['等级序号']),
+          attained: textOf(f['是否达标']),
+          weightedGpa: num(f['加权GPA']),
+          unweightedGpa: num(f['不加权GPA']),
+          count: num(f['参与项数']) ?? 0,
+        });
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      tok = page.pageToken;
+    }
+    return out;
+  }
+
+  /**
+   * 按当前用户的学生数据范围过滤总评行。
+   * 返回 `keys === null` 表示不受限（组织级豁免），页面的「口径说明」要如实写出来。
+   */
+  private async scopeExamRows(
+    user: SessionUser,
+    rows: (TermGradeLike & { batchId: string })[],
+  ): Promise<{ rows: (TermGradeLike & { batchId: string })[]; keys: string[] | null }> {
+    const scope = await this.scope.resolve(user);
+    const keys = await this.scope.visibleKeys(scope, 'id');
+    if (!keys) return { rows, keys: null };
+    const set = new Set(keys);
+    return { rows: rows.filter((r) => set.has(r.studentId)), keys };
+  }
+
+  /**
+   * 报表：考试成绩分布。
+   *
+   * 数据源 = **期末总评快照**（不是成绩册的原始条目）—— 报表要跟成绩单对得上，
+   * 而成绩单读的就是这份快照。
+   */
+  async examDistribution(
+    user: SessionUser,
+    opts: { batchId?: string; cls?: string; subject?: string } = {},
+  ) {
+    if (!authorize(toPrincipal(user), 'report:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:report:read');
+    }
+    const batches = await this.examBatchOptions();
+    const batchId = String(opts.batchId ?? '') || batches[0]?.id || '';
+    if (!batchId) {
+      return { batches: [], batchId: '', batchName: '', classes: [], subjects: [], reason: '还没有任何成绩批次' };
+    }
+    const all = await this.examTermRows();
+    const { rows: scoped, keys } = await this.scopeExamRows(
+      user,
+      all.filter((r) => r.batchId === batchId),
+    );
+
+    const classes = [...new Set(scoped.map((r) => r.cls).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, 'zh-CN'),
+    );
+    const subjects = [...new Set(scoped.map((r) => r.subject).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, 'zh-CN'),
+    );
+
+    const filtered = scoped.filter(
+      (r) => (!opts.cls || r.cls === opts.cls) && (!opts.subject || r.subject === opts.subject),
+    );
+    const totals = filtered.map((r) => r.total).filter((t): t is number => t != null);
+
+    const levelMap = new Map<string, number>();
+    for (const r of filtered) if (r.level) levelMap.set(r.level, (levelMap.get(r.level) ?? 0) + 1);
+
+    const bySubject = subjects.map((sub) => {
+      const rs = filtered.filter((r) => r.subject === sub);
+      const ts = rs.map((r) => r.total).filter((t): t is number => t != null);
+      const ok = rs.filter((r) => r.attained === '达标').length;
+      return {
+        subject: sub,
+        count: rs.length,
+        avg: mean(ts),
+        attainedRate: rs.length ? Math.round((ok / rs.length) * 1000) / 10 : null,
+      };
+    });
+
+    const sorted = filtered
+      .filter((r) => r.total != null)
+      .sort((a, b) => (b.total ?? 0) - (a.total ?? 0));
+    const brief = (r: TermGradeLike) => ({
+      studentId: r.studentId,
+      studentName: r.studentName,
+      cls: r.cls,
+      subject: r.subject,
+      total: r.total,
+      level: r.level,
+    });
+
+    return {
+      batches,
+      batchId,
+      batchName: batches.find((b) => b.id === batchId)?.name ?? '',
+      classes,
+      subjects,
+      /** 数据范围口径（页面「口径说明」直接展示，别让用户猜为什么人数比预期少） */
+      scopeNote: keys
+        ? `仅统计你可见的 ${keys.length} 名学生`
+        : '不限制（组织级：系统管理员 / 院级管理看到全部）',
+      summary: {
+        students: new Set(filtered.map((r) => r.studentId)).size,
+        records: filtered.length,
+        avg: mean(totals),
+        median: quantile(totals, 0.5),
+        max: totals.length ? Math.max(...totals) : null,
+        min: totals.length ? Math.min(...totals) : null,
+        passRate: totals.length
+          ? Math.round((totals.filter((t) => t >= 60).length / totals.length) * 1000) / 10
+          : null,
+        attainedRate: filtered.length
+          ? Math.round((filtered.filter((r) => r.attained === '达标').length / filtered.length) * 1000) / 10
+          : null,
+      },
+      bands: computeBands(totals),
+      byLevel: [...levelMap.entries()]
+        .map(([level, count]) => ({ level, count }))
+        .sort((a, b) => b.count - a.count),
+      bySubject,
+      top: sorted.slice(0, 10).map(brief),
+      bottom: sorted.slice(-10).reverse().map(brief),
+    };
+  }
+
+  /**
+   * 报表：GPA 与班级排名。
+   *
+   * 一个学生一个批次下有多条总评（每个科目一条），**先按学生聚合再排名** ——
+   * 否则同一个学生会占据前 4 名，看起来像 bug。
+   * 班级排名 = 同班内按加权 GPA 的竞赛排名（同 GPA 同名次、下一名跳号）。
+   */
+  async examGpaRank(user: SessionUser, opts: { batchId?: string; cls?: string } = {}) {
+    if (!authorize(toPrincipal(user), 'report:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:report:read');
+    }
+    const batches = await this.examBatchOptions();
+    const batchId = String(opts.batchId ?? '') || batches[0]?.id || '';
+    if (!batchId) {
+      return { batches: [], batchId: '', batchName: '', classes: [], gpaConfigured: false, rows: [], reason: '还没有任何成绩批次' };
+    }
+    const all = await this.examTermRows();
+    const { rows: scoped, keys } = await this.scopeExamRows(
+      user,
+      all.filter((r) => r.batchId === batchId),
+    );
+    const classes = [...new Set(scoped.map((r) => r.cls).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, 'zh-CN'),
+    );
+    const filtered = scoped.filter((r) => !opts.cls || r.cls === opts.cls);
+
+    const students = aggregateByStudent(filtered);
+    const ranks = competitionRanks(students, (s) => s.weightedGpa);
+
+    // 班级内排名
+    const byCls = new Map<string, typeof students>();
+    for (const st of students) {
+      const arr = byCls.get(st.cls);
+      if (arr) arr.push(st);
+      else byCls.set(st.cls, [st]);
+    }
+    const clsRank = new Map<string, number | null>();
+    const clsTotal = new Map<string, number>();
+    for (const [c, list] of byCls) {
+      const rr = competitionRanks(list, (s) => s.weightedGpa);
+      list.forEach((st, i) => clsRank.set(st.studentId, rr[i] ?? null));
+      clsTotal.set(c, list.length);
+    }
+
+    const gpas = students.map((s) => s.weightedGpa).filter((g): g is number => g != null);
+    const rows = students
+      .map((st, i) => ({
+        ...st,
+        rank: ranks[i] ?? null,
+        clsRank: clsRank.get(st.studentId) ?? null,
+        clsTotal: clsTotal.get(st.cls) ?? 0,
+      }))
+      .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || a.studentName.localeCompare(b.studentName, 'zh-CN'));
+
+    return {
+      batches,
+      batchId,
+      batchName: batches.find((b) => b.id === batchId)?.name ?? '',
+      classes,
+      /** 等级表一个绩点都没配时为 false —— 页面要明说「未配置绩点」，不显示 0.00 */
+      gpaConfigured: gpas.length > 0,
+      scopeNote: keys ? `仅统计你可见的 ${keys.length} 名学生` : '不限制（组织级）',
+      summary: {
+        students: students.length,
+        avgGpa: gpas.length ? Math.round((gpas.reduce((a, b) => a + b, 0) / gpas.length) * 100) / 100 : null,
+        fullMarks: students.filter((s) => s.attainedCount === s.subjectCount && s.subjectCount > 0).length,
+      },
+      distribution: gpaBands(gpas),
+      rows,
+    };
+  }
+
   async attendanceReport(
     user: SessionUser,
     query: { from?: string; to?: string; class?: string; grade?: string } = {},

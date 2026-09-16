@@ -20,6 +20,7 @@ import { NotesPanel } from '../../components/reports/notes';
 import { WeilingPanel } from '../../components/reports/weiling';
 import { DedupPanel } from '../../components/reports/dedup';
 import { AttendancePanel } from '../../components/reports/attendance';
+import { ExamDistPanel, ExamGpaPanel } from '../../components/reports/exam';
 
 interface ReportDef {
   key: string;
@@ -70,6 +71,22 @@ const REPORTS: ReportDef[] = [
     label: '考勤分析',
     desc: '出勤率、迟到/请假/缺勤次数排行与趋势；只统计已通过终态、计入统计的考勤记录',
     dims: '班级 · 年级 · 学生排行 · 按日/周趋势',
+    ready: true,
+  },
+  {
+    // 不设 group：本报表自带筛选栏（批次 / 班级 / 科目）。
+    // 公共的「学生类」条件（校区 / 入学年份）对成绩报表无意义 —— 成绩是按批次看的。
+    key: 'examDist',
+    label: '考试成绩分布',
+    desc: '按批次 × 班级 × 科目看均分、中位数、及格率、达标率与等级 / 分数段分布',
+    dims: '分数段 · 等级 · 按科目 · 前/后 10 名',
+    ready: true,
+  },
+  {
+    key: 'examGpa',
+    label: 'GPA 与班级排名',
+    desc: '按学生聚合加权 / 不加权 GPA，给出总排名与班内排名、GPA 分布',
+    dims: '排名榜 · GPA 分布',
     ready: true,
   },
   { key: 'grades', label: '学业成绩', desc: '按学科/学期统计均分、及格率、等级分布', source: '学业成绩表', ready: false, href: '/grades' },
@@ -215,6 +232,8 @@ export default function ReportsPage() {
           {active === 'dedup' ? <DedupPanel /> : null}
           {active === 'notes' ? <NotesPanel from={from} to={to} /> : null}
           {active === 'activity' ? <ActivityPanel from={from} to={to} /> : null}
+          {active === 'examDist' ? <ExamDistPanel /> : null}
+          {active === 'examGpa' ? <ExamGpaPanel /> : null}
           {active === 'attendance' ? <AttendancePanel /> : null}
           {!activeReport.ready ? (
             <EmptyReport name={tl(activeReport.label)} source={tl(activeReport.source ?? '')} href={activeReport.href} />

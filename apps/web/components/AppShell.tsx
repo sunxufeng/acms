@@ -136,6 +136,7 @@ const LEGACY_NAV_ITEMS: LegacyNavGroup[] = [
       { key: 'audit-logs', label: '审计日志', href: '/audit-logs', icon: AuditIcon },
       { key: 'users', label: '用户管理', href: '/users', icon: UserGroupIcon, adminOnly: true },
       { key: 'impersonate', label: '身份模拟', href: '/impersonate', icon: LockIcon, adminOnly: true },
+      { key: 'api-tokens', label: '令牌管理', href: '/api-tokens', icon: KeyIcon, adminOnly: true },
       { key: 'permissions', label: '权限授权', href: '/permissions', icon: ShieldIcon, adminOnly: true },
       { key: 'notifications', label: '通知任务', href: '/notifications', icon: NotificationsIcon },
       { key: 'notification-templates', label: '通知模板', href: '/notification-templates', icon: NotificationsIcon },
@@ -649,6 +650,7 @@ function breadcrumbLabel(path: string, t: (k: string) => string): string {
     '/notification-templates': 'notification-templates',
     '/students': 'students',
     '/impersonate': 'impersonate',
+    '/api-tokens': 'api-tokens',
   };
   for (const prefix of Object.keys(map)) {
     if (path === prefix || path.startsWith(prefix + '/')) return t(map[prefix]);

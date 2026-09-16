@@ -52,5 +52,26 @@ tar czf /tmp/pkgs_dist.tar.gz -C "$STAGE" .
 
 tar czf /tmp/web_next.tar.gz -C apps/web/.next .
 
+# ── CLI / MCP 分发文件（2026-09-16）──────────────────────────────────────
+# 让 `curl -fsSL https://acms.areteailab.com/cli/install.sh | sh` 能装到 CLI。
+# 走 Next 的 public/ 静态目录 ⇒ **不需要改 nginx**，随 web 一起上线。
+# ⚠️ 源在 apps/cli/，这里是**生成物**（已 gitignore），别直接改 public 下那份。
+CLI_SRC=apps/cli
+CLI_DST=apps/web/public/cli
+if [ -d "$CLI_SRC" ]; then
+  mkdir -p "$CLI_DST"
+  # ⚠️ 必须带 -X：macOS 的 cp 默认会连扩展属性一起拷，给每个文件生出一个 163 字节的
+  #    `._<name>` AppleDouble 伴生文件。tar 的 COPYFILE_DISABLE=1 只挡 tar 自己生成的，
+  #    挡不住 cp 已经造出来的 ⇒ 线上 public/cli/ 会混进 4 个垃圾文件（被当静态资源对外提供）。
+  cp -X -f "$CLI_SRC"/*.mjs "$CLI_DST"/ 2>/dev/null || true
+  cp -X -f "$CLI_SRC/install.sh" "$CLI_DST"/ 2>/dev/null || true
+  chmod +x "$CLI_DST"/*.mjs "$CLI_DST/install.sh" 2>/dev/null || true
+  echo "[build] 已复制 CLI 分发文件 -> ${CLI_DST}（$(ls "$CLI_DST" | wc -l | tr -d ' ') 个）"
+fi
+
+# deploy_prod.sh 会解压这个包到 apps/web/public —— 之前**从未生成**过，
+# 所以那段逻辑一直是空操作（public/ 里的文件从来没随部署更新）。
+tar czf /tmp/web_public.tar.gz -C apps/web/public .
+
 echo "=== tars ready ==="
-ls -lh /tmp/api_dist.tar.gz /tmp/pkgs_dist.tar.gz /tmp/web_next.tar.gz
+ls -lh /tmp/api_dist.tar.gz /tmp/pkgs_dist.tar.gz /tmp/web_next.tar.gz /tmp/web_public.tar.gz

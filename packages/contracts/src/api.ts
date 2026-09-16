@@ -57,8 +57,32 @@ export interface SessionUser {
    *  - `modules` 非空 ⇒ 只允许访问这些模块（键 = MODULE_RESOURCES.key），越界 403
    *
    * 由 SessionGuard 在读会话后统一判定，业务代码零改动（与操作人上下文同一手法）。
+   *
+   * ⚠️ 这是身份模拟引入时的字段名。**API 令牌**用的是同结构的 `limits`（见下），
+   * 守卫两者都认（`limits ?? impersonation`）—— 保留旧名是因为线上已存在带
+   * `impersonation` 的模拟会话（Redis，30 分钟 TTL），改名会让它们在 TTL 内失效。
+   * 新代码请用 `limits`。
    */
   impersonation?: { readOnly: boolean; modules: string[] };
+  /**
+   * 访问限制项（2026-09-16，API 令牌引入）。结构同 `impersonation`，语义完全一致：
+   *  - `readOnly: true` ⇒ 拦截一切写操作
+   *  - `modules` 非空 ⇒ 只允许访问这些模块（键 = MODULE_RESOURCES.key），越界 403
+   *
+   * 之所以不叫 impersonation：令牌不是「模拟谁」，它是「以某人的权限长期访问」。
+   * 两者共用同一条判定链路（`checkAccessLimits`），只是 `kind` 不同。
+   */
+  limits?: { readOnly: boolean; modules: string[] };
+  /**
+   * 本次请求的凭证来源（**只在内存里，不落 Redis**）：
+   *  - 缺省 / `session` = Cookie 或 `x-acms-sid` 的会话
+   *  - `token`          = `Authorization: Bearer acms-sk-…`
+   *
+   * 供审计与留痕区分「人点的」还是「程序调的」。
+   */
+  authVia?: 'session' | 'token';
+  /** 令牌认证时的令牌记录 id（= 明文哈希），用于调用留痕；会话认证时为空 */
+  tokenId?: string;
   sessionId: string;
   expiresAt: number;
 }

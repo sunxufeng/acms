@@ -6,13 +6,13 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { timingSafeEqual } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { MODULE_RESOURCES, TABLES, type SessionUser } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { REDIS } from '../redis.provider.js';
 import { AuthService } from '../auth/auth.service.js';
 import { SessionService } from '../auth/session.service.js';
+import { HighRiskGateService, GATE_UNLOCK_TTL_SECONDS } from '../auth/high-risk-gate.js';
 import { UsersService } from '../user/user.service.js';
 
 /**
@@ -43,18 +43,13 @@ type FieldDef = { name: string; type: number; property?: unknown };
 const sel = (...names: string[]): FieldDef['property'] => ({ options: names.map((name) => ({ name })) });
 
 /**
- * 兜底密码。生产建议设 `IMPERSONATE_PASSWORD` 环境变量覆盖 ——
- * 默认值写在源码里，任何拿到代码的人都能看到，它拦的是误操作而不是攻击。
+ * 解锁凭证有效期：10 分钟（刷新页面不用重输，超时回落到密码屏）。
+ * 实际实现已抽到 `HighRiskGateService`（与 API 令牌管理共用同一套密码闸），
+ * 这里保留别名，避免既有引用断裂。
  */
-const DEFAULT_PASSWORD = 'season69130';
-
-/** 解锁凭证有效期：10 分钟（刷新页面不用重输，超时回落到密码屏） */
-export const UNLOCK_TTL_SECONDS = 600;
+export const UNLOCK_TTL_SECONDS = GATE_UNLOCK_TTL_SECONDS;
 /** 模拟会话时长：30 分钟（短于常规 1 小时，降低"忘记自己在模拟态"的风险） */
 export const IMPERSONATE_TTL_SECONDS = 1800;
-/** 连续失败阈值 / 锁定时长（与应急登录 auth.service 的 EMERGENCY_* 保持一致） */
-const MAX_FAILS = 5;
-const LOCK_SECONDS = 15 * 60;
 const ADMIN_ROLE = '系统管理员';
 
 /** 解锁结果：密码错与锁定时**不抛异常**，返回 200 + 结构体 —— 前端要拿到剩余次数才能提示 */
@@ -101,6 +96,8 @@ export class ImpersonateService {
     private readonly auth: AuthService,
     private readonly sessions: SessionService,
     private readonly users: UsersService,
+    /** 二次密码闸（与 API 令牌管理共用；scope='impersonate' 与后者互不影响） */
+    private readonly gate: HighRiskGateService,
   ) {}
 
   // ── 建表 ───────────────────────────────────────────────────────────
@@ -144,10 +141,6 @@ export class ImpersonateService {
     if (user?.impersonatedBy) throw new ForbiddenException('IMPERSONATE_NESTED_DENIED');
   }
 
-  private unlockKey(openId: string): string {
-    return `impersonate:unlock:${openId}`;
-  }
-
   /**
    * 校验解锁凭证（列表 / 进入都要过这一关，密码没输对就不该看到任何账号）。
    *
@@ -156,12 +149,9 @@ export class ImpersonateService {
    * 403 + 明确的 message 让页面自己回到密码屏。
    */
   private async requireUnlocked(user: SessionUser): Promise<void> {
-    const v = await this.redis.get(this.unlockKey(user.openId));
-    if (!v) throw new ForbiddenException('IMPERSONATE_UNLOCK_REQUIRED');
-  }
-
-  private expectedPassword(): string {
-    return (process.env.IMPERSONATE_PASSWORD ?? '').trim() || DEFAULT_PASSWORD;
+    if (!(await this.gate.isUnlocked('impersonate', user.openId))) {
+      throw new ForbiddenException('IMPERSONATE_UNLOCK_REQUIRED');
+    }
   }
 
   // ── ① 解锁 ─────────────────────────────────────────────────────────
@@ -176,42 +166,24 @@ export class ImpersonateService {
     this.denyIfImpersonating(user);
     this.requireAdmin(user);
 
-    const lockKey = `impersonate:lock:${ip}`;
-    const failKey = `impersonate:fail:${ip}`;
-    if (await this.redis.get(lockKey)) {
-      const ttl = await this.redis.ttl(lockKey);
-      return { ok: false, code: 'LOCKED', lockedSeconds: ttl > 0 ? ttl : LOCK_SECONDS };
-    }
-
-    // 定长比较，避免通过响应耗时逐字节爆破（与应急登录同一手法）
-    const input = Buffer.from(password ?? '');
-    const want = Buffer.from(this.expectedPassword());
-    const match = input.length === want.length && timingSafeEqual(input, want);
-
-    if (!match) {
-      const fails = await this.redis.incr(failKey);
-      await this.redis.expire(failKey, LOCK_SECONDS);
-      if (fails >= MAX_FAILS) {
-        await this.redis.set(lockKey, '1', 'EX', LOCK_SECONDS);
-        this.logger.warn(`身份模拟解锁连续失败 ${fails} 次，锁定 IP=${ip} ${LOCK_SECONDS}s`);
-        void this.log({ openId: user.openId, name: user.name }, '', '解锁失败', ip, `连续失败 ${fails} 次，已锁定`);
-        return { ok: false, code: 'LOCKED', lockedSeconds: LOCK_SECONDS };
-      }
-      this.logger.warn(`身份模拟解锁失败 IP=${ip}（第 ${fails}/${MAX_FAILS} 次）`);
-      void this.log({ openId: user.openId, name: user.name }, '', '解锁失败', ip, `第 ${fails} 次`);
-      return { ok: false, code: 'BAD_PASSWORD', fails, remaining: MAX_FAILS - fails };
-    }
-
-    await this.redis.del(failKey);
-    await this.redis.set(this.unlockKey(user.openId), '1', 'EX', UNLOCK_TTL_SECONDS);
-    return { ok: true, expiresIn: UNLOCK_TTL_SECONDS };
+    // 定长比较 + 同 IP 失败锁定 + 解锁凭证，全部委托 HighRiskGateService
+    // （与 API 令牌管理共用同一套实现；scope 隔离，解锁其一不会解锁另一个）
+    return this.gate.unlock('impersonate', user.openId, password, ip, ({ fails, locked }) => {
+      void this.log(
+        { openId: user.openId, name: user.name },
+        '',
+        '解锁失败',
+        ip,
+        locked ? `连续失败 ${fails} 次，已锁定` : `第 ${fails} 次`,
+      );
+    });
   }
 
   /** 主动锁定（页面上的「立即锁定」）：删掉解锁凭证即可 */
   async lock(user: SessionUser): Promise<{ ok: true }> {
     this.denyIfImpersonating(user);
     this.requireAdmin(user);
-    await this.redis.del(this.unlockKey(user.openId));
+    await this.gate.lockScope('impersonate', user.openId);
     return { ok: true };
   }
 

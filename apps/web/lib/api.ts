@@ -1595,6 +1595,35 @@ export const api = {
   impersonateExit: () =>
     request<{ ok: true; restored: boolean }>('/impersonate/exit', { method: 'POST' }),
 
+  // ── API 令牌管理（2026-09-16）：签发/吊销 CLI、MCP、脚本用的长期凭证 ──────
+  // 三层门禁：登录态 → 系统管理员 → 二次密码（与身份模拟同等级）
+  apiTokensState: () => request<ApiTokenState>('/api-tokens/state'),
+  apiTokensUnlock: (password: string) =>
+    request<{ ok: boolean; expiresIn?: number; code?: string; fails?: number; remaining?: number; lockedSeconds?: number }>(
+      '/api-tokens/unlock',
+      { method: 'POST', body: JSON.stringify({ password }) },
+    ),
+  apiTokensLock: () => request<{ ok: true }>('/api-tokens/lock', { method: 'POST' }),
+  apiTokenModules: () => request<{ key: string; label: string }[]>('/api-tokens/modules'),
+  apiTokenUsers: () => request<ApiTokenUserOption[]>('/api-tokens/users'),
+  apiTokenList: () => request<ApiTokenListResult>('/api-tokens'),
+  /** 签发。返回体里的 token 是**明文，只此一次** —— 页面必须立刻展示并提示保存 */
+  apiTokenIssue: (dto: IssueTokenDto) =>
+    request<{ id: string; token: string; prefix: string; row: ApiTokenRow }>('/api-tokens', {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+  apiTokenUpdate: (id: string, dto: Partial<IssueTokenDto> & { status?: string }) =>
+    request<ApiTokenRow>(`/api-tokens/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+  apiTokenRevoke: (id: string, reason = '') =>
+    request<{ ok: true }>(`/api-tokens/${encodeURIComponent(id)}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+
   // ── 课程规划 / 学习成果 / 课时教案（教学域第四块，参照 Gibbon v31 的 Planner）────
   // 这 10 张表全部由后端 generic-crud 承载，端点形状完全一致
   // （GET / | POST / | PUT /:id | DELETE /:id | POST /:id/transition），
@@ -2075,6 +2104,72 @@ export interface ImpersonateLogResult {
   rows: ImpersonateLogRow[];
   total: number;
   actions: string[];
+}
+
+// ── API 令牌（CLI / MCP 接入，2026-09-16）────────────────────────────
+export interface ApiTokenRow {
+  id: string;
+  name: string;
+  /** 密钥前缀（前 16 字符，用于辨认；不含明文） */
+  prefix: string;
+  userOpenId: string;
+  userName: string;
+  usage: string;
+  readOnly: boolean;
+  modules: string[];
+  status: string;
+  /** 毫秒时间戳；0 = 不过期（服务端默认会给一年） */
+  expiresAt: number;
+  ipWhitelist: string[];
+  /** 次/分钟，0 = 不限 */
+  rateLimit: number;
+  logAll: boolean;
+  lastUsedAt: number;
+  usedCount: number;
+  remark: string;
+  /** 已过期 / 已吊销 —— 前端据此置灰 */
+  expired: boolean;
+}
+
+export interface ApiTokenListResult {
+  rows: ApiTokenRow[];
+  total: number;
+  enabled: number;
+  revoked: number;
+  /** 可写的令牌数 —— 页面上要显眼，这是风险点 */
+  writable: number;
+  maxTtlMs: number;
+}
+
+export interface ApiTokenState {
+  unlocked: boolean;
+  expiresIn: number;
+  /** 密码来自环境变量还是代码内默认值 —— 页面要如实提示，别让人以为它很安全 */
+  passwordSource: 'env' | 'default';
+  maxTtlMs: number;
+}
+
+export interface ApiTokenUserOption {
+  openId: string;
+  name: string;
+  campus: string;
+  roles: string[];
+  status: string;
+  canUse: boolean;
+  reason: string;
+}
+
+export interface IssueTokenDto {
+  name?: string;
+  userOpenId?: string;
+  usage?: string;
+  readOnly?: boolean;
+  modules?: string[];
+  expiresAt?: number;
+  ipWhitelist?: string;
+  rateLimit?: number;
+  logAll?: boolean;
+  remark?: string;
 }
 
 export interface ImpersonateEnterResult {

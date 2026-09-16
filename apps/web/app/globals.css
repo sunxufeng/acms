@@ -1984,3 +1984,98 @@ select.form-input:disabled { color: var(--fg); }
 .imp-enter-row { display: flex; gap: 10px; align-items: center; padding: var(--space-md) var(--space-lg); border-bottom: 1px solid var(--border); font-size: var(--font-sm); color: var(--fg); cursor: pointer; }
 .imp-enter-foot { display: flex; gap: var(--space-sm); justify-content: flex-end; padding: var(--space-md) var(--space-lg); background: var(--bg-subtle); }
 .imp-enter-foot .btn { min-width: 96px; justify-content: center; }
+
+/* ============================================================================
+   令牌管理（API Tokens）2026-09-16 —— CLI / MCP 接入
+   ----------------------------------------------------------------------------
+   解锁卡与对话框外框复用身份模拟那套（.imp-lock-* / .imp-lock-act），
+   这里只补令牌特有的：一次性明文卡、徽标变体、勾选区、模块多选、对话框。
+   配色一律走主题变量 —— 深色「月之暗面」与浅色「月之明面」共用同一套声明。
+   ============================================================================ */
+
+/* 徽标变体（.badge 基础样式已有，这里只加语义色） */
+.badge-ok   { background: var(--accent-muted);   color: var(--accent); }
+.badge-ro   { background: rgba(139,224,160,.14); color: #6FD08C; }
+.badge-rw   { background: var(--gold-muted);     color: var(--gold); }
+.badge-mod  { background: rgba(255,255,255,.07); color: var(--fg-secondary); }
+.badge-dead { background: var(--danger-muted);   color: var(--danger); }
+
+/* 危险动作的链接按钮（吊销） */
+.link-btn-danger { color: var(--danger); margin-left: var(--space-md); }
+.link-btn-danger:hover { color: var(--danger); opacity: .8; }
+.link-btn:disabled { opacity: .45; cursor: default; }
+
+/* 一次性明文卡：金色 = 「需要你注意」，与模拟态横幅同一语义 */
+.tok-once {
+  border: 1px solid var(--gold); background: var(--gold-muted);
+  border-radius: var(--radius-lg); padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+.tok-once-t { font-size: var(--font-md); font-weight: 800; color: var(--gold); }
+.tok-once-key {
+  display: flex; gap: var(--space-sm); align-items: center;
+  margin: var(--space-md) 0 var(--space-sm);
+  background: var(--bg-subtle); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md); padding: 11px 13px;
+}
+.tok-once-key code {
+  flex: 1; background: none; padding: 0; word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--font-sm); color: var(--accent);
+}
+.tok-once-warn { font-size: var(--font-sm); color: var(--fg-secondary); line-height: 1.7; }
+
+/* 表格里的小字 */
+.tok-prefix {
+  margin-top: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--font-xs); color: var(--fg-tertiary);
+}
+.tok-warn { color: var(--danger); font-size: var(--font-xs); }
+.tok-nowrap { white-space: nowrap; font-size: var(--font-xs); color: var(--fg-secondary); }
+.tok-muted { color: var(--fg-tertiary); }
+.tok-foot { margin-top: var(--space-md); font-size: var(--font-xs); color: var(--fg-tertiary); line-height: 1.7; }
+
+/* 对话框（复用 .modal-overlay 遮罩，内部类按组件命名 —— 与 exam-modal 同一约定） */
+.tok-modal {
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg); width: 100%; max-width: 720px; max-height: 88vh;
+  display: flex; flex-direction: column; box-shadow: var(--shadow-modal); overflow: hidden;
+}
+.tok-modal-head { padding: var(--space-lg) var(--space-lg) var(--space-md); border-bottom: 1px solid var(--border); }
+.tok-modal-head h3 { margin: 0; font-size: var(--font-md); font-weight: 700; color: var(--fg); }
+.tok-modal-head p { margin: 6px 0 0; font-size: var(--font-sm); color: var(--fg-secondary); line-height: 1.7; }
+.tok-modal-body { padding: var(--space-md) var(--space-lg); overflow: auto; }
+.tok-modal-foot {
+  display: flex; gap: var(--space-sm); justify-content: flex-end;
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border); background: var(--bg-subtle);
+}
+
+/* 表单行 */
+.tok-field { display: block; margin-bottom: var(--space-md); }
+.tok-field > span { display: block; margin-bottom: 5px; font-size: var(--font-sm); color: var(--fg); }
+.tok-field .form-input { width: 100%; }
+.tok-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); }
+.tok-hint { display: block; margin-top: 4px; font-size: var(--font-xs); color: var(--fg-tertiary); font-style: normal; line-height: 1.6; }
+.tok-hint2 { margin-left: 8px; font-size: var(--font-xs); color: var(--accent); font-style: normal; }
+
+.tok-check {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: var(--space-sm) 0; margin-bottom: var(--space-sm);
+  font-size: var(--font-sm); color: var(--fg); cursor: pointer;
+}
+.tok-check b { font-weight: 700; }
+
+/* 模块多选：48 个模块要能快速扫，所以用紧凑的两列网格而不是多选下拉 */
+.tok-mods {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 12px; max-height: 190px; overflow: auto;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+.tok-mod { display: flex; gap: 6px; align-items: center; font-size: var(--font-xs); color: var(--fg-secondary); cursor: pointer; }
+.tok-mod input { margin: 0; }
+
+@media (max-width: 640px) {
+  .tok-row2 { grid-template-columns: 1fr; }
+}

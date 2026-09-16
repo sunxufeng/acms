@@ -214,6 +214,16 @@ export const TABLES = {
   homeworkSubmission: { tableId: 'tblhwsubmit000001', name: '作业提交表' },
   /** 作业完成打勾：教师侧只记完成与否，不含分数 */
   homeworkTracker: { tableId: 'tblhwtracker00001', name: '作业完成追踪表' },
+
+  /**
+   * API 令牌（CLI / MCP / 脚本用的长期凭证，2026-09-16）。
+   * ⚠️ **记录 id = 令牌明文的 SHA-256**（主键天然唯一、校验 O(1)、库里不存明文）——
+   * 与 AI 网关的 `aiApiKey` 同一手法，因此**签发必须走专用接口**：
+   * 通用 CRUD 会自己生成随机 id，哈希就丢了，令牌永远验不过。
+   */
+  apiToken: { tableId: 'tblapitoken000001', name: 'API令牌表' },
+  /** API 令牌调用日志：默认只记写操作，读操作只累加令牌上的计数（避免写热 PG） */
+  apiTokenLog: { tableId: 'tbltoklog00000001', name: 'API令牌调用日志表' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

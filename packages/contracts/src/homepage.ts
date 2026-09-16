@@ -353,6 +353,10 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'users', label: '用户管理', enLabel: 'Users', href: '/users', icon: 'userGroup', section: '后台管理', order: 40, adminOnly: true },
     // 身份模拟（2026-09-16）：系统管理员以任意账号身份浏览，排障用。仅 adminOnly，与权限矩阵无关。
     { key: 'impersonate', label: '身份模拟', enLabel: 'Impersonate', href: '/impersonate', icon: 'lock', section: '后台管理', order: 45, adminOnly: true },
+    // 令牌管理（2026-09-16，CLI / MCP 接入）：与「身份模拟」同一风险等级 ⇒ 同为 adminOnly，
+    // 页面内再走一次二次密码。刻意不建 MODULE_RESOURCES 条目（照 impersonate 的先例）：
+    // 签发长期凭证这件事不该作为权限矩阵里可下放的一项。
+    { key: 'api-tokens', label: '令牌管理', enLabel: 'API Tokens', href: '/api-tokens', icon: 'key', section: '后台管理', order: 46, adminOnly: true },
     // 模拟记录（2026-09-16）：谁在什么时候以谁的身份进过系统。只读审计页，无需二次密码。
     { key: 'impersonateLogs', label: '模拟记录', enLabel: 'Impersonation Log', href: '/impersonate-logs', icon: 'audit', section: '后台管理', order: 47, adminOnly: true },
     { key: 'permissions', label: '权限授权', enLabel: 'Permissions', href: '/permissions', icon: 'shield', section: '后台管理', order: 50, adminOnly: true },

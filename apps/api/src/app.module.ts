@@ -63,6 +63,7 @@ import { BehaviourModule } from './behaviour/behaviour.module.js';
 // 考试与成绩（2026-09-16 参照 RosarioSIS v13 Grades 移植）：期末总评结转 / 成绩单 / PDF 导出
 import { EXAM_GRADE_METAS } from './exam-grade/exam-grade.meta.js';
 import { ExamGradeModule } from './exam-grade/exam-grade.module.js';
+import { SchemaModule } from './schema/schema.module.js';
 // 身份模拟（2026-09-16）：系统管理员以任意账号身份浏览，用于排查权限/数据范围问题
 import { ImpersonateModule } from './impersonate/impersonate.module.js';
 
@@ -107,6 +108,8 @@ import { ImpersonateModule } from './impersonate/impersonate.module.js';
     ExamGradeModule,
     // 身份模拟：建「身份模拟记录表」在模块内 onModuleInit（通用 CRUD 不建表）
     ImpersonateModule,
+    // 能力发现（CLI / MCP / agent 用；仓库没有 OpenAPI，这份自建 schema 就是接口文档）
+    SchemaModule,
     Student360Module,
     IdpModule,
     UsersModule,

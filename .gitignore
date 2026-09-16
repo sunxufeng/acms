@@ -14,3 +14,5 @@ logs/
 *.log
 # 临时工作目录（飞书导出/生产数据备份等，含真实业务数据，禁止入库）
 .acms-tmp/
+# CLI / MCP 分发文件是**生成物**（源在 apps/cli/，由 build_tars.sh 复制过来）
+apps/web/public/cli/

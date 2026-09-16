@@ -1,11 +1,52 @@
 # ACMS 任务归档
 
-> 时间跨度：2026-08-25 ~ 2026-09-15（22 个工作日）· 共 **571 条**（已完成 569 · 待处理 2）
+> 时间跨度：2026-08-25 ~ 2026-09-16（23 个工作日）· 共 **603 条**（已完成 601 · 待处理 2）
 >
 > ⚠️ 本文件是**执行过程**的归档（含"构建部署验证"这类操作性任务），用于回溯"做过什么"。
 > **项目计划**（要做什么、优先级、状态）见仓库根目录 [`PLAN.md`](../PLAN.md)。
 >
 > 由 AI 助手在每次工作后同步；`[x]` = 已完成，`[ ]` = 待处理。
+
+## 2026-09-16（33 条，完成 33）
+
+### 考试与成绩 / 身份模拟 Phase 2
+
+- [x] 考试成绩分布报表（含学生姓名 ⇒ 必须套行级数据范围）
+- [x] GPA 与班级排名报表
+- [x] 成绩口径设置（`/exam-grades` 第 5 个 Tab，批次 → 全局 → 代码缺省三级回落）
+- [x] 常用评语库新表 + 页面（批量追加）
+- [x] 整班成绩单 ZIP 导出（零依赖手写 zip，生产不能装新依赖）
+- [x] 学生全景加「期末总评 / 成绩单」分区
+- [x] 身份模拟 Phase 2：只读模式 + 模块白名单（SessionGuard 统一拦截）
+- [x] `/impersonate-logs` 模拟记录页（只读审计，不需二次密码）
+- [x] 部署 Phase 2 到生产（BUILD_ID `AMPXrPUUG6VzEn44024E9`）
+- [x] 排查「部署假成功」：`build_tars.sh` 批量删除被沙箱守卫拦截 ⇒ tar 未重生成
+- [x] 修 GitHub token：fine-grained PAT 缺 Contents / Issues 写权限（看 403 响应头定位）
+- [x] 修 macOS 钥匙串重复条目（`approve` 写入的与 `fill` 读出的不是同一份）
+- [x] 更新 Issue #5 / #6 正文（补 Phase 2 完成情况）
+
+### 外部客户端接入（CLI / MCP / API 令牌）
+
+- [x] 设计方案：复用 AI 网关 `verifyKey()` 手法 + 令牌搭在 SessionGuard 里加分支
+- [x] contracts：`apiToken` / `apiTokenLog` 两张表 + SessionUser 令牌标记 + 后台管理菜单
+- [x] `impersonation-limit.ts` → `access-limit.ts`（提为通用 `checkAccessLimits`，`kind` 区分放行规则）
+- [x] `high-risk-gate.ts`：二次密码闸抽取共用（身份模拟 / 令牌管理两个 scope）
+- [x] SessionGuard 加 `Authorization: Bearer` 分支
+- [x] ApiTokenService（`createWithId` 写哈希主键 / 原子计数 / 吊销主动清缓存 / 调用日志）
+- [x] ApiTokenController（静态路由排在 `:id` 之前）
+- [x] schema 模块：能力发现 + 通用透传（仓库无 OpenAPI，48 模块 / 338 路由）
+- [x] `/api-tokens` 令牌管理页 + 双语文案 + 样式
+- [x] `apps/cli`：`acms.mjs` / `acms-mcp.mjs` / `acms-client.mjs` / `install.sh`（零依赖纯 ESM）
+- [x] 修 MCP stdio 在 stdin end 时丢掉在途响应
+- [x] `build_tars.sh` 补 CLI 分发；修 `web_public.tar.gz` 从未生成（部署里一直是空操作）
+- [x] 81 个单测 + i18n lint 通过
+- [x] 部署到生产（BUILD_ID `7MWmiyaVwng5uyqO79tr8`，slot 3001）
+- [x] 端到端验证：签发 / 调用 / 8 条硬拒路径 / 只读拦截 / 吊销即时失效
+- [x] 修 `build_tars.sh` 里 `$CLI_DST` 后接中文导致 `set -u` unbound
+- [x] 修 macOS `cp` 生成 `._*` 伴生文件污染线上 `public/cli/`
+- [x] 清理 E2E 留下的测试令牌与探针会话
+- [x] 推送 GitHub（`0b5cda5`）+ 建 Issue #7 并关闭
+- [x] 同步 PLAN.md / PLAN.csv
 
 ## 2026-09-15（54 条，完成 54）
 

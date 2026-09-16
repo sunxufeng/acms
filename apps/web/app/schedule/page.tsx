@@ -45,6 +45,7 @@ export default function SchedulePage() {
   return (
     <div className="page">
       <CrudPage
+        moduleKey="schedule"
         title={t('titleSessions')}
         subtitle={t('subtitleSessions')}
         columns={COLUMNS}

@@ -22,6 +22,7 @@ const COLUMNS: CrudColumn[] = [
 export default function WechatBindingsPage() {
   return (
     <CrudPage
+      moduleKey="wechat-bindings"
       title="微信用户"
       subtitle="微信用户"
       columns={COLUMNS}

@@ -24,6 +24,7 @@ export default function PartnershipsPage() {
 
   return (
     <CrudPage
+      moduleKey="partnerships"
       title={t('titlePartnerships')}
       subtitle={t('subtitlePartnerships')}
       columns={COLUMNS}

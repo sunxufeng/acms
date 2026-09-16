@@ -14,6 +14,28 @@ import type { CrudColumn } from '../../../components/CrudPage';
 export const COLUMNS: CrudColumn[] = [
   // ── 列表可见 ──────────────────────────────
   { key: '配置名称', label: '配置名称', form: true, required: true, width: '180px' },
+  /**
+   * 「关联用户」（2026-09-17，照邮件账户同一范式）：可多选，被关联的人都能看到
+   * 这条配置、以及它对应的「我的笔记」。取代原先的**单人归属**（归属人/归属人ID）。
+   *
+   * 候选项来自用户目录（`linkSource: 'users'`，value 是用户 record id）。
+   * ⚠️ 存的是 record id 而不是姓名/openId：姓名会重名，openId 跨应用不一致。
+   * ⚠️ 后端可见性判据是 `source-cred.ts` 的 `sourceVisibleTo()`（唯一一处），
+   *    旧的「归属人ID」作为**存量兼容**分支保留，两者任一命中即可见。
+   */
+  {
+    key: '关联用户',
+    label: '用户',
+    width: '160px',
+    form: true,
+    type: 'link',
+    linkMulti: true,
+    linkSource: 'users',
+    readonlyPerm: 'getnote:write',
+    hint: '可关联多人，被关联的人能共同查看本配置对应的笔记。新建配置时自动归属本人。',
+  },
+  /** 「归属人ID」是单人归属时代的字段：保留为只读历史字段（后端判据仍兼容它），不上列表 */
+  { key: '归属人ID', label: '归属人（历史）', form: false, list: false, filter: true },
   {
     key: '笔记类型',
     label: '笔记类型',

@@ -83,6 +83,7 @@ export default function MailAccountsPage() {
         </div>
       )}
       <CrudPage
+        moduleKey="mailAccounts"
         title="邮件账户"
         subtitle="邮件账户"
         search={{ placeholder: '搜索账户名称…' }}

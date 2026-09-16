@@ -597,7 +597,27 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   // 模块级按钮门控：module:<key>:<action>。提供 moduleKey 时按权限点控制；
   // 未提供则沿用 readonly/hideCreate 的旧行为（向后兼容）。
   const perms = usePermissions();
-  const modOk = (action: string) => (moduleKey ? perms.includes(`module:${moduleKey}:${action}`) : true);
+  /**
+   * 模块级按钮门控。
+   *
+   * 🔴 **两条「不做门控」的例外，都是为了避免把按钮误藏**（2026-09-17 补）：
+   *  1. 页面没传 `moduleKey` —— 该页还没接入模块权限体系，维持旧行为；
+   *  2. 模块**没有在自己的 `actions` 里声明**这个动作 —— 说明该动作用户根本无权可授，
+   *     硬判 `perms.includes('module:x:export')` 会恒为 false，**连管理员都看不到按钮**。
+   *
+   * 例：`aiAgents` / `getnote` / `users` 的 actions 是 `[...CRUD, ...]`，**不含 export**；
+   * 若按权限点硬判，这三个页面的「导出」会对所有人消失。
+   * 只有「模块确实声明了该动作」时才真正按权限点判定。
+   *
+   * 背景：全站 59 处 `<CrudPage>` 里原本有 33 处没传 `moduleKey` ⇒ 这些页面的按钮**完全不控**，
+   * 没有 `create/update/delete` 权限的角色照样看得到按钮（点下去才 403）。
+   */
+  const modOk = (action: string) => {
+    if (!moduleKey) return true;
+    const res = MODULE_RESOURCES.find((r) => r.key === moduleKey);
+    if (res && !(res.actions as readonly string[]).includes(action)) return true;
+    return perms.includes(`module:${moduleKey}:${action}`);
+  };
   const canCreate = !readonly && !hideCreate && modOk('create');
   const canUpdate = !readonly && modOk('update');
   const canDelete = !readonly && modOk('delete');

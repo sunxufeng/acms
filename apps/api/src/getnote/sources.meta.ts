@@ -1,4 +1,4 @@
-import { TABLES } from '@acms/contracts';
+import { TABLES, USER_TABLE } from '@acms/contracts';
 import type { RecordMeta } from '../shared/generic-crud.module.js';
 
 /**
@@ -18,6 +18,16 @@ export const GETNOTE_SOURCE_META: RecordMeta = {
   searchField: '配置名称',
   sortField: '上次同步时间',
   readonly: ['上次同步时间', '上次同步结果'],
+  /**
+   * 「关联用户」是**多值**字段（存用户表 record id 数组）。
+   * ⚠️ 不在这里登记 multi，数组会被当成字符串写入（关联字段的经典坑）。
+   */
+  multi: ['关联用户'],
+  /**
+   * 「关联用户」是飞书 Base 的关联字段，指向用户表。
+   * 声明后 API 会额外返回 `关联用户__link`（record id 数组）供前端回显多选。
+   */
+  linkFields: [{ field: '关联用户', table: USER_TABLE.tableId, nameField: '姓名' }],
   /** 状态字段：启用/停用（决定是否被 cron 拾取） */
   statusField: '启用状态',
   defaultStatus: '启用',

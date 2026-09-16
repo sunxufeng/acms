@@ -1,6 +1,8 @@
 import type { BaseClient } from '@acms/base-adapter';
 import { toText } from '@acms/base-adapter';
 import { decryptSecret } from '../ai/lib/crypto/kms.js';
+// 关联/多值字段的宽容解析器与邮件归档共用一份（数组 / {link_record_ids} / JSON 字符串三种形态）
+import { idsOf } from '../mail-archive/mail-archive.meta.js';
 
 /**
  * 「知识库配置」表的读取工具 —— 故意做成**无 Nest 依赖的纯函数模块**。
@@ -52,8 +54,77 @@ export interface SourceCredEntry {
   /** 配置归属人 openId（可能为空 —— 加归属字段之前的存量数据） */
   ownerOpenId: string;
   ownerName: string;
+  /** 「关联用户」里存的是**用户表 record id**（与邮件账户同一范式），可为空（存量数据） */
+  linkedUserIds: string[];
   /** 解不出有效凭证时为 null（调用方跳过即可） */
   cred: { key: string; clientId: string } | null;
+}
+
+/**
+ * 用 openId 反查「用户表」里的 record id。
+ *
+ * ⚠️ 为什么需要它：`关联用户`（与邮件账户同一范式）存的是**用户 record id**，
+ * 而 `归属人ID` 存的是 **openId** —— 两者不是同一个东西，不能直接比较。
+ * 判「我关不关联到这条配置」时必须先把自己的 record id 解出来。
+ *
+ * 结果做进程内缓存（openId → recordId 基本不变），避免每次列表都全表搜一遍用户表。
+ */
+const userIdCache = new Map<string, string>();
+
+export async function resolveUserIdByOpenId(
+  base: BaseClient,
+  userTableId: string,
+  openId: string,
+): Promise<string> {
+  const key = String(openId ?? '').trim();
+  if (!key) return '';
+  const hit = userIdCache.get(key);
+  if (hit !== undefined) return hit;
+  let found = '';
+  try {
+    let token: string | undefined;
+    for (let i = 0; i < 10; i++) {
+      const res = await base.search(userTableId, { pageSize: 200, pageToken: token });
+      for (const r of res.items) {
+        const f = (r.fields ?? {}) as Record<string, unknown>;
+        if (plainText(f['飞书 Open ID']) === key) {
+          found = String(r.recordId ?? '');
+          break;
+        }
+      }
+      if (found || !res.hasMore || !res.pageToken) break;
+      token = res.pageToken;
+    }
+  } catch {
+    // 用户表读不到就当没关联（宁可少看不可多看）
+  }
+  userIdCache.set(key, found);
+  return found;
+}
+
+/**
+ * 🔴 「这个用户能不能看到这条知识库配置」——**唯一判据**。
+ *
+ * 列表、详情、编辑鉴权、以及笔记列表的收窄，全部必须调这一个函数。
+ * 判据写两处必然漂移（一处放行、一处拦截，就是越权或"看不到自己的东西"）。
+ *
+ * 规则：
+ *  - 系统管理员：全可见（豁免）
+ *  - 否则：`关联用户` 里包含我（多用户关联，2026-09-17 新增），
+ *    **或** `归属人ID` === 我（单人归属，2026-09-07 的存量语义，保留以兼容历史数据）
+ *
+ * ⚠️ 比较用的是 **openId / 用户 record id**，不用姓名 —— 姓名会重名，拿姓名判权限必出事。
+ */
+export function sourceVisibleTo(
+  entry: Pick<SourceCredEntry, 'ownerOpenId' | 'linkedUserIds'>,
+  user: { openId?: string; roles?: readonly string[] } | null | undefined,
+  myUserId: string,
+  bypassRoles: readonly string[] = ['系统管理员'],
+): boolean {
+  if ((user?.roles ?? []).some((r) => bypassRoles.includes(r))) return true;
+  const openId = String(user?.openId ?? '').trim();
+  if (myUserId && entry.linkedUserIds.includes(myUserId)) return true;
+  return Boolean(openId) && entry.ownerOpenId === openId;
 }
 
 /**
@@ -61,7 +132,7 @@ export interface SourceCredEntry {
  *
  * ⚠️ 刻意**不做任何按人过滤**：这个方法服务的都是"系统级"调用方 ——
  *   ① 管理员聚合所有人的笔记；② 后台 cron 同步。若在这里加归属过滤，
- *   后台就永远同步不到别人的配置了。行级隔离由 HTTP 入口层（SourcesService.list）负责。
+ *   后台就永远同步不到别人的配置了。行级隔离由 `sourceVisibleTo` 在 HTTP 入口层做。
  */
 export async function listEnabledSourceCreds(
   base: BaseClient,
@@ -88,6 +159,8 @@ export async function listEnabledSourceCreds(
         sourceType: plainText(f['笔记类型']),
         ownerOpenId: plainText(f['归属人ID']),
         ownerName: plainText(f['归属人']),
+        // 宽容解析：关联字段可能返回 string[] / {link_record_ids:[...]} / JSON 字符串
+        linkedUserIds: idsOf(f['关联用户']),
         cred: apiKey && clientId ? { key: apiKey, clientId } : null,
       });
     }

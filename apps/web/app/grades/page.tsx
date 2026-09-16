@@ -41,6 +41,7 @@ export default function GradesPage() {
   return (
     <>
       <CrudPage
+        moduleKey="grades"
         title={t('titleGrades')}
         subtitle={t('subtitleGrades')}
         search={{ placeholder: t('searchGrades') }}

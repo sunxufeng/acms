@@ -63,6 +63,7 @@ export default function SourceFollowupsPage() {
   return (
     <>
       <CrudPage
+        moduleKey="sourceFollowups"
         title="招生跟进"
         subtitle="招生线索与跟进闭环（M1 学生域）"
         search={{ placeholder: '搜索学生姓名 / 沟通主题…' }}

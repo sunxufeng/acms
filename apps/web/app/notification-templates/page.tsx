@@ -18,6 +18,7 @@ const TPL_COLUMNS: CrudColumn[] = [
 export default function NotificationTemplatesPage() {
   return (
     <CrudPage
+      moduleKey="notification-templates"
       title="通知模板"
       subtitle="通知模板"
       columns={TPL_COLUMNS}

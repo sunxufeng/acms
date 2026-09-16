@@ -1092,6 +1092,7 @@ export default function GetnotePage() {
       )}
 
       <CrudPage
+        moduleKey="getnote"
         // 检索词变化时整体重挂：强制回到第 1 页重新拉取（否则翻页游标还停在第 N 页）
         key={tagQuery || 'all'}
         title="我的笔记"

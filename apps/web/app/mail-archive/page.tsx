@@ -30,6 +30,7 @@ export default function MailArchivePage() {
 
   return (
     <CrudPage
+      moduleKey="mailArchive"
       title="邮件归档"
       subtitle="系统自动留存的招生与国外学校往来邮件（即使员工离职或邮箱删除，记录仍保留可查）。"
       search={{ placeholder: '搜索发件人 / 收件人 / 主题…' }}

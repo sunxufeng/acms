@@ -27,6 +27,7 @@ export default function AdjustmentsPage() {
 
   return (
     <CrudPage
+      moduleKey="adjustments"
       title={t('titleAdjustments')}
       subtitle={t('subtitleAdjustments')}
       columns={COLUMNS}

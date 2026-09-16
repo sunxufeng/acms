@@ -31,6 +31,7 @@ export default function AttendancePage() {
 
   return (
     <CrudPage
+      moduleKey="attendance"
       title={t('titleAttendance')}
       subtitle={t('subtitleAttendance')}
       columns={COLUMNS}

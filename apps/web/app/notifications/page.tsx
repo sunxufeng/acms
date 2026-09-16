@@ -94,6 +94,7 @@ export default function NotificationsPage() {
     <div>
       {!editing && <SendPanel />}
       <CrudPage
+        moduleKey="notifications"
         title="通知发送记录"
         subtitle="通知发送记录"
         columns={LOG_COLUMNS}

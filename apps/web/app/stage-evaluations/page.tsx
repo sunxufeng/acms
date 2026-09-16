@@ -43,6 +43,7 @@ export default function StageEvaluationsPage() {
   return (
     <>
       <CrudPage
+        moduleKey="stageEvaluations"
         title={t('titleStage')}
         subtitle={t('subtitleStage')}
         search={{ placeholder: t('searchStage') }}

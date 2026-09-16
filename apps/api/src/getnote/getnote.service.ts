@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import type { BaseClient } from '@acms/base-adapter';
-import { TABLES } from '@acms/contracts';
+import { TABLES, USER_TABLE } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { toText } from '@acms/base-adapter';
 import type { SessionUser, NoteConvertLogItem, NoteConfigMapItem } from '@acms/contracts';
@@ -16,7 +16,11 @@ import {
   deleteCredential,
   type CredentialStatus,
 } from './credential.js';
-import { listEnabledSourceCreds } from './source-cred.js';
+import {
+  listEnabledSourceCreds,
+  resolveUserIdByOpenId,
+  sourceVisibleTo,
+} from './source-cred.js';
 
 /** 得到大脑（Get笔记）开放平台。所有凭证只发往此地址，不接受任何其他 API 地址。 */
 const BASE = 'https://openapi.biji.com';
@@ -149,6 +153,25 @@ export interface GetnoteListResult {
   has_more?: boolean;
   cursor?: string;
   total?: number;
+}
+
+/** 「重新收取」正文的进度（放内存，进程重启即丢；任务本身幂等可重跑） */
+export interface RefetchBodiesProgress {
+  running: boolean;
+  /** 本轮要处理的笔记数 */
+  total: number;
+  /** 已处理 */
+  done: number;
+  /** 成功取到正文并落库 */
+  stored: number;
+  /** 上游返回了但正文为空（如空笔记） */
+  skipped: number;
+  /** 失败（多为上游权限/限流） */
+  failed: number;
+  lastNoteId?: string;
+  error?: string;
+  startedAt?: number;
+  finishedAt?: number;
 }
 
 export interface GetnoteRecallItem {
@@ -660,6 +683,10 @@ export class GetnoteService {
   private static readonly ADMIN_SNAPSHOT_TTL = 600_000;
   /** 上次落库时间：用于节流，避免管理员每次刷笔记页都写一遍库 */
   private lastSnapshotPersistAt = 0;
+  /** 笔记正文表是否已确保创建（建表只做一次） */
+  private noteBodyReady = false;
+  /** 「重新收取正文」的任务进度，按 openId 隔离 */
+  private readonly refetchJobs = new Map<string, RefetchBodiesProgress>();
   /** 单个配置最多拉多少页（每页 100 条），防止某个源数据巨量拖垮整次聚合 */
   private static readonly ADMIN_MAX_PAGES_PER_SOURCE = 10;
   /** 源之间的节流间隔。Get笔记 QPS 2，串行 + 250ms 留足余量 */
@@ -1023,6 +1050,12 @@ export class GetnoteService {
     // 管理员：跨所有启用配置聚合（走快照分页，不用上游 cursor）
     if (this.isAdmin(user)) return this.listAllForAdmin(user, cursor ?? '', q ?? '', size);
 
+    // 非管理员：**被关联到知识库配置时**，只看到这些配置的笔记 —— 与管理员同一条
+    // 数据来源（每条配置用自己的凭证去拉），只是配置集合被收窄到「我能看到的那几条」。
+    // 一条都没被关联的，回落到「只用自己的凭证」的旧行为。
+    const scoped = await this.linkedSourceIds(user);
+    if (scoped.length) return this.listScopedBySources(user, scoped, cursor ?? '', q ?? '', size);
+
     // 非管理员只用自己的 Key 直接翻上游游标，size 由上游决定（这里用不到）
     void size;
     const cred = await this.credFor(user);
@@ -1045,6 +1078,63 @@ export class GetnoteService {
     return this.request<GetnoteListResult>(cred, '/open/api/v1/resource/note/list', {
       query: { cursor },
     });
+  }
+
+  /**
+   * 当前用户**可见**的知识库配置 recordId 集合（非管理员用）。
+   *
+   * 判据复用 `sourceVisibleTo()` —— 与「知识库配置」列表用的是同一份规则，
+   * 不能在这里再写一套（写两处必然漂移：一处放行一处拦截，就是越权或"看不到自己的配置"）。
+   * 返回空数组 = 没被关联任何配置 ⇒ 调用方回落到「只用自己的凭证」。
+   */
+  private async linkedSourceIds(user: SessionUser): Promise<string[]> {
+    const entries = await listEnabledSourceCreds(this.base, TABLES.getnoteSource.tableId, {
+      maxPages: 5,
+    });
+    const myId = await resolveUserIdByOpenId(this.base, USER_TABLE.tableId, user.openId ?? '');
+    return entries.filter((e) => sourceVisibleTo(e, user, myId)).map((e) => e.recordId);
+  }
+
+  /**
+   * 按「可见配置集合」收窄的笔记列表（非管理员）。
+   *
+   * 做法是**复用管理员的聚合**（`collectAllNotes` 本来就是「每条配置用自己的凭证去拉」，
+   * 与调用者是谁无关），再按 `_sourceRecordId` 过滤出我可见的那些。
+   *
+   * ⚠️ 刻意**不**用管理员那套内存/Redis 快照：非管理员能看到的配置很少，
+   * 每次现拉即可；共用快照反而会把「别人的笔记」缓进同一个快照，是越权隐患。
+   */
+  private async listScopedBySources(
+    user: SessionUser,
+    sourceIds: string[],
+    cursor: string,
+    q: string,
+    size: number,
+  ): Promise<GetnoteListResult> {
+    const set = new Set(sourceIds);
+    const all = await this.collectAllNotes(user);
+    const mine = all.filter((n) => set.has(String(n._sourceRecordId ?? '')));
+
+    const keyword = q.trim().toLowerCase();
+    const pool = keyword
+      ? mine.filter(
+          (n) =>
+            String(n.title ?? '').toLowerCase().includes(keyword) ||
+            String(n.content ?? '').toLowerCase().includes(keyword),
+        )
+      : mine;
+
+    const requested = parseSnapOffset(cursor);
+    const offset = requested > 0 && requested >= pool.length ? 0 : requested;
+    const slice = pool.slice(offset, offset + size);
+    const nextOffset = offset + slice.length;
+    const hasMore = nextOffset < pool.length;
+    return {
+      notes: slice,
+      has_more: hasMore,
+      cursor: hasMore ? `snap:${nextOffset}` : undefined,
+      total: pool.length,
+    };
   }
 
   /**
@@ -1078,11 +1168,174 @@ export class GetnoteService {
       (typeof audio?.original === 'string' && audio.original.trim()) ||
       (typeof audio?.transcript === 'string' && audio.transcript.trim()) ||
       '';
-    return {
+    const full: GetnoteNote = {
       ...note,
       rawRecord,
       ...(owner ? { _owner: owner.name, _sourceName: owner.sourceName } : {}),
     };
+    // 顺手落一份正文（fire-and-forget）：**不额外消耗上游额度**，就是把这次已经拉到的正文存下来。
+    // 这样「看过一遍」的笔记下次就能从本地读，也让「重新收取」不必从头抓。
+    // 失败只记日志 —— 正文落库绝不能影响「打开一篇笔记」这个主流程。
+    void this.persistNoteBody(full);
+    return full;
+  }
+
+  /**
+   * 把一篇笔记的正文（总结 + 原始记录）落库。幂等 upsert，主键 = 笔记 ID。
+   *
+   * `content` 是「智能总结」（章节概要 / 金句 / 待办也在这里面），
+   * `rawRecord` 是「原始记录」（录音类的说话人带时间戳转写全文）。
+   * 两者都存，且分开存 —— 业务侧「转换为业务记录」时要分别映射到「沟通总结 / 沟通明细」。
+   */
+  private async persistNoteBody(n: GetnoteNote): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql) return;
+    const id = String(n.note_id ?? n.id ?? '').trim();
+    if (!id) return;
+    try {
+      await this.ensureNoteBodyTable();
+      const summary = String(n.content ?? '');
+      const detail = String(n.rawRecord ?? '');
+      await sql.createWithId(TABLES.noteBody.tableId, id, {
+        笔记ID: id,
+        标题: String(n.title ?? ''),
+        归属人: String(n._owner ?? ''),
+        来源配置: String(n._sourceName ?? ''),
+        来源配置ID: String(n._sourceRecordId ?? ''),
+        笔记类型: String(n.note_type ?? ''),
+        总结: summary,
+        原始记录: detail,
+        总结字数: summary.length,
+        明细字数: detail.length,
+        笔记创建时间: toEpochMs(n.created_at),
+        笔记更新时间: toEpochMs(n.updated_at),
+        正文抓取时间: Date.now(),
+      });
+    } catch (e) {
+      this.logger.warn(`笔记正文落库失败（不影响读取）：${(e as Error).message.slice(0, 160)}`);
+    }
+  }
+
+  /**
+   * 建「笔记正文表」（幂等）。
+   *
+   * 🔴 必须传字段元数据 —— 不传的话 `acms_fields` 里没有定义，
+   * 读出来日期是毫秒时间戳、数字是字符串（仓库里这个坑踩过多次，
+   * 隔壁快照表就是没传，`acms_fields` 至今 0 条）。
+   */
+  private async ensureNoteBodyTable(): Promise<void> {
+    if (this.noteBodyReady) return;
+    const sql = getSqlStore();
+    if (!sql) return;
+    const T = { TEXT: 1, NUMBER: 2, DATE: 5 } as const;
+    await sql.ensureTable(TABLES.noteBody.tableId, '笔记正文表', [
+      { name: '笔记ID', type: T.TEXT },
+      { name: '标题', type: T.TEXT },
+      { name: '归属人', type: T.TEXT },
+      { name: '来源配置', type: T.TEXT },
+      { name: '来源配置ID', type: T.TEXT },
+      { name: '笔记类型', type: T.TEXT },
+      { name: '总结', type: T.TEXT },
+      { name: '原始记录', type: T.TEXT },
+      { name: '总结字数', type: T.NUMBER },
+      { name: '明细字数', type: T.NUMBER },
+      { name: '笔记创建时间', type: T.DATE },
+      { name: '笔记更新时间', type: T.DATE },
+      { name: '正文抓取时间', type: T.DATE },
+    ]);
+    this.noteBodyReady = true;
+    this.logger.log('笔记正文表已就绪');
+  }
+
+  /**
+   * 「重新收取」正文：把指定配置（不传 = 当前用户可见的全部配置）下的笔记正文批量拉一遍并落库。
+   *
+   * 为什么必须异步：上游限速 QPS 2，一条 0.6 秒 —— 几百条要几分钟，
+   * 同步等会被 nginx 掐成 504（知识库配置的「立即收取」当初就是这么改成异步的）。
+   * 进度放内存，进程重启即丢，但重跑幂等（按笔记 ID upsert），可接受。
+   */
+  async startRefetchBodies(
+    user: SessionUser,
+    sourceRecordId?: string,
+  ): Promise<RefetchBodiesProgress> {
+    const key = `bodies:${user.openId}`;
+    if (this.refetchJobs.get(key)?.running) return this.refetchJobs.get(key)!;
+    const job: RefetchBodiesProgress = {
+      running: true,
+      total: 0,
+      done: 0,
+      stored: 0,
+      skipped: 0,
+      failed: 0,
+      startedAt: Date.now(),
+    };
+    this.refetchJobs.set(key, job);
+    void this.runRefetchBodies(user, sourceRecordId, job).catch((e) => {
+      job.running = false;
+      job.error = (e as Error).message.slice(0, 200);
+    });
+    return job;
+  }
+
+  async refetchBodiesStatus(user: SessionUser): Promise<RefetchBodiesProgress> {
+    return (
+      this.refetchJobs.get(`bodies:${user.openId}`) ?? {
+        running: false,
+        total: 0,
+        done: 0,
+        stored: 0,
+        skipped: 0,
+        failed: 0,
+      }
+    );
+  }
+
+  private async runRefetchBodies(
+    user: SessionUser,
+    sourceRecordId: string | undefined,
+    job: RefetchBodiesProgress,
+  ): Promise<void> {
+    // 1) 取笔记清单：管理员走聚合快照，普通用户走自己的上游列表
+    const notes = this.isAdmin(user)
+      ? await this.collectAllNotes(user)
+      : ((
+          await this.request<GetnoteListResult>(
+            await this.credFor(user),
+            '/open/api/v1/resource/note/list',
+            { query: {} },
+          )
+        ).notes ?? []);
+    const target = sourceRecordId
+      ? notes.filter((n) => String(n._sourceRecordId ?? '') === sourceRecordId)
+      : notes;
+    job.total = target.length;
+    if (!target.length) {
+      job.running = false;
+      return;
+    }
+
+    // 2) 逐条拉详情并落库。串行 + 0.6s 间隔，压住上游 QPS 2。
+    for (const n of target) {
+      const id = String(n.note_id ?? n.id ?? '');
+      if (!id) continue;
+      try {
+        const full = await this.detail(user, id);
+        const hasBody = Boolean(String(full.content ?? '').length || String(full.rawRecord ?? '').length);
+        if (hasBody) job.stored += 1;
+        else job.skipped += 1;
+      } catch (e) {
+        job.failed += 1;
+        this.logger.warn(`重新收取失败 ${id}：${(e as Error).message.slice(0, 120)}`);
+      }
+      job.done += 1;
+      job.lastNoteId = id;
+      await new Promise((r) => setTimeout(r, 600));
+    }
+    job.running = false;
+    job.finishedAt = Date.now();
+    this.logger.log(
+      `重新收取完成：共 ${job.total}，成功 ${job.stored}，空正文 ${job.skipped}，失败 ${job.failed}`,
+    );
   }
 
   /**

@@ -1372,6 +1372,13 @@ export const api = {
   /** 立即收取：异步触发，立刻返回当前进度；之后轮询 sync-status */
   syncGetnoteSource: (id: string) => request<SourceSyncProgress>(`/getnote-sources/${id}/sync`, { method: 'POST' }),
   getGetnoteSourceSyncStatus: (id: string) => request<SourceSyncProgress>(`/getnote-sources/${id}/sync-status`),
+  /** 「重新收取」笔记正文（总结 + 原始记录）落库；异步，用 getRefetchBodiesStatus 轮询 */
+  refetchNoteBodies: (sourceRecordId?: string) =>
+    request<RefetchBodiesProgress>('/getnote/refetch-bodies', {
+      method: 'POST',
+      body: JSON.stringify({ sourceRecordId: sourceRecordId ?? '' }),
+    }),
+  getRefetchBodiesStatus: () => request<RefetchBodiesProgress>('/getnote/refetch-bodies/status'),
   // ── 部门管理（组织管理）：只读同步飞书通讯录部门树 ──
   /** 读取全部部门（前端构建树；已删除部门 status='invalid' 由前端过滤） */
   /**
@@ -1723,6 +1730,29 @@ export interface SourceSyncProgress {
   sourceName: string;
   error?: string;
   result?: string;
+}
+
+/**
+ * 「重新收取」笔记正文的进度。
+ *
+ * 与 SourceSyncProgress 分开：那个是「拉笔记列表（元数据）」，这个是「逐条拉正文落库」——
+ * 后者慢得多（上游 QPS 2），所以进度字段也不同（按条计数而不是按页）。
+ */
+export interface RefetchBodiesProgress {
+  running: boolean;
+  /** 本轮要处理的笔记数 */
+  total: number;
+  done: number;
+  /** 成功取到正文并落库 */
+  stored: number;
+  /** 取到了但正文为空 */
+  skipped: number;
+  /** 失败（多为上游权限 / 限流） */
+  failed: number;
+  lastNoteId?: string;
+  error?: string;
+  startedAt?: number;
+  finishedAt?: number;
 }
 
 /** 部门状态：active 正常 / disabled 已停用 / invalid 已删除（不在树中展示） */

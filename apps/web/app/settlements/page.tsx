@@ -29,6 +29,7 @@ export default function SettlementsPage() {
 
   return (
     <CrudPage
+      moduleKey="settlements"
       title={t('titleSettlements')}
       subtitle={t('subtitleSettlements')}
       columns={COLUMNS}

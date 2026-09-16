@@ -17,6 +17,7 @@ const COLUMNS: CrudColumn[] = [
 export default function SettingsPage() {
   return (
     <CrudPage
+      moduleKey="settings"
       title="系统设置"
       subtitle="机构/教务/通知等全局配置项（key-value，仅管理员可写）"
       columns={COLUMNS}

@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Delete, Param, Query, Body, Req, UseGuards, HttpException, HttpStatus,
+  Controller, Get, Post, Put, Delete, Param, Query, Body, Req, UseGuards, HttpException, HttpStatus, HttpCode,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { authorize } from '@acms/domain';
@@ -50,6 +50,31 @@ export class GetnoteController {
     )
       throw new HttpException('FORBIDDEN:admin:monitor', HttpStatus.FORBIDDEN);
     return this.svc.syncSnapshot(user);
+  }
+
+  /**
+   * 「重新收取」：把笔记**正文**（智能总结 + 原始记录）批量拉一遍并落库。
+   *
+   * 为什么异步：上游限速 QPS 2，一条 0.6 秒，几百条要几分钟 ——
+   * 同步等会被 nginx 掐成 504。这里 POST 立即返回进度对象，前端轮询 status。
+   *
+   * 不传 `sourceRecordId` = 收取当前用户可见的全部笔记；传了就只收那一个知识库配置的。
+   * 幂等：按笔记 ID upsert，重复点不会产生重复数据（但会重复消耗上游额度）。
+   */
+  @Post('refetch-bodies')
+  @HttpCode(200)
+  refetchBodies(@Req() req: Request, @Body() body: { sourceRecordId?: string }) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:write');
+    return this.svc.startRefetchBodies(user, body?.sourceRecordId || undefined);
+  }
+
+  /** 查询「重新收取」进度。 */
+  @Get('refetch-bodies/status')
+  refetchStatus(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'getnote:read');
+    return this.svc.refetchBodiesStatus(user);
   }
 
   // ── 用户凭证（API Key 一人一份） ────────────────────────────────────

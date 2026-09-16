@@ -41,6 +41,7 @@ export default function PracticeActivitiesPage() {
   return (
     <>
       <CrudPage
+        moduleKey="practiceActivities"
         title={t('titlePractice')}
         subtitle={t('subtitlePractice')}
         search={{ placeholder: t('searchPractice') }}

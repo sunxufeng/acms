@@ -52,6 +52,7 @@ export default function AiAutomationsPage() {
 
   return (
     <CrudPage
+      moduleKey="aiAutomations"
       title={t('pageTitle')}
       subtitle={t('pageSubtitle')}
       search={{ placeholder: t('searchPlaceholder') }}

@@ -65,6 +65,7 @@ export default function DailyFollowupsPage() {
   return (
     <>
       <CrudPage
+        moduleKey="dailyFollowups"
         title="日常跟进"
         subtitle="学生日常跟进与待办闭环（M1 学生域）"
         search={{ placeholder: '搜索学生…' }}

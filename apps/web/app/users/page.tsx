@@ -160,6 +160,7 @@ export default function UsersPage() {
 
   return (
     <CrudPage
+      moduleKey="users"
       title="用户管理"
       subtitle="管理系统账号：分配飞书登录身份、系统角色、数据密级与校区。仅系统管理员可操作。"
       columns={COLUMNS}

@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, HttpException, HttpStatus, ForbiddenException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { TABLES } from '@acms/contracts';
+import { TABLES, USER_TABLE } from '@acms/contracts';
 import { BaseClient } from '@acms/base-adapter';
 import { BASE_CLIENT } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -17,7 +17,11 @@ import {
   decodeSourceCred as decodeCred,
   isEnabledStatus as isEnabled,
   plainText,
+  sourceVisibleTo,
+  resolveUserIdByOpenId,
 } from './source-cred.js';
+// 关联字段（多值）的宽容解析 —— 与邮件账户共用同一份，别各写一套
+import { idsOf } from '../mail-archive/mail-archive.meta.js';
 
 /**
  * 笔记来源类型 → 凭证字段名（飞书 Base 里都存在「凭证」文本字段，存的是密文 JSON）。
@@ -102,34 +106,60 @@ export class GetnoteSourceService extends BaseRecordService {
 
   // ── 归属：行级隔离 ────────────────────────────────────────────────
   //
-  // 「知识库配置」原本没有任何归属概念 —— GETNOTE_SOURCE_META 没有 ownerField，
-  // 通用 CRUD 的 list 只校验 getnote:read 权限点、**不做行级过滤**，
-  // 于是任何有权限的人都能看到所有人的配置行（凭证虽置空，配置名却全裸）。
-  // 2026-09-07 加了「归属人/归属人ID」两个字段修掉它。
+  // 「知识库配置」原本没有任何归属概念 —— 通用 CRUD 的 list 只校验 getnote:read
+  // 权限点、**不做行级过滤**，于是任何有权限的人都能看到所有人的配置行。
+  // 2026-09-07 加了「归属人/归属人ID」两个字段（**单人归属**）修掉它。
+  // 2026-09-17 按峰哥要求**改成多用户关联**（照邮件账户的「关联用户」范式）：
+  //   一条配置可以关联多个用户，被关联的人都能看到它、以及它对应的笔记；
+  //   管理员看全部。旧的「归属人ID」语义**保留**，用于兼容存量数据。
+  //
+  // 🔴 可见性判据只有一处实现：`sourceVisibleTo()`（source-cred.ts）。
+  //    列表 / 详情 / 写操作鉴权 / 笔记收窄全调它，判据写两处必然漂移。
 
   /** 是否系统管理员（与 homepage-config / user 等模块同一写法） */
   private isAdmin(user: SessionUser): boolean {
     return Boolean(user?.roles?.includes('系统管理员'));
   }
 
+  /** 当前用户在「用户表」里的 record id（关联用户字段存的是它，不是 openId） */
+  private myUserId(user: SessionUser): Promise<string> {
+    return resolveUserIdByOpenId(this.base, USER_TABLE.tableId, user?.openId ?? '');
+  }
+
   /**
-   * 行级过滤：非管理员只看自己归属的配置。
+   * 行级过滤：非管理员只看**自己关联或被归属**的配置。
    *
-   * ⚠️ 为什么在这里 override 而不是给 RecordMeta 加通用 ownerField：
-   * 通用 CRUD 被十几个模块共用，改它等于全站回归。而这里的现实规模是
-   * 「每个用户几条配置」，局部 override 风险可控得多。
+   * ⚠️ 过滤发生在分页**之后**，所以这里把结果收敛成单页 ——
+   * 配置表的现实量级是「每人几条」，一页装得下。
    */
-  private onlyVisible<T extends Record<string, unknown>>(rows: T[], user: SessionUser): T[] {
+  private async onlyVisible<T extends Record<string, unknown>>(
+    rows: T[],
+    user: SessionUser,
+  ): Promise<T[]> {
     if (this.isAdmin(user)) return rows;
-    const me = user?.openId ?? '';
-    return rows.filter((r) => plainText(r['归属人ID']) === me);
+    const myId = await this.myUserId(user);
+    return rows.filter((r) =>
+      sourceVisibleTo(
+        { ownerOpenId: plainText(r['归属人ID']), linkedUserIds: idsOf(r['关联用户']) },
+        user,
+        myId,
+      ),
+    );
   }
 
   /** 非管理员读写他人配置 → 403。配置不存在时不抛（交给上层处理 404）。 */
-  private assertOwn(user: SessionUser, rec: Record<string, unknown> | null | undefined): void {
+  private async assertOwn(
+    user: SessionUser,
+    rec: Record<string, unknown> | null | undefined,
+  ): Promise<void> {
     if (!rec || this.isAdmin(user)) return;
-    if (plainText(rec['归属人ID']) !== (user?.openId ?? ''))
-      throw new ForbiddenException('FORBIDDEN:not_owner');
+    const myId = await this.myUserId(user);
+    const ok = sourceVisibleTo(
+      { ownerOpenId: plainText(rec['归属人ID']), linkedUserIds: idsOf(rec['关联用户']) },
+      user,
+      myId,
+    );
+    if (!ok) throw new ForbiddenException('FORBIDDEN:not_owner');
   }
 
   // ── CRUD：覆盖父类以做凭证加密 + 默认值填充 ───────────────────────
@@ -143,16 +173,22 @@ export class GetnoteSourceService extends BaseRecordService {
     if (!next['启用状态']) next['启用状态'] = '启用';
     if (!next['收取频率']) next['收取频率'] = '每小时';
     this.encryptCredInPlace(next);
-    // 新建的配置永远归属创建者 —— 管理员也不能「替别人建」，建出来就是自己的
+    // 新建的配置永远归属创建者 —— 管理员也不能「替别人建」，建出来就是自己的。
+    // 双写：`归属人ID`（单人时代的字段，保留兼容）+ `关联用户`（多用户关联，新判据）。
+    // 传了 `关联用户` 就用传的（等于建完立刻把别人也拉进来），没传则默认只有自己。
     next['归属人'] = user?.name ?? '';
     next['归属人ID'] = user?.openId ?? '';
+    if (!idsOf(next['关联用户']).length) {
+      const myId = await this.myUserId(user);
+      next['关联用户'] = myId ? [myId] : [];
+    }
     return super.create(user, next);
   }
 
   /** 编辑：明文凭证字段重新加密；如果是空串/掩码则保留原密文 */
   async update(user: SessionUser, id: string, dto: Record<string, unknown>) {
     // 先校验归属再动数据，避免「越权者已经改完才被发现」
-    this.assertOwn(user, await super.detail(user, id));
+    await this.assertOwn(user, await super.detail(user, id));
     const next: Record<string, unknown> = { ...dto };
     if ('凭证' in next) {
       const v = String(next['凭证'] ?? '').trim();
@@ -176,7 +212,7 @@ export class GetnoteSourceService extends BaseRecordService {
   /** 列表：先做行级过滤，再用空串占位「凭证」字段，避免密文外泄 */
   async list(user: SessionUser, query: Record<string, string | undefined>) {
     const res = await super.list(user, query);
-    const rows = this.onlyVisible(res.items, user);
+    const rows = await this.onlyVisible(res.items, user);
     for (const it of rows) {
       it['凭证'] = '';
     }
@@ -188,7 +224,7 @@ export class GetnoteSourceService extends BaseRecordService {
 
   async detail(user: SessionUser, id: string) {
     const rec = await super.detail(user, id);
-    this.assertOwn(user, rec);
+    await this.assertOwn(user, rec);
     rec['凭证'] = '';
     return rec;
   }

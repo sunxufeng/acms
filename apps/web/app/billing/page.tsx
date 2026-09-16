@@ -29,6 +29,7 @@ export default function BillingPage() {
 
   return (
     <CrudPage
+      moduleKey="billing"
       title={t('titleBilling')}
       subtitle={t('subtitleBilling')}
       columns={COLUMNS}

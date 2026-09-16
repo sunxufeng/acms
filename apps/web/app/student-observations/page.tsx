@@ -65,6 +65,7 @@ export default function StudentObservationsPage() {
   return (
     <>
       <CrudPage
+        moduleKey="studentObservations"
         title="学生观察"
         subtitle="学生日常观察记录与待办闭环"
         search={{ placeholder: '搜索学生…' }}

@@ -2698,6 +2698,9 @@
     "testConnect": "测试连接",
     "syncing": "正在收取「{name}」…",
     "syncDone": "「{name}」收取完成",
+    "refetchBodies": "重新收取",
+    "refetching": "正在重新收取「{name}」的笔记正文…",
+    "refetchDone": "「{name}」正文收取完成",
     "failed": "失败",
     "testOk": "连接正常",
     "testFailed": "连接失败"

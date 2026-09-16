@@ -39,6 +39,7 @@ export default function TeachingClassesPage() {
 
   return (
     <CrudPage
+      moduleKey="teaching"
       title={t('titleTeachingClasses')}
       subtitle={t('subtitleTeachingClasses')}
       columns={COLUMNS}

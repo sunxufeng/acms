@@ -65,6 +65,7 @@ export default function HomeSchoolCommsPage() {
   return (
     <>
       <CrudPage
+        moduleKey="homeSchoolComms"
         title="家校沟通"
         subtitle="家长沟通与待办闭环（M1 学生域）"
         search={{ placeholder: '搜索学生…' }}

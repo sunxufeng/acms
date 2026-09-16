@@ -10,6 +10,7 @@ export default function IdpPlansPage() {
   const router = useRouter();
   return (
     <CrudPage
+      moduleKey="idpPlans"
       title="IDP管理"
       subtitle="IDP管理"
       search={{ placeholder: '搜索学生…' }}

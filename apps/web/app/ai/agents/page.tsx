@@ -59,6 +59,7 @@ export default function AiAgentsPage() {
 
   return (
     <CrudPage
+      moduleKey="aiAgents"
       title={t('pageTitle')}
       subtitle={t('pageSubtitle')}
       search={{ placeholder: t('searchPlaceholder') }}

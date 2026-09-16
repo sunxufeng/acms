@@ -88,6 +88,7 @@ export default function StudentAttendancesPage() {
   return (
     <>
       <CrudPage
+        moduleKey="studentAttendances"
         title="学生考勤"
         subtitle="日常出勤与异常记录（M1 学生域）"
         search={{ placeholder: '搜索学生姓名 / 学年 / 班级…' }}

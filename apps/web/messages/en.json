@@ -2698,6 +2698,9 @@
     "testConnect": "Test connection",
     "syncing": "Fetching \"{name}\"…",
     "syncDone": "\"{name}\" finished",
+    "refetchBodies": "Re-fetch bodies",
+    "refetching": "Re-fetching note bodies for \"{name}\"…",
+    "refetchDone": "\"{name}\" bodies fetched",
     "failed": "Failed",
     "testOk": "Connection OK",
     "testFailed": "Connection failed"

@@ -40,6 +40,7 @@ export default function AlumniFollowupsPage() {
   return (
     <>
       <CrudPage
+        moduleKey="alumniFollowups"
         title="校友跟进"
         subtitle="毕业校友去向追踪与关系维护（M1 学生域）"
         search={{ placeholder: '搜索学生姓名…' }}

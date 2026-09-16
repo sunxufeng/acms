@@ -26,6 +26,7 @@ const COLUMNS: CrudColumn[] = [
 export default function AuditLogsPage() {
   return (
     <CrudPage
+      moduleKey="audit-logs"
       title="审计日志"
       subtitle="关键写操作（创建/更新/删除）留痕，仅系统内部记录，不可修改（需审计权限）"
       columns={COLUMNS}

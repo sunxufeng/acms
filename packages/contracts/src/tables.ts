@@ -95,6 +95,20 @@ export const TABLES = {
   // ⚠️ 不额外消耗上游额度：复用已经拉到的管理员快照，fire-and-forget 写入。
   // 记录 id = 笔记 ID（上游 note_id）。
   noteSnapshot: { tableId: 'tblnotesnap000001', name: '笔记快照表' },
+  /**
+   * 笔记正文表（2026-09-17 新增）：把笔记**正文**（总结 + 原始记录）在本地存一份。
+   *
+   * 为什么要与 `noteSnapshot` 分表：快照表被「我的笔记列表 / 笔记统计报表」**整表读**
+   * （`search({ pageSize: 500 })` 会把整行 jsonb 都取出来），而正文动辄 6K~17K 字符 ——
+   * 混在一张表里会让每次列表查询都多拖走几 MB。分表后列表照旧轻，正文按需再查。
+   *
+   * 为什么需要存：正文只在上游 Get笔记 API（限速 QPS 2），看一条拉一条、不落库就不可回溯，
+   * 也无法在本地做检索 / 批量导出。落库后「重新收取」才有意义。
+   *
+   * 记录 id = 笔记 ID（与上游 note_id 一致，天然唯一）。
+   * ⚠️ 字段元数据必须传给 `ensureTable`，否则日期读出来是毫秒、数字读出来是字符串。
+   */
+  noteBody: { tableId: 'tblnotebody000001', name: '笔记正文表' },
   /** 开放平台：外接系统的应用凭证（App ID / App Secret）。自建 SQL 表，启动期幂等建表。 */
   openPlatformApp: { tableId: 'tblopenapp000001', name: '开放平台应用表' },
   /** 卫瓴SCRM 联系人（从开放平台同步过来的只读副本） */

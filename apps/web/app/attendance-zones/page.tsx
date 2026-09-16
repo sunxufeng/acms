@@ -45,6 +45,7 @@ const COLUMNS: CrudColumn[] = [
 export default function AttendanceZonesPage() {
   return (
     <CrudPage
+      moduleKey="attendance-zones"
       title="考勤围栏"
       subtitle="考勤围栏"
       columns={COLUMNS}

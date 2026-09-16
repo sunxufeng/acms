@@ -136,6 +136,14 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   //    要单独放宽某类人，在权限矩阵里勾对应菜单即可（每个菜单都有独立权限点）。
   { key: 'attendanceCodes', label: '考勤码', path: '/attendance-codes', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'markbook', label: '成绩册', path: '/markbook', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
+  // 考试与成绩（2026-09-16 参照 RosarioSIS v13 Grades 移植）：期末总评 / 成绩单 / 异常审查 / 分析
+  // legacyRead/Write 为 null：没有任何历史遗留权限点可继承，管理员由 healLockedRoles() 兜底，
+  // 普通角色需在权限矩阵里手工授予（matrix 存的是已派生的完整权限集，不会自动补）。
+  // 用 FLOW 而不是 RECORD：多一个 transition，用于「确认 / 撤销确认」这类状态流转
+  // （结转、调分、写评语属于 update；导出 PDF 属于 export）。
+  { key: 'examGrades', label: '考试与成绩', path: '/exam-grades', legacyRead: null, legacyWrite: null, menuPermission: null, actions: FLOW, genericCrud: true },
+  // 考核类型是本模块的配置表，但作为独立页面/菜单项（与「考勤码」同一套做法）
+  { key: 'examTypes', label: '考核类型', path: '/exam-types', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'behaviour', label: '行为记录', path: '/behaviour', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'curriculum', label: '课程规划', path: '/curriculum', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'lessonPlan', label: '课时教案', path: '/lesson-plans', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },

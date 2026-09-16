@@ -60,6 +60,9 @@ import { CURRICULUM_METAS } from './curriculum/curriculum.meta.js';
 import { CurriculumModule } from './curriculum/curriculum.module.js';
 import { BEHAVIOUR_METAS } from './behaviour/behaviour.meta.js';
 import { BehaviourModule } from './behaviour/behaviour.module.js';
+// 考试与成绩（2026-09-16 参照 RosarioSIS v13 Grades 移植）：期末总评结转 / 成绩单 / PDF 导出
+import { EXAM_GRADE_METAS } from './exam-grade/exam-grade.meta.js';
+import { ExamGradeModule } from './exam-grade/exam-grade.module.js';
 
 @Module({
   imports: [
@@ -96,6 +99,10 @@ import { BehaviourModule } from './behaviour/behaviour.module.js';
     GenericCrudModule.registerAll(MARKBOOK_METAS),
     GenericCrudModule.registerAll(CURRICULUM_METAS),
     GenericCrudModule.registerAll(BEHAVIOUR_METAS),
+    // 考试与成绩（考核类型 / 成绩批次 / 期末总评 / 成绩单）—— 自建 SQL 表，
+    // 建表在 ExamGradeModule（通用 CRUD 不建表）
+    GenericCrudModule.registerAll(EXAM_GRADE_METAS),
+    ExamGradeModule,
     Student360Module,
     IdpModule,
     UsersModule,

@@ -1762,3 +1762,91 @@ select.form-input:disabled { color: var(--fg); }
   padding: var(--space-md) var(--space-lg);
   border-top: 1px solid var(--border);
 }
+
+/* ============================================================================
+   考试与成绩（Exam & Grades）2026-09-16
+   结转预览弹窗 + 成绩单白纸预览 + 异常偏离着色。
+   配色一律走主题变量 —— 深色「月之暗面」与浅色「月之明面」共用同一套声明。
+   ============================================================================ */
+
+/* 结转预览弹窗（.modal-overlay 是共享的，内部类按组件命名，与 user-picker-modal 同一约定） */
+.exam-modal {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 940px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+}
+.exam-modal-head {
+  display: flex; align-items: flex-start; gap: var(--space-md);
+  padding: var(--space-lg) var(--space-lg) var(--space-md);
+  border-bottom: 1px solid var(--border);
+}
+.exam-modal-head h3 { margin: 0; font-size: var(--font-lg); font-weight: 700; color: var(--fg); }
+.exam-modal-head > button { margin-left: auto; }
+.exam-modal-body { padding: var(--space-md) var(--space-lg); overflow: auto; }
+.exam-modal-foot {
+  display: flex; gap: var(--space-sm); justify-content: flex-end;
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+/* 成绩单白纸预览 —— 屏幕上就是打印出来的样子（深浅主题都用白底黑字，
+   否则「预览好看、打印错位」是必然的） */
+.exam-paper-wrap { background: var(--bg-subtle); padding: var(--space-lg); border-radius: var(--radius-lg); overflow: auto; }
+.exam-paper {
+  background: #ffffff; color: #1a1a1a;
+  max-width: 800px; margin: 0 auto; padding: 30px 34px;
+  border-radius: 4px; box-shadow: var(--shadow-lg);
+  font-size: var(--font-sm);
+}
+.exam-paper-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  border-bottom: 2px solid #0E9B8E; padding-bottom: 12px; margin-bottom: 14px;
+}
+.exam-paper-school { font-size: var(--font-sm); font-weight: 800; color: #0b6a60; }
+.exam-paper-sub { font-size: 10px; color: #888; letter-spacing: 0.04em; margin-top: 2px; }
+.exam-paper-head h3 { margin: 0; font-size: var(--font-xl); font-weight: 800; text-align: right; color: #111; }
+.exam-paper-en { font-size: 10.5px; color: #888; text-align: right; letter-spacing: 0.08em; }
+.exam-paper-kv { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 26px; margin-bottom: 16px; }
+.exam-paper-kv > div { display: flex; font-size: var(--font-xs); padding: 3px 0; border-bottom: 1px dotted #e6e6e6; }
+.exam-paper-kv b { flex: 0 0 96px; width: 96px; color: #777; font-weight: 600; }
+.exam-paper-sec {
+  font-size: var(--font-xs); font-weight: 800; color: #0b6a60;
+  margin: 16px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #E2EBEA;
+}
+.exam-paper-table { width: 100%; border-collapse: collapse; margin: 6px 0 4px; }
+.exam-paper-table th {
+  background: #EEF4F3; color: #0b6a60; font-size: 10px; font-weight: 700;
+  text-align: left; padding: 7px 9px; border-bottom: 1px solid #CFE0DD; letter-spacing: 0.04em;
+}
+.exam-paper-table td { padding: 7px 9px; border-bottom: 1px solid #EDF1F0; font-size: var(--font-xs); vertical-align: top; }
+.exam-paper-level { font-weight: 800; color: #0b8a7e; }
+.exam-paper-comment { color: #333; line-height: 1.5; }
+.exam-paper-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 10px 0 4px; }
+.exam-paper-sum > div { background: #F3F8F7; border: 1px solid #E2EBEA; border-radius: 6px; padding: 9px 11px; text-align: center; }
+.exam-paper-sum span { display: block; font-size: 10px; color: #7a8a88; letter-spacing: 0.04em; }
+.exam-paper-sum b { display: block; font-size: var(--font-lg); font-weight: 800; color: #0b6a60; margin-top: 2px; }
+
+/* 异常审查的偏离着色 */
+.exam-dev-up { color: var(--warning); font-weight: 700; }
+.exam-dev-down { color: var(--danger); font-weight: 700; }
+
+/* 打印：只留成绩单白纸，把应用外壳（侧栏 / 顶栏 / 按钮 / Tab）全部藏掉 */
+@media print {
+  .sidebar, .topbar, .page-header, .tabs, .mb-toolbar, .notice,
+  .split-side, .page-header-actions, .exam-modal-foot { display: none !important; }
+  .app-shell, .main-area, .page, .page-content, .split-layout, .split-main {
+    display: block !important; background: #fff !important; padding: 0 !important; margin: 0 !important;
+  }
+  .exam-paper-wrap { background: #fff !important; padding: 0 !important; }
+  .exam-paper { box-shadow: none !important; border-radius: 0 !important; max-width: 100% !important; padding: 0 !important; }
+  .exam-paper-table tr, .exam-paper-kv > div { break-inside: avoid; }
+  @page { size: A4; margin: 12mm; }
+}

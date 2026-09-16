@@ -1417,7 +1417,15 @@ export const api = {
   markbookGrid: (cls: string) => request<MarkbookGrid>(`/markbook/grid?cls=${encodeURIComponent(cls)}`),
   /** 批量保存单元格（score 传空 = 删除该条目） */
   markbookSaveEntries: (cls: string, rows: MarkbookSaveRow[]) =>
-    request<{ saved: number; removed: number; skipped: number }>('/markbook/entries/save', {
+    request<{
+      saved: number;
+      removed: number;
+      skipped: number;
+      /** 已自动修正的问题（超满分截断 / 负数归 0） */
+      warnings: { columnId: string; studentId: string; message: string }[];
+      /** 没有落库的非法输入（保留原值由前端回显） */
+      errors: { columnId: string; studentId: string; value: string; message: string }[];
+    }>('/markbook/entries/save', {
       method: 'POST',
       body: JSON.stringify({ cls, rows }),
     }),
@@ -1459,6 +1467,79 @@ export const api = {
 
   /** 考勤码（教学域配置表，通用 CRUD）。出勤口径的可配置码表，见 /attendance-codes 页面 */
   attendanceCodes: crud('/attendance-codes'),
+
+  // ── 考试与成绩（2026-09-16 参照 RosarioSIS v13 的 Grades 模块）──────────────
+  // 四张表全部由后端 generic-crud 承载，端点形状一致
+  // （GET / | POST / | PUT /:id | DELETE /:id）。
+  // 专用动作（结转预览/一键结转/确认/成绩单/PDF）走 /exam-grades/*，另见下方专用方法。
+  examTypes: crud('/exam-types'),
+  examBatches: crud('/exam-batches'),
+  examTermGrades: crud('/exam-term-grades'),
+  examReportCards: crud('/exam-report-cards'),
+
+  /** 批次下拉 */
+  examListBatches: () => request<ExamBatch[]>('/exam-grades/batches'),
+  /** 该班可用科目（取成绩册列上「科目」的实际去重值，不读字典） */
+  examSubjects: (cls: string) =>
+    request<{ value: string; label: string; columns: number }[]>(
+      `/exam-grades/subjects?cls=${encodeURIComponent(cls)}`,
+    ),
+  /** 结转**预览**（不落库） */
+  examPreview: (batchId: string, cls: string, subject = '') =>
+    request<TermGradePreview>(
+      `/exam-grades/preview?batchId=${encodeURIComponent(batchId)}&cls=${encodeURIComponent(cls)}&subject=${encodeURIComponent(subject)}`,
+    ),
+  /** 一键结转（幂等 upsert，已确认跳过） */
+  examRoll: (batchId: string, cls: string, subject = '') =>
+    request<{ saved: number; skipped: number }>('/exam-grades/roll', {
+      method: 'POST',
+      body: JSON.stringify({ batchId, cls, subject }),
+    }),
+  /** 确认单条（状态流转） */
+  examConfirm: (id: string) => request<{ ok: true }>(`/exam-grades/confirm/${encodeURIComponent(id)}`, { method: 'POST' }),
+  /** 批量确认（状态流转） */
+  examConfirmAll: (batchId: string, cls: string, subject = '') =>
+    request<{ confirmed: number }>('/exam-grades/confirm-all', {
+      method: 'POST',
+      body: JSON.stringify({ batchId, cls, subject }),
+    }),
+  /** 撤销确认 */
+  examUndo: (id: string) => request<{ ok: true }>(`/exam-grades/undo/${encodeURIComponent(id)}`, { method: 'POST' }),
+  /** 手工调分 */
+  examAdjust: (id: string, total: number, reason = '') =>
+    request<{ ok: true }>(`/exam-grades/adjust/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      body: JSON.stringify({ total, reason }),
+    }),
+  /** 还原自动值 */
+  examRestore: (id: string) => request<{ ok: true }>(`/exam-grades/restore/${encodeURIComponent(id)}`, { method: 'POST' }),
+  /** 期末总评列表（评语页用） */
+  examTermGradeList: (opts: { batchId: string; cls?: string; subject?: string; onlyMissingComment?: boolean }) => {
+    const q = new URLSearchParams({ batchId: opts.batchId });
+    if (opts.cls) q.set('cls', opts.cls);
+    if (opts.subject) q.set('subject', opts.subject);
+    if (opts.onlyMissingComment) q.set('onlyMissingComment', '1');
+    return request<{ rows: TermGradeListItem[] }>(`/exam-grades/term-grades?${q.toString()}`);
+  },
+  /** 批量保存评语（失焦即存，每次一条也没问题） */
+  examSaveComments: (rows: { id: string; comment: string; status?: string }[]) =>
+    request<{ saved: number; locked: number }>('/exam-grades/comments', {
+      method: 'POST',
+      body: JSON.stringify({ rows }),
+    }),
+  /** 班主任总评语（学生 × 批次） */
+  examSaveSummary: (d: { batchId: string; studentId: string; comment: string; studentName: string; cls: string }) =>
+    request<{ ok: true }>('/exam-grades/summary-comment', { method: 'POST', body: JSON.stringify(d) }),
+  /** 异常成绩审查（只提示，不改分） */
+  examAnomalies: (batchId: string, cls: string) =>
+    request<{ rows: ExamAnomalyRow[]; thresholds: { highFactor: number; lowFactor: number; swingScore: number }; scanned: number }>(
+      `/exam-grades/anomalies?batchId=${encodeURIComponent(batchId)}&cls=${encodeURIComponent(cls)}`,
+    ),
+  /** 成绩单数据（屏幕预览；与 PDF 同一份数据） */
+  examReportCard: (studentId: string, batchId: string) =>
+    request<ExamReportCard | null>(
+      `/exam-grades/report-card?studentId=${encodeURIComponent(studentId)}&batchId=${encodeURIComponent(batchId)}`,
+    ),
 
   // ── 课程规划 / 学习成果 / 课时教案（教学域第四块，参照 Gibbon v31 的 Planner）────
   // 这 10 张表全部由后端 generic-crud 承载，端点形状完全一致
@@ -1630,6 +1711,10 @@ export interface MarkbookColumn {
   id: string;
   name: string;
   type: string;
+  /** 该「考核类型」的颜色（取自考核类型表，用于列头色块；未配置为空串） */
+  typeColor: string;
+  /** 该列属于哪个科目（文本；空 = 不区分科目。期末总评按它拆科目） */
+  subject: string;
   /** 列权重（第一层权重，与「成绩类型权重」相乘） */
   weight: number;
   fullMark: number;
@@ -1654,6 +1739,8 @@ export interface MarkbookCell {
   columnId: string;
   studentId: string;
   score: number | null;
+  /** 单元格状态：正常 / 免考 / 缺考（免考不进总评分母，缺考按 0 分进） */
+  status: string;
   /** 等级是写入时的快照，等级体系改名不篡改历史 */
   level: string;
   levelOrder: number | null;
@@ -1701,16 +1788,135 @@ export interface MarkbookGrid {
 export interface MarkbookSaveRow {
   columnId: string;
   studentId: string;
+  /** 原始输入文本：`85` / `85%` / `A` / `*`(免考) / `缺`(缺考) 都支持 */
   score: number | string | null;
+  /** 单元格状态（显式传时优先于从 score 解析） */
+  status?: string;
   comment?: string;
   visibleStudent?: string;
   visibleParent?: string;
 }
+// ── 考试与成绩（2026-09-16 参照 RosarioSIS v13 Grades 移植）────────────────
+export interface ExamBatch {
+  id: string;
+  name: string;
+  status: string;
+  year: string;
+  term: string;
+  from: string;
+  to: string;
+}
+export interface TermGradeRow {
+  studentId: string;
+  studentName: string;
+  cls: string;
+  /** 科目；`__none__` = 未填科目 */
+  subject: string;
+  total: number | null;
+  level: string;
+  levelOrder: number | null;
+  concern: boolean;
+  attained: string;
+  count: number;
+  weightSum: number;
+  excusedCount: number;
+  absentCount: number;
+  weightedGpa: number | null;
+  unweightedGpa: number | null;
+  rank: number | null;
+  rankTotal: number;
+  status: string;
+  source: string;
+  comment: string;
+  commentStatus: string;
+  teacher: string;
+  detail: string;
+  recordId: string;
+  action: '新建' | '更新' | '无变化' | '跳过（已确认）';
+  oldTotal: number | null;
+}
+export interface TermGradePreview {
+  batchId: string;
+  batchName: string;
+  batchStatus: string;
+  cls: string;
+  subject: string;
+  subjects: { value: string; label: string; columns: number }[];
+  columns: { id: string; name: string; type: string; subject: string; weight: number; fullMark: number }[];
+  rows: TermGradeRow[];
+  summary: { create: number; update: number; unchanged: number; skipped: number; total: number };
+  /** 等级表一个绩点都没配时为 false —— 前端要明说「未配置绩点」，不显示 0.00 */
+  gpaConfigured: boolean;
+  reason?: string;
+}
+export interface TermGradeListItem {
+  id: string;
+  studentId: string;
+  studentName: string;
+  cls: string;
+  subject: string;
+  total: number | null;
+  level: string;
+  rank: number | null;
+  rankTotal: number;
+  status: string;
+  comment: string;
+  commentStatus: string;
+  excusedCount: number;
+  absentCount: number;
+}
+export interface ExamAnomalyRow {
+  entryId: string;
+  rule: string;
+  message: string;
+  deviation: number | null;
+  columnId: string;
+  columnName: string;
+  columnType: string;
+  studentId: string;
+  studentName: string;
+  score: number | null;
+  fullMark: number;
+  classAvg: number | null;
+}
+export interface ExamReportCard {
+  batchId: string;
+  batchName: string;
+  batchStatus: string;
+  year: string;
+  term: string;
+  studentId: string;
+  studentName: string;
+  studentNo: string;
+  cls: string;
+  grade: string;
+  subjects: {
+    subject: string;
+    total: number | null;
+    level: string;
+    rank: number | null;
+    rankTotal: number;
+    attained: string;
+    comment: string;
+    teacher: string;
+    status: string;
+  }[];
+  gpa: { weighted: number | null; unweighted: number | null };
+  rank: number | null;
+  rankTotal: number;
+  attainedCount: number;
+  summaryComment: string;
+  summaryStatus: string;
+  confirmedAt: string;
+}
+
 export interface MarkbookColumnPayload {
   id?: string;
   cls: string;
   name: string;
   type?: string;
+  /** 科目（文本，可空；期末总评按它拆分科目） */
+  subject?: string;
   weight?: number;
   fullMark?: number;
   scaleId?: string;
@@ -1883,6 +2089,50 @@ export async function exportTable(table: string): Promise<void> {
   const a = document.createElement('a');
   a.href = url;
   a.download = `${table}_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * 下载成绩单 PDF（服务端 pdfkit 生成，矢量、中文正确、约 30 KB/份）。
+ *
+ * 文件名走后端 `Content-Disposition` 的 `filename*`（RFC 5987 中文名）；
+ * 这里再兜一层解析，取不到就用「成绩单_{学生名}.pdf」。
+ */
+export async function downloadReportCardPdf(studentId: string, batchId: string, studentName = ''): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/exam-grades/report-card.pdf?studentId=${encodeURIComponent(studentId)}&batchId=${encodeURIComponent(batchId)}`,
+    { credentials: 'include' },
+  );
+  if (res.status === 401) {
+    if (typeof window !== 'undefined') window.location.href = '/login';
+    throw new Error('UNAUTHENTICATED');
+  }
+  if (!res.ok) {
+    // 后端在越权 / 找不到时返回 JSON 说明，尽量把它带给用户（而不是一个干巴巴的状态码）
+    let msg = `导出失败 HTTP ${res.status}`;
+    try {
+      const j = (await res.json()) as { message?: string };
+      if (j?.message) msg = j.message;
+    } catch {
+      /* 非 JSON 响应，保留状态码 */
+    }
+    throw new Error(msg);
+  }
+  const cd = res.headers.get('Content-Disposition') || '';
+  let filename = `成绩单_${studentName || studentId}.pdf`;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  const plain = /filename="([^"]+)"/i.exec(cd);
+  if (star && star[1]) filename = decodeURIComponent(star[1]);
+  else if (plain && plain[1]) filename = plain[1];
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();

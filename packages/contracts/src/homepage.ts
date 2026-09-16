@@ -313,11 +313,14 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     // perm 留空：这些模块没有历史遗留权限点，访问控制走「模块×动作」矩阵里的
     // module:markbook / module:behaviour 等（与 AI 路由那组一致）。
     { key: 'markbook', label: '成绩册', enLabel: 'Markbook', href: '/markbook', icon: 'target', section: '教学管理', order: 10, perm: 'module:markbook:read' },
+    // 考试与成绩（2026-09-16 参照 RosarioSIS v13 Grades 移植）：成绩册负责过程录入，这一项负责结果产出
+    { key: 'examGrades', label: '考试与成绩', enLabel: 'Exam & Grades', href: '/exam-grades', icon: 'award', section: '教学管理', order: 15, perm: 'module:examGrades:read' },
     { key: 'learningOutcomes', label: '学习成果', enLabel: 'Outcomes', href: '/learning-outcomes', icon: 'award', section: '教学管理', order: 20, perm: 'module:learningOutcomes:read' },
     { key: 'curriculum', label: '课程规划', enLabel: 'Curriculum', href: '/curriculum', icon: 'book', section: '教学管理', order: 30, perm: 'module:curriculum:read' },
     { key: 'lessonPlans', label: '课时教案', enLabel: 'Lesson Plans', href: '/lesson-plans', icon: 'list', section: '教学管理', order: 40, perm: 'module:lessonPlan:read' },
     { key: 'behaviour', label: '行为记录', enLabel: 'Behaviour', href: '/behaviour', icon: 'flag', section: '教学管理', order: 50, perm: 'module:behaviour:read' },
     { key: 'attendanceCodes', label: '考勤码', enLabel: 'Attendance Codes', href: '/attendance-codes', icon: 'check', section: '教学管理', order: 90, perm: 'module:attendanceCodes:read' },
+    { key: 'examTypes', label: '考核类型', enLabel: 'Exam Types', href: '/exam-types', icon: 'list', section: '教学管理', order: 95, perm: 'module:examTypes:read' },
 
     { key: 'reports', label: '报表管理', enLabel: 'Reports', href: '/reports', icon: 'reports', section: '报表管理', order: 10, perm: 'report:read' },
 

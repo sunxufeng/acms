@@ -34,7 +34,7 @@ export const MARKBOOK_METAS: RecordMeta[] = [
     // 比行为的更敏感，单独一列一格控制），「完成闸门」= 达到该日期前不对家长开放
     statusField: '状态',
     defaultStatus: '启用',
-    searchFields: ['列名称', '班级', '考核类型', '描述'],
+    searchFields: ['列名称', '班级', '考核类型', '描述', '科目'],
     sortField: '更新时间',
   },
   {
@@ -49,7 +49,12 @@ export const MARKBOOK_METAS: RecordMeta[] = [
     ],
     // 快照字段：服务端写入，前端只读（见文件头注释）
     readonly: ['等级', '等级序号', '是否达标', '是否关注'],
-    searchFields: ['学生姓名', '班级', '评语'],
+    // 「单元格状态」= 正常 / 免考 / 缺考（2026-09-16 新增，见 markbook.service.saveEntries）。
+    // 三态直接决定期末总评的分母，不能省。
+    searchFields: ['学生姓名', '班级', '评语', '单元格状态'],
+    // 学生档案行级数据范围（与成绩册列表同一口径）
+    studentMatch: { field: '学生', by: 'id' },
+    studentScoped: true,
     sortField: '更新时间',
   },
   {

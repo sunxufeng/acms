@@ -18,12 +18,18 @@ import {
   type HomeworkRate,
 } from './homework-link.data.js';
 import { normHomeworkName } from './homework-link.logic.js';
+// 输入解析与期末总评共用同一个纯函数（「85%」「字母等级」「* 免考」「缺 缺考」都在那里）
+import { parseScoreInput } from '../exam-grade/exam-grade.logic.js';
 
 /** 列（一列 = 一次考核） */
 export interface GridColumn {
   id: string;
   name: string;
   type: string;
+  /** 该「考核类型」的颜色（取自考核类型表，用于列头色块；未配置为空串） */
+  typeColor: string;
+  /** 该列属于哪个科目（文本，与「班级」同一套口径；空 = 不区分科目） */
+  subject: string;
   weight: number;
   fullMark: number;
   scaleId: string;
@@ -51,6 +57,16 @@ export interface GridCell {
   columnId: string;
   studentId: string;
   score: number | null;
+  /**
+   * 单元格状态：正常 / 免考 / 缺考。
+   *
+   * 「未录入」不在这里 —— 没有条目就是未录入。
+   * 三态的区别直接决定期末总评的分母：
+   *   · 免考 → 默认不进分母（可配「计0分」）
+   *   · 缺考 → 默认按 0 分进分母（可配「不计入分母」）
+   * 老实现只有「有值 / 没值」两态，缺考和免考都无法表达。
+   */
+  status: string;
   level: string;
   levelOrder: number | null;
   concern: boolean;
@@ -123,6 +139,18 @@ export class MarkbookService implements OnModuleInit {
       [TABLES.markbookTarget.tableId, '成绩个人目标表'],
     ];
     for (const [tableId, name] of list) await sql.ensureTable(tableId, name, []);
+
+    // 「绩点」与「是否计入GPA」是 2026-09-16 为考试与成绩新加的两个字段。
+    //
+    // 为什么单独补一次元数据：ACMS 不做学分制，GPA 只能用「等级 → 绩点」的映射来算；
+    // 等级表没配绩点时**必须明说「未配置绩点」**，而不是显示一堆 0.00。
+    // ⚠️ 这里只登记这两个字段，其余字段保持无元数据（它们由本 service 手工取值），
+    //    避免一次性给老表加元数据改变既有读取行为。
+    await sql.ensureTable(TABLES.gradeScaleLevel.tableId, '成绩等级表', [
+      { name: '绩点', type: 2, property: { formatter: '0.0' } },
+      { name: '是否计入GPA', type: 3, property: { options: [{ name: '是' }, { name: '否' }] } },
+    ]);
+
     this.logger.log(`[markbook] 已就绪 ${list.length} 张表`);
   }
 
@@ -174,11 +202,52 @@ export class MarkbookService implements OnModuleInit {
     };
   }
 
-  private columnOf(id: string, f: Record<string, any>): GridColumn {
+  /**
+   * 考核类型索引：类型名 → 颜色 / 缺省权重 / 是否计入总评。
+   *
+   * 为什么成绩册要读这张表：
+   *   1. 列头色块（颜色）
+   *   2. **第二层权重的缺省值** —— 以前只有 `markbookWeight`（教学班 × 类型），
+   *      没配的班一律按 1 计；现在「考核类型」表给全局缺省，`markbookWeight` 仍可覆盖。
+   *   3. 「计入总评 = 否」的类型在结转时整类跳过（由 exam-grade 读取）。
+   *
+   * 读失败不抛错（返回空索引）：成绩册的主体功能不应当因为一张配置表没建好就挂掉，
+   * 最多少一个色块、权重回落成 1 —— 与改造前行为一致。
+   */
+  private async examTypeIndex(): Promise<Map<string, { color: string; weight: number | null; counted: boolean }>> {
+    const out = new Map<string, { color: string; weight: number | null; counted: boolean }>();
+    try {
+      const sql = getSqlStore();
+      if (!sql) return out;
+      const rows = await this.readAll(TABLES.examType.tableId);
+      for (const r of rows) {
+        const name = String(r.f['类型名称'] ?? '').trim();
+        if (!name) continue;
+        const w = Number(r.f['缺省权重']);
+        out.set(name, {
+          color: String(r.f['颜色'] ?? '').trim(),
+          weight: Number.isFinite(w) && w > 0 ? w : null,
+          counted: String(r.f['计入总评'] ?? '是') !== '否',
+        });
+      }
+    } catch {
+      /* 配置表还没建 / 读失败 → 空索引，不影响成绩册本身 */
+    }
+    return out;
+  }
+
+  private columnOf(
+    id: string,
+    f: Record<string, any>,
+    typeIdx?: Map<string, { color: string; weight: number | null; counted: boolean }>,
+  ): GridColumn {
+    const type = String(f['考核类型'] ?? '');
     return {
       id,
       name: String(f['列名称'] ?? ''),
-      type: String(f['考核类型'] ?? ''),
+      type,
+      typeColor: typeIdx?.get(type)?.color ?? '',
+      subject: String(f['科目'] ?? '').trim(),
       weight: safeWeight(f['列权重']),
       fullMark: Number(f['满分']) > 0 ? Number(f['满分']) : 100,
       scaleId: this.linkIds(f['等级体系'])[0] ?? '',
@@ -286,16 +355,17 @@ export class MarkbookService implements OnModuleInit {
     };
     if (!c) return empty;
 
-    const [allColumns, students, cfg, targetRows] = await Promise.all([
+    const [allColumns, students, cfg, targetRows, typeIdx] = await Promise.all([
       this.readAll(TABLES.markbookColumn.tableId),
       this.studentsOf(c),
       this.configsOf(c),
       this.readAll(TABLES.markbookTarget.tableId),
+      this.examTypeIndex(),
     ]);
 
     const columns = allColumns
       .filter((x) => normClass(x.f['班级']) === c && String(x.f['状态'] ?? '启用') !== '停用')
-      .map((x) => this.columnOf(x.id, x.f))
+      .map((x) => this.columnOf(x.id, x.f, typeIdx))
       .sort((a, b) => a.sort - b.sort || a.date.localeCompare(b.date) || a.name.localeCompare(b.name, 'zh-CN'));
 
     const colIds = new Set(columns.map((x) => x.id));
@@ -313,6 +383,8 @@ export class MarkbookService implements OnModuleInit {
         columnId,
         studentId,
         score: Number.isFinite(score as number) ? (score as number) : null,
+        // 老数据没有这个字段 → 空串按「正常」处理（不是未录入：有条目就说明录过）
+        status: String(e.f['单元格状态'] ?? '正常') || '正常',
         level: String(e.f['等级'] ?? ''),
         levelOrder: Number.isFinite(Number(e.f['等级序号'])) && e.f['等级序号'] !== '' ? Number(e.f['等级序号']) : null,
         concern: String(e.f['是否关注'] ?? '') === '是',
@@ -334,7 +406,16 @@ export class MarkbookService implements OnModuleInit {
       });
     }
 
+    // 两层权重的第二层：`markbookWeight`（教学班 × 类型）优先，
+    // 没配的班回落到「考核类型」表上的全局缺省权重（2026-09-16 新增）。
+    // 以前没配就一律按 1 计，等于第二层权重形同虚设。
     const tw = new Map(cfg.typeWeights.map((x) => [x.type, x.weight]));
+    for (const [name, meta] of typeIdx) {
+      if (!tw.has(name) && meta.weight != null) tw.set(name, meta.weight);
+    }
+    const mergedTypeWeights = [...tw.entries()]
+      .map(([type, weight]) => ({ type, weight }))
+      .sort((a, b) => a.type.localeCompare(b.type, 'zh-CN'));
     const cellMap = new Map(cells.map((x) => [`${x.columnId}__${x.studentId}`, x]));
     const summary: GridSummary[] = students.map((s) => {
       const items: { score: number; weight: number }[] = [];
@@ -398,7 +479,7 @@ export class MarkbookService implements OnModuleInit {
       summary,
       levels: cfg.levelList,
       scales: cfg.scaleList,
-      typeWeights: cfg.typeWeights,
+      typeWeights: mergedTypeWeights,
       homeworkRates,
     };
   }
@@ -410,15 +491,16 @@ export class MarkbookService implements OnModuleInit {
     targets: Map<string, number | null>;
     typeWeights: Map<string, number>;
   }> {
-    const [allColumns, cfg, targetRows] = await Promise.all([
+    const [allColumns, cfg, targetRows, typeIdx] = await Promise.all([
       this.readAll(TABLES.markbookColumn.tableId),
       this.configsOf(normClass(cls)),
       this.readAll(TABLES.markbookTarget.tableId),
+      this.examTypeIndex(),
     ]);
     const columns = new Map<string, { col: ColumnDef; fullMark: number }>();
     for (const x of allColumns) {
       if (normClass(x.f['班级']) !== normClass(cls)) continue;
-      const g = this.columnOf(x.id, x.f);
+      const g = this.columnOf(x.id, x.f, typeIdx);
       columns.set(x.id, {
         col: {
           id: x.id,
@@ -442,26 +524,54 @@ export class MarkbookService implements OnModuleInit {
       columns,
       levels: cfg.levelList,
       targets,
-      typeWeights: new Map(cfg.typeWeights.map((x) => [x.type, x.weight])),
+      // 与 getGrid 同一套合并规则：markbookWeight 优先，缺省回落考核类型表
+      typeWeights: (() => {
+        const m = new Map(cfg.typeWeights.map((x) => [x.type, x.weight]));
+        for (const [name, meta] of typeIdx) if (!m.has(name) && meta.weight != null) m.set(name, meta.weight);
+        return m;
+      })(),
     };
   }
 
   /**
    * 批量保存条目（二维录入的主写入口）。
-   * - `score` 为 null/'' → **删除**该条目（保持表干净，不存空壳）
-   * - 有值 → 计算「等级 / 等级序号 / 是否达标 / 是否关注」快照后 upsert
-   * ⚠️ id 固定为 `${列ID}__${学生ID}`，同一格重复提交是 upsert 而不是新记录
+   *
+   * 解析交给 `parseScoreInput`（与期末总评同一套纯函数），支持：
+   *   `85` / `85%` / 字母等级 / `*` 或「免」= 免考 / 「缺」= 缺考 / 越界截断。
+   *
+   * 返回里带上 `warnings` 与 `errors`：
+   *   · warnings = 已自动修正（超满分截断、负数归 0），前端出黄条
+   *   · errors   = **没落库**（非法输入如「八十八」），前端出红条并保留用户原值
+   * 老实现用 `Number(raw)`，非法输入会 `NaN` → 静默跳过，老师只看到「输入没了」。
+   *
+   * ⚠️ id 固定为 `${列ID}__${学生ID}`，同一格重复提交是 upsert 而不是新记录。
    */
   async saveEntries(
     cls: string,
-    rows: { columnId: string; studentId: string; score: number | string | null; comment?: string; visibleStudent?: string; visibleParent?: string }[],
-  ): Promise<{ saved: number; removed: number; skipped: number }> {
+    rows: {
+      columnId: string;
+      studentId: string;
+      score: number | string | null;
+      status?: string;
+      comment?: string;
+      visibleStudent?: string;
+      visibleParent?: string;
+    }[],
+  ): Promise<{
+    saved: number;
+    removed: number;
+    skipped: number;
+    warnings: { columnId: string; studentId: string; message: string }[];
+    errors: { columnId: string; studentId: string; value: string; message: string }[];
+  }> {
     const sql = getSqlStore();
     if (!sql) throw new Error('未配置数据库');
     const idx = await this.columnIndex(cls);
     const now = Date.now();
     const upserts: { id: string; fields: Record<string, unknown> }[] = [];
     const deletes: string[] = [];
+    const warnings: { columnId: string; studentId: string; message: string }[] = [];
+    const errors: { columnId: string; studentId: string; value: string; message: string }[] = [];
     let skipped = 0;
 
     for (const r of rows) {
@@ -472,30 +582,57 @@ export class MarkbookService implements OnModuleInit {
       }
       const id = `${r.columnId}__${r.studentId}`;
       const raw = r.score;
-      if (raw === null || raw === undefined || raw === '') {
-        deletes.push(id);
-        continue;
-      }
-      const score = Number(raw);
-      if (!Number.isFinite(score)) {
-        skipped++;
-        continue;
-      }
-      const normed = normScore(score, meta.fullMark);
       const levels = meta.col.scaleId
         ? idx.levels.filter((l) => l.scaleId === meta.col.scaleId)
         : idx.levels;
+
+      // 显式状态优先（前端把「免」/「缺」当状态传，而不是当分数传）
+      const explicitStatus = String(r.status ?? '').trim();
+      const isEmpty = raw === null || raw === undefined || String(raw).trim() === '';
+
+      // 三态下的删除规则：
+      //   · 状态=正常 且 空 → 删除该条目（未录入）
+      //   · 状态=免考/缺考 → **即使没有分数也要落库**（这正是要表达的信息）
+      if (isEmpty && (explicitStatus === '' || explicitStatus === '正常')) {
+        deletes.push(id);
+        continue;
+      }
+
+      const parsed = parseScoreInput(isEmpty ? (explicitStatus === '缺考' ? '缺' : '*') : raw, {
+        fullMark: meta.fullMark,
+        levels,
+      });
+
+      if (!parsed.ok) {
+        errors.push({
+          columnId: String(r.columnId),
+          studentId: String(r.studentId),
+          value: parsed.display,
+          message: parsed.error ?? '输入无法解析',
+        });
+        continue;
+      }
+      if (parsed.warning) {
+        warnings.push({ columnId: String(r.columnId), studentId: String(r.studentId), message: parsed.warning });
+      }
+
+      // 状态：显式传入优先，否则用解析结果
+      const status = explicitStatus || parsed.status;
+      const score = status === '免考' ? null : parsed.score;
+      const normed = score == null ? null : normScore(score, meta.fullMark);
       const snap = snapshotOf(levels, normed, idx.targets.get(String(r.studentId)) ?? null);
+
       const fields: Record<string, unknown> = {
         成绩册列: String(r.columnId),
         学生: String(r.studentId),
         班级: normClass(cls),
-        得分: score,
-        百分制: normed,
-        等级: snap.level,
-        等级序号: snap.levelOrder,
-        是否关注: snap.levelConcern ? '是' : '',
-        是否达标: snap.attained,
+        得分: score == null ? '' : score,
+        单元格状态: status,
+        百分制: normed == null ? '' : normed,
+        等级: status === '免考' ? '' : snap.level,
+        等级序号: status === '免考' ? null : snap.levelOrder,
+        是否关注: status === '免考' ? '' : snap.levelConcern ? '是' : '',
+        是否达标: status === '免考' ? '' : snap.attained,
         录入时间: now,
       };
       if (r.comment !== undefined) fields['评语'] = r.comment;
@@ -510,7 +647,7 @@ export class MarkbookService implements OnModuleInit {
       await sql.delete(TABLES.markbookEntry.tableId, id);
       removed++;
     }
-    return { saved: upserts.length, removed, skipped };
+    return { saved: upserts.length, removed, skipped, warnings, errors };
   }
 
   /**
@@ -571,6 +708,7 @@ export class MarkbookService implements OnModuleInit {
     cls: string;
     name: string;
     type?: string;
+    subject?: string;
     weight?: number;
     fullMark?: number;
     scaleId?: string;
@@ -589,6 +727,9 @@ export class MarkbookService implements OnModuleInit {
       班级: normClass(payload.cls),
       列名称: String(payload.name ?? '').trim(),
       考核类型: String(payload.type ?? ''),
+      // 科目：文本（与「班级」同一套口径）。前端从已有值下拉选，保证写法一致 ——
+      // 期末总评按它拆分科目，写法不一致（数学 / 数学课）会拆出两个科目。
+      科目: String(payload.subject ?? '').trim(),
       列权重: Number(payload.weight) > 0 ? Number(payload.weight) : 1,
       满分: Number(payload.fullMark) > 0 ? Number(payload.fullMark) : 100,
       等级体系: payload.scaleId ? [String(payload.scaleId)] : [],

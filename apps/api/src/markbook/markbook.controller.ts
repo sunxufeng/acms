@@ -58,7 +58,10 @@ export class MarkbookController {
       rows?: {
         columnId: string;
         studentId: string;
+        /** 原始输入文本：支持 `85` / `85%` / `A` / `*`(免考) / `缺`(缺考)；空 = 未录入 */
         score: number | string | null;
+        /** 单元格状态：正常 / 免考 / 缺考（显式传时优先于从 score 解析） */
+        status?: string;
         comment?: string;
         visibleStudent?: string;
         visibleParent?: string;
@@ -86,6 +89,8 @@ export class MarkbookController {
       cls: string;
       name: string;
       type?: string;
+      /** 科目（文本，可空；期末总评按它拆分科目） */
+      subject?: string;
       weight?: number;
       fullMark?: number;
       scaleId?: string;

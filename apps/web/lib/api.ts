@@ -2139,6 +2139,8 @@ export interface ApiTokenListResult {
   /** 可写的令牌数 —— 页面上要显眼，这是风险点 */
   writable: number;
   maxTtlMs: number;
+  /** 允许的最晚到期时刻（绝对毫秒）—— 直接绑 `input[type=date]` 的 max */
+  maxExpiryAt: number;
 }
 
 export interface ApiTokenState {
@@ -2147,6 +2149,13 @@ export interface ApiTokenState {
   /** 密码来自环境变量还是代码内默认值 —— 页面要如实提示，别让人以为它很安全 */
   passwordSource: 'env' | 'default';
   maxTtlMs: number;
+  /**
+   * 允许的最晚到期时刻（绝对毫秒）。
+   * 🔴 必须由**后端**给：口径是「今天 + 365 天那天的 23:59:59.999」（日历一年），
+   * 不是「此刻 + 365×24h」。前端自己算一套必然会与后端漂移 ——
+   * 2026-09-16 就是因为两边口径差了两小时，默认值直接被判超限。
+   */
+  maxExpiryAt: number;
 }
 
 export interface ApiTokenUserOption {

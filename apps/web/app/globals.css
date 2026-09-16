@@ -2044,6 +2044,17 @@ select.form-input:disabled { color: var(--fg); }
 .tok-modal-head { padding: var(--space-lg) var(--space-lg) var(--space-md); border-bottom: 1px solid var(--border); }
 .tok-modal-head h3 { margin: 0; font-size: var(--font-md); font-weight: 700; color: var(--fg); }
 .tok-modal-head p { margin: 6px 0 0; font-size: var(--font-sm); color: var(--fg-secondary); line-height: 1.7; }
+/* 标题行：标题在左，关闭 × 在右（× 与标题同一行，说明文字仍占满整行） */
+.tok-modal-title { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-sm); }
+.tok-modal-x {
+  flex: none; width: 28px; height: 28px; margin: -3px -6px 0 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: 8px; background: transparent;
+  color: var(--fg-tertiary); font-size: 20px; line-height: 1; cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.tok-modal-x:hover:not(:disabled) { background: var(--bg-subtle); border-color: var(--border); color: var(--fg); }
+.tok-modal-x:disabled { opacity: .4; cursor: not-allowed; }
 .tok-modal-body { padding: var(--space-md) var(--space-lg); overflow: auto; }
 .tok-modal-foot {
   display: flex; gap: var(--space-sm); justify-content: flex-end;

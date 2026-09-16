@@ -16,6 +16,7 @@ import { getSqlStore } from '../base.provider.js';
 import { REDIS } from '../redis.provider.js';
 import { AuthService } from './auth.service.js';
 import { HighRiskGateService, GATE_UNLOCK_TTL_SECONDS } from './high-risk-gate.js';
+import { MAX_TOKEN_TTL_MS, maxExpiryAt } from './api-token-expiry.js';
 import { AuditService } from '../audit/audit.service.js';
 import { UsersService } from '../user/user.service.js';
 
@@ -52,8 +53,11 @@ const T = { TEXT: 1, NUMBER: 2, SELECT: 3 } as const;
 type FieldDef = { name: string; type: number; property?: unknown };
 const sel = (...names: string[]): FieldDef['property'] => ({ options: names.map((name) => ({ name })) });
 
-/** 令牌有效期上限：1 年（长期凭证泄漏 = 长期风险，超过一年的令牌不该存在） */
-export const MAX_TOKEN_TTL_MS = 365 * 24 * 3600 * 1000;
+/**
+ * 令牌有效期上限与「一年」的具体口径见 `api-token-expiry.ts`（纯函数模块，可单测）。
+ * 这里转出去，保持既有引用方不用改 import 路径。
+ */
+export { MAX_TOKEN_TTL_MS };
 
 /** 校验结果的 Redis 缓存 TTL：60 秒。吊销/改限制时会**主动清**，不等它过期 */
 const CACHE_TTL_SECONDS = 60;
@@ -99,6 +103,8 @@ export interface ApiTokenListResult {
   /** 现存令牌里「可写」的数量 —— 页面上要显眼，这是风险点 */
   writable: number;
   maxTtlMs: number;
+  /** 允许的最晚到期时刻（绝对毫秒）—— 前端绑到 `input[type=date]` 的 max，两边共用同一口径 */
+  maxExpiryAt: number;
 }
 
 export interface IssueTokenDto {
@@ -448,6 +454,8 @@ export class ApiTokenService implements OnModuleInit {
       expiresIn: GATE_UNLOCK_TTL_SECONDS,
       passwordSource: this.gate.passwordSource(),
       maxTtlMs: MAX_TOKEN_TTL_MS,
+      /** 绝对上限（毫秒时间戳）—— 前端直接绑到 `input[type=date]` 的 max 上，避免两边各算一套口径 */
+      maxExpiryAt: maxExpiryAt(Date.now()),
     };
   }
 
@@ -478,7 +486,7 @@ export class ApiTokenService implements OnModuleInit {
     this.requireAdmin(admin);
     await this.requireUnlocked(admin);
     const sql = getSqlStore();
-    if (!sql) return { rows: [], total: 0, enabled: 0, revoked: 0, writable: 0, maxTtlMs: MAX_TOKEN_TTL_MS };
+    if (!sql) return { rows: [], total: 0, enabled: 0, revoked: 0, writable: 0, maxTtlMs: MAX_TOKEN_TTL_MS, maxExpiryAt: maxExpiryAt(Date.now()) };
 
     const raw: { id: string; f: Record<string, unknown> }[] = [];
     let token: string | undefined;
@@ -526,6 +534,7 @@ export class ApiTokenService implements OnModuleInit {
       revoked: rows.filter((r) => r.status === STATUS_REVOKED || r.status === STATUS_EXPIRED).length,
       writable: rows.filter((r) => !r.readOnly && !r.expired && r.status === STATUS_ENABLED).length,
       maxTtlMs: MAX_TOKEN_TTL_MS,
+      maxExpiryAt: maxExpiryAt(now),
     };
   }
 
@@ -686,13 +695,13 @@ export class ApiTokenService implements OnModuleInit {
     return this.parseList(v).filter((k) => valid.has(k));
   }
 
-  /** 过期时间：必须落在 (now, now+1年]；不传 = 一年后（**默认就给到期，不给永久**） */
+  /** 过期时间：必须落在 (now, 一年]；不传 = 一年后（**默认就给到期，不给永久**） */
   private normalizeExpiry(v: unknown): number {
     const n = Number(v ?? 0);
     const now = Date.now();
-    if (!n) return now + MAX_TOKEN_TTL_MS;
+    if (!n) return maxExpiryAt(now);
     if (n <= now) throw new BadRequestException('过期时间必须晚于当前时间');
-    if (n > now + MAX_TOKEN_TTL_MS) throw new BadRequestException('过期时间最长为一年');
+    if (n > maxExpiryAt(now)) throw new BadRequestException('过期时间最长为一年（最多到距今 365 天的那一天）');
     return n;
   }
 

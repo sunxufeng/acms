@@ -45,6 +45,10 @@ function rich(text: string) {
   return text.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <b key={i}>{part}</b> : part));
 }
 
+/** 一年（毫秒）。仅用于**后端上限还没拿到时**的回落，不作为判定口径 ——
+ *  口径以后端 `maxExpiryAt` 为准（见 lib/api.ts 的注释）。 */
+const ONE_YEAR_MS = 365 * 24 * 3600 * 1000;
+
 /** 毫秒时间戳 → YYYY-MM-DD（用于 input[type=date] 的回填） */
 function toDateInput(ms: number): string {
   if (!ms) return '';
@@ -60,6 +64,19 @@ function fromDateInput(v: string): number {
   return Number.isNaN(d.getTime()) ? 0 : d.getTime();
 }
 
+/**
+ * 到期日的默认值 = **后端允许的最晚那天**（也就是「一年后同一天」）。
+ *
+ * 🔴 别在这里自己算 `now + 365天` 再拼日期：那正是 2026-09-16 出问题的写法 ——
+ * 前端给「一年后那天的 23:59:59」，后端上限却是「此刻 + 365×24h」，
+ * 差了几个小时 ⇒ 默认值直接被判超限，用户什么都不改也提不了。
+ * 现在上限由后端下发（`state.maxExpiryAt`），默认值直接取它，两边天然一致。
+ */
+function defaultExpire(maxExpiryAt?: number): string {
+  const ms = maxExpiryAt && maxExpiryAt > Date.now() ? maxExpiryAt : Date.now() + ONE_YEAR_MS;
+  return toDateInput(ms);
+}
+
 function fmtTime(ms: number): string {
   if (!ms) return '—';
   const d = new Date(ms);
@@ -73,7 +90,7 @@ const EMPTY_FORM = {
   usage: 'CLI',
   readOnly: true,
   modules: [] as string[],
-  expire: toDateInput(Date.now() + 365 * 24 * 3600 * 1000),
+  expire: defaultExpire(),
   ipWhitelist: '',
   rateLimit: 0,
   logAll: false,
@@ -146,6 +163,26 @@ export default function ApiTokensPage() {
       });
   }, [loadAll]);
 
+  /**
+   * Esc 关闭弹窗。
+   *
+   * 之前两个弹窗**只能靠点遮罩或底部按钮退出** —— 内容一长、遮罩被滚动区盖住时并不好点，
+   * 缺一个「谁都会试一下」的退出方式（标题栏也没有 ×）。现在遮罩点击、× 、Esc 三者一致；
+   * `busy`（正在提交）时一律不许关。
+   *
+   * ⚠️ 刻意**不**处理「明文只显示一次」那个弹窗：Esc 一按就把令牌关掉，
+   * 而明文是不可再得的，那是事故而不是便利。
+   */
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape' || busy) return;
+      if (showIssue) setShowIssue(false);
+      else if (editTarget) setEditTarget(null);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, showIssue, editTarget]);
+
   // ── 解锁 / 锁定 ───────────────────────────────────────────────
 
   async function doUnlock() {
@@ -185,10 +222,29 @@ export default function ApiTokensPage() {
 
   // ── 签发 / 改限制 / 吊销 ──────────────────────────────────────
 
+  /**
+   * 到期日的**前置校验**：本地先判一次，给出人话提示。
+   * 只做「提交前拦住明显越界」，真正的权威判定仍在后端（前端算出来的时间不可信）。
+   * 这里必须用后端下发的 `maxExpiryAt`，不要自己再算一遍 365 天 —— 口径分叉就会复发。
+   */
+  function expiryError(expire: string): string | null {
+    const ms = fromDateInput(expire);
+    if (!ms) return t('needExpire');
+    if (ms <= Date.now()) return t('expirePast');
+    const max = state?.maxExpiryAt;
+    if (max && ms > max) return t('expireTooFar', { date: toDateInput(max) });
+    return null;
+  }
+
   async function doIssue() {
     if (busy) return;
     if (!form.userOpenId) {
       setMsg({ tone: 'error', text: t('needUser') });
+      return;
+    }
+    const bad = expiryError(form.expire);
+    if (bad) {
+      setMsg({ tone: 'error', text: bad });
       return;
     }
     setBusy(true);
@@ -209,7 +265,7 @@ export default function ApiTokensPage() {
       const r = await api.apiTokenIssue(dto);
       setRevealed(r.token);
       setShowIssue(false);
-      setForm({ ...EMPTY_FORM, expire: toDateInput(Date.now() + 365 * 24 * 3600 * 1000) });
+      setForm({ ...EMPTY_FORM, expire: defaultExpire(state?.maxExpiryAt) });
       await loadAll();
     } catch (e) {
       setMsg({ tone: 'error', text: `${t('issueFailed')}：${(e as Error).message}` });
@@ -223,7 +279,7 @@ export default function ApiTokensPage() {
     setEditForm({
       readOnly: row.readOnly,
       modules: [...row.modules],
-      expire: toDateInput(row.expiresAt || Date.now() + 365 * 24 * 3600 * 1000),
+      expire: toDateInput(row.expiresAt || (state?.maxExpiryAt ?? Date.now() + ONE_YEAR_MS)),
       rateLimit: row.rateLimit,
       logAll: row.logAll,
       status: row.status,
@@ -233,6 +289,11 @@ export default function ApiTokensPage() {
 
   async function doUpdate() {
     if (!editTarget || busy) return;
+    const bad = expiryError(editForm.expire);
+    if (bad) {
+      setMsg({ tone: 'error', text: bad });
+      return;
+    }
     setBusy(true);
     setMsg(null);
     try {
@@ -516,7 +577,19 @@ export default function ApiTokensPage() {
         <div className="modal-overlay" onClick={() => (busy ? null : setShowIssue(false))}>
           <div className="tok-modal" onClick={(e) => e.stopPropagation()}>
             <div className="tok-modal-head">
-              <h3>{t('issue')}</h3>
+              <div className="tok-modal-title">
+                <h3>{t('issue')}</h3>
+                <button
+                  type="button"
+                  className="tok-modal-x"
+                  aria-label={t('close')}
+                  title={t('close')}
+                  disabled={busy}
+                  onClick={() => setShowIssue(false)}
+                >
+                  ×
+                </button>
+              </div>
               <p>{t('issueDesc')}</p>
             </div>
 
@@ -571,6 +644,8 @@ export default function ApiTokensPage() {
                     className="form-input"
                     type="date"
                     value={form.expire}
+                    min={toDateInput(Date.now())}
+                    max={state ? toDateInput(state.maxExpiryAt) : undefined}
                     onChange={(e) => setForm({ ...form, expire: e.target.value })}
                   />
                   <em className="tok-hint">{t('fExpireHint')}</em>
@@ -681,7 +756,19 @@ export default function ApiTokensPage() {
         <div className="modal-overlay" onClick={() => (busy ? null : setEditTarget(null))}>
           <div className="tok-modal" onClick={(e) => e.stopPropagation()}>
             <div className="tok-modal-head">
-              <h3>{t('editTitle', { name: editTarget.name })}</h3>
+              <div className="tok-modal-title">
+                <h3>{t('editTitle', { name: editTarget.name })}</h3>
+                <button
+                  type="button"
+                  className="tok-modal-x"
+                  aria-label={t('close')}
+                  title={t('close')}
+                  disabled={busy}
+                  onClick={() => setEditTarget(null)}
+                >
+                  ×
+                </button>
+              </div>
               <p>{t('editDesc')}</p>
             </div>
 
@@ -729,6 +816,7 @@ export default function ApiTokensPage() {
                     className="form-input"
                     type="date"
                     value={editForm.expire}
+                    max={state ? toDateInput(state.maxExpiryAt) : undefined}
                     onChange={(e) => setEditForm({ ...editForm, expire: e.target.value })}
                   />
                 </label>

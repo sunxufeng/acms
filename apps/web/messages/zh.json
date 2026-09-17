@@ -2695,6 +2695,7 @@
     "source": "来源",
     "noteDetail": "笔记详情",
     "summary": "总结",
+    "audio": "原始音频",
     "rawRecord": "原始记录",
     "noRawRecord": "该笔记无原始记录",
     "convert": "转换",
@@ -2707,7 +2708,10 @@
     "convertFieldMap": "总结 → {summary}　原始记录 → {raw}",
     "convertLoadFailed": "读取转换配置失败，请稍后重试",
     "errNoPermission": "你没有「我的笔记/知识库」的访问权限。请联系管理员在「权限授权」中为你的角色开通该权限。",
-    "reload": "重试"
+    "reload": "重试",
+    "saveAudio": "保存原始音频",
+    "audioSaving": "正在保存原始音频…",
+    "audioSaved": "原始音频已保存"
   },
   "getnoteSources": {
     "title": "知识库配置",

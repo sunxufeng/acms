@@ -2695,6 +2695,7 @@
     "source": "Source",
     "noteDetail": "Note detail",
     "summary": "Summary",
+    "audio": "Original Audio",
     "rawRecord": "Raw Record",
     "noRawRecord": "This note has no raw transcript",
     "convert": "Convert",
@@ -2707,7 +2708,10 @@
     "convertFieldMap": "Summary → {summary}　Raw record → {raw}",
     "convertLoadFailed": "Failed to load conversion config. Please try again later",
     "errNoPermission": "You don't have access to My Notes / Knowledge Base. Ask an admin to grant this permission to your role.",
-    "reload": "Retry"
+    "reload": "Retry",
+    "saveAudio": "Save original audio",
+    "audioSaving": "Saving original audio…",
+    "audioSaved": "Original audio saved"
   },
   "getnoteSources": {
     "title": "Knowledge Sources",

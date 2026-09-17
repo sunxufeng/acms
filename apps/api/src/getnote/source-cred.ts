@@ -155,6 +155,51 @@ export function noteInScopedSources(
 }
 
 /**
+ * 批量任务里「这篇笔记该用哪条配置的凭证」—— 两级匹配，顺序不能乱。
+ *
+ * 场景：管理员跑批量任务（保存原始音频 / 重新收取正文）时，他一个人要替所有同事
+ * 去打上游接口。笔记 → 配置的对应关系有两条线索：
+ *   ① `来源配置ID`（配置 recordId）—— **准**，落库时写死的，优先用；
+ *   ② `来源配置`（配置名称）—— 老数据可能没有 ①（历史上该字段全为空），退而用名称兜。
+ *
+ * ⚠️ 为什么批量任务必须走这条路径，而不能直接用 `detail()`：
+ *   `detail()` 的凭证解析依赖**内存里的列表快照**（`adminSnapshots`），
+ *   而批量任务从不会先打开列表页 ⇒ 快照为空 ⇒ **静默回退成「管理员自己的凭证」**
+ *   ⇒ 别人的笔记被上游一律判 `10008 权限不足`。
+ *   2026-09-18 实测：试点 5 条错 4 条，**错的全是别人的笔记**、对的恰好是
+ *   管理员自己那条 —— 这个「错得极有规律」的分布就是该 bug 的指纹。
+ *
+ * 返回 null = 没匹配上（那就是管理员自己的笔记），调用方用自己的凭证即可。
+ *
+ * 🔴 **两侧都要 trim**，只 trim 一边会在生产上直接失效：
+ *   配置表里真的存在「末尾带空格」的配置名 —— 吴洁那条 `配置名称` 实测是
+ *   `'Joyce Wu Get Note '`（len=18，末位 code 32）。而正文表里的 `来源配置`
+ *   写进去时是同一个带空格的值。若只 trim 查询值（或只 trim 配置值），
+ *   两侧一个是 17 字符、一个是 18 字符 ⇒ 永远不相等 ⇒ 那批笔记回落成
+ *   管理员自己的凭证 ⇒ 上游 `10008 权限不足`。
+ *   2026-09-18 实测：10 条试点里就这 2 条（全是吴洁的）失败。
+ *
+ * ⚠️ 也**不做**大小写不敏感或包含匹配：配置名是稳定的，模糊匹配只会掩盖数据问题
+ *   （比如「张三」误配「张三丰」）。
+ */
+export function pickSourceEntry<T extends { recordId: string; sourceName: string }>(
+  entries: readonly T[],
+  hint: { sourceRecordId?: string; sourceName?: string },
+): T | null {
+  const rid = String(hint?.sourceRecordId ?? '').trim();
+  if (rid) {
+    const hit = entries.find((e) => String(e.recordId ?? '').trim() === rid);
+    if (hit) return hit;
+  }
+  const name = String(hint?.sourceName ?? '').trim();
+  if (name) {
+    const hit = entries.find((e) => String(e.sourceName ?? '').trim() === name);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
  * 列出**所有启用**的知识库配置及其解好的凭证。
  *
  * ⚠️ 刻意**不做任何按人过滤**：这个方法服务的都是"系统级"调用方 ——

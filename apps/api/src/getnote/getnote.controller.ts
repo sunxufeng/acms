@@ -1,11 +1,13 @@
 import {
-  Controller, Get, Post, Put, Delete, Param, Query, Body, Req, UseGuards, HttpException, HttpStatus, HttpCode,
+  Controller, Get, Post, Put, Delete, Param, Query, Body, Req, Res, UseGuards,
+  HttpException, HttpStatus, HttpCode, NotFoundException,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { authorize } from '@acms/domain';
 import type { SessionUser, Permission } from '@acms/contracts';
 import { SessionGuard } from '../auth/session.guard.js';
 import { GetnoteService } from './getnote.service.js';
+import { FileUploadService } from '../file-upload/file-upload.service.js';
 
 /**
  * 得到大脑（Get笔记）代理控制器。
@@ -28,7 +30,11 @@ import { GetnoteService } from './getnote.service.js';
 @Controller('getnote')
 @UseGuards(SessionGuard)
 export class GetnoteController {
-  constructor(private readonly svc: GetnoteService) {}
+  constructor(
+    private readonly svc: GetnoteService,
+    // 音频播放：笔记级可见性校验通过后，从附件目录把字节流返给浏览器
+    private readonly fileUpload: FileUploadService,
+  ) {}
 
   /**
    * 判据 = `module:<模块key>:<动作>`。
@@ -246,6 +252,53 @@ export class GetnoteController {
       topic_id: body?.topic_id as string | undefined,
       parent_id: body?.parent_id as string | undefined,
     });
+  }
+
+  /**
+   * 原始音频播放（2026-09-17，方案 A）。
+   *
+   * 🔴 为什么不直接给前端 `/files/:token` 的链接：那个接口是**登录即可下载**，
+   *    而录音是私密内容 —— 任何登录用户拿到 token 就能听别人的会议录音。
+   *    这里先让 service 做**笔记级可见性校验**，通过才返流；不通过统一 404
+   *    （不区分「不存在」与「无权」，避免被拿来探测）。
+   *
+   * ⚠️ 必须声明在 `@Get('notes/:id')` 之前，否则 `:id` 通配会先吃掉这条路由。
+   */
+  @Get('notes/:id/audio')
+  async noteAudio(@Req() req: Request, @Param('id') id: string, @Res() res: Response) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'module:getnote:read');
+    const hit = await this.svc.noteAudio(user, id);
+    if (!hit) throw new NotFoundException('AUDIO_NOT_FOUND');
+    const f = await this.fileUpload.readLocal(hit.token);
+    res.status(200);
+    res.setHeader('Content-Type', f.mime || 'audio/ogg');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename*=UTF-8''${encodeURIComponent(hit.name)}`,
+    );
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.end(f.buffer);
+  }
+
+  /**
+   * 「保存原始音频」：把笔记的原始录音下载并落进 ACMS 附件目录（异步 + 进度轮询）。
+   * 不传 `limit` = 处理全部待保存的；传了小数值可先试点。幂等，可反复调用。
+   */
+  @Post('refetch-audio')
+  @HttpCode(200)
+  refetchAudio(@Req() req: Request, @Body() body: { limit?: number }) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'module:getnote:update');
+    return this.svc.startRefetchAudio(user, { limit: Number(body?.limit) || 0 });
+  }
+
+  /** 查询「保存原始音频」进度。 */
+  @Get('refetch-audio/status')
+  refetchAudioStatus(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'module:getnote:read');
+    return this.svc.refetchAudioStatus(user);
   }
 
   @Get('notes/:id')

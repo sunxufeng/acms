@@ -1379,6 +1379,16 @@ export const api = {
       body: JSON.stringify({ sourceRecordId: sourceRecordId ?? '' }),
     }),
   getRefetchBodiesStatus: () => request<RefetchBodiesProgress>('/getnote/refetch-bodies/status'),
+  /**
+   * 「保存原始音频」：把笔记的原始录音下载并落进 ACMS 附件目录（异步，用下面的 status 轮询）。
+   * `limit` 传小数值可先试点；不传 = 处理全部待保存的。**幂等**，可反复调用。
+   */
+  refetchNoteAudio: (limit?: number) =>
+    request<RefetchAudioProgress>('/getnote/refetch-audio', {
+      method: 'POST',
+      body: JSON.stringify({ limit: limit ?? 0 }),
+    }),
+  getRefetchAudioStatus: () => request<RefetchAudioProgress>('/getnote/refetch-audio/status'),
   // ── 部门管理（组织管理）：只读同步飞书通讯录部门树 ──
   /** 读取全部部门（前端构建树；已删除部门 status='invalid' 由前端过滤） */
   /**
@@ -1755,6 +1765,34 @@ export interface RefetchBodiesProgress {
   /** 失败（多为上游权限 / 限流） */
   failed: number;
   lastNoteId?: string;
+  error?: string;
+  startedAt?: number;
+  finishedAt?: number;
+}
+
+/**
+ * 「保存原始音频」的进度。
+ *
+ * 与 `RefetchBodiesProgress` 分开：那个是拉**文字**正文，这个是**下载音频文件**，
+ * 语义不同 —— `skipped` 表示「上游本来就没有音频」（纯文本笔记），不算失败。
+ */
+export interface RefetchAudioProgress {
+  running: boolean;
+  total: number;
+  done: number;
+  /** 下载成功并写入附件目录 */
+  stored: number;
+  /** 上游无音频（已标记，后续跳过） */
+  skipped: number;
+  /** 失败（下载 4xx / 落盘失败），下次可重试 */
+  failed: number;
+  /** 累计落盘字节数 */
+  bytes: number;
+  lastNoteId?: string;
+  /** 最近一次失败的原因（如「权限不足」），排查时不用翻服务端日志 */
+  lastError?: string;
+  /** 最近的失败样本（最多 5 条） */
+  failedSamples?: Array<{ noteId: string; title: string; reason: string }>;
   error?: string;
   startedAt?: number;
   finishedAt?: number;

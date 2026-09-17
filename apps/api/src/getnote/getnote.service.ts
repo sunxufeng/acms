@@ -24,12 +24,25 @@ import {
 import {
   listEnabledSourceCreds,
   noteInScopedSources,
+  pickSourceEntry,
   resolveUserIdByOpenId,
   sourceVisibleTo,
 } from './source-cred.js';
+// 音频落库要把字节流存进全站附件目录（`loc_*` token），复用统一的附件基建
+import { FileUploadService } from '../file-upload/file-upload.service.js';
 
 /** 得到大脑（Get笔记）开放平台。所有凭证只发往此地址，不接受任何其他 API 地址。 */
 const BASE = 'https://openapi.biji.com';
+
+/**
+ * 「音频状态」的取值 —— 与正文表 `音频状态` 字段一致。
+ *
+ * ⚠️ 这是**代码判据**（批量任务据此跳过已完成、只重试失败的），不是给人挑的选项，
+ * 所以**不做成字典**：字典是运行时可改的数据，被改坏会让任务反复重跑或全部静默跳过。
+ */
+const AUDIO_STATE_SAVED = '已保存';
+const AUDIO_STATE_NONE = '上游无音频';
+const AUDIO_STATE_FAILED = '失败';
 
 /**
  * OAuth 设备授权用的应用级 Client ID。
@@ -185,6 +198,15 @@ export interface GetnoteListResult {
   total?: number;
 }
 
+/** 笔记的归属方（谁的知识库配置拉到的它）—— 详情落库与凭证解析共用。 */
+export interface SourceOwner {
+  name: string;
+  sourceName: string;
+  ownerOpenId: string;
+  /** 来源配置的 recordId；只有「管理员用自己的 Key」这条路为空 */
+  recordId?: string;
+}
+
 /** 「重新收取」正文的进度（放内存，进程重启即丢；任务本身幂等可重跑） */
 export interface RefetchBodiesProgress {
   running: boolean;
@@ -199,6 +221,35 @@ export interface RefetchBodiesProgress {
   /** 失败（多为上游权限/限流） */
   failed: number;
   lastNoteId?: string;
+  error?: string;
+  startedAt?: number;
+  finishedAt?: number;
+}
+
+/**
+ * 「保存原始音频」的进度（放内存，进程重启即丢；任务本身按笔记幂等可重跑）。
+ *
+ * 与 `RefetchBodiesProgress` 分开计数，因为语义不同：
+ * `stored` = 真下载并落盘了音频；`skipped` = 这条笔记上游**本来就没有音频**（纯文本笔记等），
+ * 后者会写进 `音频状态='上游无音频'`，下次批量直接跳过 —— 不算失败。
+ */
+export interface RefetchAudioProgress {
+  running: boolean;
+  total: number;
+  done: number;
+  /** 下载成功并写入附件 */
+  stored: number;
+  /** 上游无音频（已标记，后续跳过） */
+  skipped: number;
+  /** 失败（下载 4xx、落盘失败等），下次可重试 */
+  failed: number;
+  /** 已落盘的字节数（让人看得出进度与磁盘影响） */
+  bytes: number;
+  lastNoteId?: string;
+  /** 最近一次失败的**原因**（如 `权限不足` / `下载音频 HTTP 403`），排查时不用翻日志 */
+  lastError?: string;
+  /** 最近的失败样本（最多 5 条），便于一次看清是哪个人的哪个源在失败 */
+  failedSamples?: Array<{ noteId: string; title: string; reason: string }>;
   error?: string;
   startedAt?: number;
   finishedAt?: number;
@@ -301,6 +352,8 @@ export class GetnoteService {
   constructor(
     @Inject(BASE_CLIENT) private readonly base: BaseClient,
     @Inject(REDIS) private readonly redis: Redis,
+    // 音频落库用：把下载到的字节流写进统一附件目录，拿 `loc_*` token
+    private readonly fileUpload: FileUploadService,
   ) {}
 
   /**
@@ -718,6 +771,8 @@ export class GetnoteService {
   private noteSnapshotReady = false;
   /** 「重新收取正文」的任务进度，按 openId 隔离 */
   private readonly refetchJobs = new Map<string, RefetchBodiesProgress>();
+  /** 「保存原始音频」任务的进度（与正文收取分开，可同时跑） */
+  private readonly audioJobs = new Map<string, RefetchAudioProgress>();
   /** 单个配置最多拉多少页（每页 100 条），防止某个源数据巨量拖垮整次聚合 */
   private static readonly ADMIN_MAX_PAGES_PER_SOURCE = 10;
   /** 源之间的节流间隔。Get笔记 QPS 2，串行 + 250ms 留足余量 */
@@ -1249,7 +1304,7 @@ export class GetnoteService {
    */
   async detail(user: SessionUser, id: string, imageQuality?: string): Promise<GetnoteNote> {
     let cred = await this.credFor(user);
-    let owner: { name: string; sourceName: string; ownerOpenId: string } | null = null;
+    let owner: SourceOwner | null = null;
 
     if (this.isAdmin(user)) {
       const found = await this.adminCredForNote(user, id);
@@ -1259,10 +1314,40 @@ export class GetnoteService {
           name: found.ownerName,
           sourceName: found.sourceName,
           ownerOpenId: found.ownerOpenId,
+          recordId: found.recordId,
         };
       }
     }
 
+    const full = await this.fetchNoteDetail(cred, id, imageQuality, owner);
+    // 顺手落一份正文（fire-and-forget）：**不额外消耗上游额度**，就是把这次已经拉到的正文存下来。
+    // 这样「看过一遍」的笔记下次就能从本地读，也让「重新收取」不必从头抓。
+    // 失败只记日志 —— 正文落库绝不能影响「打开一篇笔记」这个主流程。
+    void this.persistNoteBody(full);
+
+    // 附上「音频是否已落库」的标记：前端据此决定要不要渲染播放器。
+    // 真正播放走 `/getnote/notes/:id/audio`，那个接口会再做一次笔记级可见性校验。
+    // ⚠️ 变量名不能叫 `audio` —— 上面已有 `const audio = note.audio`（上游的逐字稿对象）。
+    const audioMeta = await this.noteAudioMeta(id).catch(() => null);
+    return Object.assign(full, { _audio: audioMeta });
+  }
+
+  /**
+   * 用**指定凭证**拉一篇笔记详情，组装成统一的 note 对象。
+   *
+   * 为什么要单抽一层：「保存原始音频」要在一个循环里逐条打详情，
+   * 而 `detail()` 的凭证解析依赖 `adminCredForNote()` —— 它的首选依据是
+   * **内存里的列表快照**（`adminSnapshots`）。批量任务不会先打开列表页，
+   * 快照是空的 ⇒ 静默回退成管理员自己的凭证 ⇒ 别人的笔记一律被上游判
+   * `10008 权限不足`（2026-09-18 试点 5 条里错 4 条，全是别人的笔记）。
+   * ⇒ 批量场景必须由调用方**自己把凭证解析好**再传进来。
+   */
+  private async fetchNoteDetail(
+    cred: { key: string; clientId: string },
+    id: string,
+    imageQuality?: string,
+    owner?: SourceOwner | null,
+  ): Promise<GetnoteNote> {
     const data = await this.request<{ note: GetnoteNote }>(
       cred,
       '/open/api/v1/resource/note/detail',
@@ -1276,18 +1361,22 @@ export class GetnoteService {
       (typeof audio?.original === 'string' && audio.original.trim()) ||
       (typeof audio?.transcript === 'string' && audio.transcript.trim()) ||
       '';
-    const full: GetnoteNote = {
+    return {
       ...note,
       rawRecord,
       ...(owner
-        ? { _owner: owner.name, _ownerOpenId: owner.ownerOpenId, _sourceName: owner.sourceName }
+        ? {
+            _owner: owner.name,
+            _ownerOpenId: owner.ownerOpenId,
+            _sourceName: owner.sourceName,
+            // 🔴 这里必须带上 recordId，它是正文表 / 快照表「来源配置ID」的唯一来源。
+            //    原来漏了这一项 ⇒ 正文表 568 行的「来源配置ID」**全为空**，
+            //    而凭证解析又要靠它（形成死结：没 ID 就选不到凭证，选不到凭证就补不上 ID）。
+            //    2026-09-18 修。
+            ...(owner.recordId ? { _sourceRecordId: owner.recordId } : {}),
+          }
         : {}),
     };
-    // 顺手落一份正文（fire-and-forget）：**不额外消耗上游额度**，就是把这次已经拉到的正文存下来。
-    // 这样「看过一遍」的笔记下次就能从本地读，也让「重新收取」不必从头抓。
-    // 失败只记日志 —— 正文落库绝不能影响「打开一篇笔记」这个主流程。
-    void this.persistNoteBody(full);
-    return full;
   }
 
   /**
@@ -1347,7 +1436,8 @@ export class GetnoteService {
     if (this.noteBodyReady) return;
     const sql = getSqlStore();
     if (!sql) return;
-    const T = { TEXT: 1, NUMBER: 2, DATE: 5 } as const;
+    // FILE = 17（附件）：音频用附件字段承载，复用全站附件渲染与 `/files/:token` 下载链路
+    const T = { TEXT: 1, NUMBER: 2, DATE: 5, FILE: 17 } as const;
     await sql.ensureTable(TABLES.noteBody.tableId, '笔记正文表', [
       { name: '笔记ID', type: T.TEXT },
       { name: '标题', type: T.TEXT },
@@ -1372,6 +1462,19 @@ export class GetnoteService {
       { name: '笔记创建时间', type: T.NUMBER },
       { name: '笔记更新时间', type: T.NUMBER },
       { name: '正文抓取时间', type: T.NUMBER },
+      // ── 原始音频（2026-09-17 新增，方案 A：扩容后把音频落本地附件目录）──
+      //
+      // 为什么能落：详情接口的 `attachments[]` 里有 `{type:'audio', url, duration}`，
+      // 那个 url 是得到 CDN 的**签名直链（约 5 天过期）**，所以只能「拉到就当场下载」，
+      // 不能把链接存下来当长期引用 —— 这里存的是下载后的本地附件 token（`loc_*`，永不过期）。
+      { name: '音频附件', type: T.FILE },
+      // 毫秒（上游 attachments[].duration 就是这个单位）。
+      // ⚠️ 别跟上面那个「录音时长」混了：那个字段历史抓取有误、几百条全是 0，本字段是新抓的准值。
+      { name: '音频时长', type: T.NUMBER },
+      // 未抓取 / 已保存 / 上游无音频 / 失败 —— 批量任务据此跳过已完成、只重试失败的。
+      // 用 TEXT 而非单选：状态是**代码判据**（不是给人挑的选项），做成字典会有被改坏的风险。
+      { name: '音频状态', type: T.TEXT },
+      { name: '音频抓取时间', type: T.NUMBER },
     ]);
     this.noteBodyReady = true;
     this.logger.log('笔记正文表已就绪');
@@ -1506,11 +1609,292 @@ export class GetnoteService {
     );
   }
 
+  // ── 原始音频落库（2026-09-17，方案 A）────────────────────────────────
+  //
+  // 背景：笔记详情接口的 `attachments[]` 里有 `{type:'audio', url, duration}`，
+  // 但那个 url 是得到 CDN 的**签名直链、约 5 天过期** ⇒ 想把音频长期留在 ACMS，
+  // 只能「拉到就当场下载」。这里把字节流写进全站附件目录（拿 `loc_*` token，永不过期），
+  // 并在正文表记录状态。
+  //
+  // 为什么异步 + 进度轮询：上游 QPS 2、每条 0.6s，几百条要几分钟，
+  // 同步等会被 nginx 掐成 504（与「重新收取正文」同一个理由）。
+  // 幂等：按 `音频状态` 跳过已保存与「上游无音频」，可随时中断重跑。
+
+  /** 启动「保存原始音频」。已保存 / 已知无音频的会跳过；`limit` 用于先小批量试点。 */
+  async startRefetchAudio(
+    user: SessionUser,
+    opts: { limit?: number } = {},
+  ): Promise<RefetchAudioProgress> {
+    // 🔴 必须限管理员，不能只看前端藏了按钮 —— 接口是能直连的。
+    //    这个任务的候选集是**整张正文表**（不过行人级范围），且会用**别人的配置凭证**
+    //    去打上游 —— 普通用户触发等于借服务端之手把全所录音拉进库、还占用磁盘。
+    //    （播放侧另有一道 `noteAudio()` 的可见性校验，但那管不住「下载」这一步。）
+    if (!this.isAdmin(user)) {
+      throw new HttpException('仅系统管理员可执行该操作', HttpStatus.FORBIDDEN);
+    }
+    const key = `audio:${user.openId}`;
+    const cur = this.audioJobs.get(key);
+    if (cur?.running) return cur;
+    const job: RefetchAudioProgress = {
+      running: true,
+      total: 0,
+      done: 0,
+      stored: 0,
+      skipped: 0,
+      failed: 0,
+      bytes: 0,
+      startedAt: Date.now(),
+    };
+    this.audioJobs.set(key, job);
+    void this.runRefetchAudio(user, opts, job).catch((e) => {
+      job.running = false;
+      job.error = (e as Error).message.slice(0, 200);
+    });
+    return job;
+  }
+
+  async refetchAudioStatus(user: SessionUser): Promise<RefetchAudioProgress> {
+    return (
+      this.audioJobs.get(`audio:${user.openId}`) ?? {
+        running: false,
+        total: 0,
+        done: 0,
+        stored: 0,
+        skipped: 0,
+        failed: 0,
+        bytes: 0,
+      }
+    );
+  }
+
+  private async runRefetchAudio(
+    user: SessionUser,
+    opts: { limit?: number },
+    job: RefetchAudioProgress,
+  ): Promise<void> {
+    await this.ensureNoteBodyTable();
+
+    // ① 候选 = 正文表里「还没保存过音频、且看起来有音频」的笔记。
+    //    顺手把「这篇该用谁的凭证」和标题一起记下 —— 下一段要用来解析凭证，
+    //    以及失败时能打印出人看得懂的名字（而不是一串 note_id）。
+    const pending: Array<{ id: string; title: string; srcId: string; srcName: string }> = [];
+    let pageToken: string | undefined;
+    for (let i = 0; i < 30; i++) {
+      const res = await this.base.search(TABLES.noteBody.tableId, { pageSize: 500, pageToken });
+      for (const r of res.items ?? []) {
+        const f = (r.fields ?? {}) as Record<string, unknown>;
+        const state = String(f['音频状态'] ?? '').trim();
+        if (state === AUDIO_STATE_SAVED || state === AUDIO_STATE_NONE) continue;
+        // 有附件的才可能有音频；纯文本笔记直接跳过（省上游额度）
+        const hint = Number(f['附件数'] ?? 0) > 0 || String(f['录音卡SN'] ?? '').trim() !== '';
+        if (!hint) continue;
+        const id = String(f['笔记ID'] ?? '').trim() || String(r.recordId ?? '');
+        if (!id) continue;
+        pending.push({
+          id,
+          title: String(f['标题'] ?? '').slice(0, 40),
+          srcId: String(f['来源配置ID'] ?? '').trim(),
+          srcName: String(f['来源配置'] ?? '').trim(),
+        });
+      }
+      if (!res.hasMore || !res.pageToken) break;
+      pageToken = res.pageToken;
+    }
+    if (opts.limit && opts.limit > 0) pending.length = Math.min(pending.length, opts.limit);
+    job.total = pending.length;
+    if (!pending.length) {
+      job.running = false;
+      job.finishedAt = Date.now();
+      return;
+    }
+
+    // ② 凭证解析 —— 批量任务必须**自己**解析，不能交给 `detail()`：
+    //    后者靠内存里的列表快照（`adminSnapshots`）判断该用谁的 Key，而批量任务
+    //    不会先打开列表页 ⇒ 快照为空 ⇒ 静默回退成管理员自己的凭证 ⇒
+    //    别人的笔记全部被上游判 `10008 权限不足`（2026-09-18 试点 5 条错 4 条，
+    //    错的全是别人的笔记、对的恰好是管理员自己的）。
+    //    这里一次性读齐启用配置，用纯函数 `pickSourceEntry` 做两级匹配（可回归测试）。
+    const entries = await listEnabledSourceCreds(this.base, TABLES.getnoteSource.tableId, {
+      maxPages: 5,
+    });
+    const myOwnCred = await this.credFor(user);
+
+    // ③ 逐条：拉详情拿直链 → 当场下载 → 落附件 → 写回状态
+    for (const item of pending) {
+      const hit = pickSourceEntry(entries, { sourceRecordId: item.srcId, sourceName: item.srcName });
+      const cred = hit?.cred ?? myOwnCred;
+      const owner: SourceOwner | null = hit
+        ? {
+            name: hit.ownerName,
+            sourceName: hit.sourceName,
+            ownerOpenId: hit.ownerOpenId,
+            recordId: hit.recordId,
+          }
+        : null;
+      try {
+        const r = await this.grabNoteAudio(cred, owner, item.id);
+        if (r.kind === 'stored') {
+          job.stored += 1;
+          job.bytes += r.bytes;
+        } else {
+          job.skipped += 1;
+        }
+      } catch (e) {
+        const reason = (e as Error).message.slice(0, 140);
+        job.failed += 1;
+        job.lastError = reason;
+        job.failedSamples = [...(job.failedSamples ?? []), { noteId: item.id, title: item.title, reason }].slice(-5);
+        await this.markAudioState(item.id, AUDIO_STATE_FAILED).catch(() => undefined);
+        this.logger.warn(`保存音频失败 ${item.title || item.id}：${reason}`);
+      }
+      job.done += 1;
+      job.lastNoteId = item.id;
+      await new Promise((r) => setTimeout(r, 600));
+    }
+    job.running = false;
+    job.finishedAt = Date.now();
+    this.logger.log(
+      `保存音频完成：共 ${job.total}，成功 ${job.stored}，无音频 ${job.skipped}，失败 ${job.failed}，共 ${(job.bytes / 1048576).toFixed(1)} MB`,
+    );
+  }
+
+  /**
+   * 单条：拉详情 → 下载音频 → 落附件目录 → 写回正文表。
+   *
+   * 🔴 顺序不能反：`persistNoteBody` 走的是 `createWithId`（SQL 侧 `data = EXCLUDED.data`，
+   *   **整体替换**），会清掉音频字段；音频字段必须用 `sql.update`（`data || jsonb` 合并）
+   *   在它**之后**写。顺带这也把正文表的「来源配置ID」补齐了。
+   */
+  private async grabNoteAudio(
+    cred: { key: string; clientId: string },
+    owner: SourceOwner | null,
+    noteId: string,
+  ): Promise<{ kind: 'stored'; bytes: number } | { kind: 'none' }> {
+    const full = await this.fetchNoteDetail(cred, noteId, undefined, owner);
+    // 先落正文（同时修正归属/来源配置ID），再写音频字段
+    await this.persistNoteBody(full);
+
+    const atts = (Array.isArray(full.attachments) ? full.attachments : []) as Array<{
+      type?: string;
+      url?: string;
+      duration?: number;
+    }>;
+    const audio = atts.find((a) => String(a?.type ?? '') === 'audio' && String(a?.url ?? '').trim());
+    if (!audio?.url) {
+      await this.markAudioState(noteId, AUDIO_STATE_NONE);
+      return { kind: 'none' };
+    }
+
+    const res = await fetch(audio.url);
+    if (!res.ok) throw new Error(`下载音频 HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!buf.length) throw new Error('音频内容为空');
+
+    const name = `${noteId}.ogg`;
+    const { file_token } = await this.fileUpload.uploadFile(buf, name, 'audio/ogg');
+
+    const sql = getSqlStore();
+    if (!sql) throw new Error('SQL 模式未启用');
+    // ⚠️ 用 `update`（SQL 侧是 `data || jsonb` 合并）而**不是** createWithId ——
+    //    后者是整体替换，会把总结 / 原始记录 / 标题全清空。
+    await sql.update(TABLES.noteBody.tableId, noteId, {
+      音频附件: [{ file_token, name, size: buf.length, type: 'audio/ogg' }],
+      音频时长: Number(audio.duration ?? 0) || 0,
+      音频状态: AUDIO_STATE_SAVED,
+      音频抓取时间: Date.now(),
+    });
+    return { kind: 'stored', bytes: buf.length };
+  }
+
+  /** 只改「音频状态」（失败 / 上游无音频时用） */
+  private async markAudioState(noteId: string, state: string): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql) return;
+    await sql.update(TABLES.noteBody.tableId, noteId, {
+      音频状态: state,
+      音频抓取时间: Date.now(),
+    });
+  }
+
+  /**
+   * 读某篇笔记已落库的音频元信息。
+   *
+   * ⚠️ **不做权限校验** —— 只给 `detail()` 用来给前端打「有没有音频」的标记
+   * （详情本身已经过鉴权）。对外播放必须走 `noteAudio()`，那里才有可见性校验。
+   */
+  private async noteAudioMeta(
+    noteId: string,
+  ): Promise<{ token: string; name: string; durationMs: number } | null> {
+    const sql = getSqlStore();
+    if (!sql) return null;
+    const rec = await sql.get(TABLES.noteBody.tableId, noteId);
+    if (!rec) return null;
+    const f = (rec.fields ?? {}) as Record<string, unknown>;
+    const arr = (Array.isArray(f['音频附件']) ? f['音频附件'] : []) as Array<{
+      file_token?: string;
+      name?: string;
+    }>;
+    const token = String(arr[0]?.file_token ?? '').trim();
+    if (!token) return null;
+    return {
+      token,
+      name: String(arr[0]?.name ?? `${noteId}.ogg`),
+      durationMs: Number(f['音频时长'] ?? 0) || 0,
+    };
+  }
+
+  /**
+   * 取某篇笔记**已落库**的音频（供播放接口）。
+   *
+   * 🔴 这里带**可见性校验**：录音是私密内容，不能像普通附件那样「登录即可下载」。
+   *   - 管理员：全可见
+   *   - 普通用户：该笔记 `归属人ID` 必须等于本人，**或**落在我可见的知识库配置所属人名下
+   *     （口径与笔记列表一致：能看这个配置 ⇒ 就能听它的录音）
+   * 不合规一律返回 null，由调用方给 404（不泄露「存在但无权」）。
+   */
+  async noteAudio(
+    user: SessionUser,
+    noteId: string,
+  ): Promise<{ token: string; name: string } | null> {
+    const sql = getSqlStore();
+    if (!sql) return null;
+    const rec = await sql.get(TABLES.noteBody.tableId, noteId);
+    if (!rec) return null;
+    const f = (rec.fields ?? {}) as Record<string, unknown>;
+    const arr = (Array.isArray(f['音频附件']) ? f['音频附件'] : []) as Array<{
+      file_token?: string;
+      name?: string;
+    }>;
+    const token = String(arr[0]?.file_token ?? '').trim();
+    if (!token) return null;
+
+    if (!this.isAdmin(user)) {
+      const ownerId = String(f['归属人ID'] ?? '').trim();
+      const myOpenId = String(user.openId ?? '').trim();
+      let ok = ownerId !== '' && ownerId === myOpenId;
+      if (!ok && ownerId) {
+        const scoped = await this.linkedSourceIds(user);
+        if (scoped.length) {
+          const entries = await listEnabledSourceCreds(this.base, TABLES.getnoteSource.tableId, {
+            maxPages: 5,
+          });
+          ok = entries.some((e) => scoped.includes(e.recordId) && e.ownerOpenId === ownerId);
+        }
+      }
+      if (!ok) return null;
+    }
+    return { token, name: String(arr[0]?.name ?? `${noteId}.ogg`) };
+  }
+
   /**
    * 找出某篇笔记该用哪套凭证打开（仅管理员）。
    *
-   * 依据是列表快照里的 `_sourceRecordId`：不用逐个 Key 去试（那会把限流额度打光），
-   * 而是直接从配置表里取出那条配置自己的凭证。
+   * 两级依据，顺序不能反：
+   *   ① 内存里的列表快照（`adminSnapshots`）—— 管理员刚看过列表时最快，且带 tags；
+   *   ② **正文表里落库的「来源配置ID」** —— 快照是易失的（进程重启 / 没打开过列表就没了），
+   *      缺了它的后果很严重：会静默回退成管理员自己的凭证 ⇒ 别人的笔记被上游判
+   *      `10008 权限不足`（2026-09-18 实测）。落库的 ID 是持久的，必须兜住。
+   *
    * 返回 null 表示这篇不在任何配置下 —— 那就是管理员自己的笔记，用自己的 Key 即可。
    */
   private async adminCredForNote(
@@ -1521,10 +1905,14 @@ export class GetnoteService {
     ownerName: string;
     sourceName: string;
     ownerOpenId: string;
+    recordId: string;
   } | null> {
     const snap = this.adminSnapshots.get(user.openId);
     const meta = snap?.items.find((n) => String(n.note_id ?? n.id ?? '') === String(noteId));
-    const recordId = meta?._sourceRecordId;
+    let recordId = String(meta?._sourceRecordId ?? '').trim();
+
+    // ② 快照缺失 ⇒ 退到持久化的正文表（这正是「来源配置ID」字段存在的意义）
+    if (!recordId) recordId = await this.noteBodySourceRecordId(noteId);
     if (!recordId) return null; // 管理员自己的笔记（列表里 sourceName 为空）
 
     const entries = await listEnabledSourceCreds(this.base, TABLES.getnoteSource.tableId, {
@@ -1537,7 +1925,21 @@ export class GetnoteService {
       ownerName: hit.ownerName,
       ownerOpenId: hit.ownerOpenId,
       sourceName: hit.sourceName,
+      recordId,
     };
+  }
+
+  /** 读正文表某篇笔记的「来源配置ID」（持久化的凭证依据）。读不到一律返回空串。 */
+  private async noteBodySourceRecordId(noteId: string): Promise<string> {
+    const sql = getSqlStore();
+    if (!sql) return '';
+    try {
+      const rec = await sql.get(TABLES.noteBody.tableId, noteId);
+      const f = (rec?.fields ?? {}) as Record<string, unknown>;
+      return String(f['来源配置ID'] ?? '').trim();
+    } catch {
+      return '';
+    }
   }
 
   /** 新建文本笔记（同步返回 note_id）。链接/图片笔记是异步任务，本模块暂不支持。 */

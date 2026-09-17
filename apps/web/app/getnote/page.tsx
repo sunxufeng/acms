@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import Markdown from '../../components/Markdown';
-import { api, type GetnoteCredential, type GetnoteOAuthStart, type ApiRequestError } from '../../lib/api';
+import { api, type GetnoteCredential, type GetnoteOAuthStart, type ApiRequestError, type RefetchAudioProgress } from '../../lib/api';
 import type { NoteConvertTarget, NoteConvertLogItem, NoteConfigMapItem } from '@acms/contracts';
 // 「来源 / 标签」的拆分规则与来源候选值都来自 contracts：后端做服务端筛选用的是同一份实现，
 // 前端各写一份会出现「列里显示来源=得到大脑、按它筛却筛不到」这类对不上的问题。
@@ -36,6 +36,29 @@ const NOTE_TYPES: string[] = [...NOTE_SOURCE_TYPES];
 
 function tagNames(n: Record<string, unknown>): string[] {
   return noteTagNames(n.tags);
+}
+
+/**
+ * 详情里「已落库的原始音频」元信息。
+ *
+ * 后端在详情返回里附 `_audio`（只有真下载落库过才有）。没有就返回 null，
+ * 前端据此**不渲染播放器** —— 避免给用户一个点了报错的空壳控件。
+ *
+ * ⚠️ 播放地址是 `/api/v1/getnote/notes/:id/audio`，**不是**通用的 `/files/:token`：
+ *    那个接口登录即可下载，而录音是私密内容；专用接口会做笔记级可见性校验。
+ */
+function audioOf(n: Record<string, unknown> | null): { name?: string; durationMs?: number } | null {
+  const a = n?._audio as { token?: string; name?: string; durationMs?: number } | null | undefined;
+  return a && a.token ? a : null;
+}
+
+/** 毫秒 → `12:34`（音频播放器旁边显示时长用） */
+function fmtDuration(ms?: number): string {
+  const sec = Math.round((Number(ms) || 0) / 1000);
+  if (sec <= 0) return '';
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 /**
@@ -142,6 +165,9 @@ function makeColumns(
     {
       key: '来源',
       label: '来源',
+      // 2026-09-17 峰哥要求：列表里**不显示**「来源」列。
+      // 只是不展示 —— 筛选（filter）与编辑表单（form）都保留，能力不受影响。
+      list: false,
       form: true,
       type: 'select',
       dictKey: '笔记类型',
@@ -161,6 +187,8 @@ function makeColumns(
     {
       key: '配置名称',
       label: '配置名称',
+      // 2026-09-17 峰哥要求：列表里**不显示**「配置名称」列（筛选保留）。
+      list: false,
       width: '180px',
       listOrder: 3.5,
       filter: true,
@@ -419,6 +447,41 @@ export default function GetnotePage() {
   const [detailErr, setDetailErr] = useState('');
   // 详情弹窗的 Tab：总结 / 原始记录
   const [detailTab, setDetailTab] = useState<'summary' | 'raw'>('summary');
+
+  /**
+   * 「保存原始音频」任务进度。
+   *
+   * 为什么异步 + 轮询：上游 QPS 2、每条 0.6 秒，几百条要几分钟，同步等会被 nginx 掐成 504。
+   * 范式与「知识库配置」页的「重新收取」一致（那边见 sources/page.tsx）。
+   * 幂等 —— 已保存过的会被后端跳过，按钮可以放心再点。
+   */
+  const [audioJob, setAudioJob] = useState<RefetchAudioProgress | null>(null);
+  const audioTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startSaveAudio = useCallback(async () => {
+    if (audioTimerRef.current) {
+      clearInterval(audioTimerRef.current);
+      audioTimerRef.current = null;
+    }
+    const first = await api.refetchNoteAudio();
+    setAudioJob(first);
+    if (!first.running) return;
+    audioTimerRef.current = setInterval(async () => {
+      try {
+        const p = await api.getRefetchAudioStatus();
+        setAudioJob(p);
+        if (!p.running && audioTimerRef.current) {
+          clearInterval(audioTimerRef.current);
+          audioTimerRef.current = null;
+        }
+      } catch {
+        if (audioTimerRef.current) {
+          clearInterval(audioTimerRef.current);
+          audioTimerRef.current = null;
+        }
+      }
+    }, 3000);
+  }, []);
 
   // 笔记转换：候选目标模块 + 当前正在转换的笔记行
   const [convertTargets, setConvertTargets] = useState<NoteConvertTarget[]>([]);
@@ -1152,6 +1215,24 @@ export default function GetnotePage() {
 
       <CrudPage
         moduleKey="getnote"
+        // 「保存原始音频」：把笔记的原始录音下载并落进 ACMS（异步任务，label 兼作进度显示）。
+        // 只有管理员看得到 —— 这是个消耗上游额度、影响服务器的批量动作。
+        extraActions={
+          isAdmin
+            ? [
+                {
+                  label: audioJob
+                    ? audioJob.running
+                      ? `${t('audioSaving')} ${audioJob.done}/${audioJob.total}`
+                      : `${t('audioSaved')} ${audioJob.stored}${
+                          audioJob.failed ? `（${t('failed')} ${audioJob.failed}）` : ''
+                        }`
+                    : t('saveAudio'),
+                  run: () => startSaveAudio(),
+                },
+              ]
+            : []
+        }
         // 检索词变化时整体重挂：强制回到第 1 页重新拉取（否则翻页游标还停在第 N 页）
         key={tagQuery || 'all'}
         title="我的笔记"
@@ -1280,6 +1361,37 @@ export default function GetnotePage() {
                   </span>
                   <span>更新时间：{String(detailNote.updated_at ?? '')}</span>
                 </div>
+
+                {/* 原始音频（2026-09-17 起可落库）。只在真下载过时出现；
+                    播放走 /getnote/notes/:id/audio —— 该接口带笔记级可见性校验 */}
+                {audioOf(detailNote) && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      marginBottom: 12,
+                      padding: '8px 12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: 'var(--fg-tertiary)', whiteSpace: 'nowrap' }}>
+                      🎧 {t('audio')}
+                      {fmtDuration(audioOf(detailNote)?.durationMs)
+                        ? ` ${fmtDuration(audioOf(detailNote)?.durationMs)}`
+                        : ''}
+                    </span>
+                    <audio
+                      controls
+                      preload="none"
+                      style={{ flex: 1, height: 32 }}
+                      src={`/api/v1/getnote/notes/${encodeURIComponent(
+                        String(detailNote.id ?? detailId),
+                      )}/audio`}
+                    />
+                  </div>
+                )}
 
                 {/* 总结 / 原始记录 两个 Tab */}
                 <div

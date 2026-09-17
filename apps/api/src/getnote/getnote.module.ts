@@ -3,6 +3,8 @@ import { GetnoteController } from './getnote.controller.js';
 import { GetnoteService } from './getnote.service.js';
 import { baseClientProvider } from '../base.provider.js';
 import { redisProvider } from '../redis.provider.js';
+// 「保存原始音频」要把字节流落进全站附件目录（`loc_*`），复用统一的附件基建
+import { FileUploadModule } from '../file-upload/file-upload.module.js';
 
 /**
  * 得到大脑（Get笔记）模块。
@@ -11,6 +13,7 @@ import { redisProvider } from '../redis.provider.js';
  *   需要在本地查询、统计、跨实体检索，所以注入 baseClientProvider。
  */
 @Module({
+  imports: [FileUploadModule],
   controllers: [GetnoteController],
   // redisProvider：管理员笔记快照要跨进程重启存活（见 GetnoteService 的快照持久化），
   // 否则服务一重启快照就归零，用户首次进页面要干等一轮全量聚合。

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../lib/permissions';
 import { useTl } from '../../lib/useTl';
+import { WEILING_STATUS_LABELS } from '@acms/contracts';
 
 interface Item {
   name: string;
@@ -59,6 +60,18 @@ interface Data {
   stage: Item[];
   owners: Item[];
   channels: Item[];
+  /**
+   * 按线索状态（2026-09-17 新增）。
+   * `code` 是原始码值（下钻筛选要用它），`name` 是中文（1=已认领 / 4=待分配 / 0=待认领（公海））。
+   */
+  byStatus?: {
+    code: string;
+    name: string;
+    total: number;
+    deal: number;
+    dealRate: number;
+    stages: { name: string; count: number }[];
+  }[];
   components: Item[];
   funnels: FunnelDim[];
   pipeline: { name: string; apiName?: string; yes: number; answered: number; raw?: string }[];
@@ -112,6 +125,8 @@ export function WeilingPanel() {
   const [owner, setOwner] = useState('');
   const [channel, setChannel] = useState('');
   const [stage, setStage] = useState('');
+  /** 线索状态（上游 contact.status 码值），口径见 contracts 的 WEILING_STATUS_LABELS */
+  const [status, setStatus] = useState('');
   const [data, setData] = useState<Data | null>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
@@ -120,11 +135,11 @@ export function WeilingPanel() {
     setLoading(true);
     setErr('');
     api
-      .weilingAnalyze({ from, to, owner, channel, stage })
+      .weilingAnalyze({ from, to, owner, channel, stage, status })
       .then((d) => setData(d as unknown as Data))
       .catch((e) => setErr((e as Error).message))
       .finally(() => setLoading(false));
-  }, [from, to, owner, channel, stage]);
+  }, [from, to, owner, channel, stage, status]);
 
   /**
    * 下钻到联系人列表。
@@ -226,6 +241,12 @@ export function WeilingPanel() {
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
+        <select className="form-input" value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 150 }}>
+          <option value="">状态：全部</option>
+          {Object.entries(WEILING_STATUS_LABELS).map(([code, label]) => (
+            <option key={code} value={code}>{label}</option>
+          ))}
+        </select>
         <button
           className="btn btn-ghost"
           onClick={() => {
@@ -234,6 +255,7 @@ export function WeilingPanel() {
             setOwner('');
             setChannel('');
             setStage('');
+            setStatus('');
           }}
         >
           重置
@@ -343,8 +365,44 @@ export function WeilingPanel() {
         </table>
       </Section>
 
-      {/* ④ 来源组件 / 活动 */}
-      <Section title="④ 来源组件 · 活动效果（TOP10）">
+      {/* ④ 按状态（线索分配状态）—— 2026-09-17 新增 */}
+      <Section title="④ 按状态（线索分配状态；点击下钻）">
+        <table style={{ width: '100%', fontSize: 'var(--font-sm)', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ color: 'var(--fg-tertiary)', textAlign: 'left' }}>
+              <th style={th}>状态</th>
+              <th style={thN}>线索</th>
+              <th style={thN}>成交</th>
+              <th style={thN}>成交率</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(data.byStatus ?? []).map((s) => (
+              <tr key={s.code || 'unknown'} style={{ borderTop: '1px solid var(--border)' }}>
+                <td style={td}>
+                  <button className="link-btn" onClick={() => drill({ 状态: s.code })}>{s.name}</button>
+                  {(s.stages?.length ?? 0) > 0 ? (
+                    <span style={{ fontSize: 11, color: 'var(--fg-tertiary)', marginLeft: 8 }}>
+                      {s.stages.slice(0, 3).map((x) => `${x.name} ${x.count}`).join(' · ')}
+                      {s.stages.length > 3 ? ' …' : ''}
+                    </span>
+                  ) : null}
+                </td>
+                <td style={tdN}>{s.total}</td>
+                <td style={tdN}>{s.deal}</td>
+                <td style={tdN}>{Number(s.dealRate ?? 0).toFixed(1)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div style={{ fontSize: 11, color: 'var(--fg-tertiary)', marginTop: 6 }}>
+          口径：码值来自卫瓴 `contact.status`（1 = 已认领 / 4 = 待分配 / 0 = 待认领（公海）），
+          与「联系人管理」筛选下拉同一份映射。括号内是各阶段的分布，用来回答「哪个阶段的人在待分配里堆积」。
+        </div>
+      </Section>
+
+      {/* ⑤ 来源组件 / 活动 */}
+      <Section title="⑤ 来源组件 · 活动效果（TOP10）">
         <table style={{ width: '100%', fontSize: 'var(--font-sm)', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ color: 'var(--fg-tertiary)', textAlign: 'left' }}>
@@ -368,7 +426,7 @@ export function WeilingPanel() {
       </Section>
 
       {/* ⑤ 招生漏斗自定义维度 */}
-      <Section title="⑤ 招生漏斗维度（卫瓴自定义字段，已翻译为中文）">
+      <Section title="⑥ 招生漏斗维度（卫瓴自定义字段，已翻译为中文）">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 16 }}>
           {data.funnels.map((f) => (
             <div key={f.apiName}>
@@ -390,7 +448,7 @@ export function WeilingPanel() {
       </Section>
 
       {/* ⑥ 漏斗后半段 */}
-      <Section title="⑥ 转化后半段（到访 → 缴费 → 面试 → Offer）">
+      <Section title="⑦ 转化后半段（到访 → 缴费 → 面试 → Offer）">
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {data.pipeline.map((p) => (
             <div
@@ -417,7 +475,7 @@ export function WeilingPanel() {
       </Section>
 
       {/* ⑦ 趋势 */}
-      <Section title="⑦ 新增线索 / 成交趋势（按月）">
+      <Section title="⑧ 新增线索 / 成交趋势（按月）">
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 130 }}>
               {data.trend.map((t) => {
                 const max = Math.max(1, ...data.trend.map((x) => x.newCount));
@@ -444,7 +502,7 @@ export function WeilingPanel() {
       </Section>
 
       {/* ⑧ 跟进健康度 */}
-      <Section title="⑧ 跟进健康度（最近跟进距今，点击下钻）">
+      <Section title="⑨ 跟进健康度（最近跟进距今，点击下钻）">
         <BarList
           items={data.health}
           max={Math.max(1, ...data.health.map((h) => Number(h.count ?? 0)))}
@@ -457,7 +515,7 @@ export function WeilingPanel() {
       </Section>
 
       {/* ⑨ 跟进分析 · 概览 */}
-      <Section title="⑨ 跟进分析 · 概览（人均跟进次数 / 覆盖率）">
+      <Section title="⑩ 跟进分析 · 概览（人均跟进次数 / 覆盖率）">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10 }}>
           {[
             { label: '跟进记录总数', value: follow.summary.records },
@@ -479,7 +537,7 @@ export function WeilingPanel() {
       </Section>
 
       {/* ⑩ 按跟进人排行 */}
-      <Section title="⑩ 按跟进人排行（TOP15）">
+      <Section title="⑪ 按跟进人排行（TOP15）">
         {follow.byFollower.length === 0 ? (
           <div style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>暂无跟进记录</div>
         ) : (
@@ -524,7 +582,7 @@ export function WeilingPanel() {
       </Section>
 
       {/* ⑪ 跟进趋势 */}
-      <Section title="⑪ 跟进趋势（按月：跟进记录数 / 被跟进线索数）">
+      <Section title="⑫ 跟进趋势（按月：跟进记录数 / 被跟进线索数）">
         {follow.trend.length === 0 ? (
           <div style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>暂无跟进记录</div>
         ) : (
@@ -565,7 +623,7 @@ export function WeilingPanel() {
       </Section>
 
       {/* ⑫ 流失分析 */}
-      <Section title="⑫ 流失分析（流失率按渠道 / 归属人，点击下钻）">
+      <Section title="⑬ 流失分析（流失率按渠道 / 归属人，点击下钻）">
         {lost.summary.valid === 0 ? (
           <div style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>
             暂无流失数据（需在联系人列表点「同步流失状态」后才能统计）

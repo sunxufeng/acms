@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, HttpException, HttpStatus, ForbiddenExcepti
 import type { SessionUser } from '@acms/contracts';
 import { TABLES, USER_TABLE } from '@acms/contracts';
 import { BaseClient } from '@acms/base-adapter';
-import { BASE_CLIENT } from '../base.provider.js';
+import { BASE_CLIENT, getSqlStore } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
 import { encryptSecret } from '../ai/lib/crypto/kms.js';
 import { BaseRecordService } from '../shared/generic-crud.module.js';
@@ -543,22 +543,60 @@ export class GetnoteSourceService extends BaseRecordService {
 
     const now = Date.now();
     try {
-      await this.base.create(TABLES.noteConfigMap.tableId, {
-        笔记ID: noteId,
-        笔记标题: String(opts.note?.title ?? '').slice(0, 200),
-        配置ID: opts.configId,
-        配置名称: opts.sourceName,
-        笔记类型: opts.sourceType,
-        归属人: opts.ownerName,
-        归属人ID: opts.ownerOpenId,
-        首次同步时间: now,
-        更新时间: now,
-      });
+      // 🔴 主键 = **笔记ID**（不是自增 id）。这是 2026-09-17 修的重复根因：
+      //    原先用 `base.create()` 生成随机 id ⇒ 同一篇笔记每被同步一次就多一行，
+      //    实测 688 行里 157 行是重复、还有 88 行挂在**已删除的配置**上，
+      //    而列表读取时命中哪一行是随机的（于是显示成了历史配置名，筛选也就筛不到）。
+      //    改用 createWithId 后，重复同步是**覆盖**，天然幂等。
+      const sql = getSqlStore();
+      if (sql) {
+        // 被改判归属时保留「首次同步时间」（它表达的是「这篇笔记第一次被 ACMS 看到」）
+        const prev = await sql.get(TABLES.noteConfigMap.tableId, noteId).catch(() => null);
+        const firstSeen =
+          GetnoteSourceService.toEpochMs((prev?.fields as Record<string, unknown> | undefined)?.['首次同步时间']) || now;
+        await sql.createWithId(TABLES.noteConfigMap.tableId, noteId, {
+          笔记ID: noteId,
+          笔记标题: String(opts.note?.title ?? '').slice(0, 200),
+          配置ID: opts.configId,
+          配置名称: opts.sourceName,
+          笔记类型: opts.sourceType,
+          归属人: opts.ownerName,
+          归属人ID: opts.ownerOpenId,
+          首次同步时间: firstSeen,
+          更新时间: now,
+        });
+      } else {
+        // 飞书模式（本地/未接 PG）：没有主键控制，退回 create
+        await this.base.create(TABLES.noteConfigMap.tableId, {
+          笔记ID: noteId,
+          笔记标题: String(opts.note?.title ?? '').slice(0, 200),
+          配置ID: opts.configId,
+          配置名称: opts.sourceName,
+          笔记类型: opts.sourceType,
+          归属人: opts.ownerName,
+          归属人ID: opts.ownerOpenId,
+          首次同步时间: now,
+          更新时间: now,
+        });
+      }
       opts.mapped.add(noteId); // 同批次内不会再重复写
       opts.counter.created += 1;
     } catch (e) {
       this.logger.warn(`写笔记配置映射失败 noteId=${noteId}: ${(e as Error).message}`);
     }
+  }
+
+  /** 时间字段宽容解析（与 GetnoteService 的 toEpochMs 同口径，不跨模块 import 以免循环依赖） */
+  private static toEpochMs(v: unknown): number {
+    if (v == null || v === '') return 0;
+    if (typeof v === 'number') return v > 1e11 ? v : v * 1000;
+    const s = String(v).trim();
+    if (/^\d+$/.test(s)) {
+      const num = Number(s);
+      return num > 1e11 ? num : num * 1000;
+    }
+    const tt = new Date(s).getTime();
+    return Number.isNaN(tt) ? 0 : tt;
   }
 
   /**

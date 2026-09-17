@@ -760,7 +760,7 @@ export const api = {
     request<{ scanned: number; fixed: number }>('/weiling/recount-follows', { method: 'POST' }),
   syncWeilingLost: () =>
     request<{ ok: boolean; started: boolean; message?: string }>('/weiling/sync-lost', { method: 'POST' }),
-  weilingAnalyze: (params: { from?: string; to?: string; owner?: string; channel?: string; stage?: string } = {}) => {
+  weilingAnalyze: (params: { from?: string; to?: string; owner?: string; channel?: string; stage?: string; status?: string } = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
     const q = qs.toString();
@@ -2298,6 +2298,11 @@ export interface NoteStatsPayload {
   byModule: { module: string; count: number }[];
   byConverter: { converter: string; count: number }[];
   byDay: { date: string; newNotes: number; converts: number }[];
+  /**
+   * 按标签。⚠️ 一条笔记有多个标签会**分别计入** ⇒ 各标签之和 > 笔记总数（不是错误）。
+   * `type` 来自上游标签类型（system / ai / 自定义），`owners` 是涉及的人（去重前的名字列表）。
+   */
+  byTag: { tag: string; type: string; count: number; owners: string[] }[];
 }
 
 /** 活跃时段统计：登录 = 登录日志，操作 = 审计日志里的写操作（创建/更新/删除） */

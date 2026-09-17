@@ -96,6 +96,21 @@ export interface GetnoteTag {
   type?: 'ai' | 'manual' | 'system';
 }
 
+/**
+ * 笔记标签 → 名称数组 / 类型数组（顺序一一对应）。
+ *
+ * ⚠️ 落库时两个数组**逗号分隔**存成两个平行字段，下标必须对齐 ——
+ * 报表要按「标签名 + 类型」分组（system 标签如「录音卡笔记」每篇都有，要能单独排除），
+ * 所以类型不能丢。用逗号而不是顿号：标签名里已知会出现顿号。
+ */
+function noteTagNames(n: { tags?: GetnoteTag[] }): string[] {
+  return (Array.isArray(n.tags) ? n.tags : []).map((x) => String(x?.name ?? '').trim()).filter(Boolean);
+}
+
+function noteTagTypes(n: { tags?: GetnoteTag[] }): string[] {
+  return (Array.isArray(n.tags) ? n.tags : []).map((x) => String(x?.type ?? '').trim());
+}
+
 /** Get笔记 的时间字段可能是 ISO 字符串或秒级时间戳，统一成毫秒；无法解析返回 0 */
 function toEpochMs(v: unknown): number {
   if (v == null || v === '') return 0;
@@ -130,6 +145,10 @@ export interface GetnoteNote {
    * 所以列表行里 rawRecord 恒为空，只有详情/编辑时才填充。content 才是「总结」。
    */
   rawRecord?: string;
+  /** 附件（仅 detail 接口返回）。落库只取数量与音频时长，不存 URL（会过期）。 */
+  attachments?: { type?: string; url?: string; duration?: number; [k: string]: unknown }[];
+  /** 录音卡序列号（仅 detail 接口返回）。 */
+  recorder_sn?: string;
   /** 原始接口返回的音频信息（仅 detail 接口返回，列表不返回）。 */
   audio?: {
     original?: string;
@@ -143,6 +162,11 @@ export interface GetnoteNote {
    *（他看到的本来全是自己的，不需要标注）。
    */
   _owner?: string;
+  /**
+   * 归属人的飞书 openId。与 `_owner` 同时打上，**报表按它归并**（姓名会改名、还会出现
+   * 「孙旭峰」「孙旭峰｜Richard」这种同人异写，拿来当分组键必然被拆成两行）。
+   */
+  _ownerOpenId?: string;
   /** 这条笔记来自哪个知识库配置。同样是管理员视角才有的标注。 */
   _sourceName?: string;
   /**
@@ -690,6 +714,7 @@ export class GetnoteService {
   private lastSnapshotPersistAt = 0;
   /** 笔记正文表是否已确保创建（建表只做一次） */
   private noteBodyReady = false;
+  private noteSnapshotReady = false;
   /** 「重新收取正文」的任务进度，按 openId 隔离 */
   private readonly refetchJobs = new Map<string, RefetchBodiesProgress>();
   /** 单个配置最多拉多少页（每页 100 条），防止某个源数据巨量拖垮整次聚合 */
@@ -798,6 +823,8 @@ export class GetnoteService {
             merged.push({
               ...n,
               _owner: s.ownerName,
+              // 报表按 openId 归并（姓名会改名、还会同人异写），所以聚合时就得打上
+              _ownerOpenId: s.ownerOpenId,
               _sourceName: s.sourceName,
               _sourceRecordId: s.recordId,
             });
@@ -972,6 +999,7 @@ export class GetnoteService {
     if (!sql || items.length === 0) return;
     const tableId = TABLES.noteSnapshot.tableId;
     try {
+      await this.ensureNoteSnapshotTable();
       // 先拿现有 id 集合：已存在的走 update，新的走 createWithId（用笔记 ID 当主键）
       const existing = new Set<string>();
       let token: string | undefined;
@@ -993,8 +1021,17 @@ export class GetnoteService {
           笔记ID: id,
           标题: String(n.title ?? ''),
           归属人: String(n._owner ?? ''),
+          归属人ID: String(n._ownerOpenId ?? ''),
           来源配置: String(n._sourceName ?? ''),
           来源配置ID: String(n._sourceRecordId ?? ''),
+          笔记类型: String(n.note_type ?? ''),
+          来源: String(n.source ?? ''),
+          标签: noteTagNames(n).join(','),
+          标签类型: noteTagTypes(n).join(','),
+          // 列表接口本身就返回 content（智能总结）⇒ 顺手落库**零额外上游额度**。
+          // 注意只存总结、不存正文：原始记录要打详情接口，由「重新收取」负责。
+          总结: String(n.content ?? ''),
+          子笔记数: Number(n.children_count ?? 0) || 0,
           笔记创建时间: toEpochMs(n.created_at),
           笔记更新时间: toEpochMs(n.updated_at),
           同步时间: Date.now(),
@@ -1194,13 +1231,17 @@ export class GetnoteService {
    */
   async detail(user: SessionUser, id: string, imageQuality?: string): Promise<GetnoteNote> {
     let cred = await this.credFor(user);
-    let owner: { name: string; sourceName: string } | null = null;
+    let owner: { name: string; sourceName: string; ownerOpenId: string } | null = null;
 
     if (this.isAdmin(user)) {
       const found = await this.adminCredForNote(user, id);
       if (found) {
         cred = found.cred;
-        owner = { name: found.ownerName, sourceName: found.sourceName };
+        owner = {
+          name: found.ownerName,
+          sourceName: found.sourceName,
+          ownerOpenId: found.ownerOpenId,
+        };
       }
     }
 
@@ -1220,7 +1261,9 @@ export class GetnoteService {
     const full: GetnoteNote = {
       ...note,
       rawRecord,
-      ...(owner ? { _owner: owner.name, _sourceName: owner.sourceName } : {}),
+      ...(owner
+        ? { _owner: owner.name, _ownerOpenId: owner.ownerOpenId, _sourceName: owner.sourceName }
+        : {}),
     };
     // 顺手落一份正文（fire-and-forget）：**不额外消耗上游额度**，就是把这次已经拉到的正文存下来。
     // 这样「看过一遍」的笔记下次就能从本地读，也让「重新收取」不必从头抓。
@@ -1245,17 +1288,27 @@ export class GetnoteService {
       await this.ensureNoteBodyTable();
       const summary = String(n.content ?? '');
       const detail = String(n.rawRecord ?? '');
+      const tagNames = noteTagNames(n);
+      const tagTypes = noteTagTypes(n);
       await sql.createWithId(TABLES.noteBody.tableId, id, {
         笔记ID: id,
         标题: String(n.title ?? ''),
         归属人: String(n._owner ?? ''),
+        归属人ID: String(n._ownerOpenId ?? ''),
         来源配置: String(n._sourceName ?? ''),
         来源配置ID: String(n._sourceRecordId ?? ''),
         笔记类型: String(n.note_type ?? ''),
+        来源: String(n.source ?? ''),
+        标签: tagNames.join(','),
+        标签类型: tagTypes.join(','),
         总结: summary,
         原始记录: detail,
         总结字数: summary.length,
         明细字数: detail.length,
+        子笔记数: Number(n.children_count ?? 0) || 0,
+        录音时长: Number(n.audio?.duration ?? 0) || 0,
+        附件数: Array.isArray(n.attachments) ? n.attachments.length : 0,
+        录音卡SN: String(n.recorder_sn ?? ''),
         笔记创建时间: toEpochMs(n.created_at),
         笔记更新时间: toEpochMs(n.updated_at),
         正文抓取时间: Date.now(),
@@ -1281,19 +1334,67 @@ export class GetnoteService {
       { name: '笔记ID', type: T.TEXT },
       { name: '标题', type: T.TEXT },
       { name: '归属人', type: T.TEXT },
+      { name: '归属人ID', type: T.TEXT },
       { name: '来源配置', type: T.TEXT },
       { name: '来源配置ID', type: T.TEXT },
       { name: '笔记类型', type: T.TEXT },
+      { name: '来源', type: T.TEXT },
+      { name: '标签', type: T.TEXT },
+      { name: '标签类型', type: T.TEXT },
       { name: '总结', type: T.TEXT },
       { name: '原始记录', type: T.TEXT },
       { name: '总结字数', type: T.NUMBER },
       { name: '明细字数', type: T.NUMBER },
-      { name: '笔记创建时间', type: T.DATE },
-      { name: '笔记更新时间', type: T.DATE },
-      { name: '正文抓取时间', type: T.DATE },
+      { name: '子笔记数', type: T.NUMBER },
+      { name: '录音时长', type: T.NUMBER },
+      { name: '附件数', type: T.NUMBER },
+      { name: '录音卡SN', type: T.TEXT },
+      // 同快照表：日期字段声明成 DATE 会被格式化成 "YYYY-MM-DD"，
+      // 而这里存的是元秒时间戳、上层也是按毫秒处理 ⇒ 用 NUMBER 避免精度被抹
+      { name: '笔记创建时间', type: T.NUMBER },
+      { name: '笔记更新时间', type: T.NUMBER },
+      { name: '正文抓取时间', type: T.NUMBER },
     ]);
     this.noteBodyReady = true;
     this.logger.log('笔记正文表已就绪');
+  }
+
+  /**
+   * 建「笔记快照表」的**字段元数据**（幂等）。
+   *
+   * ⚠️ 这张表 2026-09-11 建的时候 `ensureTable(..., [])` **没传 fields** ——
+   * 结果 `acms_fields` 里一条元数据都没有：日期读出来是毫秒时间戳、数字读出来是字符串。
+   * 现在补上；`ensureTable` 对字段是 upsert，**对已存在的表也生效**，所以老数据无需迁移。
+   */
+  private async ensureNoteSnapshotTable(): Promise<void> {
+    if (this.noteSnapshotReady) return;
+    const sql = getSqlStore();
+    if (!sql) return;
+    const T = { TEXT: 1, NUMBER: 2, DATE: 5 } as const;
+    await sql.ensureTable(TABLES.noteSnapshot.tableId, '笔记快照表', [
+      { name: '笔记ID', type: T.TEXT },
+      { name: '标题', type: T.TEXT },
+      { name: '归属人', type: T.TEXT },
+      { name: '归属人ID', type: T.TEXT },
+      { name: '来源配置', type: T.TEXT },
+      { name: '来源配置ID', type: T.TEXT },
+      { name: '笔记类型', type: T.TEXT },
+      { name: '来源', type: T.TEXT },
+      { name: '标签', type: T.TEXT },
+      { name: '标签类型', type: T.TEXT },
+      { name: '总结', type: T.TEXT },
+      { name: '子笔记数', type: T.NUMBER },
+      // ⚠️ 三个时间字段声明成 **NUMBER 而不是 DATE**（2026-09-17 踩过）：
+      //    `formatReadValue()` 遇到 type=5 会把值格式化成 "YYYY-MM-DD" 字符串，
+      //    而本表的消费者（笔记统计报表）是按**毫秒**比区间、按天分桶的 ——
+      //    声明成 DATE 后读出来变成「只有日期」，30 天窗口的笔记数会从 345 变 336
+      //    （当天的时分被抹掉、跨天边界漂移）。NUMBER 读出来就是原始毫秒，零精度损失。
+      { name: '笔记创建时间', type: T.NUMBER },
+      { name: '笔记更新时间', type: T.NUMBER },
+      { name: '同步时间', type: T.NUMBER },
+    ]);
+    this.noteSnapshotReady = true;
+    this.logger.log('笔记快照表字段元数据已就绪');
   }
 
   /**
@@ -1397,7 +1498,12 @@ export class GetnoteService {
   private async adminCredForNote(
     user: SessionUser,
     noteId: string,
-  ): Promise<{ cred: { key: string; clientId: string }; ownerName: string; sourceName: string } | null> {
+  ): Promise<{
+    cred: { key: string; clientId: string };
+    ownerName: string;
+    sourceName: string;
+    ownerOpenId: string;
+  } | null> {
     const snap = this.adminSnapshots.get(user.openId);
     const meta = snap?.items.find((n) => String(n.note_id ?? n.id ?? '') === String(noteId));
     const recordId = meta?._sourceRecordId;
@@ -1408,7 +1514,12 @@ export class GetnoteService {
     });
     const hit = entries.find((e) => e.recordId === recordId);
     if (!hit?.cred) return null;
-    return { cred: hit.cred, ownerName: hit.ownerName, sourceName: hit.sourceName };
+    return {
+      cred: hit.cred,
+      ownerName: hit.ownerName,
+      ownerOpenId: hit.ownerOpenId,
+      sourceName: hit.sourceName,
+    };
   }
 
   /** 新建文本笔记（同步返回 note_id）。链接/图片笔记是异步任务，本模块暂不支持。 */

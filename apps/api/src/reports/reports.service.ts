@@ -2,7 +2,7 @@ import { Inject, Injectable, ForbiddenException, Logger } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
-import { TABLES, USER_TABLE } from '@acms/contracts';
+import { TABLES, USER_TABLE, NOTE_SOURCE_TYPES } from '@acms/contracts';
 import { BASE_CLIENT, getSqlStore } from '../base.provider.js';
 import { LoginLogService } from '../login-log/login-log.service.js';
 import { buildDedupGroups, toDedupRow, type DedupResult, type DedupRow } from './contact-dedup.js';
@@ -409,6 +409,13 @@ export class ReportsService {
    *
    * ⚠️ 快照只在管理员浏览笔记页时更新（复用已拉到的快照，不额外消耗上游 QPS 2 额度），
    * 所以「新增笔记」的覆盖度取决于管理员最近是否打开过笔记页。
+   *
+   * 🔴 **分组键一律用 ID，名字只用于显示**（2026-09-17 修）：
+   * 快照表里存的是**写入当时**的归属人名与配置名，配置一改名，同一个配置就会以
+   * 两个名字各占一行（实测 Amy「Amy Liu Get Note」73 +「AMY Liu Get Seed」2）；
+   * 归属人同样会出现「孙旭峰」「孙旭峰｜Richard」「Richard」三种写法。
+   * 所以「按人」按 `归属人ID` 归并、「按来源」按 `来源配置ID` 归并，
+   * 名字用**当前**的名字解析（用户表 / 配置表），老行没有 ID 时按名字兜底。
    */
   async notes(user: SessionUser, query: { from?: string; to?: string } = {}) {
     if (!authorize(toPrincipal(user), 'report:read').allowed) {
@@ -439,7 +446,16 @@ export class ReportsService {
       (((r as { fields?: Record<string, unknown> }).fields ?? r) ?? {}) as Record<string, unknown>;
 
     // 1) 笔记快照
-    const snapshots: { createdAt: number; owner: string; source: string; title: string }[] = [];
+    const snapshots: {
+      createdAt: number;
+      owner: string;
+      ownerId: string;
+      source: string;
+      sourceId: string;
+      title: string;
+      tags: string[];
+      tagTypes: string[];
+    }[] = [];
     let syncedAt: number | null = null;
     try {
       let token: string | undefined;
@@ -456,9 +472,14 @@ export class ReportsService {
           if (created >= fromMs && created <= toMs) {
             snapshots.push({
               createdAt: created,
-              owner: String(f['归属人'] ?? '未归属'),
+              owner: String(f['归属人'] ?? ''),
+              ownerId: String(f['归属人ID'] ?? ''),
               source: String(f['来源配置'] ?? ''),
+              sourceId: String(f['来源配置ID'] ?? ''),
               title: String(f['标题'] ?? ''),
+              // 标签与类型是两个**平行数组**（逗号分隔、下标对齐），见 GetnoteService.persistNoteSnapshot
+              tags: String(f['标签'] ?? '').split(',').map((x) => x.trim()).filter(Boolean),
+              tagTypes: String(f['标签类型'] ?? '').split(',').map((x) => x.trim()),
             });
           }
         }
@@ -503,22 +524,92 @@ export class ReportsService {
       this.logger?.warn(`笔记转换记录读取失败（转换统计会为空）：${(e as Error).message.slice(0, 160)}`);
     }
 
+    // ── 名称真源：把「写入当时的名字」换成「当前的名字」 ───────────────────
+    // 配置表：来源配置ID → 当前配置名称；同时按名称反查 ID（给没有 ID 的老行兜底）
+    const configNameById = new Map<string, string>();
+    const configIdByName = new Map<string, string>();
+    try {
+      const page = await this.base.search(TABLES.getnoteSource.tableId, { pageSize: 500 });
+      for (const r of page.items ?? []) {
+        const rr = r as unknown as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+        const f = ((rr.fields ?? r) ?? {}) as Record<string, unknown>;
+        const id = String(rr.recordId ?? rr.id ?? '');
+        const name = String(f['配置名称'] ?? '').trim();
+        if (id && name) configNameById.set(id, name);
+        if (id && name) configIdByName.set(name, id);
+      }
+    } catch {
+      /* 配置表读不到时退化为按名字分组 */
+    }
+
+    // 用户表：openId → 姓名；并把「丁懿｜Kevin」拆成全角/半角分隔的**别名**一起登记 ——
+    // 归属人字段历史上出现过「孙旭峰」「孙旭峰｜Richard」「Richard」三种写法，都是同一个人。
+    const userNameById = new Map<string, string>();
+    const userIdByName = new Map<string, string>();
+    try {
+      const page = await this.base.search(USER_TABLE.tableId, { pageSize: 500 });
+      for (const r of page.items ?? []) {
+        const rr = r as unknown as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+        const f = ((rr.fields ?? r) ?? {}) as Record<string, unknown>;
+        const openId = String(f['飞书 Open ID'] ?? '').trim();
+        const name = String(f['姓名'] ?? '').trim();
+        if (!openId || !name) continue;
+        userNameById.set(openId, name);
+        for (const alias of [name, ...name.split(/[｜|]/)]) {
+          const k = alias.trim();
+          if (k) userIdByName.set(k, openId);
+        }
+      }
+    } catch {
+      /* 用户表读不到时按名字分组 */
+    }
+
+    /** 归属人归并键：优先 ID，其次用别名反查出来的 ID，最后才用名字本身 */
+    const ownerKey = (s: { ownerId: string; owner: string }): string =>
+      s.ownerId || userIdByName.get(s.owner.trim()) || s.owner.trim() || '未归属';
+    const ownerLabel = (key: string): string => userNameById.get(key) || key;
+
+    /** 来源归并键：同上（配置名历史上也改过多次） */
+    const sourceKey = (s: { sourceId: string; source: string }): string =>
+      s.sourceId || configIdByName.get(s.source.trim()) || s.source.trim() || '';
+    const sourceLabel = (key: string): string =>
+      key ? configNameById.get(key) || key : '未标注';
+
     // 聚合
     const byOwnerMap = new Map<string, { owner: string; newNotes: number }>();
     const bySourceMap = new Map<string, { source: string; count: number }>();
+    /**
+     * 按标签：一条笔记有多个标签就**分别计入每个标签** ⇒ 各标签之和 > 笔记总数（不是错误）。
+     * `type` 一并回传，前端默认隐藏 system 标签（如「录音卡笔记」实测每篇都有，没有区分度）
+     * 与来源标签（它们已由「来源」维度统计）。
+     */
+    const byTagMap = new Map<string, { tag: string; type: string; count: number; owners: Set<string> }>();
+    const sourceTagSet = new Set<string>(NOTE_SOURCE_TYPES);
     const byDayMap = new Map<string, { date: string; newNotes: number; converts: number }>();
     const byModuleMap = new Map<string, { module: string; count: number }>();
     const byConverterMap = new Map<string, { converter: string; count: number }>();
 
     for (const s of snapshots) {
-      const o = byOwnerMap.get(s.owner) ?? { owner: s.owner, newNotes: 0 };
+      const ok = ownerKey(s);
+      const o = byOwnerMap.get(ok) ?? { owner: ownerLabel(ok), newNotes: 0 };
       o.newNotes += 1;
-      byOwnerMap.set(s.owner, o);
+      byOwnerMap.set(ok, o);
 
-      const src = s.source || '未标注';
-      const sc = bySourceMap.get(src) ?? { source: src, count: 0 };
+      const sk = sourceKey(s);
+      const sc = bySourceMap.get(sk) ?? { source: sourceLabel(sk), count: 0 };
       sc.count += 1;
-      bySourceMap.set(src, sc);
+      bySourceMap.set(sk, sc);
+
+      for (let i = 0; i < s.tags.length; i += 1) {
+        const tag = s.tags[i]!;
+        const type = s.tagTypes[i] ?? '';
+        // 来源标签归「来源」维度统计，这里不再重复计（否则「得到大脑」会和来源列撞车）
+        if (sourceTagSet.has(tag)) continue;
+        const e = byTagMap.get(tag) ?? { tag, type, count: 0, owners: new Set<string>() };
+        e.count += 1;
+        if (ok) e.owners.add(ownerLabel(ok));
+        byTagMap.set(tag, e);
+      }
 
       const dk = dayKey(s.createdAt);
       const d = byDayMap.get(dk) ?? { date: dk, newNotes: 0, converts: 0 };
@@ -554,6 +645,9 @@ export class ReportsService {
       },
       byOwner: [...byOwnerMap.values()].sort((a, b) => b.newNotes - a.newNotes),
       bySource: [...bySourceMap.values()].sort((a, b) => b.count - a.count),
+      byTag: [...byTagMap.values()]
+        .map((e) => ({ tag: e.tag, type: e.type, count: e.count, owners: [...e.owners] }))
+        .sort((a, b) => b.count - a.count),
       byModule: [...byModuleMap.values()].sort((a, b) => b.count - a.count),
       byConverter: [...byConverterMap.values()].sort((a, b) => b.count - a.count),
       byDay: [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date)),

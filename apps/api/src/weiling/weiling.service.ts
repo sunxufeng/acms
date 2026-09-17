@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { TABLES } from '@acms/contracts';
+import { TABLES, WEILING_STATUS_ORDER, weilingStatusLabel } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { decryptSecret } from '../shared/secret-cipher.js';
 import { runAs, systemActor } from '../shared/actor-context.js';
@@ -853,7 +853,7 @@ export class WeilingService implements OnModuleInit {
    * 之所以不用 SQL 聚合：SqlStore 只暴露 search，且维度涉及 JSON 自定义字段，
    * 内存聚合更直观也更好扩展。
    */
-  async analyze(params: { from?: string; to?: string; 归属人?: string; 来源渠道?: string; 客户阶段?: string } = {}) {
+  async analyze(params: { from?: string; to?: string; 归属人?: string; 来源渠道?: string; 客户阶段?: string; 状态?: string } = {}) {
     const cacheKey = JSON.stringify(params);
     const hit = analyzeCache.get(cacheKey);
     if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.data;
@@ -897,6 +897,7 @@ export class WeilingService implements OnModuleInit {
       if (params.归属人 && String(r['归属人'] ?? '') !== params.归属人) return false;
       if (params.来源渠道 && String(r['来源渠道'] ?? '') !== params.来源渠道) return false;
       if (params.客户阶段 && String(r['客户阶段'] ?? '') !== params.客户阶段) return false;
+      if (params.状态 && String(r['状态'] ?? '') !== params.状态) return false;
       return true;
     });
     const filtered = picked.map((r) => r.f);
@@ -946,6 +947,43 @@ export class WeilingService implements OnModuleInit {
     });
     const channels = groupBy((r) => String(r['来源渠道'] ?? ''));
     const components = groupBy((r) => String(r['来源组件'] ?? '')).slice(0, 10);
+
+    /**
+     * ⑤ 按「状态」（2026-09-17 新增，峰哥要求）。
+     *
+     * 口径来自 `contracts` 的 `weilingStatusLabel`（1=已认领 / 4=待分配 / 0=待认领（公海））——
+     * 与「联系人管理」筛选下拉用的是**同一份映射**，避免两处各写一套。
+     *
+     * 同时给出「状态 × 客户阶段」交叉表：单看状态只知道有多少条待分配，
+     * 交叉后才能回答「哪些阶段的人在待分配里堆积」。
+     */
+    const statusAgg = new Map<string, { total: number; deal: number; stages: Map<string, number> }>();
+    for (const r of filtered) {
+      const code = String(r['状态'] ?? '').trim() || '未标注';
+      const e = statusAgg.get(code) ?? { total: 0, deal: 0, stages: new Map<string, number>() };
+      e.total += 1;
+      if (isDeal(r)) e.deal += 1;
+      const st = String(r['客户阶段'] ?? '') || '未标注';
+      e.stages.set(st, (e.stages.get(st) ?? 0) + 1);
+      statusAgg.set(code, e);
+    }
+    const statusRank = (code: string) => {
+      const i = WEILING_STATUS_ORDER.indexOf(code);
+      return i < 0 ? 99 : i;
+    };
+    const byStatus = [...statusAgg.entries()]
+      .map(([code, v]) => ({
+        // `code` 是**原始码值**，下钻筛选要用它（显示用 name）
+        code,
+        name: weilingStatusLabel(code),
+        total: v.total,
+        deal: v.deal,
+        dealRate: v.total ? (v.deal / v.total) * 100 : 0,
+        stages: [...v.stages.entries()]
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => b.count - a.count),
+      }))
+      .sort((a, b) => statusRank(a.code) - statusRank(b.code) || b.total - a.total);
 
     // ⑤ 招生漏斗自定义维度（取覆盖率高的几个）
     const customDim = (apiName: string) => {
@@ -1193,6 +1231,7 @@ export class WeilingService implements OnModuleInit {
       stage,
       owners,
       channels,
+      byStatus,
       components,
       funnels,
       pipeline,

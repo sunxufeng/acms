@@ -71,9 +71,11 @@ export class WeilingController {
     @Query('owner') owner?: string,
     @Query('channel') channel?: string,
     @Query('stage') stage?: string,
+    /** 线索状态：`1` 已认领 / `4` 待分配 / `0` 待认领（公海），码值口径见 contracts 的 weilingStatusLabel */
+    @Query('status') status?: string,
   ) {
     WeilingController.requireReportRead((req as Request & { user: SessionUser }).user);
-    return this.svc.analyze({ from, to, 归属人: owner, 来源渠道: channel, 客户阶段: stage });
+    return this.svc.analyze({ from, to, 归属人: owner, 来源渠道: channel, 客户阶段: stage, 状态: status });
   }
 
   /** 某个联系人的跟进记录（详情页内嵌展示，按时间倒序） */

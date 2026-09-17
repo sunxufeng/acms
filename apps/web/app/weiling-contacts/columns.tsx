@@ -1,4 +1,6 @@
 import Link from 'next/link';
+// 状态码值口径放 contracts：报表「按状态」维度要用同一份，两处各写一份必然漂移
+import { WEILING_STATUS_LABELS } from '@acms/contracts';
 import type { CrudColumn } from '../../components/CrudPage';
 import { STUDENT_ENGLISH_KEY, STUDENT_REF_KEY, studentHref, studentLabel } from '../../components/CrudPage';
 
@@ -54,11 +56,7 @@ export function fmtDate(v: unknown): string {
  * 展示层一律出中文，原始码值留在数据里（导出仍能对账，鼠标悬停能看到原值）。
  * 另：「流失状态」是独立字段 `lost_state`（官方枚举 0=未流失 / 1,2,3=已流失），与 status 无关。
  */
-export const STATUS_TEXT: Record<string, string> = {
-  '0': '待认领（公海）',
-  '1': '已认领',
-  '4': '待分配',
-};
+export const STATUS_TEXT: Record<string, string> = WEILING_STATUS_LABELS;
 
 /** 状态码 → 中文（认不出的码**原样回显**，不要瞎猜，也不要显示成空白） */
 export function statusLabel(v: unknown): string {

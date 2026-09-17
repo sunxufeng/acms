@@ -43,6 +43,80 @@ function BarList({ items, unit }: { items: { label: string; count: number }[]; u
   );
 }
 
+/**
+ * 按标签统计（2026-09-17 新增）。
+ *
+ * 三条口径必须写在界面上，否则用户一定会以为数字错了：
+ *  1. 一条笔记有多个标签 ⇒ **分别计入每个标签**，各标签之和 **大于** 笔记总数；
+ *  2. 默认**隐藏 system 标签**（如「录音卡笔记」实测每篇都有，没有区分度）；
+ *  3. 来源标签（得到大脑/飞书秒记…）已在「来源」维度统计，后端直接不返回，避免重复。
+ */
+function TagBlock({ items }: { items: { tag: string; type: string; count: number; owners: string[] }[] }) {
+  const [showSystem, setShowSystem] = useState(false);
+  const visible = items.filter((i) => showSystem || i.type !== 'system');
+  const hiddenSystem = items.filter((i) => i.type === 'system');
+  const max = Math.max(1, ...visible.map((i) => i.count));
+  const total = visible.reduce((s, i) => s + i.count, 0);
+  const typeLabel = (t: string) => (t === 'system' ? 'system' : t === 'ai' ? 'AI' : t || '自定义');
+
+  if (items.length === 0) {
+    return (
+      <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>
+        所选时间段内没有带标签的笔记
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
+          共 {visible.length} 个标签、{total} 次标记（<b>一条笔记多标签会分别计入</b>，所以合计大于笔记总数）
+        </span>
+        {hiddenSystem.length > 0 ? (
+          <label style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <input type="checkbox" checked={showSystem} onChange={(e) => setShowSystem(e.target.checked)} />
+            显示 system 标签（已隐藏 {hiddenSystem.length} 个）
+          </label>
+        ) : null}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {visible.slice(0, 20).map((i) => (
+          <div key={i.tag} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
+              title={i.tag}
+              style={{ width: 150, fontSize: 'var(--font-xs)', color: 'var(--fg-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {i.tag}
+            </span>
+            <span
+              className="tag tag-muted"
+              style={{ fontSize: 10, width: 46, textAlign: 'center', flexShrink: 0, opacity: i.type === 'system' ? 0.6 : 1 }}
+            >
+              {typeLabel(i.type)}
+            </span>
+            <div style={{ flex: 1, height: 10, background: 'var(--bg-hover)', borderRadius: 5, overflow: 'hidden' }}>
+              <div style={{ width: `${(i.count / max) * 100}%`, height: '100%', background: 'var(--accent)' }} />
+            </div>
+            <span style={{ width: 48, textAlign: 'right', fontSize: 'var(--font-xs)' }}>{i.count} 篇</span>
+            <span
+              title={i.owners.join('、')}
+              style={{ width: 64, textAlign: 'right', fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {i.owners.length} 人
+            </span>
+          </div>
+        ))}
+      </div>
+      {visible.length > 20 ? (
+        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 6 }}>
+          仅显示前 20 个（共 {visible.length} 个）
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ConfigList({ items }: { items: { source: string; count: number }[] }) {
   // 降序（后端已排，这里再兜一次，避免任何情况下顺序不一致）
   const sorted = [...items].sort((a, b) => b.count - a.count);
@@ -156,6 +230,7 @@ export function NotesPanel({ from, to, onSynced }: { from: string; to: string; o
             }}
           >
             口径：<b>新增笔记</b> = 笔记快照表里「笔记创建时间」落在区间内的笔记；<b>转换次数</b> = 区间内从笔记转成业务记录的次数。
+            <b>按标签</b>取笔记自身的标签（来源标签归「来源」维度，不重复统计）。
             快照在管理员浏览笔记页时顺带更新（复用已拉取的数据，不额外消耗上游额度），
             最后同步：{fmtTime(data.syncedAt)}
             {data.syncedAt ? '' : '（还没有同步过 —— 用管理员账号打开一次「知识库」页即可）'}。
@@ -184,6 +259,11 @@ export function NotesPanel({ from, to, onSynced }: { from: string; to: string; o
               <div style={{ fontSize: 'var(--font-sm)', fontWeight: 500, marginBottom: 8 }}>谁转得最多（转换次数）</div>
               <BarList items={data.byConverter.map((c) => ({ label: c.converter, count: c.count }))} unit="次" />
             </div>
+          </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <div style={{ fontSize: 'var(--font-sm)', fontWeight: 500, marginBottom: 8 }}>按标签（笔记数）</div>
+            <TagBlock items={data.byTag ?? []} />
           </div>
 
           {data.byDay.length > 0 ? (

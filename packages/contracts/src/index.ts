@@ -5,3 +5,4 @@ export * from './api.js';
 export * from './homepage.js';
 export * from './department.js';
 export * from './getnote.js';
+export * from './weiling.js';

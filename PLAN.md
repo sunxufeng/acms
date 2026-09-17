@@ -256,7 +256,7 @@
 - 全站国际化（zh/en）+ i18n 构建期 lint
 - 部门管理、系统监控、登录日志、活跃时段报表
 
-> 完整执行记录（642 条）见 [`docs/TASKS-ARCHIVE.md`](docs/TASKS-ARCHIVE.md)。
+> 完整执行记录（648 条）见 [`docs/TASKS-ARCHIVE.md`](docs/TASKS-ARCHIVE.md)。
 
 ---
 
@@ -265,7 +265,7 @@
 | 指标 | 数值 |
 |---|---|
 | 计划条目 | 40（已完成 36 · 待开始 4） |
-| 执行任务（8/25 – 9/17） | 642（已完成 640） |
+| 执行任务（8/25 – 9/17） | 648（已完成 646） |
 | 工作日 | 24 天 |
 | 线上部署形态 | Blue-Green，当前活跃 slot 见服务器 `/opt/acms/repo/.deploy_slot` |
 

@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { authorize } from '@acms/domain';
-import type { SessionUser } from '@acms/contracts';
+import type { SessionUser, Permission } from '@acms/contracts';
 import { SessionGuard } from '../auth/session.guard.js';
 import { GetnoteService } from './getnote.service.js';
 
@@ -30,7 +30,13 @@ import { GetnoteService } from './getnote.service.js';
 export class GetnoteController {
   constructor(private readonly svc: GetnoteService) {}
 
-  private assert(user: SessionUser, perm: 'getnote:read' | 'getnote:write') {
+  /**
+   * 判据 = `module:<模块key>:<动作>`。
+   * 2026-09-17 从 legacy `getnote:read/write` 收口到 module 体系：
+   * 那套旧点界面上看不到（收在「兼容权限点」折叠区），导致「矩阵里没勾、实际却能改」。
+   * 笔记侧用 `module:getnote:*`，配置侧（凭证/授权/关联）用 `module:getnoteSources:*`。
+   */
+  private assert(user: SessionUser, perm: Permission) {
     if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, perm).allowed)
       throw new HttpException(`FORBIDDEN:${perm}`, HttpStatus.FORBIDDEN);
   }
@@ -65,7 +71,7 @@ export class GetnoteController {
   @HttpCode(200)
   refetchBodies(@Req() req: Request, @Body() body: { sourceRecordId?: string }) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnote:update');
     return this.svc.startRefetchBodies(user, body?.sourceRecordId || undefined);
   }
 
@@ -73,7 +79,7 @@ export class GetnoteController {
   @Get('refetch-bodies/status')
   refetchStatus(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:read');
+    this.assert(user, 'module:getnote:read');
     return this.svc.refetchBodiesStatus(user);
   }
 
@@ -83,7 +89,7 @@ export class GetnoteController {
   @Get('credential')
   credential(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:read');
+    this.assert(user, 'module:getnoteSources:read');
     return this.svc.credentialStatus(user);
   }
 
@@ -94,14 +100,14 @@ export class GetnoteController {
   @Put('credential')
   saveCredential(@Req() req: Request, @Body() body: { apiKey?: string; clientId?: string }) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnoteSources:update');
     return this.svc.saveCredential(user, String(body?.apiKey ?? ''), String(body?.clientId ?? ''));
   }
 
   @Delete('credential')
   clearCredential(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnoteSources:update');
     return this.svc.clearCredential(user);
   }
 
@@ -111,7 +117,7 @@ export class GetnoteController {
   @Post('oauth/start')
   startOAuth(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnoteSources:update');
     return this.svc.startOAuth(user);
   }
 
@@ -119,14 +125,14 @@ export class GetnoteController {
   @Get('oauth/poll')
   pollOAuth(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:read');
+    this.assert(user, 'module:getnoteSources:read');
     return this.svc.pollOAuth(user);
   }
 
   @Delete('oauth')
   cancelOAuth(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnoteSources:update');
     return this.svc.cancelOAuth(user);
   }
 
@@ -135,7 +141,7 @@ export class GetnoteController {
   /** 某业务实体（如某个学生）当前关联的笔记。关联记录全员可见，chip 上标注归属人。 */
   @Get('links')
   listLinks(@Req() req: Request, @Query('entityType') entityType?: string, @Query('entityId') entityId?: string) {
-    this.assert((req as Request & { user: SessionUser }).user, 'getnote:read');
+    this.assert((req as Request & { user: SessionUser }).user, 'module:getnoteSources:read');
     if (!entityType || !entityId)
       throw new HttpException('BAD_REQUEST:entityType/entityId required', HttpStatus.BAD_REQUEST);
     return this.svc.listLinks(entityType, entityId);
@@ -145,7 +151,7 @@ export class GetnoteController {
   @Put('links')
   replaceLinks(@Req() req: Request, @Body() body: Record<string, unknown>) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnoteSources:update');
     const entityType = String(body?.entityType ?? '');
     const entityId = String(body?.entityId ?? '');
     if (!entityType || !entityId)
@@ -195,7 +201,7 @@ export class GetnoteController {
     @Query('标签') tag?: string,
   ) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:read');
+    this.assert(user, 'module:getnote:read');
     const size = Math.min(Math.max(Number(pageSize) || 20, 1), 100);
     // size 要传进 service：管理员走的是服务端快照分页，得知道每页切多少
     const r = await this.svc.list(user, pageToken, q, size, { source, configName, owner, tag });
@@ -213,7 +219,7 @@ export class GetnoteController {
   @Post('notes/search')
   search(@Req() req: Request, @Body() body: { query?: string; top_k?: number }) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:read');
+    this.assert(user, 'module:getnote:read');
     const q = String(body?.query ?? '').trim();
     if (!q) throw new HttpException('BAD_REQUEST:query required', HttpStatus.BAD_REQUEST);
     return this.svc.recall(user, q, body?.top_k);
@@ -222,7 +228,7 @@ export class GetnoteController {
   @Post('notes')
   create(@Req() req: Request, @Body() body: Record<string, unknown>) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnote:create');
     return this.svc.create(user, {
       title: body?.title as string | undefined,
       content: body?.content as string | undefined,
@@ -235,14 +241,14 @@ export class GetnoteController {
   @Get('notes/:id')
   detail(@Req() req: Request, @Param('id') id: string) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:read');
+    this.assert(user, 'module:getnote:read');
     return this.svc.detail(user, id);
   }
 
   @Put('notes/:id')
   update(@Req() req: Request, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnote:update');
     return this.svc.update(user, {
       note_id: id,
       title: body?.title as string | undefined,
@@ -255,7 +261,7 @@ export class GetnoteController {
   @Delete('notes/:id')
   remove(@Req() req: Request, @Param('id') id: string) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnote:delete');
     return this.svc.remove(user, id);
   }
 
@@ -263,7 +269,7 @@ export class GetnoteController {
   @Post('notes/link')
   createAndLink(@Req() req: Request, @Body() body: Record<string, unknown>) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnote:update');
     const entityType = String(body?.entityType ?? '');
     const entityId = String(body?.entityId ?? '');
     if (!entityType || !entityId)
@@ -281,7 +287,7 @@ export class GetnoteController {
   @Post('notes/:id/tags')
   addTags(@Req() req: Request, @Param('id') id: string, @Body() body: { tags?: string[] }) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnote:update');
     const tags = Array.isArray(body?.tags) ? body.tags.filter((t) => String(t).trim()) : [];
     if (!tags.length) throw new HttpException('BAD_REQUEST:tags required', HttpStatus.BAD_REQUEST);
     return this.svc.addTags(user, id, tags);
@@ -291,7 +297,7 @@ export class GetnoteController {
   @Delete('notes/:id/tags/:tagId')
   removeTag(@Req() req: Request, @Param('id') id: string, @Param('tagId') tagId: string) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnote:update');
     return this.svc.removeTag(user, id, tagId);
   }
 
@@ -307,7 +313,7 @@ export class GetnoteController {
     @Body() body: { noteId?: string; noteTitle?: string; moduleKey?: string; moduleLabel?: string },
   ) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnote:update');
     return this.svc.logConvert(user, {
       noteId: String(body?.noteId ?? ''),
       noteTitle: body?.noteTitle,
@@ -323,7 +329,7 @@ export class GetnoteController {
   @Get('convert-log')
   listConverts(@Req() req: Request, @Query('noteIds') noteIds?: string) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:read');
+    this.assert(user, 'module:getnote:read');
     const ids = String(noteIds ?? '')
       .split(',')
       .map((s) => s.trim())
@@ -340,7 +346,7 @@ export class GetnoteController {
     @Body() body: { targetRecordId?: string },
   ) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:write');
+    this.assert(user, 'module:getnote:update');
     return this.svc.linkConvert(user, id, String(body?.targetRecordId ?? ''));
   }
 
@@ -357,7 +363,7 @@ export class GetnoteController {
   @Get('config-map')
   listConfigMap(@Req() req: Request, @Query('noteIds') noteIds?: string) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'getnote:read');
+    this.assert(user, 'module:getnote:read');
     const ids = String(noteIds ?? '')
       .split(',')
       .map((s) => s.trim())

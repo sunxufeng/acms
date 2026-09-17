@@ -51,8 +51,8 @@ export class UsersService {
   ) {}
 
   private requireAdmin(user: SessionUser): void {
-    if (!authorize(toPrincipal(user), 'admin:user').allowed)
-      throw new ForbiddenException('FORBIDDEN:admin:user');
+    if (!authorize(toPrincipal(user), 'module:users:read').allowed)
+      throw new ForbiddenException('FORBIDDEN:module:users:read');
   }
 
   private actor(user: SessionUser): string {

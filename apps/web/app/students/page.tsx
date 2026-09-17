@@ -6,6 +6,8 @@ import { api, type Page, type StudentRecord } from '../../lib/api';
 import { useTranslations } from 'next-intl';
 import { StudentForm } from '../../components/StudentForm';
 import Pagination from '../../components/Pagination';
+// 按钮门控：判据 = `module:students:<动作>`，与后端 authorize() 同一套点（2026-09-17 收口）
+import { usePermissions } from '../../lib/permissions';
 
 const COLS = [
   { key: '学生姓名', label: 'colStudent', width: '' },
@@ -178,6 +180,23 @@ export default function StudentsPage() {
   const cr = useTranslations('crud');
   const n = useTranslations('nav');
   const colText = (k: string) => (k.startsWith('common.') ? c(k.slice(7)) : t(k));
+
+  /**
+   * 按钮级权限（2026-09-17 补）。
+   *
+   * ⚠️ 此前本页**一个权限判断都没有** —— 编辑/删除按钮对所有人显示。
+   * 而它又是自建页面（不走 CrudPage 的 moduleKey 门控），所以全站按钮收口那轮没覆盖到。
+   * 判据必须与后端 `StudentService` 保持同一套点（那里已从 legacy `student:write/archive`
+   * 收口为 `module:students:*`），否则又会出现「按钮隐藏 ⇔ 接口 403」对不上的老问题。
+   */
+  const perms = usePermissions();
+  const canCreate = perms.includes('module:students:create');
+  const canUpdate = perms.includes('module:students:update');
+  const canDelete = perms.includes('module:students:delete');
+  /** 「导出学生档案」后端走导出工作台判据（`module:export:read`）+ 学生读权限 */
+  const canExport = perms.includes('module:export:read') && perms.includes('module:students:read');
+  /** 操作列（编辑/删除）是否整列渲染 */
+  const canWriteAny = canUpdate || canDelete;
 
   const [items, setItems] = useState<StudentRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -487,6 +506,7 @@ export default function StudentsPage() {
           </div>
           <p className="page-subtitle">{t('subtitleList')}</p>
           <div className="page-actions">
+            {canExport && (
             <button
               className="btn btn-outline btn-sm"
               onClick={() => {
@@ -510,9 +530,12 @@ export default function StudentsPage() {
             >
               ↓ {t('btnExportAuth')}
             </button>
+            )}
+            {canCreate && (
             <button className="btn btn-primary" onClick={openCreate}>
               + {t('btnNewStudent')}
             </button>
+            )}
           </div>
         </div>
       </div>
@@ -675,7 +698,7 @@ export default function StudentsPage() {
                   {COLS.map((col) => (
                     <th key={col.key} style={col.width ? { width: col.width } : undefined}>{colText(col.label)}</th>
                   ))}
-                  <th style={{ width: 120 }}>{c('actions')}</th>
+                  {canWriteAny && <th style={{ width: 120 }}>{c('actions')}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -732,9 +755,11 @@ export default function StudentsPage() {
                       <td>
                         <div className={`status-dot ${statusClass(status)}`}>{status || '—'}</div>
                       </td>
-                      {/* Actions: 编辑 + 删除 */}
+                      {/* Actions: 编辑 + 删除（各自按权限显隐） */}
+                      {canWriteAny && (
                       <td>
                         <div style={{ display: 'flex', gap: 4 }}>
+                          {canUpdate && (
                           <button
                             className="btn btn-ghost btn-sm"
                             style={{ padding: '4px 10px', fontSize: 'var(--font-xs)' }}
@@ -742,6 +767,8 @@ export default function StudentsPage() {
                           >
                             {c('edit')}
                           </button>
+                          )}
+                          {canDelete && (
                           <button
                             className="btn btn-danger btn-sm"
                             style={{ padding: '4px 10px', fontSize: 'var(--font-xs)' }}
@@ -749,14 +776,16 @@ export default function StudentsPage() {
                           >
                             {c('delete')}
                           </button>
+                          )}
                         </div>
                       </td>
+                      )}
                     </tr>
                   );
                 })}
                 {!loading && items.length === 0 && (
                   <tr>
-                      <td colSpan={COLS.length + 1}>
+                      <td colSpan={COLS.length + (canWriteAny ? 1 : 0)}>
                       <div className="empty-state">
                         <div className="empty-state-text">{t('emptyNoStudents')}</div>
                       </div>

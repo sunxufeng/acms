@@ -44,10 +44,10 @@ export interface TransitionDto {
 
 /** 出勤状态机（BR-007：教务审核→可计费 仅教务可操作，教师不可自批计费） */
 export const ATTENDANCE_TRANSITIONS: Record<string, { to: string; perm: string }[]> = {
-  待提交: [{ to: '已提交', perm: 'attendance:write' }],
-  已提交: [{ to: '教师已确认', perm: 'attendance:write' }],
-  教师已确认: [{ to: '教务已审核', perm: 'attendance:approve' }],
-  教务已审核: [{ to: '可计费', perm: 'attendance:approve' }],
+  待提交: [{ to: '已提交', perm: 'module:attendance:update' }],
+  已提交: [{ to: '教师已确认', perm: 'module:attendance:update' }],
+  教师已确认: [{ to: '教务已审核', perm: 'module:attendance:transition' }],
+  教务已审核: [{ to: '可计费', perm: 'module:attendance:transition' }],
 };
 
 // ─────────────────────────────────────────────────────────────────────────

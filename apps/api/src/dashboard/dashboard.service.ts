@@ -17,7 +17,7 @@ export class DashboardService {
 
   /** 4 指标卡 + 待办 + 异常轨（真实聚合，只读） */
   async metrics(user: SessionUser) {
-    if (!authorize(toPrincipal(user), 'student:read').allowed) throw new ForbiddenException('FORBIDDEN:student:read');
+    if (!authorize(toPrincipal(user), 'module:dashboard:read').allowed) throw new ForbiddenException('FORBIDDEN:module:dashboard:read');
     const today = new Date().toISOString().slice(0, 10);
     const safe = async (fn: () => Promise<number>) => {
       try { return await fn(); } catch { return 0; }
@@ -76,7 +76,7 @@ export class DashboardService {
 
   /** 全局搜索（跨学生/教师/课程方案/教学班） */
   async search(user: SessionUser, dto: SearchQueryDto): Promise<SearchResultDto> {
-    if (!authorize(toPrincipal(user), 'student:read').allowed) throw new ForbiddenException('FORBIDDEN:student:read');
+    if (!authorize(toPrincipal(user), 'module:dashboard:read').allowed) throw new ForbiddenException('FORBIDDEN:module:dashboard:read');
     const q = (dto.q || '').trim();
     const empty: SearchResultDto = { students: [], teachers: [], courses: [], classes: [] };
     if (!q) return empty;

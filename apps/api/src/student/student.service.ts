@@ -177,7 +177,7 @@ export class StudentService {
   /** 列表（过滤 + 排序 + 分页 + ABAC 行级过滤） */
   async list(user: SessionUser, query: StudentFilterDto) {
     const principal = toPrincipal(user);
-    const allowed = authorize(principal, 'student:read');
+    const allowed = authorize(principal, 'module:students:read');
     if (!allowed.allowed) throw new ForbiddenException('FORBIDDEN:student:read');
 
     const hasQ = !!query.q;
@@ -209,7 +209,7 @@ export class StudentService {
     // q 搜索或多选状态：飞书不支持嵌套过滤组/多值 is，故 q 用顶层 OR 在飞书侧执行，
     // 其余筛选与分页在内存中执行；无 q 时维持原有服务端分页。
     const abacPass = (s: StudentRecord) =>
-      authorize(principal, 'student:read', {
+      authorize(principal, 'module:students:read', {
         campus: s.校区 as string | undefined,
         dataLevel: s.数据密级 as string | undefined,
       }).allowed;
@@ -264,7 +264,7 @@ export class StudentService {
    */
   async myScope(user: SessionUser) {
     const principal = toPrincipal(user);
-    if (!authorize(principal, 'student:read').allowed) {
+    if (!authorize(principal, 'module:students:read').allowed) {
       throw new ForbiddenException('FORBIDDEN:student:read');
     }
     const info = await this.scopeSvc.explain(user);
@@ -288,8 +288,8 @@ export class StudentService {
    */
   async scopeOptions(user: SessionUser) {
     const principal = toPrincipal(user);
-    if (!authorize(principal, 'admin:user').allowed) {
-      throw new ForbiddenException('FORBIDDEN:admin:user');
+    if (!authorize(principal, 'module:users:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:users:read');
     }
     return this.scopeSvc.options();
   }
@@ -297,13 +297,13 @@ export class StudentService {
   /** 详情（ABAC 校验） */
   async detail(user: SessionUser, id: string) {
     const principal = toPrincipal(user);
-    if (!authorize(principal, 'student:read').allowed) {
+    if (!authorize(principal, 'module:students:read').allowed) {
       throw new ForbiddenException('FORBIDDEN:student:read');
     }
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     const student = this.toStudent(rec);
-    const decision = authorize(principal, 'student:read', {
+    const decision = authorize(principal, 'module:students:read', {
       campus: student.校区 as string | undefined,
       dataLevel: student.数据密级 as string | undefined,
     });
@@ -385,12 +385,12 @@ export class StudentService {
   async removeDoc(user: SessionUser, studentId: string, fileToken: string): Promise<{ ok: boolean }> {
     const principal = toPrincipal(user);
     const student = await this.detail(user, studentId); // 存在性 + read ABAC，且解析附件
-    const decision = authorize(principal, 'student:write', {
+    const decision = authorize(principal, 'module:students:update', {
       campus: student.校区 as string | undefined,
       dataLevel: student.数据密级 as string | undefined,
     });
     if (!decision.allowed) {
-      throw new ForbiddenException(`FORBIDDEN:student:write:${decision.reason}`);
+      throw new ForbiddenException(`FORBIDDEN:module:students:update:${decision.reason}`);
     }
     // 取学生「证件与文件」原始关联引用，得到关联记录 id 列表
     const rec = await this.base.get(TABLE, studentId);
@@ -417,12 +417,12 @@ export class StudentService {
   async removePhoto(user: SessionUser, studentId: string, fileToken: string): Promise<{ ok: boolean }> {
     const principal = toPrincipal(user);
     const existing = await this.detail(user, studentId); // 存在性 + read ABAC
-    const decision = authorize(principal, 'student:write', {
+    const decision = authorize(principal, 'module:students:update', {
       campus: existing.校区 as string | undefined,
       dataLevel: existing.数据密级 as string | undefined,
     });
     if (!decision.allowed) {
-      throw new ForbiddenException(`FORBIDDEN:student:write:${decision.reason}`);
+      throw new ForbiddenException(`FORBIDDEN:module:students:update:${decision.reason}`);
     }
     const currentPhotos = Array.isArray(existing['学生照片']) ? existing['学生照片'] : [];
     const filtered = (currentPhotos as unknown[])
@@ -435,12 +435,12 @@ export class StudentService {
   /** 新建（ABAC write 校验） */
   async create(user: SessionUser, dto: CreateStudentDto) {
     const principal = toPrincipal(user);
-    const decision = authorize(principal, 'student:write', {
+    const decision = authorize(principal, 'module:students:create', {
       campus: dto.校区,
       dataLevel: dto.数据密级 ?? 'L1',
     });
     if (!decision.allowed) {
-      throw new ForbiddenException(`FORBIDDEN:student:write:${decision.reason}`);
+      throw new ForbiddenException(`FORBIDDEN:module:students:update:${decision.reason}`);
     }
     if (!dto.学生姓名?.trim()) {
       throw new BadRequestException('VALIDATION:学生姓名必填');
@@ -457,12 +457,12 @@ export class StudentService {
   async update(user: SessionUser, id: string, dto: UpdateStudentDto) {
     const principal = toPrincipal(user);
     const existing = await this.detail(user, id); // 复用 read + ABAC
-    const decision = authorize(principal, 'student:write', {
+    const decision = authorize(principal, 'module:students:update', {
       campus: (dto.校区 ?? (existing.校区 as string | undefined)) as string | undefined,
       dataLevel: (dto.数据密级 ?? (existing.数据密级 as string | undefined)) as string | undefined,
     });
     if (!decision.allowed) {
-      throw new ForbiddenException(`FORBIDDEN:student:write:${decision.reason}`);
+      throw new ForbiddenException(`FORBIDDEN:module:students:update:${decision.reason}`);
     }
     const fields = this.toWriteFields(this.mask.stripProtected(user, 'students', dto as unknown as Record<string, unknown>));
     if (Object.keys(fields).length === 0) {
@@ -491,8 +491,8 @@ export class StudentService {
    */
   async archive(user: SessionUser, id: string) {
     const principal = toPrincipal(user);
-    if (!authorize(principal, 'student:archive').allowed) {
-      throw new ForbiddenException('FORBIDDEN:student:archive');
+    if (!authorize(principal, 'module:students:delete').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:students:delete');
     }
     await this.detail(user, id); // 存在性 + read ABAC
     await this.base.delete(TABLE, id);
@@ -507,8 +507,8 @@ export class StudentService {
   /** 导出（CSV 脱敏 + ABAC export 校验） */
   async exportCsv(user: SessionUser, query: ExportQueryDto): Promise<{ csv: string; count: number }> {
     const principal = toPrincipal(user);
-    if (!authorize(principal, 'export:run').allowed) {
-      throw new ForbiddenException('FORBIDDEN:export:run');
+    if (!authorize(principal, 'module:export:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:export:read');
     }
     /**
      * 导出必须与列表**同源过滤**（2026-09-15）：
@@ -524,7 +524,7 @@ export class StudentService {
     const students = all
       .map((r) => this.toStudent(r))
       .filter((s) =>
-        authorize(principal0, 'student:read', {
+        authorize(principal0, 'module:students:read', {
           campus: s.校区 as string | undefined,
           dataLevel: s.数据密级 as string | undefined,
         }).allowed,

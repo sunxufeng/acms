@@ -33,8 +33,8 @@ export class ExportController {
     @Res() res: Response,
   ) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize(toPrincipal(user), 'export:run').allowed) {
-      throw new ForbiddenException('FORBIDDEN:export:run');
+    if (!authorize(toPrincipal(user), 'module:export:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:export:read');
     }
     const t = (TABLES as Record<string, { tableId: string }>)[table];
     if (!t || !t.tableId) throw new NotFoundException('UNKNOWN_TABLE:' + table);

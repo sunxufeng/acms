@@ -82,8 +82,8 @@ export class Student360Service {
     student: Record<string, unknown>;
     sections: Student360Section[];
   }> {
-    if (!authorize(toPrincipal(user), 'student:read').allowed) {
-      throw new ForbiddenException('FORBIDDEN:student:read');
+    if (!authorize(toPrincipal(user), 'module:student360:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:student360:read');
     }
     // 复用 StudentService.detail：自带存在性 + ABAC 行级校验
     const student = await this.studentSvc.detail(user, studentId);

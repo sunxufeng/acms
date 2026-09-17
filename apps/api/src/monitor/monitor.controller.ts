@@ -17,8 +17,8 @@ export class MonitorController {
   @Get('status')
   status(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'config:read').allowed) {
-      return { statusCode: 403, message: 'FORBIDDEN:config:read' };
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'admin:monitor').allowed) {
+      return { statusCode: 403, message: 'FORBIDDEN:admin:monitor' };
     }
     return this.monitor.getStatus();
   }

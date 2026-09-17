@@ -48,8 +48,8 @@ export class MailAccountController {
   @Post(':id/sync')
   async sync(@Req() req: Request, @Param('id') id: string) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'mail:write').allowed)
-      throw new HttpException('FORBIDDEN:mail:write', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:mailArchive:update').allowed)
+      throw new HttpException('FORBIDDEN:module:mailArchive:update', HttpStatus.FORBIDDEN);
     return this.archiveSvc.startSync(id);
   }
 
@@ -57,8 +57,8 @@ export class MailAccountController {
   @Get(':id/sync-status')
   async syncStatus(@Req() req: Request, @Param('id') id: string) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'mail:read').allowed)
-      throw new HttpException('FORBIDDEN:mail:read', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:mailArchive:read').allowed)
+      throw new HttpException('FORBIDDEN:module:mailArchive:read', HttpStatus.FORBIDDEN);
     return this.archiveSvc.getSyncStatus(id);
   }
 }
@@ -92,8 +92,8 @@ export class MailArchiveController {
   @Get('filter-options')
   async filterOptions(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'mail:read').allowed)
-      throw new HttpException('FORBIDDEN:mail:read', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:mailArchive:read').allowed)
+      throw new HttpException('FORBIDDEN:module:mailArchive:read', HttpStatus.FORBIDDEN);
     return this.svc.getFilterOptions(user);
   }
   @Get(':id') detail(@Req() req: Request, @Param('id') id: string) {
@@ -109,8 +109,8 @@ export class MailArchiveController {
   @Get(':id/attachment-url')
   async attachmentUrl(@Req() req: Request, @Param('id') id: string, @Query('file_token') fileToken: string) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'mail:read').allowed)
-      throw new HttpException('FORBIDDEN:mail:read', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:mailArchive:read').allowed)
+      throw new HttpException('FORBIDDEN:module:mailArchive:read', HttpStatus.FORBIDDEN);
     if (!fileToken) throw new HttpException('MISSING_FILE_TOKEN', HttpStatus.BAD_REQUEST);
     if (!(await this.svc.rowVisible(user, id))) throw new HttpException('NOT_FOUND', HttpStatus.NOT_FOUND);
     const url = await this.svc.getAttachmentUrl(fileToken);
@@ -120,8 +120,8 @@ export class MailArchiveController {
   @Post('sync-all')
   async syncAll(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'mail:write').allowed)
-      throw new HttpException('FORBIDDEN:mail:write', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:mailArchive:update').allowed)
+      throw new HttpException('FORBIDDEN:module:mailArchive:update', HttpStatus.FORBIDDEN);
     return this.svc.syncAll();
   }
 
@@ -136,8 +136,8 @@ export class MailArchiveController {
     @Body() body: { studentIds?: string[]; contactIds?: string[] },
   ) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'mail:write').allowed)
-      throw new HttpException('FORBIDDEN:mail:write', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:mailArchive:update').allowed)
+      throw new HttpException('FORBIDDEN:module:mailArchive:update', HttpStatus.FORBIDDEN);
     await this.svc.link(user, id, { studentIds: body?.studentIds, contactIds: body?.contactIds });
     return { ok: true };
   }

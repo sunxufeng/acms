@@ -13,8 +13,8 @@ export class WeilingController {
   constructor(@Inject(WeilingService) private readonly svc: WeilingService) {}
 
   private static requireRead(user: SessionUser): void {
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'weiling:read').allowed) {
-      throw new HttpException('FORBIDDEN:weiling:read', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:weilingContacts:read').allowed) {
+      throw new HttpException('FORBIDDEN:module:weilingContacts:read', HttpStatus.FORBIDDEN);
     }
   }
 
@@ -33,8 +33,8 @@ export class WeilingController {
    */
   private static requireReportRead(user: SessionUser): void {
     const principal = { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
-    if (authorize(principal, 'report:read').allowed || authorize(principal, 'weiling:read').allowed) return;
-    throw new HttpException('FORBIDDEN:report:read', HttpStatus.FORBIDDEN);
+    if (authorize(principal, 'module:reports:read').allowed || authorize(principal, 'module:weilingContacts:read').allowed) return;
+    throw new HttpException('FORBIDDEN:module:reports:read', HttpStatus.FORBIDDEN);
   }
 
   /** 字段描述（中文名 + 枚举选项），前端用它渲染详情与翻译自定义字段 */
@@ -89,8 +89,8 @@ export class WeilingController {
   @Post('sync-progress')
   syncProgress(@Req() req: Request, @Query('full') full?: string) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'weiling:sync').allowed) {
-      throw new HttpException('FORBIDDEN:weiling:sync', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:weilingContacts:update').allowed) {
+      throw new HttpException('FORBIDDEN:module:weilingContacts:update', HttpStatus.FORBIDDEN);
     }
     return this.svc.syncProgress(full !== '0');
   }
@@ -102,8 +102,8 @@ export class WeilingController {
   @Post('sync-lost')
   syncLost(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'weiling:sync').allowed) {
-      throw new HttpException('FORBIDDEN:weiling:sync', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:weilingContacts:update').allowed) {
+      throw new HttpException('FORBIDDEN:module:weilingContacts:update', HttpStatus.FORBIDDEN);
     }
     return this.svc.syncLost();
   }
@@ -112,8 +112,8 @@ export class WeilingController {
   @Post('match')
   match(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'weiling:sync').allowed) {
-      throw new HttpException('FORBIDDEN:weiling:sync', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:weilingContacts:update').allowed) {
+      throw new HttpException('FORBIDDEN:module:weilingContacts:update', HttpStatus.FORBIDDEN);
     }
     return this.svc.matchStudents();
   }
@@ -125,8 +125,8 @@ export class WeilingController {
   @Post('recount-follows')
   recountFollows(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'weiling:sync').allowed) {
-      throw new HttpException('FORBIDDEN:weiling:sync', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:weilingContacts:update').allowed) {
+      throw new HttpException('FORBIDDEN:module:weilingContacts:update', HttpStatus.FORBIDDEN);
     }
     return this.svc.recountFollows();
   }
@@ -135,8 +135,8 @@ export class WeilingController {
   @Post('sync')
   sync(@Req() req: Request, @Query('full') full?: string) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'weiling:sync').allowed) {
-      throw new HttpException('FORBIDDEN:weiling:sync', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:weilingContacts:update').allowed) {
+      throw new HttpException('FORBIDDEN:module:weilingContacts:update', HttpStatus.FORBIDDEN);
     }
     return this.svc.syncAll(full !== '0');
   }

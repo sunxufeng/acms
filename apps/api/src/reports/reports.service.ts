@@ -173,8 +173,8 @@ export class ReportsService {
    * 只返回维度字段真值 + 完整度占位符，不含姓名/联系方式等明细。
    */
   async studentRows(user: SessionUser, pageSize = 200) {
-    if (!authorize(toPrincipal(user), 'report:read').allowed) {
-      throw new ForbiddenException('FORBIDDEN:report:read');
+    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
     const names = await this.personNameMap();
     const out: Record<string, unknown>[] = [];
@@ -226,8 +226,8 @@ export class ReportsService {
     user: SessionUser,
     query: { level?: string; channel?: string; owner?: string; refresh?: string } = {},
   ): Promise<DedupResult> {
-    if (!authorize(toPrincipal(user), 'report:read').allowed) {
-      throw new ForbiddenException('FORBIDDEN:report:read');
+    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
     const rows = await this.dedupRows(query.refresh === '1');
     const level = query.level === 'strong' || query.level === 'all' ? query.level : 'likely';
@@ -250,8 +250,8 @@ export class ReportsService {
    * 系统里没有访问日志，也没有在线时长记录，所以这只反映「什么时候登录过、什么时候动过数据」。
    */
   async activity(user: SessionUser, query: { from?: string; to?: string } = {}) {
-    if (!authorize(toPrincipal(user), 'report:read').allowed) {
-      throw new ForbiddenException('FORBIDDEN:report:read');
+    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
 
     const dayMs = 86_400_000;
@@ -418,8 +418,8 @@ export class ReportsService {
    * 名字用**当前**的名字解析（用户表 / 配置表），老行没有 ID 时按名字兜底。
    */
   async notes(user: SessionUser, query: { from?: string; to?: string } = {}) {
-    if (!authorize(toPrincipal(user), 'report:read').allowed) {
-      throw new ForbiddenException('FORBIDDEN:report:read');
+    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
 
     const startOf = (d: string): number | null => {
@@ -901,8 +901,8 @@ export class ReportsService {
     user: SessionUser,
     opts: { batchId?: string; cls?: string; subject?: string } = {},
   ) {
-    if (!authorize(toPrincipal(user), 'report:read').allowed) {
-      throw new ForbiddenException('FORBIDDEN:report:read');
+    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
     const batches = await this.examBatchOptions();
     const batchId = String(opts.batchId ?? '') || batches[0]?.id || '';
@@ -996,8 +996,8 @@ export class ReportsService {
    * 班级排名 = 同班内按加权 GPA 的竞赛排名（同 GPA 同名次、下一名跳号）。
    */
   async examGpaRank(user: SessionUser, opts: { batchId?: string; cls?: string } = {}) {
-    if (!authorize(toPrincipal(user), 'report:read').allowed) {
-      throw new ForbiddenException('FORBIDDEN:report:read');
+    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
     const batches = await this.examBatchOptions();
     const batchId = String(opts.batchId ?? '') || batches[0]?.id || '';
@@ -1064,8 +1064,8 @@ export class ReportsService {
     user: SessionUser,
     query: { from?: string; to?: string; class?: string; grade?: string } = {},
   ): Promise<AttendanceReport> {
-    if (!authorize(toPrincipal(user), 'report:read').allowed) {
-      throw new ForbiddenException('FORBIDDEN:report:read');
+    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+      throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
     const idx = await this.attendanceIndex();
     const { rows, truncated } = await this.attendanceRows();

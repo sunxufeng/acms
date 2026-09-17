@@ -21,15 +21,15 @@ export class WechatBindingController {
 
   @Post('unbind')
   unbind(@Req() req: Request, @Body() body: { id: string }) {
-    if (!authorize(toPrincipal((req as Request & { user: SessionUser }).user), 'config:write').allowed)
-      throw new Error('FORBIDDEN:config:write');
+    if (!authorize(toPrincipal((req as Request & { user: SessionUser }).user), 'module:wechat-bindings:update').allowed)
+      throw new Error('FORBIDDEN:module:wechat-bindings:update');
     return this.svc.unbind(body.id);
   }
 
   @Post('force-logout')
   forceLogout(@Req() req: Request, @Body() body: { id: string }) {
-    if (!authorize(toPrincipal((req as Request & { user: SessionUser }).user), 'config:write').allowed)
-      throw new Error('FORBIDDEN:config:write');
+    if (!authorize(toPrincipal((req as Request & { user: SessionUser }).user), 'module:wechat-bindings:update').allowed)
+      throw new Error('FORBIDDEN:module:wechat-bindings:update');
     return this.svc.forceLogout(body.id);
   }
 }

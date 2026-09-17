@@ -24,7 +24,7 @@ export class PartnershipService {
   ) {}
 
   async list(user: SessionUser, query: PartnershipFilterDto) {
-    if (!authorize(toPrincipal(user), 'partnership:read').allowed) throw new ForbiddenException('FORBIDDEN:partnership:read');
+    if (!authorize(toPrincipal(user), 'module:partnerships:read').allowed) throw new ForbiddenException('FORBIDDEN:module:partnerships:read');
     const conditions: { field: string; op?: string; value: string[] }[] = [];
     if (query.q) conditions.push({ field: '教师文本', op: 'contains', value: [query.q] });
     if (query.计费方式) conditions.push({ field: '计费方式', value: [query.计费方式] });
@@ -39,14 +39,14 @@ export class PartnershipService {
   }
 
   async detail(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), 'partnership:read').allowed) throw new ForbiddenException('FORBIDDEN:partnership:read');
+    if (!authorize(toPrincipal(user), 'module:partnerships:read').allowed) throw new ForbiddenException('FORBIDDEN:module:partnerships:read');
     const rec = await this.base.get(TABLE, id);
     if (!rec) throw new NotFoundException('NOT_FOUND');
     return this.mask.mask(user, 'partnerships', toFlatRecord(rec, READONLY, new Set()));
   }
 
   async create(user: SessionUser, dto: CreatePartnershipDto) {
-    if (!authorize(toPrincipal(user), 'partnership:write').allowed) throw new ForbiddenException('FORBIDDEN:partnership:write');
+    if (!authorize(toPrincipal(user), 'module:partnerships:update').allowed) throw new ForbiddenException('FORBIDDEN:module:partnerships:update');
     if (!dto.教师文本?.trim()) throw new BadRequestException('VALIDATION:教师必填');
     const fields = buildWriteFields(this.mask.stripProtected(user, 'partnerships', dto as unknown as Record<string, unknown>), READONLY, NUMBERS);
     if (!fields['合作状态']) fields['合作状态'] = '生效中';
@@ -56,7 +56,7 @@ export class PartnershipService {
 
   async update(user: SessionUser, id: string, dto: UpdatePartnershipDto) {
     await this.detail(user, id);
-    if (!authorize(toPrincipal(user), 'partnership:write').allowed) throw new ForbiddenException('FORBIDDEN:partnership:write');
+    if (!authorize(toPrincipal(user), 'module:partnerships:update').allowed) throw new ForbiddenException('FORBIDDEN:module:partnerships:update');
     const fields = buildWriteFields(this.mask.stripProtected(user, 'partnerships', dto as unknown as Record<string, unknown>), READONLY, NUMBERS);
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(TABLE, id, fields);
@@ -64,7 +64,7 @@ export class PartnershipService {
   }
 
   async archive(user: SessionUser, id: string) {
-    if (!authorize(toPrincipal(user), 'partnership:write').allowed) throw new ForbiddenException('FORBIDDEN:partnership:write');
+    if (!authorize(toPrincipal(user), 'module:partnerships:update').allowed) throw new ForbiddenException('FORBIDDEN:module:partnerships:update');
     await this.detail(user, id);
     await this.base.delete(TABLE, id);
     return { ok: true };

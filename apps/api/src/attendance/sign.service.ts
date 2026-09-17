@@ -120,8 +120,8 @@ export class SignService {
   }
 
   async sign(user: SessionUser, dto: SignDto) {
-    if (!authorize(toPrincipal(user), 'attendance:write').allowed)
-      throw new ForbiddenException('FORBIDDEN:attendance:write');
+    if (!authorize(toPrincipal(user), 'module:attendance:update').allowed)
+      throw new ForbiddenException('FORBIDDEN:module:attendance:update');
 
     const gps = parseGps(dto.gps);
     const ssid = dto.ssid?.trim().toLowerCase() || '';

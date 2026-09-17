@@ -9,6 +9,7 @@ import {
   PERMISSION_LABELS,
   MODULE_RESOURCES,
   MODULE_ACTION_LABELS,
+  moduleByMenuKey,
   DEFAULT_NAV_MENU_CONFIG,
   type NavMenuConfig,
   type Permission,
@@ -45,6 +46,31 @@ const LEVEL_LABEL_KEYS: Record<string, string> = {
   L4: 'levelL4',
 };
 
+/**
+ * 矩阵行（2026-09-17「菜单并入矩阵」）。
+ *
+ * 行 = **菜单项**（与侧边栏同源），通过 key 同名或 `MENU_KEY_ALIASES` 别名找到对应模块资源。
+ * 这样「能不能进」（原独立表格）与「进去能做什么」就落在同一张表上，不必两处手工保持一致。
+ *
+ * 三行类型：
+ *  - `moduleKey` 有值（71 项）→ 「进入菜单」列写 `module:<moduleKey>:enter`，其余列写模块声明的动作
+ *  - `moduleKey` 无值但有 `legacyPerm`（如 system-monitor → `admin:monitor`）→ 「进入菜单」列写该权限点
+ *  - 两者都没有（14 项 `adminOnly`，只有系统管理员可见）→ 该列显示「仅管理员」，不可勾
+ */
+interface MatrixRow {
+  /** 行键 = 菜单 key */
+  key: string;
+  label: string;
+  section: string;
+  /** 对应模块 key（无对应时为 undefined） */
+  moduleKey?: string;
+  /** 模块声明的动作，**已剔除 enter**（enter 单独占「进入菜单」列） */
+  actions: readonly ModuleAction[];
+  /** 无模块资源但有独立权限点时，用它当「进入菜单」的判据 */
+  legacyPerm?: string;
+  adminOnly: boolean;
+}
+
 interface Draft {
   key: string;
   label: string;
@@ -76,7 +102,7 @@ export default function RoleManagementPage() {
   const [newLabel, setNewLabel] = useState('');
   const [menuConfig, setMenuConfig] = useState<NavMenuConfig | null>(null);
   const [menuQuery, setMenuQuery] = useState('');
-  /** 权限分配视图：矩阵（模块×操作）/ 列表（按权限域） */
+  /** 权限分配视图：矩阵（菜单×操作）/ 列表（按模块）—— 两者同一集合，只是呈现不同 */
   const [permView, setPermView] = useState<'matrix' | 'list'>('matrix');
   /** 学生范围候选值（实际数据值 + 人数 + 交叉计数），进页面拉一次 */
   const [scopeOpts, setScopeOpts] = useState<{
@@ -138,6 +164,21 @@ export default function RoleManagementPage() {
     [draft, config],
   );
 
+  /**
+   * 兼容权限点（legacy）：没有 `module:` 前缀的旧权限点，按「权限域」分组。
+   *
+   * 为什么还留着：仍有自建接口在用它们鉴权（`getnote:*`、`ai*` 系列共 30+ 处），
+   * 存量角色也持有这些权限点。列表视图改成「按模块罗列」后，把它们收进折叠区，
+   * 保证能力不丢、又不干扰主流程。
+   */
+  const legacyGroups = useMemo(
+    () =>
+      groups
+        .map((g) => ({ ...g, perms: g.perms.filter((x) => !x.startsWith('module:')) }))
+        .filter((g) => g.perms.length > 0),
+    [groups],
+  );
+
   // 菜单可见性：菜单清单取自系统菜单配置（与侧边栏同源）
   useEffect(() => {
     api.getMenuConfig().then(setMenuConfig).catch(() => null);
@@ -162,6 +203,93 @@ export default function RoleManagementPage() {
     }
     return [...m.entries()].map(([section, items]) => ({ section, items }));
   }, [menuItems, menuQuery]);
+
+  /**
+   * 矩阵行清单：菜单项 → 模块（同名优先，其次别名）。
+   *
+   * ⚠️ 覆盖面核对（新增菜单/模块时照这个查）：
+   *   菜单 76 项 = 71 项能对上模块 + 5 项无模块资源（`impersonate` / `api-tokens` /
+   *   `impersonateLogs` / `system-monitor` / `aiDocs`，全为 adminOnly 或走独立权限点）；
+   *   71 个模块**全部**有对应菜单 ⇒ 矩阵不会漏掉任何模块。
+   */
+  const matrixRows = useMemo<MatrixRow[]>(() => {
+    return menuItems.map((it) => {
+      const mod = moduleByMenuKey(it.key);
+      return {
+        key: it.key,
+        label: it.label,
+        section: it.section ?? '未分组',
+        moduleKey: mod?.key,
+        actions: (mod?.actions ?? []).filter((a) => a !== 'enter'),
+        legacyPerm: mod ? undefined : it.perm,
+        adminOnly: it.adminOnly === true,
+      };
+    });
+  }, [menuItems]);
+
+  /** 矩阵行按菜单分组（section）聚合，渲染时按组输出分区表头 */
+  const matrixGroups = useMemo(() => {
+    const q = moduleQuery.trim().toLowerCase();
+    const hit = matrixRows.filter(
+      (r) => !q || r.label.toLowerCase().includes(q) || r.key.toLowerCase().includes(q),
+    );
+    const m = new Map<string, MatrixRow[]>();
+    for (const r of hit) {
+      const list = m.get(r.section);
+      if (list) list.push(r);
+      else m.set(r.section, [r]);
+    }
+    return [...m.entries()].map(([section, rows]) => ({ section, rows }));
+  }, [matrixRows, moduleQuery]);
+
+  /**
+   * 某一行「进入菜单」对应的权限点（无则 undefined）。
+   * 有模块用 `module:<key>:enter`；无模块但配了独立权限点（如 `admin:monitor`）就用它；
+   * 两者都没有 ⇒ adminOnly 项，不需要授权。
+   */
+  function rowEnterPerm(r: MatrixRow): Permission | undefined {
+    if (r.moduleKey) return `module:${r.moduleKey}:enter` as Permission;
+    return r.legacyPerm as Permission | undefined;
+  }
+
+  /** 把某个权限点设为指定状态（`<字段>__has` 那类 toggle 写法在批量场景下不可靠，统一用显式赋值） */
+  function setPerm(p: Permission | undefined, on: boolean) {
+    if (!p || !draft || draft.lockedPermissions) return;
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const set = new Set(prev.permissions);
+      if (on) set.add(p);
+      else set.delete(p);
+      return { ...prev, permissions: [...set] };
+    });
+  }
+
+  /** 某行全部**可配**权限点（进入菜单 + 该模块声明的动作）——行全选/半选都用它算 */
+  function rowPerms(r: MatrixRow): Permission[] {
+    const out: Permission[] = [];
+    const enterP = rowEnterPerm(r);
+    if (enterP) out.push(enterP);
+    for (const a of r.actions) {
+      if (r.moduleKey) out.push(`module:${r.moduleKey}:${a}` as Permission);
+    }
+    return out;
+  }
+
+  /** 行全选/清空：一次处理「进入菜单」与全部动作（adminOnly 行没有可配项，返回空数组） */
+  function toggleRowAll(r: MatrixRow, on: boolean) {
+    if (!draft || draft.lockedPermissions) return;
+    const perms = rowPerms(r);
+    if (!perms.length) return;
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const set = new Set(prev.permissions);
+      for (const p of perms) {
+        if (on) set.add(p);
+        else set.delete(p);
+      }
+      return { ...prev, permissions: [...set] };
+    });
+  }
 
   function togglePerm(p: string) {
     if (!draft || draft.lockedPermissions) return;
@@ -678,105 +806,11 @@ export default function RoleManagementPage() {
                 </div>
               </div>
 
-              {/* ① 菜单可见性（入口层）。2026-09-15 从「权限分配」之后上移到前面 ——
-                  先定「能进哪些页面」、再定「进去能做什么」，符合从粗到细的配置习惯，
-                  也避免出现「权限配了一堆、结果菜单没开」的白配。 */}
-              <div className="form-legend" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    width: 15, height: 15, borderRadius: '50%', flex: '0 0 auto',
-                    background: 'var(--accent-soft)', color: 'var(--accent)',
-                    fontSize: 10, fontWeight: 700, letterSpacing: 0,
-                  }}
-                >
-                  1
-                </span>
-                {tl('菜单可见性')}
-              </div>
-              <p style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginTop: 0, marginBottom: 12 }}>
-                {tl('留空 = 按权限点自动显隐；勾选后该角色只能看到所选菜单。此处只做收敛，不会放大权限。')}
-                <br />
-                {tl('建议先在这里收敛菜单，再到下方配置操作权限。')}
-              </p>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-                <input
-                  className="input"
-                  style={{ maxWidth: 220 }}
-                  value={menuQuery}
-                  onChange={(e) => setMenuQuery(e.target.value)}
-                  placeholder={tl('搜索菜单')}
-                />
-                <span className={draft.menus ? 'tag tag-accent' : 'tag'}>
-                  {draft.menus ? `${tl('白名单模式')}：${draft.menus.length} / ${allMenuKeys.length}` : tl('自动模式（不限制）')}
-                </span>
-                <button
-                  className="btn btn-outline"
-                  onClick={resetMenus}
-                  disabled={saving || !!draft.lockedPermissions || !draft.menus}
-                >
-                  {tl('恢复自动')}
-                </button>
-              </div>
-              <div className="data-table-wrap" style={{ maxHeight: '40vh', overflowY: 'auto' }}>
-                <table className="data-table">
-                  <tbody>
-                    {filteredMenuGroups.map((g) => {
-                      const keys = g.items.map((i) => i.key);
-                      const selected = draft.menus ?? allMenuKeys;
-                      const allOn = keys.every((k) => selected.includes(k));
-                      return (
-                        <tr key={g.section}>
-                          <td style={{ width: 180, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-elevated)' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: draft.lockedPermissions ? 'default' : 'pointer' }}>
-                              {!draft.lockedPermissions && (
-                                <input
-                                  type="checkbox"
-                                  checked={allOn}
-                                  ref={(el) => {
-                                    if (el) el.indeterminate = !allOn && keys.some((k) => selected.includes(k));
-                                  }}
-                                  onChange={(e) => toggleMenuSection(keys, e.target.checked)}
-                                />
-                              )}
-                              {g.section}
-                            </label>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                              {g.items.map((item) => {
-                                const on = selected.includes(item.key);
-                                return (
-                                  <label
-                                    key={item.key}
-                                    className="tag"
-                                    style={{
-                                      cursor: draft.lockedPermissions ? 'default' : 'pointer',
-                                      opacity: on ? 1 : 0.55,
-                                      borderColor: on ? 'var(--accent)' : undefined,
-                                      background: on ? 'var(--accent-soft)' : undefined,
-                                    }}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={on}
-                                      disabled={draft.lockedPermissions}
-                                      onChange={() => toggleMenu(item.key)}
-                                      style={{ marginRight: 6 }}
-                                    />
-                                    {item.label}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
+              {/* ① 权限分配（操作层）。
+                  ⚠️ 2026-09-17 起「菜单可见性」并入矩阵：矩阵的行就是菜单项，
+                  第一列「进入菜单」即原菜单表的「能否进入该页」，不再需要两张表手工对齐。
+                  原菜单白名单（额外收敛层）移到下方折叠区，能力与存量数据都保留。
+                  先定「能进哪些页面」、再定「进去能做什么」，仍是从粗到细的顺序。 */}
               {/* ② 权限分配（操作层）：具体能做什么。上移到下面的间距由这里带，
                   否则会与上面「菜单可见性」的表格贴在一起。 */}
               <div
@@ -791,7 +825,7 @@ export default function RoleManagementPage() {
                     fontSize: 10, fontWeight: 700, letterSpacing: 0,
                   }}
                 >
-                  2
+                  1
                 </span>
                 {ts('permissionAssignment')}
               </div>
@@ -809,7 +843,7 @@ export default function RoleManagementPage() {
                     onClick={() => setPermView('matrix')}
                     disabled={saving}
                   >
-                    矩阵视图（模块×操作）
+                    矩阵视图（菜单×操作）
                   </button>
                   <button
                     className={`btn ${permView === 'list' ? 'btn-primary' : 'btn-outline'}`}
@@ -817,7 +851,7 @@ export default function RoleManagementPage() {
                     onClick={() => setPermView('list')}
                     disabled={saving}
                   >
-                    列表视图（按权限域）
+                    列表视图（按模块）
                   </button>
                 </div>
               </div>
@@ -830,7 +864,7 @@ export default function RoleManagementPage() {
                       style={{ maxWidth: 220 }}
                       value={moduleQuery}
                       onChange={(e) => setModuleQuery(e.target.value)}
-                      placeholder={tl('搜索模块')}
+                      placeholder={tl('搜索菜单')}
                       disabled={draft.lockedPermissions}
                     />
                     <button className="btn btn-outline" onClick={() => matrixBulk('all')} disabled={saving || draft.lockedPermissions}>{tl('全选')}</button>
@@ -863,15 +897,19 @@ export default function RoleManagementPage() {
                     <table className="data-table" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
                       <thead>
                         <tr>
-                          <th style={{ position: 'sticky', left: 0, top: 0, zIndex: 3, background: 'var(--bg-elevated)', minWidth: 150 }}>{tl('模块')}</th>
+                          <th style={{ position: 'sticky', left: 0, top: 0, zIndex: 3, background: 'var(--bg-elevated)', minWidth: 200 }}>
+                            {tl('菜单')}
+                          </th>
                           {MATRIX_ACTIONS.map((a) => {
+                            // 列全选只对「模块声明过该动作」的行生效；「进入菜单」列因含
+                            // legacy 权限点（system-monitor 等）语义不齐，不提供列全选。
                             const mods = MODULE_RESOURCES.filter((r) => r.actions.includes(a));
                             const allOn = mods.length > 0 && mods.every((r) => draft.permissions.includes(`module:${r.key}:${a}` as Permission));
                             const someOn = mods.some((r) => draft.permissions.includes(`module:${r.key}:${a}` as Permission));
                             return (
                               <th key={a} style={{ textAlign: 'center', position: 'sticky', top: 0, background: 'var(--bg-elevated)', zIndex: 2, minWidth: 76 }}>
                                 <div style={{ fontSize: 'var(--font-xs)', fontWeight: 600 }}>{MODULE_ACTION_LABELS[a]}</div>
-                                {!draft.lockedPermissions && mods.length > 0 && (
+                                {!draft.lockedPermissions && mods.length > 0 && a !== 'enter' && (
                                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 4, cursor: 'pointer' }}>
                                     <input
                                       type="checkbox"
@@ -881,7 +919,7 @@ export default function RoleManagementPage() {
                                       }}
                                       onChange={(e) => toggleActionCol(a, e.target.checked)}
                                     />
-                                    <span style={{ fontSize: 10, color: 'var(--fg-tertiary)' }}>全选</span>
+                                    <span style={{ fontSize: 10, color: 'var(--fg-tertiary)' }}>{tl('全选')}</span>
                                   </label>
                                 )}
                               </th>
@@ -889,77 +927,216 @@ export default function RoleManagementPage() {
                           })}
                         </tr>
                       </thead>
-                      <tbody>
-                        {MODULE_RESOURCES.filter((r) => {
-                          const q = moduleQuery.trim().toLowerCase();
-                          return !q || r.label.toLowerCase().includes(q) || r.key.toLowerCase().includes(q);
-                        }).map((r) => {
-                          const rowAll = r.actions.every((a) => draft.permissions.includes(`module:${r.key}:${a}` as Permission));
-                          const rowSome = r.actions.some((a) => draft.permissions.includes(`module:${r.key}:${a}` as Permission));
-                          return (
-                            <tr key={r.key}>
-                              <td style={{ position: 'sticky', left: 0, background: 'var(--bg-elevated)', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  {!draft.lockedPermissions && r.actions.length > 0 && (
-                                    <input
-                                      type="checkbox"
-                                      checked={rowAll}
-                                      ref={(el) => {
-                                        if (el) el.indeterminate = !rowAll && rowSome;
-                                      }}
-                                      onChange={(e) => toggleModuleRow(r.key, r.actions, e.target.checked)}
-                                    />
-                                  )}
-                                  <span>{r.label}</span>
-                                  {r.adminOnly && <span className="tag tag-muted" style={{ fontSize: 10 }}>仅管理员</span>}
-                                </div>
-                              </td>
-                              {MATRIX_ACTIONS.map((a) => {
-                                const available = r.actions.includes(a);
-                                const on = available && draft.permissions.includes(`module:${r.key}:${a}` as Permission);
-                                if (!available) {
+                      {matrixGroups.map((g) => (
+                        <tbody key={g.section}>
+                          <tr>
+                            <td
+                              colSpan={MATRIX_ACTIONS.length + 1}
+                              style={{
+                                background: 'var(--bg-secondary)',
+                                fontWeight: 600,
+                                fontSize: 'var(--font-sm)',
+                                position: 'sticky',
+                                left: 0,
+                              }}
+                            >
+                              {g.section}
+                            </td>
+                          </tr>
+                          {g.rows.map((r) => {
+                            const enterP = rowEnterPerm(r);
+                            const perms = rowPerms(r);
+                            const rowAll = perms.length > 0 && perms.every((x) => draft.permissions.includes(x));
+                            const rowSome = perms.some((x) => draft.permissions.includes(x));
+                            return (
+                              <tr key={r.key}>
+                                <td style={{ position: 'sticky', left: 0, background: 'var(--bg-elevated)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    {!draft.lockedPermissions && perms.length > 0 && (
+                                      <input
+                                        type="checkbox"
+                                        checked={rowAll}
+                                        ref={(el) => {
+                                          if (el) el.indeterminate = !rowAll && rowSome;
+                                        }}
+                                        onChange={(e) => toggleRowAll(r, e.target.checked)}
+                                        title={tl('整行全选')}
+                                      />
+                                    )}
+                                    <span>{r.label}</span>
+                                    {r.adminOnly && <span className="tag tag-muted" style={{ fontSize: 10 }}>{tl('仅管理员')}</span>}
+                                  </div>
+                                </td>
+                                {MATRIX_ACTIONS.map((a) => {
+                                  if (a === 'enter') {
+                                    // 「进入菜单」：有模块 → module:<key>:enter；
+                                    // 无模块但有独立权限点（admin:monitor / ai:chat）→ 用它；
+                                    // 都没有 → adminOnly 项，只有系统管理员可见，没有可配的权限点。
+                                    if (!enterP) {
+                                      return (
+                                        <td key={a} style={{ textAlign: 'center', color: 'var(--fg-tertiary)', opacity: 0.4 }} title={tl('仅管理员可见，无需授权')}>
+                                          —
+                                        </td>
+                                      );
+                                    }
+                                    return (
+                                      <td key={a} style={{ textAlign: 'center' }}>
+                                        <input
+                                          type="checkbox"
+                                          checked={draft.permissions.includes(enterP)}
+                                          disabled={draft.lockedPermissions}
+                                          onChange={(e) => setPerm(enterP, e.target.checked)}
+                                          title={`${r.label} · ${MODULE_ACTION_LABELS[a]}`}
+                                        />
+                                      </td>
+                                    );
+                                  }
+                                  const available = r.actions.includes(a);
+                                  if (!available) {
+                                    return (
+                                      <td key={a} style={{ textAlign: 'center', color: 'var(--fg-tertiary)', opacity: 0.4 }}>—</td>
+                                    );
+                                  }
+                                  const p = `module:${r.moduleKey}:${a}` as Permission;
+                                  const on = draft.permissions.includes(p);
                                   return (
-                                    <td key={a} style={{ textAlign: 'center', color: 'var(--fg-tertiary)', opacity: 0.4 }}>—</td>
+                                    <td key={a} style={{ textAlign: 'center' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={on}
+                                        disabled={draft.lockedPermissions}
+                                        onChange={(e) => setPerm(p, e.target.checked)}
+                                        title={`${r.label} · ${MODULE_ACTION_LABELS[a]}`}
+                                      />
+                                    </td>
                                   );
-                                }
-                                return (
-                                  <td key={a} style={{ textAlign: 'center' }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={on}
-                                      disabled={draft.lockedPermissions}
-                                      onChange={() => toggleModuleAction(r.key, a, !on)}
-                                      title={`${r.label} · ${MODULE_ACTION_LABELS[a]}`}
-                                    />
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      ))}
                     </table>
                   </div>
                 </>
               ) : (
+                <>
                 <div className="data-table-wrap" style={{ maxHeight: '52vh', overflowY: 'auto' }}>
                   <table className="data-table">
-                    <tbody>
-                      {groups
-                        .map((g) => ({ ...g, perms: g.perms.filter((p) => !p.startsWith('module:')) }))
-                        .filter((g) => g.perms.length > 0)
-                        .map((g) => {
-                          const allOn = g.perms.every((p) => draft.permissions.includes(p));
+                    {matrixGroups.map((g) => (
+                      <tbody key={g.section}>
+                        <tr>
+                          <td colSpan={2} style={{ background: 'var(--bg-secondary)', fontWeight: 600, fontSize: 'var(--font-sm)' }}>
+                            {g.section}
+                          </td>
+                        </tr>
+                        {g.rows.map((r) => {
+                          const enterP = rowEnterPerm(r);
+                          const perms = rowPerms(r);
+                          const allOn = perms.length > 0 && perms.every((x) => draft.permissions.includes(x));
+                          const someOn = perms.some((x) => draft.permissions.includes(x));
+                          return (
+                            <tr key={r.key}>
+                              <td style={{ width: 200, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: draft.lockedPermissions || !perms.length ? 'default' : 'pointer' }}>
+                                  {!draft.lockedPermissions && perms.length > 0 && (
+                                    <input
+                                      type="checkbox"
+                                      checked={allOn}
+                                      ref={(el) => {
+                                        if (el) el.indeterminate = !allOn && someOn;
+                                      }}
+                                      onChange={(e) => toggleRowAll(r, e.target.checked)}
+                                    />
+                                  )}
+                                  <span>{r.label}</span>
+                                  {r.adminOnly && <span className="tag tag-muted" style={{ fontSize: 10 }}>{tl('仅管理员')}</span>}
+                                </label>
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                  {enterP && (
+                                    <label
+                                      className="tag"
+                                      style={{
+                                        cursor: draft.lockedPermissions ? 'default' : 'pointer',
+                                        opacity: draft.permissions.includes(enterP) ? 1 : 0.55,
+                                        borderColor: draft.permissions.includes(enterP) ? 'var(--accent)' : undefined,
+                                        background: draft.permissions.includes(enterP) ? 'var(--accent-soft)' : undefined,
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={draft.permissions.includes(enterP)}
+                                        disabled={draft.lockedPermissions}
+                                        onChange={(e) => setPerm(enterP, e.target.checked)}
+                                        style={{ marginRight: 6 }}
+                                      />
+                                      {MODULE_ACTION_LABELS.enter}
+                                    </label>
+                                  )}
+                                  {r.moduleKey &&
+                                    r.actions.map((a) => {
+                                      const perm = `module:${r.moduleKey}:${a}` as Permission;
+                                      const on = draft.permissions.includes(perm);
+                                      return (
+                                        <label
+                                          key={a}
+                                          className="tag"
+                                          style={{
+                                            cursor: draft.lockedPermissions ? 'default' : 'pointer',
+                                            opacity: on ? 1 : 0.55,
+                                            borderColor: on ? 'var(--accent)' : undefined,
+                                            background: on ? 'var(--accent-soft)' : undefined,
+                                          }}
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={on}
+                                            disabled={draft.lockedPermissions}
+                                            onChange={(e) => setPerm(perm, e.target.checked)}
+                                            style={{ marginRight: 6 }}
+                                          />
+                                          {MODULE_ACTION_LABELS[a]}
+                                        </label>
+                                      );
+                                    })}
+                                  {!enterP && !r.moduleKey && (
+                                    <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>
+                                      {tl('仅管理员可见，无需授权')}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    ))}
+                  </table>
+                </div>
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: 'pointer', fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>
+                    {tl('兼容权限点（无模块归属的旧权限点）')}
+                  </summary>
+                  <p style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', margin: '8px 0' }}>
+                    {tl('这些权限点没有模块归属，仍被部分自建接口使用（知识库、智能助手等）。没有特殊需要不必改动。')}
+                  </p>
+                  <div className="data-table-wrap" style={{ maxHeight: '36vh', overflowY: 'auto' }}>
+                    <table className="data-table">
+                      <tbody>
+                        {legacyGroups.map((g) => {
+                          const allOn = g.perms.every((x) => draft.permissions.includes(x));
                           return (
                             <tr key={g.domain}>
-                              <td style={{ width: 180, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-elevated)' }}>
+                              <td style={{ width: 200, fontWeight: 600 }}>
                                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: draft.lockedPermissions ? 'default' : 'pointer' }}>
                                   {!draft.lockedPermissions && (
                                     <input
                                       type="checkbox"
                                       checked={allOn}
                                       ref={(el) => {
-                                        if (el) el.indeterminate = !allOn && g.perms.some((p) => draft.permissions.includes(p));
+                                        if (el) el.indeterminate = !allOn && g.perms.some((x) => draft.permissions.includes(x));
                                       }}
                                       onChange={(e) => toggleDomain(g.domain, g.perms, e.target.checked)}
                                     />
@@ -969,11 +1146,11 @@ export default function RoleManagementPage() {
                               </td>
                               <td>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                  {g.perms.map((p) => {
-                                    const on = draft.permissions.includes(p);
+                                  {g.perms.map((x) => {
+                                    const on = draft.permissions.includes(x);
                                     return (
                                       <label
-                                        key={p}
+                                        key={x}
                                         className="tag"
                                         style={{
                                           cursor: draft.lockedPermissions ? 'default' : 'pointer',
@@ -986,10 +1163,10 @@ export default function RoleManagementPage() {
                                           type="checkbox"
                                           checked={on}
                                           disabled={draft.lockedPermissions}
-                                          onChange={() => togglePerm(p)}
+                                          onChange={() => togglePerm(x)}
                                           style={{ marginRight: 6 }}
                                         />
-                                        {PERMISSION_LABELS[p as Permission] ?? p}
+                                        {PERMISSION_LABELS[x as Permission] ?? x}
                                       </label>
                                     );
                                   })}
@@ -998,12 +1175,101 @@ export default function RoleManagementPage() {
                             </tr>
                           );
                         })}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+                </>
+              )}
+
+              {/*
+                「菜单白名单」——**额外收敛层**，语义与「进入菜单」不同，所以保留：
+                · 「进入菜单」= 权限点（必需条件），决定"能不能进"
+                · 白名单 = 在此之上的收敛，且**只有该角色的所有角色都配了白名单才生效**
+                  （多角色取并集，见 packages/domain 的 menusOf）
+                留空 = 自动模式（按权限点显隐）。收进折叠区避免与矩阵重复打扰。
+              */}
+              <details style={{ marginTop: 14 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>
+                  {tl('高级：菜单白名单（额外收敛）')}
+                  {draft.menus ? `（${tl('当前已配')} ${draft.menus.length} / ${allMenuKeys.length}）` : `（${tl('自动模式（不限制）')}）`}
+                </summary>
+                <p style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', margin: '8px 0 10px' }}>
+                  {tl('留空 = 按权限点自动显隐；勾选后该角色只能看到所选菜单。此处只做收敛，不会放大权限。')}
+                </p>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                  <input
+                    className="input"
+                    style={{ maxWidth: 220 }}
+                    value={menuQuery}
+                    onChange={(e) => setMenuQuery(e.target.value)}
+                    placeholder={tl('搜索菜单')}
+                  />
+                  <button className="btn btn-outline" onClick={resetMenus} disabled={saving || !!draft.lockedPermissions || !draft.menus}>
+                    {tl('恢复自动')}
+                  </button>
+                </div>
+                <div className="data-table-wrap" style={{ maxHeight: '32vh', overflowY: 'auto' }}>
+                  <table className="data-table">
+                    <tbody>
+                      {filteredMenuGroups.map((g) => {
+                        const keys = g.items.map((i) => i.key);
+                        const selected = draft.menus ?? allMenuKeys;
+                        const allOn = keys.every((k) => selected.includes(k));
+                        return (
+                          <tr key={g.section}>
+                            <td style={{ width: 180, fontWeight: 600 }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: draft.lockedPermissions ? 'default' : 'pointer' }}>
+                                {!draft.lockedPermissions && (
+                                  <input
+                                    type="checkbox"
+                                    checked={allOn}
+                                    ref={(el) => {
+                                      if (el) el.indeterminate = !allOn && keys.some((k) => selected.includes(k));
+                                    }}
+                                    onChange={(e) => toggleMenuSection(keys, e.target.checked)}
+                                  />
+                                )}
+                                {g.section}
+                              </label>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                {g.items.map((item) => {
+                                  const on = selected.includes(item.key);
+                                  return (
+                                    <label
+                                      key={item.key}
+                                      className="tag"
+                                      style={{
+                                        cursor: draft.lockedPermissions ? 'default' : 'pointer',
+                                        opacity: on ? 1 : 0.55,
+                                        borderColor: on ? 'var(--accent)' : undefined,
+                                        background: on ? 'var(--accent-soft)' : undefined,
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={on}
+                                        disabled={draft.lockedPermissions}
+                                        onChange={() => toggleMenu(item.key)}
+                                        style={{ marginRight: 6 }}
+                                      />
+                                      {item.label}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
-              )}
+              </details>
 
-              {/* ③ 数据范围（2026-09-15）：决定该角色能看到哪些学生的档案。
+              {/* ② 数据范围（2026-09-15）：决定该角色能看到哪些学生的档案。
                   空 = 不限制（默认态，因此上线不改变任何人的可见范围）；
                   维度之间 AND、同一维度内 OR；多角色取并集（见 student-scope.ts）。 */}
               <div
@@ -1018,7 +1284,7 @@ export default function RoleManagementPage() {
                     fontSize: 10, fontWeight: 700, letterSpacing: 0,
                   }}
                 >
-                  3
+                  2
                 </span>
                 {tl('数据范围')}
               </div>

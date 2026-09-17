@@ -121,6 +121,18 @@ export interface CrudColumn {
   defaultFirstOption?: boolean;
   /** 联动来源字段 key（如 parent 类型从 student 类型所选学生的父亲/母亲取候选） */
   dependsOn?: string;
+  /**
+   * 表单**条件显隐**：返回 false 时该字段在表单里不渲染。
+   *
+   * ⚠️ 与 `dependsOn` 不是一回事：那个决定「子字段有哪些**候选项**」，本项决定「字段**要不要出现**」。
+   *
+   * 典型用途：会议纪要的「可见用户」只在「可见范围 = 指定用户可见」时出现 ——
+   * 常显会让用户以为它是必填，也可能填了却与所选范围不符。
+   *
+   * ⚠️ 只影响**表单**：列表列由 `list: false` 独立控制；隐藏的字段若表单里已有值，
+   *    提交时**照常提交**（不主动清空）—— 否则「改成公开再改回指定用户」会静默丢掉已选名单。
+   */
+  showIf?: (form: Record<string, unknown>) => boolean;
   /** 点击该列单元格时打开当前记录的编辑/详情表单（而非导航到其它页面） */
   openRecord?: boolean;
   /** 表单字段下方的辅助提示文字 */
@@ -1212,6 +1224,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       const missing = formCols
         .filter((c) => {
           if (!c.required) return false;
+          // 条件隐藏（showIf）的字段不参与必填校验：用户根本看不到它，报「请填写 X」会莫名其妙
+          if (c.showIf && !c.showIf(form)) return false;
           const v = form[c.key];
           if (Array.isArray(v)) return v.length === 0;
           return v === '' || v == null;
@@ -1433,9 +1447,18 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     }
   }
 
+  /**
+   * 表单里**实际渲染**的字段（`showIf` 过滤后）。
+   *
+   * ⚠️ 不要拿它去替换 `formCols`：提交、表单初始值、必填校验都必须覆盖**全部** formCols，
+   *    否则条件隐藏的字段会在提交时丢掉已有值（例：先选「指定用户可见」选好人，
+   *    再改成「公开」，此时「可见用户」虽然不显示，但值仍应保留）。
+   */
+  const shownCols = formCols.filter((c) => !c.showIf || c.showIf(form));
+
   const formFields = (
     <div className="form-grid">
-      {formCols.map((c, ci) => (
+      {shownCols.map((c, ci) => (
         <Fragment key={c.key}>
         {/* 分区标题：与上一列分区不同时插入一行（跨整行），让长表单分块可读 */}
         {c.section && c.section !== formCols[ci - 1]?.section ? (

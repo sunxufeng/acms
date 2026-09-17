@@ -1,5 +1,12 @@
 import type { CrudColumn } from '../../components/CrudPage';
 import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
+// 「可见范围」的取值与字段名来自 contracts —— 后端判据用的是**同一份**定义
+// （apps/api/src/meeting-minutes/meeting-visibility.ts），两边各写一份必然漂移。
+import {
+  MEETING_VISIBILITY_FIELD,
+  MEETING_VISIBILITY_SCOPES,
+  MEETING_VISIBLE_USERS_FIELD,
+} from '@acms/contracts';
 
 /**
  * 日期显示：SQL 自建表没有飞书字段元数据，日期字段读出来是毫秒时间戳（number），
@@ -96,6 +103,47 @@ export const COLUMNS: CrudColumn[] = [
     form: true,
     type: 'select',
     dictKey: '会议状态',
+  },
+  {
+    key: MEETING_VISIBILITY_FIELD,
+    label: '可见范围',
+    width: '120px',
+    form: true,
+    required: true,
+    type: 'select',
+    /**
+     * 🔴 这里用**静态 options**，不要改成字典。
+     *
+     * 四个取值与后端判据的分支是**字面量硬绑定**的（`meeting-visibility.ts` 里按 '公开' /
+     * '部门内可见' / '指定用户可见' / '仅自己可见' 分别匹配）。而字典的真源是生产
+     * `data/dictionaries.json`、运行时可改 —— 一旦有人改了选项文案，后端判据就全部落空，
+     * 结果是**所有记录对所有人隐身**（含创建者自己），且不报任何错。
+     * 凡是与代码逻辑耦合的枚举，一律固化在代码里（定义在 contracts/src/meeting.ts）。
+     */
+    options: [...MEETING_VISIBILITY_SCOPES],
+    /**
+     * 默认选中第一项（=「部门内可见」）。
+     *
+     * 为什么必须给默认值：可见范围留空的记录，后端四支判据**一支都不命中** ⇒ 对所有人隐身。
+     * 这个后果比「选错范围」严重得多（选错至少自己还能看见），所以用 `defaultFirstOption`
+     * 保证新建时一定有值。
+     */
+    defaultFirstOption: true,
+    filter: true,
+  },
+  {
+    key: MEETING_VISIBLE_USERS_FIELD,
+    label: '可见用户',
+    width: '150px',
+    list: false,
+    form: true,
+    // 多选用户：value = 用户表 record id，label = 姓名（与「邮件账户 / 知识库配置」的关联用户同款控件）
+    type: 'link',
+    linkMulti: true,
+    linkSource: 'users',
+    // 只在「可见范围 = 指定用户可见」时出现（CrudPage 的 showIf = 表单条件显隐）
+    showIf: (f) => String(f[MEETING_VISIBILITY_FIELD] ?? '') === '指定用户可见',
+    hint: '不选人的话，这条纪要只有你自己和系统管理员能看到',
   },
   {
     key: '敏感级别',

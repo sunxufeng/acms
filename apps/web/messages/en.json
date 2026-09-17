@@ -924,6 +924,14 @@
     "copyNotBring": "Built-in and locked flags are not copied — the copy stays fully editable and deletable"
   },
   "labels": {
+    "可见范围": "Visibility",
+    "可见用户": "Visible Users",
+    "公开": "Public",
+    "部门内可见": "Department Only",
+    "指定用户可见": "Specific Users",
+    "仅自己可见": "Only Me",
+    "不选人的话，这条纪要只有你自己和系统管理员能看到": "If no one is picked, only you and system admins can see this minute",
+    "会议状态": "Meeting Status",
     "(空)": "(empty)",
     "2021春季": "Spring 2021",
     "2021秋季": "Fall 2021",

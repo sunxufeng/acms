@@ -10,6 +10,12 @@ import { TABLES, USER_TABLE } from '@acms/contracts';
 import { scheduleStateOf } from '../ai-route/schedule-state.js';
 import type { RecordMeta } from './generic-crud.module.js';
 import { getSqlStore } from '../base.provider.js';
+// 会议纪要的「可见范围」判据（纯函数模块，只被本文件的 rowScope / defaults 调用）
+import {
+  MEETING_SCOPE_BYPASS_ROLES,
+  meetingDefaults,
+  meetingRowScope,
+} from '../meeting-minutes/meeting-visibility.js';
 
 const PERM_R = 'student:read';
 const PERM_W = 'student:write';
@@ -234,6 +240,38 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     searchField: '会议议题',
     searchFields: ['会议议题', '部门', '会议地点', '主持人'],
     sortField: '会议时间',
+    /**
+     * 🔴 行级可见范围（2026-09-17 新增）。
+     *
+     * 四条分支（公开 / 部门内可见 / 指定用户可见 / 仅自己可见）全部在
+     * `meeting-visibility.ts` 的 `meetingRowScope()` 里，这里只做接线 ——
+     * 判据写两处必然漂移。
+     *
+     * 覆盖范围：list / listDeep / detail / exportCsv / 内存深筛都走 `rowScopeFor()`；
+     * `update` / `archive` / `transition` 会先调 `detail()`，因此自动受保护。
+     */
+    rowScope: (user, ctx) => meetingRowScope(user, ctx),
+    /** 系统管理员 + 院级管理（= 需求里的「公司最高领导人」）豁免，看全部 */
+    rowScopeBypassRoles: [...MEETING_SCOPE_BYPASS_ROLES],
+    /**
+     * 「创建人ID」是判据用的**冗余字段**（存 openId）。
+     *
+     * 为什么必须冗余：rowScope 的条件只能落在 jsonb 上（`data->>'X'`），
+     * **物理列 `created_by` 不参与过滤** —— 若判据直接读物理列，SQL 路径不产生条件（等于不限制），
+     * 只有内存路径生效，结果就是「列表看到全部、详情却 404」的越权。
+     *
+     * 为什么可以用冗余：创建人一旦建立就**不会再变**，所以只有 `create` 需要写它，
+     * 而引擎恰好只在 create 提供 `defaults` 钩子（update 没有）—— 刚好避开这个限制。
+     *
+     * 登记在 readonly 里：写入侧会被剔除（防止有人改创建人来「认领」别人的纪要），
+     * 读取侧不受影响（`toFlatRecord` 对 readonly 与普通字段同样处理）。
+     */
+    defaults: (fields, user) => meetingDefaults(fields, user),
+    readonly: ['创建人ID'],
+    /** 「可见用户」是多值字段：不登记的话数组会被当字符串写入 */
+    multi: ['可见用户'],
+    /** 声明为关联用户表，读取时会额外返回「可见用户__link」（record id 数组）供前端回显多选 */
+    linkFields: [{ field: '可见用户', table: USER_TABLE.tableId, nameField: '姓名' }],
   },
   // ── 开放平台（2026-09-11 新增）：外接系统应用凭证 ──
   {

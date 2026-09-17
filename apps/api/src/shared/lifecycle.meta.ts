@@ -266,12 +266,28 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
      * 登记在 readonly 里：写入侧会被剔除（防止有人改创建人来「认领」别人的纪要），
      * 读取侧不受影响（`toFlatRecord` 对 readonly 与普通字段同样处理）。
      */
-    defaults: (fields, user) => meetingDefaults(fields, user),
+    defaults: (fields, user, ctx) => meetingDefaults(fields, user, ctx),
     readonly: ['创建人ID'],
-    /** 「可见用户」是多值字段：不登记的话数组会被当字符串写入 */
-    multi: ['可见用户'],
-    /** 声明为关联用户表，读取时会额外返回「可见用户__link」（record id 数组）供前端回显多选 */
-    linkFields: [{ field: '可见用户', table: USER_TABLE.tableId, nameField: '姓名' }],
+    /**
+     * 多值字段：不登记的话数组会被当**字符串**写入（关联字段的经典坑）。
+     * 「可见用户 / 可见部门」服务于权限判据；参会 / 缺席 / 列席是业务字段（多选人员，存姓名数组）。
+     */
+    multi: ['可见用户', '可见部门', '参会人员', '缺席人员', '列席人员'],
+    /**
+     * 关联字段：读取时会额外注入 `<字段>__link`（原始 id 数组）供前端回显多选，
+     * 并把展示值解析成可读名（用户 → 姓名、部门 → 部门名）。
+     * ⚠️ 部门表的 recordId 就是 open_department_id（建表时 `createWithId(open_department_id)`），
+     *    所以「可见部门」的 link 值直接就是判据用的那个 id，不需要再转换。
+     *
+     * 🔴 参会 / 缺席 / 列席**不要**登记在这里：它们存的是**姓名**（与单选的「主持人」同口径），
+     *    不需要解析成可读名。而 `toFlatRecord` 里 linkFields 分支**优先于** multi 分支，
+     *    一旦登记进去，读出来就变成「张三、李四」这种拼接字符串而不是数组，
+     *    前端回显与后续比较全都要跟着做字符串拆分（实测踩过一次）。只登记 multi 即可。
+     */
+    linkFields: [
+      { field: '可见用户', table: USER_TABLE.tableId, nameField: '姓名' },
+      { field: '可见部门', table: TABLES.departments.tableId, nameField: 'name' },
+    ],
   },
   // ── 开放平台（2026-09-11 新增）：外接系统应用凭证 ──
   {

@@ -6,6 +6,7 @@ import {
   type DepartmentNode,
   type DepartmentStatus,
   type DepartmentSyncProgress,
+  type SessionUser,
 } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { runAs, systemActor } from '../shared/actor-context.js';
@@ -95,6 +96,38 @@ export class DepartmentService {
     };
     walk(rootId);
     return out;
+  }
+
+  /**
+   * 当前用户**所属**的部门（供会议纪要「指定部门可见」新建时预填默认值）。
+   *
+   * - 只返回成员快照里「我属于」的那个部门：**不含下级、也不含我担任负责人的其它部门** ——
+   *   需求是「默认选中自己部门」。
+   * - 只认 `od-…` 形态的 id：根部门「公司」的 `open_department_id` 是字符串 `'0'`，
+   *   它参与 `contains` 子串判据会命中一切（任何 `od-…` 里都可能含 `0`）⇒ 一律排除；
+   *   「选公司」等价于「公开」，用可见范围里的「公开」表达即可。
+   */
+  async myDepartments(user: SessionUser): Promise<{ ids: string[]; names: string[] }> {
+    const sql = getSqlStore();
+    const openId = String(user?.openId ?? '').trim();
+    if (!sql || !openId) return { ids: [], names: [] };
+
+    const all = await this.list();
+    const res = await sql.search(TABLES.departmentMembers.tableId, { pageSize: 5000 });
+
+    const ids = new Set<string>();
+    for (const r of res.items ?? []) {
+      const f = (r.fields ?? {}) as Record<string, unknown>;
+      if (String(f.user_open_id ?? '').trim() !== openId) continue;
+      const id = String(f.open_department_id ?? '').trim();
+      if (id && /^od-/.test(id)) ids.add(id);
+    }
+
+    const list = Array.from(ids);
+    const names = list
+      .map((id) => all.items.find((d) => d.open_department_id === id)?.name ?? '')
+      .filter(Boolean);
+    return { ids: list, names };
   }
 
   /**

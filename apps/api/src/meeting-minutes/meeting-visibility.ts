@@ -6,6 +6,7 @@ import {
   MEETING_DEFAULT_VISIBILITY as DEFAULT_VISIBILITY,
   MEETING_DEPT_FIELD as DEPT_FIELD,
   MEETING_VISIBILITY_FIELD as VISIBILITY_FIELD,
+  MEETING_VISIBLE_DEPTS_FIELD as VISIBLE_DEPTS_FIELD,
   MEETING_VISIBLE_USERS_FIELD as VISIBLE_USERS_FIELD,
   type SessionUser,
 } from '@acms/contracts';
@@ -128,25 +129,72 @@ export function subtreeOf(depts: readonly DeptRow[], rootId: string): string[] {
 }
 
 /**
- * 「我的部门范围」→ 换算成**部门名数组**（判据用的就是记录上的「部门」字段）。
+ * 部门的 open_department_id 正式形态。
+ *
+ * 🔴 **只有形如 `od-…` 的部门才参与「指定部门可见」的 `contains` 匹配。**
+ *   多值字段只能用子串匹配（`data->>'可见部门'` 返回 `["od-a","od-b"]` 这段 JSON 文本），
+ *   而**根部门「公司」的 open_department_id 就是字符串 `'0'`** —— 拿单字符 `'0'` 去子串匹配
+ *   会命中一切（任何 `od-…` 里几乎都含 `0`）⇒ 等于全员可见。
+ *   而「选公司」本身等价于「公开」，所以这里把非 `od-` 形态的一律排除。
+ */
+const OD_ID_RE = /^od-/;
+
+/** 「我的部门范围」的三种形态（一次算好，避免各判据各算一遍而漂移） */
+export interface DeptScope {
+  /**
+   * 我**直接**所属/负责的部门 id（**未展开下级**）。
+   * 用途：「指定部门可见」新建时的默认选中值（= 「默认选中自己部门」，不吃下级）。
+   */
+  myIds: string[];
+  /** 我所属/负责的部门及其**下级**的 id（只含 `od-…` 形态） */
+  ownIds: string[];
+  /** 同上，部门名 —— 「部门内可见」判据用（记录的「部门」字段存的是名字） */
+  ownNames: string[];
+  /**
+   * 「指定部门可见」时**我能命中的部门 id 集合** = ownIds ∪ 这些部门的全部**上级**。
+   *
+   * 为什么要把上级并进来：判据要回答的是「**我是否属于被指定的那个部门（的子树）**」。
+   * 某人把纪要指定给「学术轨」时，学术轨整棵子树里的人（含三个子中心）都该看到，
+   * 而他们在「我的部门」视角下是**下级** ⇒ 必须沿 parent 链把上级补全。
+   * （只用 ownIds 的话，子中心的人恰恰看不到指定给自己上级部门的纪要 —— 那就违背了
+   * 「选对部门的所有人都可以看到」。）
+   */
+  assignableIds: string[];
+}
+
+/** 沿 parent 链向上收集某部门的全部上级（部门表的 parent 为空串表示到顶） */
+function ancestorsOf(depts: readonly DeptRow[], id: string): string[] {
+  const byId = new Map(depts.map((d) => [d.id, d]));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let cur = byId.get(id)?.parent ?? '';
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    out.push(cur);
+    cur = byId.get(cur)?.parent ?? '';
+  }
+  return out;
+}
+
+/**
+ * 「我的部门范围」—— 三种形态一次算好。
  *
  * 范围 = （我所属的部门 ∪ 我担任负责人的部门）各自展开子树后取并集：
  *  - 我所属部门：部门成员快照 `t_tbldeptmem000001` 里 `user_open_id == 我的 openId`
  *  - 我负责的部门：部门表里 `leader_user_id == 我的 openId` —— **这就是「部门领导看下属部门」的全部实现**，
  *    不需要单独一条判据分支：负责人只是拥有更大的部门集合，其余判据完全一致
  *
- * ⚠️ 返回**部门名**而不是 id，是因为会议纪要的「部门」字段存的本来就是部门名。
- *    代价是理论上的重名风险（飞书允许部门重名）—— 当前 9 个部门名唯一，暂用等值匹配；
- *    若将来出现重名，再改成「保存时冗余部门ID」（那需要给引擎的 update 加钩子，成本高得多）。
- *
- * ⚠️ 用部门名做**等值**匹配（不是 `contains`）：`contains` 是子串匹配，「教务」会误命中「教务中心」。
+ * ⚠️ `ownNames` 之所以是**部门名**，是因为会议纪要的「部门」字段存的本来就是部门名（历史原因），
+ *    且用**等值**匹配而非 `contains` —— 「教务」会误命中「教务中心」。当前 9 个部门名唯一。
+ *    新加的 `assignableIds` 一律用 id，既不吃重名也不吃改名。
  */
-export async function myDeptNamesOf(
+export async function myDeptScopeOf(
   user: SessionUser | null | undefined,
   ctx: RowScopeContext,
-): Promise<string[]> {
+): Promise<DeptScope> {
+  const empty: DeptScope = { myIds: [], ownIds: [], ownNames: [], assignableIds: [] };
   const openId = String(user?.openId ?? '').trim();
-  if (!openId) return [];
+  if (!openId) return empty;
 
   // 两张表都是小表（部门 9 条 / 成员 28 条），一次取回即可。
   // ⚠️ `ctx.search()` 内置 pageSize=500 且**不翻页** —— 若将来部门或成员数超过 500，
@@ -158,20 +206,45 @@ export async function myDeptNamesOf(
 
   const depts = toDeptRows(deptRows);
 
-  const roots = new Set<string>();
-  for (const d of depts) if (d.leader && d.leader === openId) roots.add(d.id);
+  const ledIds = new Set<string>(); // 我担任负责人的部门
+  for (const d of depts) if (d.leader && d.leader === openId) ledIds.add(d.id);
+  const memberIds = new Set<string>(); // 我所属的部门（成员快照）
   for (const m of memberRows) {
     if (String(m.user_open_id ?? '').trim() !== openId) continue;
     const id = String(m.open_department_id ?? '').trim();
-    if (id) roots.add(id);
+    if (id) memberIds.add(id);
   }
-  if (!roots.size) return [];
+  const roots = new Set([...ledIds, ...memberIds]);
+  if (!roots.size) return empty;
 
   const wanted = new Set<string>();
   for (const root of roots) for (const id of subtreeOf(depts, root)) wanted.add(id);
 
-  const names = depts.filter((d) => wanted.has(d.id)).map((d) => d.name).filter(Boolean);
-  return Array.from(new Set(names));
+  // 「默认选中自己部门」= 我**所属**的那一个（不含下级、不含我负责的其它部门）——
+  // 需求原话是「默认是选中自己部门」；只有我不属于任何部门时（纯负责人身份）才退回我负责的部门。
+  const myIds = Array.from(memberIds.size ? memberIds : ledIds).filter((id) => OD_ID_RE.test(id));
+  const ownIds = Array.from(wanted).filter((id) => OD_ID_RE.test(id));
+  const ownNames = Array.from(
+    new Set(depts.filter((d) => wanted.has(d.id)).map((d) => d.name).filter(Boolean)),
+  );
+
+  const assignable = new Set(ownIds);
+  for (const id of ownIds) {
+    for (const up of ancestorsOf(depts, id)) if (OD_ID_RE.test(up)) assignable.add(up);
+  }
+
+  return { myIds, ownIds, ownNames, assignableIds: Array.from(assignable) };
+}
+
+/**
+ * 兼容包装：只要部门名集合（「部门内可见」判据用）。
+ * ⚠️ 新代码优先直接用 `myDeptScopeOf()`，免得同一份逻辑被重复计算。
+ */
+export async function myDeptNamesOf(
+  user: SessionUser | null | undefined,
+  ctx: RowScopeContext,
+): Promise<string[]> {
+  return (await myDeptScopeOf(user, ctx)).ownNames;
 }
 
 /** 我在**用户表**里的 record id（「可见用户」字段存的是它，不是 openId） */
@@ -208,10 +281,11 @@ export async function meetingRowScope(
   ctx: RowScopeContext,
 ): Promise<RowScopeFilter | 'none' | null> {
   const openId = String(user?.openId ?? '').trim();
-  const [myDeptNames, myUserId] = await Promise.all([
-    myDeptNamesOf(user, ctx),
+  const [deptScope, myUserId] = await Promise.all([
+    myDeptScopeOf(user, ctx),
     myUserIdOf(openId, ctx),
   ]);
+  const myDeptNames = deptScope.ownNames;
 
   const conditions: RowScopeFilter[] = [];
 
@@ -228,7 +302,7 @@ export async function meetingRowScope(
   //
   //    因此「创建人总能看到自己创建的记录」必须是一条**独立于可见范围**的分支。
   //
-  //    顺带：它也覆盖了「仅自己可见」—— 那种记录不会命中 ③④，只有创建人靠本分支命中，
+  //    顺带：它也覆盖了「仅自己可见」—— 那种记录不会命中 ③④⑤，只有创建人靠本分支命中，
   //    所以下面不再单列「仅自己可见」的分支（列了也是被本条覆盖的死分支）。
   //
   // ⚠️ 用**冗余的 jsonb 字段**「创建人ID」，不能用物理列 created_by：
@@ -260,6 +334,22 @@ export async function meetingRowScope(
     });
   }
 
+  // ⑤ 指定部门可见：记录的「可见部门」里包含**我所在部门树的任意一层**。
+  //
+  //    用部门 id（`od-…`）而不是部门名 —— 多值字段只能靠 `contains` 子串匹配，
+  //    而 id 唯一且互不为子串；部门名会串台（「教学」会命中「教学管理中心」）。
+  //    `assignableIds` 里已经并进了我的**上级**部门，因此「指定给我上级部门」时我也能命中
+  //    —— 也就是该部门的**整棵子树**都能看到，符合「选对部门的所有人都可以看到」。
+  if (deptScope.assignableIds.length) {
+    conditions.push({
+      conjunction: 'and',
+      conditions: [
+        { field: VISIBILITY_FIELD, value: ['指定部门可见'] },
+        { field: VISIBLE_DEPTS_FIELD, op: 'contains', value: deptScope.assignableIds },
+      ],
+    });
+  }
+
   // 防御：正常至少有「公开」这一支，构不出来说明连公开都不该所见（理论上不可达）
   if (!conditions.length) return 'none';
   return { conjunction: 'or', conditions };
@@ -271,14 +361,26 @@ export async function meetingRowScope(
  * ⚠️ 引擎的写回逻辑是 `if (!(k in fields)) fields[k] = v` —— 只有**字段完全没传**时才会写入。
  *    若前端传了一个空字符串，这里**覆盖不了**。所以「可见范围必有值」这件事主要靠前端
  *    （`required: true` + `defaultFirstOption: true`），本函数只兜住「压根没传该字段」的情况。
+ *
+ * ⚠️ 前端也会预填「可见部门」= 我所属部门（让用户**看得见**默认值、可改）；
+ *    这里再兜一层是为了挡住「API 直建 / 前端未预填」的路径 —— 判据只认落库的值。
  */
-export function meetingDefaults(
+export async function meetingDefaults(
   fields: Record<string, unknown>,
   user?: SessionUser | null,
-): Record<string, unknown> {
+  ctx?: RowScopeContext,
+): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = { [CREATOR_FIELD]: user?.openId ?? '' };
-  if (!String(fields[VISIBILITY_FIELD] ?? '').trim()) {
-    out[VISIBILITY_FIELD] = DEFAULT_VISIBILITY;
+
+  const scope = String(fields[VISIBILITY_FIELD] ?? '').trim();
+  if (!scope) out[VISIBILITY_FIELD] = DEFAULT_VISIBILITY;
+
+  // 「指定部门可见」却没选部门 ⇒ 兜底成「我直接所属/负责的部门」（不含下级，与默认选中一致）
+  const picked = fields[VISIBLE_DEPTS_FIELD];
+  const hasPicked = Array.isArray(picked) ? picked.length > 0 : Boolean(String(picked ?? '').trim());
+  if (scope === '指定部门可见' && !hasPicked && ctx) {
+    const myScope = await myDeptScopeOf(user, ctx);
+    if (myScope.myIds.length) out[VISIBLE_DEPTS_FIELD] = myScope.myIds;
   }
   return out;
 }

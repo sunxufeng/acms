@@ -96,7 +96,7 @@ export interface CrudColumn {
    * 为什么要有它：`linkOptions` 是 columns.tsx 里的静态数组，而人员名单是运行期数据
    * （会增删人），写死必然过期；由 CrudPage 统一拉取也免去每个页面各写一遍 useState + useEffect。
    */
-  linkSource?: 'users';
+  linkSource?: 'users' | 'departments';
   /**
    * 编辑该字段所需的权限点：**没有该权限时字段渲染为只读**（可看不可改）。
    *
@@ -242,6 +242,13 @@ export interface CrudPageProps {
   pageSize?: number;
   /** 额外链接按钮（如「排课与课次」跳转预检页），渲染为 <Link> */
   extraLinks?: { label: string; href: string }[];
+  /**
+   * 新建表单的**默认字段值**（只作用于 create；不会覆盖用户已在表单里改过的值）。
+   *
+   * 典型用途：会议纪要选「指定部门可见」时，默认选中「我所属的部门」——
+   * 由具体页面先查好自己的部门再传进来，CrudPage 不关心数据从哪来。
+   */
+  createDefaults?: Record<string, unknown>;
   /** 新建改为跳转到独立页面（而非页内表单/弹窗）。设置后「新建」按钮渲染为 <Link> */
   createHref?: string;
   /** 编辑改为跳转到独立页面：行 id → href。设置后每行「编辑」按钮渲染为 <Link> */
@@ -478,7 +485,7 @@ const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: '
  */
 let weilingContactCache: { value: string; label: string }[] | null = null;
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, studentNameKeys, sidebar, extraParams }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, createDefaults, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, studentNameKeys, sidebar, extraParams }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -916,9 +923,41 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     return () => { alive = false; };
   }, [columns]);
 
+  /**
+   * 关联字段候选项（`linkSource: 'departments'`）：部门树（飞书同步的只读表）。
+   * value 用 **open_department_id**（它既是部门表记录的 id，也是权限判据里比对的那个值），
+   * label 用部门名（仅展示）。
+   * ⚠️ 过滤掉非 `od-…` 形态的（根部门「公司」的 id 是字符串 `'0'`）：多值字段靠 `contains`
+   *    子串匹配，单字符 `'0'` 会命中一切。要全公司可见请用可见范围里的「公开」。
+   */
+  const [departmentLinkOptions, setDepartmentLinkOptions] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    if (!columns.some((c) => c.linkSource === 'departments')) return;
+    let alive = true;
+    apiClient
+      .listDepartments()
+      .then((res) => {
+        if (!alive) return;
+        setDepartmentLinkOptions(
+          (res?.items ?? [])
+            .filter((d) => d.status !== 'invalid' && /^od-/.test(String(d.open_department_id ?? '')))
+            .map((d) => ({
+              value: String(d.open_department_id),
+              label: String(d.name ?? d.open_department_id),
+            })),
+        );
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [columns]);
+
   /** 关联字段的候选项：声明了 linkSource 就走动态来源，否则用列上的静态 linkOptions */
   const linkOptionsOf = (c: CrudColumn) =>
-    c.linkSource === 'users' ? userLinkOptions : (c.linkOptions ?? []);
+    c.linkSource === 'users'
+      ? userLinkOptions
+      : c.linkSource === 'departments'
+        ? departmentLinkOptions
+        : (c.linkOptions ?? []);
   /**
    * 字段级只读：`readonly` 或缺少 `readonlyPerm` 指定的权限点。
    * 注意它是**提示性**的，服务端仍会独立校验（前端只影响能不能点，不影响能不能改）。
@@ -1176,10 +1215,18 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         init[c.key] = (Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split('、').filter(Boolean));
       else if (c.type === 'tags')
         init[c.key] = Array.isArray(row[c.key]) ? row[c.key] : str(row[c.key]).split(/[\n,，]/).map((s) => s.trim()).filter(Boolean);
-      else if (c.type === 'link' && c.linkMulti) {
-        // 多选关联：__link 里是全部 id
-        const ids = row[c.key + '__link'];
-        init[c.key] = Array.isArray(ids) ? ids : [];
+      else if (c.linkMulti && (c.type === 'link' || c.type === 'person')) {
+        if (c.type === 'person') {
+          // 多选人员直接存**姓名数组**（与单选的「主持人 / 记录人」同口径），因此没有 __link
+          const v = row[c.key];
+          init[c.key] = Array.isArray(v)
+            ? v.map(String)
+            : str(v).split(/[,，、]/).map((x) => x.trim()).filter(Boolean);
+        } else {
+          // 多选关联：__link 里是全部 id
+          const ids = row[c.key + '__link'];
+          init[c.key] = Array.isArray(ids) ? ids : [];
+        }
       } else if (c.type === 'studentLink' || c.type === 'weilingContact' || c.type === 'link') {
         // 行中关联字段已被后端解析为可读名，但 __link 仍保留 record id —— 必须用 id 回填选择器，
         // 否则编辑时把「姓名」当 id 提交，保存后关联就断了。
@@ -1563,23 +1610,19 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             </div>
           ) : c.type === 'number' ? (
             <input className="form-input" type="number" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
-          ) : c.type === 'person' ? (
-            <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
-              <option value="">{t('common.notFilled')}</option>
-              {userNames.map((o) => <option key={o} value={o}>{tl(o)}</option>)}
-            </select>
-          ) : c.type === 'student' ? (
-            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentOptions} placeholder="输入学生姓名筛选…" />
-          ) : c.type === 'studentLink' ? (
-            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" />
-          ) : c.type === 'weilingContact' ? (
-            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={weilingContactOptions} placeholder="输入联系人姓名或手机号筛选…" />
-          ) : c.type === 'link' && c.linkMulti ? (
+          ) : c.linkMulti && (c.type === 'link' || c.type === 'person') ? (
             (() => {
               const cur = Array.isArray(form[c.key])
                 ? (form[c.key] as unknown[]).map(String)
-                : str(form[c.key]).split(',').map((x) => x.trim()).filter(Boolean);
-              const opts = linkOptionsOf(c);
+                : str(form[c.key]).split(/[,，、]/).map((x) => x.trim()).filter(Boolean);
+              /**
+               * 候选项：
+               * - `person` + linkMulti → 用户姓名（**存姓名数组**，与单选的「主持人」同口径，便于互相对照）
+               * - `link` + linkMulti   → 来自 linkSource（users → 用户 record id；departments → open_department_id）
+               */
+              const opts = c.type === 'person'
+                ? userNames.map((n) => ({ value: n, label: n }))
+                : linkOptionsOf(c);
               const ro = fieldReadonly(c);
               return (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, opacity: ro ? 0.75 : 1 }}>
@@ -1624,6 +1667,17 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 </div>
               );
             })()
+          ) : c.type === 'person' ? (
+            <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
+              <option value="">{t('common.notFilled')}</option>
+              {userNames.map((o) => <option key={o} value={o}>{tl(o)}</option>)}
+            </select>
+          ) : c.type === 'student' ? (
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentOptions} placeholder="输入学生姓名筛选…" />
+          ) : c.type === 'studentLink' ? (
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" />
+          ) : c.type === 'weilingContact' ? (
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={weilingContactOptions} placeholder="输入联系人姓名或手机号筛选…" />
           ) : c.type === 'link' && fieldReadonly(c) ? (
             // 只读关联字段：显示已选名称（后端已解析成姓名串）而不是把 id 露出来，
             // 且不挂 onChange —— 服务端同样会拒绝，这里只是不给出「以为能改」的假象。
@@ -2141,7 +2195,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             {canCreate && (createHref ? (
               <Link href={createHref} className="btn btn-primary">+ {t('crud.create')}</Link>
             ) : (
-              <button className="btn btn-primary" onClick={() => openCreate()} disabled={loading || readonly}>+ {t('crud.create')}</button>
+              <button className="btn btn-primary" onClick={() => openCreate(createDefaults)} disabled={loading || readonly}>+ {t('crud.create')}</button>
             ))}
           </div>
         </div>

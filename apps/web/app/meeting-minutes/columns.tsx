@@ -5,6 +5,7 @@ import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
 import {
   MEETING_VISIBILITY_FIELD,
   MEETING_VISIBILITY_SCOPES,
+  MEETING_VISIBLE_DEPTS_FIELD,
   MEETING_VISIBLE_USERS_FIELD,
 } from '@acms/contracts';
 
@@ -78,9 +79,11 @@ export const COLUMNS: CrudColumn[] = [
   { key: '主持人', label: '主持人', width: '100px', form: true, type: 'person' },
   { key: '记录人', label: '记录人', width: '100px', list: false, form: true, type: 'person' },
   // 参会/缺席/列席都是「人名清单」，用单行输入框即可（textarea 太高，表单被拉得很长）
-  { key: '参会人员', label: '参会人员', width: '160px', list: false, form: true, type: 'text' },
-  { key: '缺席人员', label: '缺席人员', width: '160px', list: false, form: true, type: 'text' },
-  { key: '列席人员', label: '列席人员', width: '160px', list: false, form: true, type: 'text' },
+  // 参会 / 缺席 / 列席：**多选人员**（候选来自 `/users/names`，**存姓名数组** ——
+  // 与单选的「主持人 / 记录人」同口径，便于互相对照；外部人员暂不支持，见 issue 说明）
+  { key: '参会人员', label: '参会人员', width: '160px', list: false, form: true, type: 'person', linkMulti: true },
+  { key: '缺席人员', label: '缺席人员', width: '160px', list: false, form: true, type: 'person', linkMulti: true },
+  { key: '列席人员', label: '列席人员', width: '160px', list: false, form: true, type: 'person', linkMulti: true },
   // 会议总结放在会议明细之前：先看清结论，再看原始记录
   { key: '会议总结', label: '会议总结（纪要）', list: false, form: true, type: 'markdown' },
   {
@@ -144,6 +147,20 @@ export const COLUMNS: CrudColumn[] = [
     // 只在「可见范围 = 指定用户可见」时出现（CrudPage 的 showIf = 表单条件显隐）
     showIf: (f) => String(f[MEETING_VISIBILITY_FIELD] ?? '') === '指定用户可见',
     hint: '不选人的话，这条纪要只有你自己和系统管理员能看到',
+  },
+  {
+    key: MEETING_VISIBLE_DEPTS_FIELD,
+    label: '可见部门',
+    width: '150px',
+    list: false,
+    form: true,
+    // 多选部门：value = 部门的 open_department_id（**不是部门名** —— 判据要免疫重名与改名），
+    // label = 部门名。存储与判据口径见 contracts/src/meeting.ts 的说明。
+    type: 'link',
+    linkMulti: true,
+    linkSource: 'departments',
+    showIf: (f) => String(f[MEETING_VISIBILITY_FIELD] ?? '') === '指定部门可见',
+    hint: '默认选中你自己所属的部门；被选中部门（含其下级部门）里的人都能看到',
   },
   {
     key: '敏感级别',

@@ -926,6 +926,8 @@
   "labels": {
     "可见范围": "Visibility",
     "可见用户": "Visible Users",
+    "可见部门": "Visible Departments",
+    "指定部门可见": "Specific Departments",
     "公开": "Public",
     "部门内可见": "Department Only",
     "指定用户可见": "Specific Users",

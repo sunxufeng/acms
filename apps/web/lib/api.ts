@@ -1402,6 +1402,11 @@ export const api = {
     }>('/students/scope-options'),
   listDepartments: () => request<DepartmentListResult>('/departments'),
   /**
+   * 当前用户**所属**的部门（`{ ids, names }`，ids 是 `od-…` 形态）。
+   * 新建会议纪要选「指定部门可见」时，用它预填「默认选中自己部门」。
+   */
+  myDepartments: () => request<{ ids: string[]; names: string[] }>('/departments/my-departments'),
+  /**
    * 部门成员快照的轻量索引（一次拿全，约几十行）。
    * 用户管理页左树用它给每个节点算「点进去能筛出几个系统账号」——
    * 逐部门调 listDepartmentMembers 会发 N 次请求。

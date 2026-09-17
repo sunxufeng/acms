@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { MEETING_VISIBLE_DEPTS_FIELD } from '@acms/contracts';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
@@ -18,6 +19,20 @@ function str(v: unknown): string {
 export default function MeetingMinutesPage() {
   const ts = useTranslations('students');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
+
+  /**
+   * 「指定部门可见」新建时的默认选中值 = **我所属的部门**。
+   *
+   * 放在页面层查、再喂给 CrudPage 的 `createDefaults`，这样通用组件不必知道
+   * 「当前用户属于哪个部门」这件事（别的模块也不需要这个语义）。
+   */
+  const [myDeptIds, setMyDeptIds] = useState<string[]>([]);
+  useEffect(() => {
+    api
+      .myDepartments()
+      .then((r) => setMyDeptIds(Array.isArray(r?.ids) ? r.ids : []))
+      .catch(() => {});
+  }, []);
 
   // 按部门聚合已选会议纪要，构建 AI 上下文
   const context = useMemo(() => {
@@ -73,6 +88,8 @@ export default function MeetingMinutesPage() {
         moduleKey="meetingMinutes"
         // 从笔记转换进来时，按会议总结文案自动识别议题/地点/时间/人员等字段
         enrichPrefill={parseMeetingFromSummary}
+        // 新建时预填「可见部门」= 我所属的部门（仅在可见范围选「指定部门可见」时用得上，用户可改）
+        createDefaults={{ [MEETING_VISIBLE_DEPTS_FIELD]: myDeptIds }}
         statusField="状态"
         // 会议时间范围筛选（后端 rangeField='会议时间'，走 listDeep 内存过滤）
         rangeFilters={[{ key: 'meetingTime', label: '会议时间', fromParam: 'from', toParam: 'to' }]}

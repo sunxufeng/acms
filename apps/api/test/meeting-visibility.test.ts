@@ -5,6 +5,7 @@ import {
   meetingDefaults,
   meetingRowScope,
   myDeptNamesOf,
+  myDeptScopeOf,
   subtreeOf,
 } from '../src/meeting-minutes/meeting-visibility.js';
 
@@ -166,6 +167,43 @@ describe('myDeptNamesOf（我的部门范围 → 部门名集合）', () => {
 
 // ───────────────────────── meetingRowScope ─────────────────────────
 
+describe('myDeptScopeOf（部门范围的三种形态）', () => {
+  it('钟慧婷（教学管理中心的普通成员）：所属 = 教学管理中心，命中范围含其上级学术轨', async () => {
+    const s = await myDeptScopeOf(user(ALICE), makeCtx());
+    expect(s.myIds).toEqual([OD.teaching]); // 「默认选中自己部门」
+    expect(s.ownIds).toEqual([OD.teaching]); // 教学管理中心无下级
+    // 🔴 关键：assignableIds 里含**上级**「学术轨」——
+    //    这样把纪要指定给「学术轨」时，教学管理中心的人才看得到
+    //    （= 需求里的「选对部门的所有人都可以看到」）
+    expect(s.assignableIds.sort()).toEqual([OD.teaching, OD.academic].sort());
+  });
+
+  it('丁懿（学术轨成员 + 4 个部门负责人）：myIds 只取「所属」那一个', async () => {
+    const s = await myDeptScopeOf(user(DING), makeCtx());
+    expect(s.myIds).toEqual([OD.academic]); // 不含他负责的另外 3 个中心
+    expect(s.ownIds.sort()).toEqual(
+      [OD.academic, OD.admission, OD.studentDev, OD.teaching].sort(),
+    );
+    expect(s.assignableIds).toContain(OD.academic);
+  });
+
+  it('不在任何部门 → 三种形态全空（绝不退化成「全部」）', async () => {
+    expect(await myDeptScopeOf(user('ou_ghost'), makeCtx())).toEqual({
+      myIds: [],
+      ownIds: [],
+      ownNames: [],
+      assignableIds: [],
+    });
+  });
+
+  it('🔴 根部门「公司」的 id 是字符串 0，必须排除（否则 contains 会命中一切）', async () => {
+    const s = await myDeptScopeOf(user(SUN), makeCtx()); // Arete AI Lab，其 parent = 公司
+    expect(s.assignableIds).not.toContain('0');
+    expect(s.ownIds.every((id) => id.startsWith('od-'))).toBe(true);
+    expect(s.assignableIds.every((id) => id.startsWith('od-'))).toBe(true);
+  });
+});
+
 describe('meetingRowScope（可见范围判据）', () => {
   /** 收集返回结构里的所有叶子条件 */
   function leaves(node: unknown, out: Record<string, unknown>[] = []): Record<string, unknown>[] {
@@ -182,7 +220,7 @@ describe('meetingRowScope（可见范围判据）', () => {
       .filter((c) => c.field === '可见范围')
       .flatMap((c) => c.value as string[]);
     // 「仅自己可见」不再单独成支 —— 它由下面那条「创建人 = 我」覆盖
-    expect(scopes.sort()).toEqual(['公开', '指定用户可见', '部门内可见'].sort());
+    expect(scopes.sort()).toEqual(['公开', '指定部门可见', '指定用户可见', '部门内可见'].sort());
     // 「创建人 = 我」是**独立**分支（用 openId）
     expect(leaves(scope).find((c) => c.field === '创建人ID')?.value).toEqual([DING]);
     // 「指定用户可见」用用户 record id + contains；「部门」用部门名等值
@@ -245,6 +283,16 @@ describe('meetingRowScope（可见范围判据）', () => {
     expect(leaves(scope).some((c) => c.field === '可见用户')).toBe(false);
   });
 
+  it('「指定部门可见」用部门 id + contains（值非空、且是 od- 形态）', async () => {
+    const scope = await meetingRowScope(user(ALICE), makeCtx());
+    const deptCond = leaves(scope).find((c) => c.field === '可见部门');
+    expect(deptCond?.op).toBe('contains');
+    const vals = deptCond?.value as string[];
+    expect(vals.length).toBeGreaterThan(0);
+    expect(vals.every((v) => v.startsWith('od-'))).toBe(true);
+    expect(vals).toContain(OD.academic); // 上级部门也在我能命中的集合里
+  });
+
   it('豁免角色名单含系统管理员与院级管理（引擎按此跳过整个判据）', () => {
     expect(MEETING_SCOPE_BYPASS_ROLES).toContain('系统管理员');
     expect(MEETING_SCOPE_BYPASS_ROLES).toContain('院级管理');
@@ -254,16 +302,34 @@ describe('meetingRowScope（可见范围判据）', () => {
 // ───────────────────────── meetingDefaults ─────────────────────────
 
 describe('meetingDefaults（新建时自动写创建人 + 兜底可见范围）', () => {
-  it('写入创建人 openId', () => {
-    expect(meetingDefaults({}, user(DING))['创建人ID']).toBe(DING);
+  it('写入创建人 openId', async () => {
+    expect((await meetingDefaults({}, user(DING)))['创建人ID']).toBe(DING);
   });
 
-  it('可见范围为空时补默认值', () => {
-    expect(meetingDefaults({}, user(DING))['可见范围']).toBe('部门内可见');
-    expect(meetingDefaults({ 可见范围: '' }, user(DING))['可见范围']).toBe('部门内可见');
+  it('可见范围为空时补默认值', async () => {
+    expect((await meetingDefaults({}, user(DING)))['可见范围']).toBe('部门内可见');
+    expect((await meetingDefaults({ 可见范围: '' }, user(DING)))['可见范围']).toBe('部门内可见');
   });
 
-  it('用户已选时不覆盖', () => {
-    expect(meetingDefaults({ 可见范围: '仅自己可见' }, user(DING))['可见范围']).toBeUndefined();
+  it('用户已选时不覆盖', async () => {
+    expect((await meetingDefaults({ 可见范围: '仅自己可见' }, user(DING)))['可见范围']).toBeUndefined();
+  });
+
+  it('「指定部门可见」但没选部门 → 兜底成我所属的部门（不含下级）', async () => {
+    const out = await meetingDefaults(
+      { 可见范围: '指定部门可见' },
+      user(ALICE),
+      makeCtx(),
+    );
+    expect(out['可见部门']).toEqual([OD.teaching]);
+  });
+
+  it('已选了部门就不要覆盖', async () => {
+    const out = await meetingDefaults(
+      { 可见范围: '指定部门可见', 可见部门: [OD.brand] },
+      user(ALICE),
+      makeCtx(),
+    );
+    expect(out['可见部门']).toBeUndefined();
   });
 });

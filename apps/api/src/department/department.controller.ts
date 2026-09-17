@@ -53,6 +53,16 @@ export class DepartmentController {
   }
 
   /**
+   * 当前用户**所属**的部门（`{ ids, names }`）。
+   * 用途：新建会议纪要选「指定部门可见」时**预填默认选中自己部门**（用户看得见、可改）。
+   * 静态路由，必须排在下面的 `:id/members` 之前。
+   */
+  @Get('my-departments')
+  myDepartments(@Req() req: { user: SessionUser }) {
+    return this.svc.myDepartments(req.user);
+  }
+
+  /**
    * 某部门下的员工（读本地成员快照，不打上游）。
    * includeSub 默认 **true**：飞书的按部门取人只给直属成员，
    * 不含下级的话点「公司」/中间层部门永远是空的。传 0 只看直属。

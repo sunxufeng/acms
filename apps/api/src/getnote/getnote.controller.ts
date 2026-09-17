@@ -34,7 +34,17 @@ export class GetnoteController {
    * 判据 = `module:<模块key>:<动作>`。
    * 2026-09-17 从 legacy `getnote:read/write` 收口到 module 体系：
    * 那套旧点界面上看不到（收在「兼容权限点」折叠区），导致「矩阵里没勾、实际却能改」。
-   * 笔记侧用 `module:getnote:*`，配置侧（凭证/授权/关联）用 `module:getnoteSources:*`。
+   * **本 controller 的接口一律用 `module:getnote:*`** —— 包括「我的凭证」(`/getnote/credential`)
+   * 与设备授权 (`/getnote/oauth/*`) 和笔记关联 (`/getnote/links`)。
+   *
+   * ⚠️ 2026-09-17 踩过：当初按名字把它们当成「配置侧」用了 `module:getnoteSources:*`，
+   *    结果「我的笔记」页面一加载就 403（该页 `load()` 会调 `/getnote/credential`，
+   *    403 时整页显示「你没有「我的笔记/知识库」的访问权限」）。
+   *    **判断接口归属不能看名字，要看「谁在调它」**：
+   *      · `/getnote/credential`、`/getnote/oauth/*` → 只有「我的笔记」页在用（我自己的凭证）
+   *      · `/getnote/links` → `NotePanel`（家校沟通详情等业务页）与 `CrudPage` 在用
+   *      · 真正的「知识库配置」是 `/getnote-sources`（`sources.controller.ts`，通用 CRUD）
+   *        → 那里才是 `module:getnoteSources:*`
    */
   private assert(user: SessionUser, perm: Permission) {
     if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, perm).allowed)
@@ -89,7 +99,7 @@ export class GetnoteController {
   @Get('credential')
   credential(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'module:getnoteSources:read');
+    this.assert(user, 'module:getnote:read');
     return this.svc.credentialStatus(user);
   }
 
@@ -100,14 +110,14 @@ export class GetnoteController {
   @Put('credential')
   saveCredential(@Req() req: Request, @Body() body: { apiKey?: string; clientId?: string }) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'module:getnoteSources:update');
+    this.assert(user, 'module:getnote:update');
     return this.svc.saveCredential(user, String(body?.apiKey ?? ''), String(body?.clientId ?? ''));
   }
 
   @Delete('credential')
   clearCredential(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'module:getnoteSources:update');
+    this.assert(user, 'module:getnote:update');
     return this.svc.clearCredential(user);
   }
 
@@ -117,7 +127,7 @@ export class GetnoteController {
   @Post('oauth/start')
   startOAuth(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'module:getnoteSources:update');
+    this.assert(user, 'module:getnote:update');
     return this.svc.startOAuth(user);
   }
 
@@ -125,14 +135,14 @@ export class GetnoteController {
   @Get('oauth/poll')
   pollOAuth(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'module:getnoteSources:read');
+    this.assert(user, 'module:getnote:read');
     return this.svc.pollOAuth(user);
   }
 
   @Delete('oauth')
   cancelOAuth(@Req() req: Request) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'module:getnoteSources:update');
+    this.assert(user, 'module:getnote:update');
     return this.svc.cancelOAuth(user);
   }
 
@@ -141,7 +151,7 @@ export class GetnoteController {
   /** 某业务实体（如某个学生）当前关联的笔记。关联记录全员可见，chip 上标注归属人。 */
   @Get('links')
   listLinks(@Req() req: Request, @Query('entityType') entityType?: string, @Query('entityId') entityId?: string) {
-    this.assert((req as Request & { user: SessionUser }).user, 'module:getnoteSources:read');
+    this.assert((req as Request & { user: SessionUser }).user, 'module:getnote:read');
     if (!entityType || !entityId)
       throw new HttpException('BAD_REQUEST:entityType/entityId required', HttpStatus.BAD_REQUEST);
     return this.svc.listLinks(entityType, entityId);
@@ -151,7 +161,7 @@ export class GetnoteController {
   @Put('links')
   replaceLinks(@Req() req: Request, @Body() body: Record<string, unknown>) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'module:getnoteSources:update');
+    this.assert(user, 'module:getnote:update');
     const entityType = String(body?.entityType ?? '');
     const entityId = String(body?.entityId ?? '');
     if (!entityType || !entityId)

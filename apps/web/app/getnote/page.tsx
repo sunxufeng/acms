@@ -88,7 +88,7 @@ function makeColumns(
   configOptions: string[] = [],
   /**
    * 归属人候选（「归属人」列的筛选项）。
-   * 取值来自各知识库配置的「关联用户 / 归属人」—— 那就是「谁可能拥有笔记」的完整集合；
+   * 取值来自各知识库配置的「关联用户」—— 那就是「谁可能拥有笔记」的完整集合；
    * 比从当前页数据里动态收集更稳（翻页不会让候选消失）。
    */
   ownerOptions: string[] = [],
@@ -485,9 +485,20 @@ export default function GetnotePage() {
   );
 
   /**
-   * 归属人候选：取各配置「关联用户 + 归属人」里的人名。
+   * 归属人候选：只取各配置「关联用户」里的人名。
+   *
    * 「关联用户」在列表接口里已被后端解析成「张三、李四」这样的展示串（`__link` 才是 id），
-   * 所以按「、」拆即可；旧字段「归属人」是单人归属时代的值，一并收进来。
+   * 所以按「、」拆即可。
+   *
+   * 🔴 **不要再把旧字段「归属人」也收进来**（2026-09-17 移除）。它是单人归属时代的**手填文本**，
+   *    **不随用户表改名**；与「关联用户」并存时会让同一个人冒出两种写法：
+   *    实测那条配置 `归属人='孙旭峰'` / `关联用户='孙旭峰｜Richard'`
+   *    ⇒ 下拉出现两个「孙旭峰」，而笔记数据里该人的 `_owner` 只有带英文名那个
+   *    （本人凭证源先入列，`_owner` 用的是会话姓名）⇒ 选旧写法的那个选项**必然筛出 0 条**。
+   *    其余 11 条配置两套字段本来就逐字相同（被 Set 去重），所以只有本人看得见这个问题。
+   *
+   * 移除兜底是安全的：已核对生产全部 12 条配置的「关联用户」**均非空**，
+   * 且新建配置时后端默认把自己写进「关联用户」（`sources.service.ts` 的 create 钩子）。
    */
   const ownerOptions = useMemo(() => {
     const set = new Set<string>();
@@ -498,10 +509,7 @@ export default function GetnotePage() {
         .filter(Boolean)
         .forEach((x) => set.add(x));
     };
-    for (const s of configSources) {
-      push(s['关联用户']);
-      push(s['归属人']);
-    }
+    for (const s of configSources) push(s['关联用户']);
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh'));
   }, [configSources]);
 

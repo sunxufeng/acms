@@ -383,8 +383,8 @@ export function WeilingPanel() {
                   <button className="link-btn" onClick={() => drill({ 状态: s.code })}>{s.name}</button>
                   {(s.stages?.length ?? 0) > 0 ? (
                     <span style={{ fontSize: 11, color: 'var(--fg-tertiary)', marginLeft: 8 }}>
-                      {s.stages.slice(0, 3).map((x) => `${x.name} ${x.count}`).join(' · ')}
-                      {s.stages.length > 3 ? ' …' : ''}
+                      （阶段：{s.stages.slice(0, 3).map((x) => `${x.name} ${x.count}`).join(' · ')}
+                      {s.stages.length > 3 ? ' …' : ''}）
                     </span>
                   ) : null}
                 </td>

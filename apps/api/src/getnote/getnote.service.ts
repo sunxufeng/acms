@@ -23,6 +23,7 @@ import {
 } from './credential.js';
 import {
   listEnabledSourceCreds,
+  noteInScopedSources,
   resolveUserIdByOpenId,
   sourceVisibleTo,
 } from './source-cred.js';
@@ -733,12 +734,21 @@ export class GetnoteService {
   private static readonly ADMIN_SNAPSHOT_REDIS_TTL_SEC = 3600;
 
   /**
-   * 拉齐管理员能看到的所有笔记：自己的凭证 + 所有启用配置的凭证。
+   * 拉齐「这个人能看到的所有笔记」：自己的凭证 + 启用配置的凭证。
    *
-   * 去重规则：按 note_id 去重，**自己的凭证优先** —— 管理员看到自己那篇时，
-   * 归属应该显示他自己，而不是恰好重复同步过它的某个配置。
+   * 去重规则：按 note_id 去重，**自己的凭证优先** —— 自己的那篇归属应该显示自己，
+   * 而不是恰好重复同步过它的某个配置。
+   *
+   * @param onlyRecordIds 只处理这些配置（`recordId`）。非管理员路径必须传 ——
+   *   否则每进一次「我的笔记」都要把**全部**启用源的笔记拉一遍（实测 12 个源 24 秒，
+   *   而且会打光所有同事的上游额度：官方 QPS 2 / 每天 5000 次是按 Key 算的）。
+   *   不传 = 全量（管理员聚合与后台同步用）。
+   *   ⚠️ 白名单**不作用于「本人凭证」那一路** —— 那一路只含调用者自己的数据，天然可见。
    */
-  private async collectAllNotes(user: SessionUser): Promise<GetnoteNote[]> {
+  private async collectAllNotes(
+    user: SessionUser,
+    onlyRecordIds?: string[],
+  ): Promise<GetnoteNote[]> {
     const entries = await listEnabledSourceCreds(this.base, TABLES.getnoteSource.tableId, {
       maxPages: 5,
     });
@@ -789,6 +799,9 @@ export class GetnoteService {
 
     for (const e of entries) {
       if (!e.cred) continue;
+      // 白名单过滤放在 seenKey 之前：白名单外的源连「占位」都不该做，
+      // 否则它会把 key 记进 seenKey，导致同 key 的白名单源被误跳。
+      if (onlyRecordIds && !onlyRecordIds.includes(e.recordId)) continue;
       // 同一个 Key 可能对应多个配置（或多配置共用一份凭证）—— 只拉一次，避免白白消耗限流额度
       if (seenKey.has(e.cred.key)) continue;
       seenKey.add(e.cred.key);
@@ -1195,9 +1208,14 @@ export class GetnoteService {
     size: number,
     filters: NoteListFilters = {},
   ): Promise<GetnoteListResult> {
-    const set = new Set(sourceIds);
-    const all = await this.collectAllNotes(user);
-    const mine = all.filter((n) => set.has(String(n._sourceRecordId ?? '')));
+    // 只拉「我可见的那些源」——不限定的话要把全部启用源都打一遍（12 个源约 24 秒，
+    // 还会消耗所有同事的上游额度）。
+    const all = await this.collectAllNotes(user, sourceIds);
+    // 🔴 判据是纯函数 `noteInScopedSources`（`source-cred.ts`）——**空 recordId 也必须放行**，
+    //    那是「本人凭证」那一路（只含调用者自己的笔记）。把它丢掉会让「向导页填过个人凭证 +
+    //    又有关联配置」的用户列表恒为空，而管理员看起来一切正常。
+    //    2026-09-17 刘佳音｜Joy 报障（15 条一条不显示）即此因，细节见该函数的注释。
+    const mine = all.filter((n) => noteInScopedSources(n, sourceIds));
 
     const keyword = q.trim().toLowerCase();
     // 结构化筛选（来源 / 配置名称 / 归属人 / 标签）先过一遍，关键字检索再叠加

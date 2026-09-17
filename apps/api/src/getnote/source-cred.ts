@@ -128,6 +128,33 @@ export function sourceVisibleTo(
 }
 
 /**
+ * 🔴 「这条笔记属不属于**我可见的那些源**」——非管理员列表（`listScopedBySources`）的唯一判据。
+ *
+ * 规则：`_sourceRecordId` 命中我的可见配置集合，**或者**它为空字符串。
+ *
+ * ⚠️ 为什么空串必须放行：空串是 `collectAllNotes` 里**「本人凭证」那一路**的标记
+ *   （那一路刻意不带 recordId，见其 push 处的注释）。它只包含**调用者自己**凭证拉来的
+ *   笔记，放行不存在越权；反过来若把空串一律丢弃，就会踩一个极难查的坑 ——
+ *
+ *   > 在向导页填过**个人凭证**、同时又有关联的知识库配置的用户：
+ *   > 个人凭证源先入列并占住 `seenKey`（按 API Key 去重）⇒ 同一份 Key 的配置源被跳过
+ *   > ⇒ 他的笔记全部挂在空 recordId 上 ⇒ 白名单一个都不命中 ⇒ **「我的笔记」恒为空**。
+ *   > 而管理员完全正常（管理员的凭证 Key 与他不同，他的配置源不会被跳过、recordId 是对的）
+ *   > ⇒ 症状表现为「这个人自己看不到，管理员却看得到」。
+ *   > 2026-09-17 刘佳音｜Joy 报障（15 条一条不显示）即此因。
+ *
+ * ⚠️ 别把这里改成「空串视为可见配置」之类的白名单补集 —— 判据只做 OR，不做集合推导。
+ */
+export function noteInScopedSources(
+  note: { _sourceRecordId?: string },
+  sourceIds: readonly string[],
+): boolean {
+  const rid = String(note?._sourceRecordId ?? '');
+  if (rid === '') return true;
+  return sourceIds.includes(rid);
+}
+
+/**
  * 列出**所有启用**的知识库配置及其解好的凭证。
  *
  * ⚠️ 刻意**不做任何按人过滤**：这个方法服务的都是"系统级"调用方 ——

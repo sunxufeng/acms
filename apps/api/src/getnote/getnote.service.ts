@@ -1,9 +1,14 @@
 import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import type { BaseClient } from '@acms/base-adapter';
-import { TABLES, USER_TABLE } from '@acms/contracts';
+import { TABLES, USER_TABLE, splitNoteTags } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { toText } from '@acms/base-adapter';
-import type { SessionUser, NoteConvertLogItem, NoteConfigMapItem } from '@acms/contracts';
+import type {
+  SessionUser,
+  NoteConvertLogItem,
+  NoteConfigMapItem,
+  NoteListFilters,
+} from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { REDIS } from '../redis.provider.js';
 import type { Redis } from 'ioredis';
@@ -825,6 +830,7 @@ export class GetnoteService {
     cursor: string,
     q: string,
     size: number,
+    filters: NoteListFilters = {},
   ): Promise<GetnoteListResult> {
     const key = user.openId;
     const now = Date.now();
@@ -878,13 +884,17 @@ export class GetnoteService {
     const snapshot = snap;
 
     const keyword = q?.trim().toLowerCase();
+    // ⚠️ 筛选必须在**切片之前**做：否则 total 与 hasMore 都是按未筛选的池子算的，
+    //    前端会显示「共 509 条」却只有几条能翻出来（分页条与内容对不上）。
+    //    管理员路径本来就是「内存快照 + 内存分页」，加筛选不需要动数据、也不需要打上游。
+    const filteredPool = this.applyNoteFilters(snapshot.items, filters);
     const pool = keyword
-      ? snapshot.items.filter(
+      ? filteredPool.filter(
           (n) =>
             String(n.title ?? '').toLowerCase().includes(keyword) ||
             String(n.content ?? '').toLowerCase().includes(keyword),
         )
-      : snapshot.items;
+      : filteredPool;
 
     // ⚠️ 快照过期后翻页的处理：
     // 上面那段在过期时会**重新拉取**一次，重建出来的列表可能已经变了（有人新增/删除笔记）。
@@ -1046,15 +1056,18 @@ export class GetnoteService {
     cursor?: string,
     q?: string,
     size = 20,
+    filters: NoteListFilters = {},
   ): Promise<GetnoteListResult> {
     // 管理员：跨所有启用配置聚合（走快照分页，不用上游 cursor）
-    if (this.isAdmin(user)) return this.listAllForAdmin(user, cursor ?? '', q ?? '', size);
+    if (this.isAdmin(user))
+      return this.listAllForAdmin(user, cursor ?? '', q ?? '', size, filters);
 
     // 非管理员：**被关联到知识库配置时**，只看到这些配置的笔记 —— 与管理员同一条
     // 数据来源（每条配置用自己的凭证去拉），只是配置集合被收窄到「我能看到的那几条」。
     // 一条都没被关联的，回落到「只用自己的凭证」的旧行为。
     const scoped = await this.linkedSourceIds(user);
-    if (scoped.length) return this.listScopedBySources(user, scoped, cursor ?? '', q ?? '', size);
+    if (scoped.length)
+      return this.listScopedBySources(user, scoped, cursor ?? '', q ?? '', size, filters);
 
     // 非管理员只用自己的 Key 直接翻上游游标，size 由上游决定（这里用不到）
     void size;
@@ -1096,6 +1109,39 @@ export class GetnoteService {
   }
 
   /**
+   * 「我的笔记」的结构化筛选：来源 / 配置名称 / 归属人 / 标签（2026-09-17 峰哥要求）。
+   *
+   * 为什么在内存里做：
+   *   - 管理员路径本来就是「内存快照（`adminSnapshots`，含 tags）+ 内存分页」，
+   *     在这里加筛选**不需要任何数据迁移**，也不用再去打上游（QPS 2，几百条要几分钟）；
+   *   - 非管理员路径同样是「聚合后内存分页」（`listScopedBySources`）。
+   *   换句话说：数据本来就在手里，缺的只是过滤那一步。
+   *
+   * ⚠️ 必须按 `splitNoteTags()` 的口径判「来源」与「标签」—— 前端列表也是用它拆的
+   *    （`packages/contracts/src/getnote.ts`）。两边各写一份必然漂移，
+   *    症状是「列里明明显示来源=得到大脑，按得到大脑筛却筛不到」。
+   *
+   * 匹配语义（与前端筛选控件一一对应）：
+   *   - 来源 / 配置名称 / 归属人：**精确匹配**（都是枚举值或人名，模糊会误命中）
+   *   - 标签：**模糊包含**（一条笔记带多个标签，用等值必然全筛空）
+   */
+  private applyNoteFilters(items: GetnoteNote[], f: NoteListFilters): GetnoteNote[] {
+    const source = f.source?.trim();
+    const configName = f.configName?.trim();
+    const owner = f.owner?.trim();
+    const tag = f.tag?.trim().toLowerCase();
+    if (!source && !configName && !owner && !tag) return items;
+
+    return items.filter((n) => {
+      if (source && splitNoteTags(n.tags).source !== source) return false;
+      if (configName && String(n._sourceName ?? '').trim() !== configName) return false;
+      if (owner && String(n._owner ?? '').trim() !== owner) return false;
+      if (tag && !splitNoteTags(n.tags).tags.some((x) => x.toLowerCase().includes(tag))) return false;
+      return true;
+    });
+  }
+
+  /**
    * 按「可见配置集合」收窄的笔记列表（非管理员）。
    *
    * 做法是**复用管理员的聚合**（`collectAllNotes` 本来就是「每条配置用自己的凭证去拉」，
@@ -1110,19 +1156,22 @@ export class GetnoteService {
     cursor: string,
     q: string,
     size: number,
+    filters: NoteListFilters = {},
   ): Promise<GetnoteListResult> {
     const set = new Set(sourceIds);
     const all = await this.collectAllNotes(user);
     const mine = all.filter((n) => set.has(String(n._sourceRecordId ?? '')));
 
     const keyword = q.trim().toLowerCase();
+    // 结构化筛选（来源 / 配置名称 / 归属人 / 标签）先过一遍，关键字检索再叠加
+    const scopedPool = this.applyNoteFilters(mine, filters);
     const pool = keyword
-      ? mine.filter(
+      ? scopedPool.filter(
           (n) =>
             String(n.title ?? '').toLowerCase().includes(keyword) ||
             String(n.content ?? '').toLowerCase().includes(keyword),
         )
-      : mine;
+      : scopedPool;
 
     const requested = parseSnapOffset(cursor);
     const offset = requested > 0 && requested >= pool.length ? 0 : requested;

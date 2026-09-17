@@ -127,25 +127,11 @@ export class GetnoteSourceService extends BaseRecordService {
   }
 
   /**
-   * 行级过滤：非管理员只看**自己关联或被归属**的配置。
-   *
-   * ⚠️ 过滤发生在分页**之后**，所以这里把结果收敛成单页 ——
-   * 配置表的现实量级是「每人几条」，一页装得下。
+   * 列表用的行级过滤**已移除** —— 见 `list()` 的注释：
+   * 过滤必须由引擎在 SQL 里做（`GETNOTE_SOURCE_META.rowScope`），
+   * 在 list 里过滤只能收敛成单页、把分页搞坏（2026-09-17 的回归）。
+   * 单条记录的可见性判据仍由下面的 `assertOwn()` 负责（详情 / 写操作 / 越权）。
    */
-  private async onlyVisible<T extends Record<string, unknown>>(
-    rows: T[],
-    user: SessionUser,
-  ): Promise<T[]> {
-    if (this.isAdmin(user)) return rows;
-    const myId = await this.myUserId(user);
-    return rows.filter((r) =>
-      sourceVisibleTo(
-        { ownerOpenId: plainText(r['归属人ID']), linkedUserIds: idsOf(r['关联用户']) },
-        user,
-        myId,
-      ),
-    );
-  }
 
   /** 非管理员读写他人配置 → 403。配置不存在时不抛（交给上层处理 404）。 */
   private async assertOwn(
@@ -209,17 +195,22 @@ export class GetnoteSourceService extends BaseRecordService {
     return super.update(user, id, next);
   }
 
-  /** 列表：先做行级过滤，再用空串占位「凭证」字段，避免密文外泄 */
+  /**
+   * 列表：只做「凭证不外卖」这一件事，行级过滤交给引擎（`GETNOTE_SOURCE_META.rowScope`）。
+   *
+   * 🔴 这里**不要**再做后置过滤 —— 2026-09-17 踩过的坑：
+   * 曾在 list 里 `onlyVisible()` 之后再 `return { items, total: rows.length, hasMore: false }`，
+   * 因为过滤发生在分页之后，只能把结果收敛成单页；后果是 `total` 恒等于本页条数、
+   * `hasMore` 恒 false ⇒ **前端分页条永远只有 1 页**，用户只能看到前 10 条配置
+   *（峰哥实测报障：「只显示 10 条，数据库里明明更多」）。
+   * 现在过滤条件进了 SQL WHERE，`total` / `hasMore` / `pageToken` 都是引擎给的准确值。
+   */
   async list(user: SessionUser, query: Record<string, string | undefined>) {
     const res = await super.list(user, query);
-    const rows = await this.onlyVisible(res.items, user);
-    for (const it of rows) {
+    for (const it of res.items) {
       it['凭证'] = '';
     }
-    // ⚠️ 过滤发生在分页**之后**，所以这里直接把结果收敛成单页：
-    // 配置表的现实量级是「每人几条」，一页装得下；若将来真到了几百条
-    // 需要服务端分页级过滤的规模，应该在 BaseRecordService 里做通用的 opt-in ownerField。
-    return { ...res, items: rows, total: rows.length, hasMore: false, pageToken: undefined };
+    return res;
   }
 
   async detail(user: SessionUser, id: string) {

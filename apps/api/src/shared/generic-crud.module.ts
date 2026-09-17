@@ -79,8 +79,17 @@ export function matchFilter(row: Record<string, unknown>, cond: RowScopeFilter |
   }
   const want = (cond.value ?? []).map((v) => String(v));
   if (!want.length) return true;
-  const raw = row[cond.field];
-  const have = (Array.isArray(raw) ? raw : [raw]).map((v) => String(toText(v)));
+  // ⚠️ 关联字段（link）在内存路径里，展示值已被 `resolveLinks` 换成姓名，
+  //    原始 record id 只留在 `<字段>__link` 数组里。行级范围条件用的是 **id**
+  //    （姓名会重名，不能当判据），所以这里必须把 `__link` 也纳入候选，
+  //    否则「只被关联、没有归属人ID」的用户一旦触发内存路径（带 `__has`/`_from` 等深筛）
+  //    就会一条都看不到 —— 判据与服务端 SQL 路径（ILIKE 命中 jsonb 里的 id）保持一致。
+  //    见 `__has` 分支同款处理（「两边都认，传 id 或传名称都能筛到」）。
+  const cells = [row[cond.field], row[`${cond.field}__link`]];
+  const have = cells
+    .flatMap((c) => (Array.isArray(c) ? c : [c]))
+    .filter((v) => v !== undefined && v !== null)
+    .map((v) => String(toText(v)));
   return want.some((w) => (cond.op === 'contains' ? have.some((h) => h.includes(w)) : have.includes(w)));
 }
 

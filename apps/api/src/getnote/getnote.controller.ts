@@ -183,12 +183,22 @@ export class GetnoteController {
     @Query('pageToken') pageToken?: string,
     @Query('q') q?: string,
     @Query('pageSize') pageSize?: string,
+    /**
+     * 结构化筛选（2026-09-17）。参数名用中文字段名，与列表列 `key` 一一对应
+     * —— CrudPage 的筛选控件就是按列 key 拼 query 的（见 `buildParams`）。
+     * 前端会对参数名做 percent-encoding；**未编码的中文参数名会被 Node 直接 400**
+     * （用 curl 手测时务必 `--data-urlencode`，否则会误判成接口坏了）。
+     */
+    @Query('来源') source?: string,
+    @Query('配置名称') configName?: string,
+    @Query('归属人') owner?: string,
+    @Query('标签') tag?: string,
   ) {
     const user = (req as Request & { user: SessionUser }).user;
     this.assert(user, 'getnote:read');
     const size = Math.min(Math.max(Number(pageSize) || 20, 1), 100);
     // size 要传进 service：管理员走的是服务端快照分页，得知道每页切多少
-    const r = await this.svc.list(user, pageToken, q, size);
+    const r = await this.svc.list(user, pageToken, q, size, { source, configName, owner, tag });
     const items = r.notes ?? [];
     const hasMore = Boolean(r.has_more);
     return {

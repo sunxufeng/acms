@@ -164,6 +164,12 @@ export default function GetnoteSourcesPage() {
         subtitle={t('subtitle')}
         search={{ placeholder: t('searchPlaceholder') }}
         columns={COLUMNS}
+        /**
+         * 知识库配置是**低频、少量**数据（每人数条，全库十几条），
+         * CrudPage 默认每页 10 条会让用户以为「数据丢了」（2026-09-17 峰哥报障）。
+         * 调大默认每页条数，一屏看完；分页条仍可切回小页。
+         */
+        pageSize={50}
         inlineEdit
         standaloneForm
         formExtraActions={[

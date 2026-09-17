@@ -1716,10 +1716,39 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 onChange={(e) => setFilters((f) => ({ ...f, [c.filterParam ?? c.key]: e.target.value }))}
               />
             ) : (
-              <FilterSelect key={c.key} label={tl(c.label)} value={filters[c.key] ?? ''}
-                optionLabels={c.filterOptionLabels}
-                onChange={(v) => setFilters((f) => ({ ...f, [c.key]: v }))}
-                options={c.filterOptions ?? (c.dictKey ? (dicts[c.dictKey] ?? c.options ?? []) : c.type === 'department' ? departmentOptions.map((d) => d.value) : (c.options ?? []))} />
+              /**
+               * 下拉筛选。选项来源优先级：
+               *  1. `linkSource: 'users'` → 人员目录（value = 用户 record id，label = 姓名）。
+               *     关联字段（如「关联用户」）存的是 record id，用姓名当筛选值会筛不到；
+               *     与 `__has` 的语义一致（后端 `<字段>__has` 同时认 id 与解析后的名称）。
+               *  2. `filterOptions` / 字典 / 列 options —— 既有行为不变。
+               *
+               * ⚠️ 取值/回写统一用 `filterParam ?? key`（与文本筛选、`buildParams` 同口径）：
+               *    此前下拉分支只认 `c.key`，而 `buildParams` 认 `filterParam`，
+               *    一旦某列声明了 `filterParam`（如「关联用户」要发 `<字段>__has`），
+               *    就会出现「选了但框里不显示、请求里却发出去了」的错位。
+               */
+              <FilterSelect
+                key={c.key}
+                label={tl(c.label)}
+                value={filters[c.filterParam ?? c.key] ?? ''}
+                optionLabels={
+                  c.linkSource === 'users'
+                    ? Object.fromEntries(userLinkOptions.map((o) => [o.value, o.label]))
+                    : c.filterOptionLabels
+                }
+                onChange={(v) => setFilters((f) => ({ ...f, [c.filterParam ?? c.key]: v }))}
+                options={
+                  c.linkSource === 'users'
+                    ? userLinkOptions.map((o) => o.value)
+                    : (c.filterOptions ??
+                      (c.dictKey
+                        ? (dicts[c.dictKey] ?? c.options ?? [])
+                        : c.type === 'department'
+                          ? departmentOptions.map((d) => d.value)
+                          : (c.options ?? [])))
+                }
+              />
             ),
           )}
           {(rangeFilters ?? []).map((rf) => (

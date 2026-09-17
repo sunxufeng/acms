@@ -6,6 +6,9 @@ import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import Markdown from '../../components/Markdown';
 import { api, type GetnoteCredential, type GetnoteOAuthStart, type ApiRequestError } from '../../lib/api';
 import type { NoteConvertTarget, NoteConvertLogItem, NoteConfigMapItem } from '@acms/contracts';
+// 「来源 / 标签」的拆分规则与来源候选值都来自 contracts：后端做服务端筛选用的是同一份实现，
+// 前端各写一份会出现「列里显示来源=得到大脑、按它筛却筛不到」这类对不上的问题。
+import { NOTE_SOURCE_TYPES, noteTagNames, splitNoteTags } from '@acms/contracts';
 import { putConvertPayload, formatConvertLogs, totalConvertCount, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../../lib/noteConvert';
 import { useTl } from '../../lib/useTl';
 import { useTranslations } from 'next-intl';
@@ -23,11 +26,16 @@ const CHECKOUT_URL = 'https://www.biji.com/checkout?product_alias=9Ab36BB3ZD';
  *    换浏览器也在，且不需要在 ACMS 侧再建映射表。
  *    toRow() 负责拆（来源 / 标签），toPayload() 负责合（提交时拼回 tags）。
  */
-const NOTE_TYPES = ['得到大脑', '飞书秒记', '钉钉助记', '元宝录音', '腾讯会议'];
+/**
+ * 来源候选与「来源 / 标签」的拆分规则**统一放在 contracts**：
+ * 后端要用同一份规则做服务端筛选（`GetnoteService.applyNoteFilters`），
+ * 两边各写一份必然漂移 —— 症状是「列里显示来源=得到大脑，按得到大脑筛却筛不到」。
+ */
+// spread 成可变数组：列定义的 `options` 是 `string[]`，而 contracts 里是只读元组
+const NOTE_TYPES: string[] = [...NOTE_SOURCE_TYPES];
 
 function tagNames(n: Record<string, unknown>): string[] {
-  const tags = Array.isArray(n.tags) ? (n.tags as { name?: string }[]) : [];
-  return tags.map((t) => String(t?.name ?? '')).filter(Boolean);
+  return noteTagNames(n.tags);
 }
 
 /**
@@ -41,14 +49,14 @@ function tagNames(n: Record<string, unknown>): string[] {
  *    NOTE_TYPES 的那一个单独提成「来源」列，不再重复出现在标签列。
  */
 function toRow(n: Record<string, unknown>): Record<string, unknown> {
-  const names = tagNames(n);
-  // 历史笔记没有来源标签（标签功能后加的），默认全部来自「得到大脑」
-  const src = names.find((x) => NOTE_TYPES.includes(x)) || '得到大脑';
+  // 「来源 / 标签」的拆分口径来自 contracts（与后端筛选同一份实现）：
+  // 命中来源字典的那个标签算「来源」，其余才是普通标签；历史笔记没有来源标签，默认「得到大脑」
+  const { source: src, tags: plainTags } = splitNoteTags(n.tags);
   return {
     ...n,
     id: String(n.note_id ?? n.id ?? ''),
     来源: src,
-    标签: names.filter((x) => !NOTE_TYPES.includes(x)).join('、'),
+    标签: plainTags.join('、'),
   };
 }
 
@@ -78,6 +86,12 @@ function makeColumns(
   configMap: Record<string, NoteConfigMapItem> = {},
   /** 知识库配置名列表：「配置名称」列的筛选项 */
   configOptions: string[] = [],
+  /**
+   * 归属人候选（「归属人」列的筛选项）。
+   * 取值来自各知识库配置的「关联用户 / 归属人」—— 那就是「谁可能拥有笔记」的完整集合；
+   * 比从当前页数据里动态收集更稳（翻页不会让候选消失）。
+   */
+  ownerOptions: string[] = [],
   /**
    * 配置 id → 配置表里的**当前**名称。
    * 显示时优先用它，改了名列表自动跟着变；查不到才退回映射表里存的名称快照。
@@ -189,6 +203,12 @@ function makeColumns(
       ? [
           {
             key: '_owner',
+            // ⚠️ key 用 `_owner`（后端聚合时打的行字段），但**筛选参数名是「归属人」**
+            //    —— 后端 `GetnoteService` 读的是中文参数名 ⇒ 必须用 filterParam 映射。
+            filter: true,
+            filterParam: '归属人',
+            filterType: 'select',
+            filterOptions: ownerOptions,
             label: '归属人',
             width: '120px',
             listOrder: 3.6,
@@ -220,6 +240,15 @@ function makeColumns(
       type: 'text',
       width: '200px',
       listOrder: 4,
+      /**
+       * 按标签筛选：**模糊包含**（一条笔记带多个标签，等值必然筛空）。
+       * ⚠️ 刻意**不写** `filterOp: 'contains'` —— 那会给参数名加 `__contains` 后缀，
+       *    而本接口是自建 controller（不是通用 CRUD），只认裸参数 `标签`，
+       *    加了后缀会被当成未知参数**静默忽略**（筛选看起来没反应）。
+       */
+      filter: true,
+      filterType: 'text',
+      filterPlaceholder: '标签',
       hint: '多个标签用逗号分隔；保存后会整体替换原有标签',
       render: (v) => {
         const parts = String(v ?? '').split('、').map((s) => s.trim()).filter(Boolean);
@@ -455,6 +484,27 @@ export default function GetnotePage() {
     [configSources],
   );
 
+  /**
+   * 归属人候选：取各配置「关联用户 + 归属人」里的人名。
+   * 「关联用户」在列表接口里已被后端解析成「张三、李四」这样的展示串（`__link` 才是 id），
+   * 所以按「、」拆即可；旧字段「归属人」是单人归属时代的值，一并收进来。
+   */
+  const ownerOptions = useMemo(() => {
+    const set = new Set<string>();
+    const push = (v: unknown) => {
+      String(v ?? '')
+        .split(/[、,，]/)
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .forEach((x) => set.add(x));
+    };
+    for (const s of configSources) {
+      push(s['关联用户']);
+      push(s['归属人']);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh'));
+  }, [configSources]);
+
   const configNameById = useMemo(() => {
     const out: Record<string, string> = {};
     for (const s of configSources) {
@@ -525,10 +575,11 @@ export default function GetnotePage() {
         convertLogs,
         configMap,
         configOptions,
+        ownerOptions,
         configNameById,
         isAdmin,
       ),
-    [openDetail, convertLogs, configMap, configOptions, configNameById, isAdmin],
+    [openDetail, convertLogs, configMap, configOptions, ownerOptions, configNameById, isAdmin],
   );
 
 

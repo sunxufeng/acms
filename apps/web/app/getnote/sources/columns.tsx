@@ -13,7 +13,19 @@ import type { CrudColumn } from '../../../components/CrudPage';
  */
 export const COLUMNS: CrudColumn[] = [
   // ── 列表可见 ──────────────────────────────
-  { key: '配置名称', label: '配置名称', form: true, required: true, width: '180px' },
+  {
+    key: '配置名称',
+    label: '配置名称',
+    form: true,
+    required: true,
+    width: '180px',
+    // 按配置名筛选：容器里的配置名大多是英文（Rin / Elsa Jiang Get Note），
+    // 记不全 ⇒ 用模糊匹配（`__contains` → 后端 ILIKE）。走等值会一条都筛不到。
+    filter: true,
+    filterType: 'text',
+    filterOp: 'contains',
+    filterPlaceholder: '配置名称',
+  },
   /**
    * 「关联用户」（2026-09-17，照邮件账户同一范式）：可多选，被关联的人都能看到
    * 这条配置、以及它对应的「我的笔记」。取代原先的**单人归属**（归属人/归属人ID）。
@@ -33,9 +45,17 @@ export const COLUMNS: CrudColumn[] = [
     linkSource: 'users',
     readonlyPerm: 'getnote:write',
     hint: '可关联多人，被关联的人能共同查看本配置对应的笔记。新建配置时自动归属本人。',
+    /**
+     * 按用户筛选：字段存的是 record id **数组**，等值匹配必然落空（而且选完之后
+     * 内存路径里展示值已换成姓名）⇒ 必须用 `<字段>__has`（成员包含，后端同时认 id 与名称）。
+     * 选项走 `linkSource: 'users'` 的人员目录，提交的是 record id。
+     */
+    filter: true,
+    filterParam: '关联用户__has',
   },
-  /** 「归属人ID」是单人归属时代的字段：保留为只读历史字段（后端判据仍兼容它），不上列表 */
-  { key: '归属人ID', label: '归属人（历史）', form: false, list: false, filter: true },
+  // 「归属人ID」是单人归属时代的字段：后端可见性判据仍兼容它，但**不再作为界面筛选项**
+  // （2026-09-17 峰哥要求隐藏 —— 它已被「关联用户」取代，留在筛选区只会让人困惑）。
+  // 列定义整个去掉即可，数据与后端逻辑都不受影响。
   {
     key: '笔记类型',
     label: '笔记类型',

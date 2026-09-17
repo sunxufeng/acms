@@ -30,6 +30,8 @@ import {
 } from './source-cred.js';
 // 音频落库要把字节流存进全站附件目录（`loc_*` token），复用统一的附件基建
 import { FileUploadService } from '../file-upload/file-upload.service.js';
+// 落正文时的字段合并（保住已抓好的音频 —— 走 createWithId 是整体替换，见该文件注释）
+import { mergeNoteBodyPayload } from './note-body-merge.js';
 
 /** 得到大脑（Get笔记）开放平台。所有凭证只发往此地址，不接受任何其他 API 地址。 */
 const BASE = 'https://openapi.biji.com';
@@ -1397,29 +1399,39 @@ export class GetnoteService {
       const detail = String(n.rawRecord ?? '');
       const tagNames = noteTagNames(n);
       const tagTypes = noteTagTypes(n);
-      await sql.createWithId(TABLES.noteBody.tableId, id, {
-        笔记ID: id,
-        标题: String(n.title ?? ''),
-        归属人: String(n._owner ?? ''),
-        归属人ID: String(n._ownerOpenId ?? ''),
-        来源配置: String(n._sourceName ?? ''),
-        来源配置ID: String(n._sourceRecordId ?? ''),
-        笔记类型: String(n.note_type ?? ''),
-        来源: String(n.source ?? ''),
-        标签: tagNames.join(','),
-        标签类型: tagTypes.join(','),
-        总结: summary,
-        原始记录: detail,
-        总结字数: summary.length,
-        明细字数: detail.length,
-        子笔记数: Number(n.children_count ?? 0) || 0,
-        录音时长: Number(n.audio?.duration ?? 0) || 0,
-        附件数: Array.isArray(n.attachments) ? n.attachments.length : 0,
-        录音卡SN: String(n.recorder_sn ?? ''),
-        笔记创建时间: toEpochMs(n.created_at),
-        笔记更新时间: toEpochMs(n.updated_at),
-        正文抓取时间: Date.now(),
-      });
+      // 🔴 先读旧行、把音频字段保住再整体替换 —— 下面用的是 `createWithId`
+      //    （SQL 侧 `data = EXCLUDED.data`，**整体替换不是合并**），而本 payload 不含音频字段。
+      //    漏掉这一步的后果：「打开一篇笔记」这条最热路径会顺手把已抓好的音频清空
+      //    （2026-09-18 实测：全量抓完 533 条后点开十几篇验证，21 条音频被打回未抓取，
+      //    表现为播放接口 404 AUDIO_NOT_FOUND）。规则见 `note-body-merge.ts`。
+      const prev = await sql.get(TABLES.noteBody.tableId, id).catch(() => null);
+      const payload = mergeNoteBodyPayload(
+        (prev?.fields ?? {}) as Record<string, unknown>,
+        {
+          笔记ID: id,
+          标题: String(n.title ?? ''),
+          归属人: String(n._owner ?? ''),
+          归属人ID: String(n._ownerOpenId ?? ''),
+          来源配置: String(n._sourceName ?? ''),
+          来源配置ID: String(n._sourceRecordId ?? ''),
+          笔记类型: String(n.note_type ?? ''),
+          来源: String(n.source ?? ''),
+          标签: tagNames.join(','),
+          标签类型: tagTypes.join(','),
+          总结: summary,
+          原始记录: detail,
+          总结字数: summary.length,
+          明细字数: detail.length,
+          子笔记数: Number(n.children_count ?? 0) || 0,
+          录音时长: Number(n.audio?.duration ?? 0) || 0,
+          附件数: Array.isArray(n.attachments) ? n.attachments.length : 0,
+          录音卡SN: String(n.recorder_sn ?? ''),
+          笔记创建时间: toEpochMs(n.created_at),
+          笔记更新时间: toEpochMs(n.updated_at),
+          正文抓取时间: Date.now(),
+        },
+      );
+      await sql.createWithId(TABLES.noteBody.tableId, id, payload);
     } catch (e) {
       this.logger.warn(`笔记正文落库失败（不影响读取）：${(e as Error).message.slice(0, 160)}`);
     }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useTl } from '../../lib/useTl';
 import { api, type RoleManagementPayload } from '../../lib/api';
 import {
@@ -12,6 +12,8 @@ import {
   moduleByMenuKey,
   DEFAULT_NAV_MENU_CONFIG,
   type NavMenuConfig,
+  type NavMenuGroup,
+  type NavMenuGroupConfig,
   type Permission,
   type ModuleAction,
   type DataLevel,
@@ -30,6 +32,63 @@ const MATRIX_ACTIONS: ModuleAction[] = [
   'refresh',
   'transition',
 ];
+
+/** 「仅系统管理员」分区：adminOnly 项统一收拢到所有菜单的最后 */
+const ADMIN_ONLY_SECTION_KEY = '__adminOnly';
+
+/** 一个分区：key/label 来自「菜单分组」配置，rows 是该分区下的菜单行 */
+interface MenuSection<T> {
+  key: string;
+  label: string;
+  enLabel?: string;
+  rows: T[];
+}
+
+/** 菜单排序判据：同级 order 越小越靠前（与侧边栏一致） */
+function byMenuOrder<T extends { order?: number }>(a: T, b: T): number {
+  return (a.order ?? 0) - (b.order ?? 0);
+}
+
+/**
+ * 按「系统菜单」的真实顺序分区 —— 与侧边栏 `AppShell.tsx` 的分组算法**逐条对齐**，
+ * 这样角色管理里的菜单顺序、分组名、分组顺序与左侧导航完全一致（2026-09-17 峰哥要求）。
+ *
+ *   1) 菜单项按 `order` 升序（`Array#sort` 稳定，同序项保持原数组相对次序）
+ *   2) 分区集合与顺序取自「菜单分组」配置，按分组自己的 `order` 升序
+ *   3) 分区内的项按 `item.section === g.key || item.section === g.label` 匹配
+ *      ⚠️ **两个都要比**：生产数据里分组的 key 与 label 并不总相同
+ *      （`工作台`/`工作中台`、`知识库`/`知识笔记`），只比一个会整组消失
+ *   4) `section` 未登记在任何分组里的项**兜底单独成组**并排在最后（对齐侧边栏，避免菜单丢失）
+ *
+ * 空分区会被丢掉 —— 角色管理里没必要渲染一个只有标题的空分组。
+ */
+function buildSystemSections<T extends { section?: string | null }>(
+  rows: T[],
+  groupDefs: readonly NavMenuGroup[],
+): MenuSection<T>[] {
+  const defs = groupDefs.slice().sort(byMenuOrder);
+  const covered = new Set<string>();
+  for (const g of defs) {
+    if (g.key) covered.add(g.key);
+    if (g.label) covered.add(g.label);
+  }
+
+  const out: MenuSection<T>[] = [];
+  for (const g of defs) {
+    const inGroup = rows.filter((r) => r.section === g.key || r.section === g.label);
+    if (inGroup.length) out.push({ key: g.key, label: g.label, enLabel: g.enLabel, rows: inGroup });
+  }
+
+  // 兜底：section 未登记在任何分组里的项，按首次出现顺序单独成组
+  for (const r of rows) {
+    if (r.section && covered.has(r.section)) continue;
+    const key = r.section ?? '未分组';
+    const hit = out.find((s) => s.key === key);
+    if (hit) hit.rows.push(r);
+    else out.push({ key, label: key, rows: [r] });
+  }
+  return out;
+}
 
 const LEVEL_LABELS: Record<string, string> = {
   L1: 'L1（一般）',
@@ -90,6 +149,9 @@ export default function RoleManagementPage() {
   const t = useTranslations('admin');
   const tc = useTranslations('common');
   const ts = useTranslations('settings');
+  /** 分组标题的英文名与侧边栏同源（`navSection` 命名空间） */
+  const tns = useTranslations('navSection');
+  const locale = useLocale();
   const [config, setConfig] = useState<RoleManagementPayload | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -101,6 +163,8 @@ export default function RoleManagementPage() {
   const [newKey, setNewKey] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [menuConfig, setMenuConfig] = useState<NavMenuConfig | null>(null);
+  /** 菜单分组配置（分组集合与顺序的真源，与侧边栏同源） */
+  const [menuGroups, setMenuGroups] = useState<NavMenuGroupConfig | null>(null);
   const [menuQuery, setMenuQuery] = useState('');
   /** 权限分配视图：矩阵（菜单×操作）/ 列表（按模块）—— 两者同一集合，只是呈现不同 */
   const [permView, setPermView] = useState<'matrix' | 'list'>('matrix');
@@ -182,6 +246,8 @@ export default function RoleManagementPage() {
   // 菜单可见性：菜单清单取自系统菜单配置（与侧边栏同源）
   useEffect(() => {
     api.getMenuConfig().then(setMenuConfig).catch(() => null);
+    // 分组真源：与侧边栏同一个接口，保证「分组集合 / 分组顺序 / 分组名」一致
+    api.getMenuGroups().then(setMenuGroups).catch(() => null);
   }, []);
 
   const menuItems = useMemo(
@@ -189,23 +255,48 @@ export default function RoleManagementPage() {
     [menuConfig],
   );
   const allMenuKeys = useMemo(() => menuItems.map((i) => i.key), [menuItems]);
-  const filteredMenuGroups = useMemo(() => {
-    const q = menuQuery.trim().toLowerCase();
-    const hit = menuItems.filter(
-      (i) => !q || i.label.toLowerCase().includes(q) || i.key.toLowerCase().includes(q),
-    );
-    const m = new Map<string, typeof menuItems>();
-    for (const it of hit) {
-      const section = it.section ?? '未分组';
-      const list = m.get(section);
-      if (list) list.push(it);
-      else m.set(section, [it]);
-    }
-    return [...m.entries()].map(([section, items]) => ({ section, items }));
-  }, [menuItems, menuQuery]);
+
+  /** 菜单分组配置（分组集合与顺序的真源，与侧边栏同源） */
+  const groupDefs = useMemo<NavMenuGroup[]>(() => menuGroups?.items ?? [], [menuGroups]);
 
   /**
-   * 矩阵行清单：菜单项 → 模块（同名优先，其次别名）。
+   * 与侧边栏**同序**的菜单项。
+   *
+   * ⚠️ 只有拿到分组配置时才做全局 `order` 排序（对齐 `AppShell.tsx`）；
+   *    拿不到时保持数组原序 —— 回退用的 `DEFAULT_NAV_MENU_CONFIG` 本身就是
+   *    按分组、按 order 手写的，原序即正确顺序，而全局排序在缺少分组配置时
+   *    会让不同分组的项按 order 交错（`工作中台`/`教学管理`/`AI 路由` 都是 order=10）。
+   */
+  const orderedMenuItems = useMemo(
+    () => (groupDefs.length ? menuItems.slice().sort(byMenuOrder) : menuItems),
+    [menuItems, groupDefs],
+  );
+
+  /**
+   * 分区标题的显示名 —— 与侧边栏一致：
+   *   · 「仅系统管理员」这个合成分区用 i18n 文案；
+   *   · 其余用**分组配置里的 label**（不是菜单项上的 `section`）
+   *     —— 两者并不总是相同（`section='知识库'` 而分组名叫「知识笔记」），
+   *     直接显示 section 会与侧边栏对不上；
+   *   · 英文环境优先 `enLabel`，其次 `navSection` 命名空间，最后回落 label。
+   */
+  function sectionLabel(s: { key: string; label: string; enLabel?: string }): string {
+    if (s.key === ADMIN_ONLY_SECTION_KEY) return tl('系统管理员专属');
+    if (locale !== 'en') return s.label;
+    return s.enLabel || tns(s.label) || s.label;
+  }
+
+  /** 「菜单白名单」折叠区的分区（**不拆 adminOnly**，与真实侧边栏顺序一致） */
+  const menuSections = useMemo(() => {
+    const q = menuQuery.trim().toLowerCase();
+    const hit = orderedMenuItems.filter(
+      (i) => !q || i.label.toLowerCase().includes(q) || i.key.toLowerCase().includes(q),
+    );
+    return buildSystemSections(hit, groupDefs);
+  }, [orderedMenuItems, menuQuery, groupDefs]);
+
+  /**
+   * 矩阵行清单：菜单项 → 模块（同名优先，其次别名）。**顺序与侧边栏一致**。
    *
    * ⚠️ 覆盖面核对（新增菜单/模块时照这个查）：
    *   菜单 76 项 = 71 项能对上模块 + 5 项无模块资源（`impersonate` / `api-tokens` /
@@ -213,7 +304,7 @@ export default function RoleManagementPage() {
    *   71 个模块**全部**有对应菜单 ⇒ 矩阵不会漏掉任何模块。
    */
   const matrixRows = useMemo<MatrixRow[]>(() => {
-    return menuItems.map((it) => {
+    return orderedMenuItems.map((it) => {
       const mod = moduleByMenuKey(it.key);
       return {
         key: it.key,
@@ -225,22 +316,28 @@ export default function RoleManagementPage() {
         adminOnly: it.adminOnly === true,
       };
     });
-  }, [menuItems]);
+  }, [orderedMenuItems]);
 
-  /** 矩阵行按菜单分组（section）聚合，渲染时按组输出分区表头 */
-  const matrixGroups = useMemo(() => {
+  /**
+   * 矩阵 / 列表视图的分区。两步：
+   *   ① 与系统菜单同序分区（`buildSystemSections`，分组顺序与侧边栏一致）
+   *   ② **adminOnly 项全部抽出来**，收进所有菜单最后的「系统管理员专属」分区
+   *      —— 它们对非管理员永远不可见（`canSeeItem` 先拦 adminOnly），
+   *      混在各业务分组里既打乱顺序、又容易让人以为"给角色勾上就能看到"
+   *      （2026-09-17 峰哥要求：单独仅系统管理员的，放在所有菜单的最后）。
+   */
+  const matrixSections = useMemo(() => {
     const q = moduleQuery.trim().toLowerCase();
     const hit = matrixRows.filter(
       (r) => !q || r.label.toLowerCase().includes(q) || r.key.toLowerCase().includes(q),
     );
-    const m = new Map<string, MatrixRow[]>();
-    for (const r of hit) {
-      const list = m.get(r.section);
-      if (list) list.push(r);
-      else m.set(r.section, [r]);
+    const sections = buildSystemSections(hit.filter((r) => !r.adminOnly), groupDefs);
+    const adminOnlyRows = hit.filter((r) => r.adminOnly);
+    if (adminOnlyRows.length) {
+      sections.push({ key: ADMIN_ONLY_SECTION_KEY, label: '系统管理员专属', rows: adminOnlyRows });
     }
-    return [...m.entries()].map(([section, rows]) => ({ section, rows }));
-  }, [matrixRows, moduleQuery]);
+    return sections;
+  }, [matrixRows, moduleQuery, groupDefs]);
 
   /**
    * 某一行「进入菜单」对应的权限点（无则 undefined）。
@@ -927,8 +1024,8 @@ export default function RoleManagementPage() {
                           })}
                         </tr>
                       </thead>
-                      {matrixGroups.map((g) => (
-                        <tbody key={g.section}>
+                      {matrixSections.map((g) => (
+                        <tbody key={g.key}>
                           <tr>
                             <td
                               colSpan={MATRIX_ACTIONS.length + 1}
@@ -940,7 +1037,7 @@ export default function RoleManagementPage() {
                                 left: 0,
                               }}
                             >
-                              {g.section}
+                              {sectionLabel(g)}
                             </td>
                           </tr>
                           {g.rows.map((r) => {
@@ -1023,11 +1120,11 @@ export default function RoleManagementPage() {
                 <>
                 <div className="data-table-wrap" style={{ maxHeight: '52vh', overflowY: 'auto' }}>
                   <table className="data-table">
-                    {matrixGroups.map((g) => (
-                      <tbody key={g.section}>
+                    {matrixSections.map((g) => (
+                      <tbody key={g.key}>
                         <tr>
                           <td colSpan={2} style={{ background: 'var(--bg-secondary)', fontWeight: 600, fontSize: 'var(--font-sm)' }}>
-                            {g.section}
+                            {sectionLabel(g)}
                           </td>
                         </tr>
                         {g.rows.map((r) => {
@@ -1212,12 +1309,12 @@ export default function RoleManagementPage() {
                 <div className="data-table-wrap" style={{ maxHeight: '32vh', overflowY: 'auto' }}>
                   <table className="data-table">
                     <tbody>
-                      {filteredMenuGroups.map((g) => {
-                        const keys = g.items.map((i) => i.key);
+                      {menuSections.map((g) => {
+                        const keys = g.rows.map((i) => i.key);
                         const selected = draft.menus ?? allMenuKeys;
                         const allOn = keys.every((k) => selected.includes(k));
                         return (
-                          <tr key={g.section}>
+                          <tr key={g.key}>
                             <td style={{ width: 180, fontWeight: 600 }}>
                               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: draft.lockedPermissions ? 'default' : 'pointer' }}>
                                 {!draft.lockedPermissions && (
@@ -1230,12 +1327,12 @@ export default function RoleManagementPage() {
                                     onChange={(e) => toggleMenuSection(keys, e.target.checked)}
                                   />
                                 )}
-                                {g.section}
+                                {sectionLabel(g)}
                               </label>
                             </td>
                             <td>
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                {g.items.map((item) => {
+                                {g.rows.map((item) => {
                                   const on = selected.includes(item.key);
                                   return (
                                     <label

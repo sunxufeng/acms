@@ -2118,6 +2118,7 @@
     "系统不会真的发信；人工发完后把状态改为「已发送」并填上时间": "No email is actually sent; after sending manually, set the status to Sent and fill in the time.",
     "系统管理员": "System Admin",
     "系统管理员不受数据范围限制，此处仅作展示": "System admins are exempt from data scope; shown for reference only",
+    "系统管理员专属": "System administrators only",
     "系统自动留存的招生与国外学校往来邮件（即使员工离职或邮箱删除，记录仍保留可查）。": "System-archived admissions emails with overseas schools (retained and searchable even if staff leave or the mailbox is deleted).",
     "系统角色": "System Role",
     "系统设置": "System Settings",

@@ -127,6 +127,27 @@ export function DedupPanel() {
   const stats = data?.stats;
   const groups = useMemo(() => data?.groups ?? [], [data]);
 
+  /**
+   * 统计卡的配置。
+   *
+   * 🔴 「疑似重复」这张卡是**全量口径**（含最弱的「仅参考」一档），而下面的列表受
+   * 「置信度」筛选影响、默认只显示「较可信及以上」—— 两个数字对不上是必然的，
+   * 用户会把它当 bug 问（2026-09-18 峰哥实问「50 组为什么列表只有 39 组」）。
+   * 所以这张卡做成**可点击**：一下把筛选切到「全部（含仅同名）」，数字立刻对齐。
+   */
+  const cards: { label: string; value: string; unit: string; onClick?: () => void; title?: string }[] = [
+    {
+      label: '疑似重复',
+      value: stats ? `${stats.groups}` : '—',
+      unit: '组',
+      onClick: level === 'all' ? undefined : () => setLevel('all'),
+      title: level === 'all' ? '已是全部口径' : '点击查看全部（含「仅参考」）',
+    },
+    { label: '涉及记录', value: stats ? `${stats.records}` : '—', unit: '条' },
+    { label: '合并后可减少', value: stats ? `${stats.mergeable}` : '—', unit: '条' },
+    { label: '其中强证据', value: stats ? `${stats.byLevel.strong}` : '—', unit: '组' },
+  ];
+
   return (
     <div>
       {/* 工具行：重算 + 导出 */}
@@ -151,19 +172,17 @@ export function DedupPanel() {
           marginBottom: '1.25rem',
         }}
       >
-        {[
-          { label: '疑似重复', value: stats ? `${stats.groups}` : '—', unit: '组' },
-          { label: '涉及记录', value: stats ? `${stats.records}` : '—', unit: '条' },
-          { label: '合并后可减少', value: stats ? `${stats.mergeable}` : '—', unit: '条' },
-          { label: '其中强证据', value: stats ? `${stats.byLevel.strong}` : '—', unit: '组' },
-        ].map((c) => (
+        {cards.map((c) => (
           <div
             key={c.label}
+            onClick={c.onClick}
+            title={c.title ? tl(c.title) : undefined}
             style={{
               border: '1px solid var(--border)',
               borderRadius: 10,
               padding: '12px 14px',
               background: 'var(--bg-elevated)',
+              cursor: c.onClick ? 'pointer' : undefined,
             }}
           >
             <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginBottom: 4 }}>
@@ -199,6 +218,36 @@ export function DedupPanel() {
           </div>
         </div>
       </div>
+
+      {/* 口径说明（2026-09-18 加）：统计卡走全量、列表受筛选影响 ——
+          不写清楚，用户必然把「统计 50 组、列表 39 组」当成 bug 来问 */}
+      {stats ? (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 10,
+            margin: '-0.5rem 0 1.25rem',
+            fontSize: 'var(--font-xs)',
+            color: 'var(--fg-tertiary)',
+          }}
+        >
+          <span>
+            {tl('统计为全量口径')}：{tl('强证据')} {stats.byLevel.strong} · {tl('较可信')} {stats.byLevel.likely}
+            {' · '}
+            {tl('仅参考')} {stats.byLevel.weak}
+          </span>
+          <span>{tl('列表默认只显示「较可信及以上」，少掉的那些就是「仅参考」')}</span>
+          {level === 'all' ? (
+            <span>{tl('已显示全部')}</span>
+          ) : (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setLevel('all')}>
+              {`${tl('查看全部')} ${stats.groups} ${tl('组')} →`}
+            </button>
+          )}
+        </div>
+      ) : null}
 
       {/* 筛选：只影响下面的清单 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: '1rem' }}>

@@ -82,7 +82,14 @@ export default function DataLevelsPage() {
         setLoading(false);
       }
     })();
-  }, [tl]);
+    // 🔴 依赖必须为空数组：字段目录与语言无关，只在进页面时取一次。
+    //    曾经写的是 `[tl]`，而 `useTl()` 当时每次 render 都返回新函数 ⇒ effect 每轮都重跑
+    //    ⇒ 一堆 setState ⇒ 再 render ⇒ **无限循环**（页面持续闪烁，且每圈发一次接口：
+    //    生产实测同一秒 49 次请求）。`useTl` 已改为身份稳定，这里再收紧成 `[]`
+    //    作为第二道保险 —— 即使以后有人把不稳定值放进依赖，也不会把这一页拖进循环。
+    //    ⚠️ 注意 `tl` 内部走 ref 读最新 labels，所以闭包里拿到"旧"引用也仍会输出当前语言。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     (async () => {

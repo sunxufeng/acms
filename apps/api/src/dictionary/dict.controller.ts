@@ -3,6 +3,7 @@ import {
   Get,
   Put,
   Param,
+  Query,
   Body,
   Req,
   UseGuards,
@@ -11,7 +12,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import type { SessionUser } from '@acms/contracts';
-import type { FieldLevel } from '../shared/field-mask.js';
+import { rankOf, type FieldLevel } from '../shared/field-mask.js';
 import type { DictOption } from './dict.data.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { DictService } from './dict.service.js';
@@ -63,6 +64,38 @@ export class DictController {
       throw new BadRequestException('levels 必须为 FieldLevel 数组');
     }
     return this.svc.setFieldLevels(body.levels);
+  }
+
+  /**
+   * 字段密级配置目录：可配模块 + 每个模块的**真实字段**（含当前密级）。
+   * GET /api/v1/dictionaries/field-levels/catalog
+   *
+   * ⚠️ 必须声明在 `@Get(':key')` **之前** —— 否则 `:key` 通配会把这条路由吃掉。
+   */
+  @Get('field-levels/catalog')
+  fieldLevelCatalog(@Req() req: Request) {
+    const user = this.user(req);
+    if (!user.roles?.includes('系统管理员')) {
+      throw new ForbiddenException('FORBIDDEN:admin');
+    }
+    return this.svc.fieldLevelCatalog();
+  }
+
+  /**
+   * 打码预览：拿一条真实记录按「指定用户密级」跑一遍脱敏，返回前后对照。
+   * GET /api/v1/dictionaries/field-levels/preview?module=students&userLevel=L1
+   */
+  @Get('field-levels/preview')
+  fieldLevelPreview(
+    @Req() req: Request,
+    @Query('module') module?: string,
+    @Query('userLevel') userLevel?: string,
+  ) {
+    const user = this.user(req);
+    if (!user.roles?.includes('系统管理员')) {
+      throw new ForbiddenException('FORBIDDEN:admin');
+    }
+    return this.svc.fieldLevelPreview(String(module ?? ''), rankOf(userLevel));
   }
 
   /** 单个字典（完整 DictOption[]）：GET /api/v1/dictionaries/:key */

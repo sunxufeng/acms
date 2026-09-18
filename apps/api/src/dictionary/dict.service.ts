@@ -3,8 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BaseClient, toText } from '@acms/base-adapter';
 import { TABLES, USER_TABLE } from '@acms/contracts';
-import type { FieldLevel } from '../shared/field-mask.js';
-import { BASE_CLIENT } from '../base.provider.js';
+import { maskValue, type FieldLevel } from '../shared/field-mask.js';
+import { BASE_CLIENT, getSqlStore } from '../base.provider.js';
 import {
   DICTIONARIES,
   BASE_FIELD_SYNC,
@@ -12,6 +12,8 @@ import {
   MULTI_SELECT,
   PROVINCE_CITIES,
   FIELD_LEVELS,
+  FIELD_LEVEL_MODULES,
+  FIELD_LEVEL_SKIP_TYPES,
   FIELD_DICTKEY,
   toOpts,
 } from './dict.data.js';
@@ -116,6 +118,90 @@ export class DictService {
     this.persistStore();
     this.logger.log(`字段密级表已更新（${this.fieldLevels.length} 项）`);
     return this.fieldLevels;
+  }
+
+  /**
+   * 「数据密级」配置页的目录：可配模块 + 每个模块的**真实字段**（含当前密级）。
+   *
+   * 字段从 `acms_fields`（SQL 模式的字段元数据）读，**不让运营手打字段名** ——
+   * 手打必错，而且字段改名后密级会静默失效（谁也不会发现某字段不再打码）。
+   */
+  async fieldLevelCatalog(): Promise<{
+    modules: {
+      key: string;
+      label: string;
+      tableName: string;
+      fields: { name: string; type: number; level: number | null }[];
+    }[];
+    controlled: FieldLevel[];
+  }> {
+    const sql = getSqlStore();
+    const controlledOf = (module: string, field: string): number | null =>
+      this.fieldLevels.find((l) => l.module === module && l.field === field)?.level ?? null;
+
+    const modules: {
+      key: string;
+      label: string;
+      tableName: string;
+      fields: { name: string; type: number; level: number | null }[];
+    }[] = [];
+
+    for (const m of FIELD_LEVEL_MODULES) {
+      const entry = (TABLES as unknown as Record<string, { tableId: string; name: string } | undefined>)[m.table];
+      const fields: { name: string; type: number; level: number | null }[] = [];
+      if (sql && entry?.tableId) {
+        const metas = await sql.listFields(entry.tableId).catch(() => []);
+        for (const f of metas) {
+          if (FIELD_LEVEL_SKIP_TYPES.has(Number(f.type))) continue;
+          fields.push({ name: f.name, type: Number(f.type), level: controlledOf(m.key, f.name) });
+        }
+      }
+      modules.push({
+        key: m.key,
+        label: m.label,
+        tableName: entry?.name ?? m.table,
+        fields: fields.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')),
+      });
+    }
+    return { modules, controlled: this.fieldLevels.map((l) => ({ ...l })) };
+  }
+
+  /**
+   * 打码预览：拿该模块主表**一条真实记录**，按指定用户密级跑一遍脱敏，返回前后对照。
+   *
+   * 为什么值得做：密级配错是**静默**的（要么该打码的没打，要么把正常字段打成一串星号），
+   * 光看配置列表看不出来。让人在保存前先看一眼真实效果，比任何说明文字都管用。
+   */
+  async fieldLevelPreview(
+    module: string,
+    userLevel: number,
+  ): Promise<{
+    ok: boolean;
+    reason?: string;
+    found: boolean;
+    controlled: { field: string; level: number; before: string; after: string }[];
+  }> {
+    const m = FIELD_LEVEL_MODULES.find((x) => x.key === module);
+    if (!m) return { ok: false, reason: 'UNKNOWN_MODULE', found: false, controlled: [] };
+    const entry = (TABLES as unknown as Record<string, { tableId: string } | undefined>)[m.table];
+    if (!entry?.tableId) return { ok: false, reason: 'NO_TABLE', found: false, controlled: [] };
+
+    const levels = this.fieldLevels.filter((l) => l.module === module);
+    if (!levels.length) return { ok: true, found: false, controlled: [] };
+
+    const res = await this.base.search(entry.tableId, { pageSize: 1 });
+    const rec = (res.items?.[0]?.fields ?? null) as Record<string, unknown> | null;
+    if (!rec) return { ok: true, found: false, controlled: [] };
+
+    const controlled = levels
+      .filter((l) => l.field in rec && rec[l.field] !== undefined && rec[l.field] !== null && rec[l.field] !== '')
+      .map((l) => ({
+        field: l.field,
+        level: l.level,
+        before: String(rec[l.field]).slice(0, 60),
+        after: String(maskValue(rec[l.field], l.level, userLevel)).slice(0, 60),
+      }));
+    return { ok: true, found: true, controlled };
   }
 
   /** 单个字典（完整模型） */

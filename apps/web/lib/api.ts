@@ -53,6 +53,32 @@ export interface DictMeta {
   fieldDictKey: Record<string, string>;
 }
 
+/** 一条「字段密级」配置（受控字段）：用户密级 < level 时该字段被打码 */
+export interface FieldLevelItem {
+  field: string;
+  module: string;
+  level: number;
+}
+
+/** 「数据密级」配置页目录：可配模块 + 每模块的真实字段 + 当前密级 */
+export interface FieldLevelCatalog {
+  modules: {
+    key: string;
+    label: string;
+    tableName: string;
+    fields: { name: string; type: number; level: number | null }[];
+  }[];
+  controlled: FieldLevelItem[];
+}
+
+/** 打码预览结果：同一条真实记录在「指定用户密级」下的前后对照 */
+export interface FieldLevelPreview {
+  ok: boolean;
+  reason?: string;
+  found: boolean;
+  controlled: { field: string; level: number; before: string; after: string }[];
+}
+
 /** 把存储值（旧 label / 别名 / key）解析为当前展示 label；未命中原样返回。 */
 export function resolveDictValue(
   meta: DictMeta | null | undefined,
@@ -384,6 +410,25 @@ export const api = {
 
   /** 字典元数据（完整 DictOption[] + 旧值→当前名 resolve 映射）：供编辑器编辑 / CrudPage 显示解析 */
   dictionaryMeta: () => request<DictMeta>('/dictionaries/meta'),
+
+  /**
+   * 「数据密级」配置页（2026-09-18）：字段级密级表。
+   * 受控字段 = 用户密级低于该字段密级时，该字段在列表/详情/导出被打码（L4 全隐藏、其余部分打码）。
+   */
+  fieldLevels: () => request<FieldLevelItem[]>('/dictionaries/field-levels'),
+  /** 保存字段密级表（整表替换；仅系统管理员） */
+  saveFieldLevels: (levels: FieldLevelItem[]) =>
+    request<FieldLevelItem[]>('/dictionaries/field-levels', {
+      method: 'PUT',
+      body: JSON.stringify({ levels }),
+    }),
+  /** 配置目录：可配模块 + 每模块的**真实字段**（含当前密级），避免手打字段名 */
+  fieldLevelCatalog: () => request<FieldLevelCatalog>('/dictionaries/field-levels/catalog'),
+  /** 打码预览：拿一条真实记录按「指定用户密级」跑一遍脱敏，返回前后对照 */
+  fieldLevelPreview: (module: string, userLevel: string) =>
+    request<FieldLevelPreview>(
+      `/dictionaries/field-levels/preview?module=${encodeURIComponent(module)}&userLevel=${encodeURIComponent(userLevel)}`,
+    ),
 
   /** AI 文档（云文档内化）：列表 / 详情 / 创建 / 更新 / 删除 */
   aiDocs: {

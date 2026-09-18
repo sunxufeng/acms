@@ -92,6 +92,9 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'getnote', label: '知识库', path: '/getnote', legacyRead: 'getnote:read', legacyWrite: 'getnote:write', menuPermission: 'getnote:read', actions: [...CRUD, 'import'] },
   { key: 'getnoteSources', label: '知识库配置', path: '/getnote-sources', aliases: ['/getnote/sources', '/export/getnoteSource'], legacyRead: 'getnote:read', legacyWrite: 'getnote:write', menuPermission: 'getnote:write', actions: RECORD },
   { key: 'dictionary', label: '字典数据', path: '/dictionaries', legacyRead: 'config:read', legacyWrite: 'config:write', menuPermission: 'config:read', actions: [...READ, 'update'] },
+  // 数据密级（2026-09-18）：配置「哪些字段在哪个密级以下会被打码/隐藏」。
+  // adminOnly —— 改密级等于改全站脱敏口径，与用户管理/角色管理同级风险。
+  { key: 'dataLevels', label: '数据密级', path: '/data-levels', legacyRead: 'config:read', legacyWrite: 'config:write', menuPermission: null, actions: [...READ, 'update'], adminOnly: true },
   // 导出工作台只授予入口/查看；执行导出必须检查源模块的 export，不提供全表通行证。
   { key: 'export', label: '数据导出', path: '/export', legacyRead: 'export:run', legacyWrite: null, menuPermission: 'export:run', actions: ['enter', 'read'] },
   { key: 'audit-logs', label: '审计日志', path: '/audit-logs', aliases: ['/export/auditLog'], legacyRead: 'admin:audit', legacyWrite: null, menuPermission: null, actions: [...READ, 'export'], adminOnly: true },

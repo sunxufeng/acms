@@ -348,6 +348,8 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'getnoteSources', label: '知识库配置', enLabel: 'Knowledge Sources', href: '/getnote/sources', icon: 'config', section: '知识库', order: 20, perm: 'getnote:write' },
 
     { key: 'dictionary', label: '字典数据', enLabel: 'Dictionaries', href: '/dictionaries', icon: 'dictionary', section: '后台管理', order: 10, perm: 'config:read' },
+    // 数据密级（2026-09-18）：字段级密级的配置页。adminOnly —— 全站脱敏口径，风险等同用户/角色管理。
+    { key: 'dataLevels', label: '数据密级', enLabel: 'Data Levels', href: '/data-levels', icon: 'shield', section: '后台管理', order: 35, adminOnly: true },
     { key: 'export', label: '数据导出', enLabel: 'Export', href: '/export', icon: 'reports', section: '后台管理', order: 20, perm: 'export:run' },
     { key: 'audit-logs', label: '审计日志', enLabel: 'Audit Logs', href: '/audit-logs', icon: 'audit', section: '后台管理', order: 30, adminOnly: true },
     { key: 'users', label: '用户管理', enLabel: 'Users', href: '/users', icon: 'userGroup', section: '后台管理', order: 40, adminOnly: true },

@@ -432,3 +432,40 @@ export const FIELD_LEVELS: FieldLevel[] = [
   // ── partnerships（合作关系） ──
   { field: '费率', module: 'partnerships', level: 4 },
 ];
+
+/**
+ * 「数据密级」配置页的可配模块清单（module key → 主表）。2026-09-18 新增配置页时建立。
+ *
+ * ⚠️ 为什么不复用 `module-permissions`：那是**权限目录**，前端 bundle 也会带上；
+ *    往里塞表 id 等于把 DB 细节泄到浏览器。这里只服务「数据密级」一个页面，
+ *    所以就地维护一份**人工核对过**的映射 —— 加受控模块时加一行即可。
+ *
+ * `table` 是 `TABLES` 的键（不是 tableId），字段候选从该表在 `acms_fields` 里的
+ * 真实元数据读，**不需要手打字段名**（手打必错，且字段改名后会静默失效）。
+ */
+export const FIELD_LEVEL_MODULES: { key: string; label: string; table: string }[] = [
+  { key: 'students', label: '学生档案', table: 'studentProfile' },
+  { key: 'teachers', label: '教师档案', table: 'teacherProfile' },
+  { key: 'billing', label: '计费结算', table: 'billingDetail' },
+  { key: 'settlements', label: '月度结算', table: 'monthlySettlement' },
+  { key: 'partnerships', label: '聘用合作', table: 'partnership' },
+  { key: 'sourceFollowups', label: '生源跟进', table: 'sourceFollowup' },
+  { key: 'dailyFollowups', label: '日常跟进', table: 'dailyFollowup' },
+  { key: 'studentObservations', label: '学生观察', table: 'studentObservation' },
+  { key: 'stageEvaluations', label: '阶段评价', table: 'stageEvaluation' },
+  { key: 'homeSchoolComms', label: '家校沟通', table: 'homeSchoolComm' },
+  { key: 'alumniFollowups', label: '校友跟进', table: 'alumniFollowup' },
+  { key: 'mailArchive', label: '邮件归档', table: 'mailArchive' },
+  { key: 'mailAccounts', label: '邮箱账户', table: 'mailAccount' },
+  { key: 'behaviour', label: '行为记录', table: 'behaviourRecord' },
+  { key: 'meetingMinutes', label: '会议纪要', table: 'meetingMinutes' },
+  { key: 'idpPlans', label: 'IDP 计划', table: 'idpPlan' },
+  { key: 'attendance', label: '考勤记录', table: 'attendance' },
+  { key: 'examGrades', label: '考试成绩', table: 'gradeBatch' },
+];
+
+/**
+ * 「数据密级」里**不适合当受控字段**的类型 —— 选字段时过滤掉。
+ * 附件/关联/人员这些字段脱敏没有意义（打码后前端渲染不出东西，还会让关联断掉）。
+ */
+export const FIELD_LEVEL_SKIP_TYPES = new Set([7, 11, 17, 18, 21, 1001, 1005]);

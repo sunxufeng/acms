@@ -374,11 +374,88 @@ export interface RoleDef {
    * 维度：当前年级 / 当前状态（入学年级字典与实际数据不符，故不纳入）。
    * 多角色取**并集**；任一角色配了 `'all'` 则该用户不受限。见 `student-scope.ts`。
    */
-  dataScope?: 'all' | { 当前年级?: string[]; 当前状态?: string[] };
+  dataScope?: RoleDataScope;
   /** 内置角色：不可删除 */
   protected?: boolean;
   /** 权限集锁定（如系统管理员）：仅可改名，权限/密级不可改 */
   lockedPermissions?: boolean;
+}
+
+/**
+ * 「数据范围」的可配置维度。
+ *
+ * ⚠️ 这里是**唯一真源**：`apps/api/src/shared/student-scope.ts` 的 `STUDENT_SCOPE_DIMS`
+ * 由它赋值而来。两边各写一遍迟早会漂移（改了维度却只改一处 ⇒ 判定与界面不一致）。
+ * 只做两个维度：入学年级字典与实际数据不符，故不纳入。
+ */
+export const ROLE_SCOPE_DIMS = ['当前年级', '当前状态'] as const;
+export type RoleScopeDim = (typeof ROLE_SCOPE_DIMS)[number];
+
+/**
+ * 角色的「数据范围」取值（三态，2026-09-18 翻转为 fail-closed）：
+ *  - `'all'`            = 显式「不限制（看全部）」
+ *  - 非空对象            = 维度间 AND、维度内 OR
+ *  - `undefined` / 空对象 = **一条都看不到**
+ */
+export type RoleDataScope = 'all' | Partial<Record<RoleScopeDim, string[]>>;
+
+/** 取某维度的规范值集合（去空、去重、排序 ⇒ 与勾选顺序无关） */
+function scopeDimSet(scope: unknown, dim: RoleScopeDim): string[] {
+  if (!scope || typeof scope !== 'object') return [];
+  const v = (scope as Record<string, unknown>)[dim];
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.map((x) => String(x ?? '').trim()).filter(Boolean))].sort();
+}
+
+/**
+ * 两个「数据范围」配置是否**语义相等**（给「有无未保存改动」这类判断用）。
+ *
+ * 为什么不用 `JSON.stringify(a) === JSON.stringify(b)`：
+ *  ① 维度数组的比较必须**与顺序无关** —— 管理员取消一个勾再勾回来，数组顺序变了但语义没变，
+ *     用字符串比较会误判成「有改动」；
+ *  ② `undefined` / `null` / `{}` 三者在语义上都是「未配置（一条都看不到）」，必须相等，
+ *     否则打开编辑器就立刻显示「未保存」。
+ *
+ * 🔴 踩过的坑（2026-09-18）：角色管理页的 `dirty` 判断漏了这个字段 ⇒ 只改数据范围时
+ *    `dirty=false` ⇒ 保存按钮 `disabled` ⇒ **改完点不动**。比较逻辑单独成函数就是为了能测到它。
+ */
+export function sameDataScope(a: unknown, b: unknown): boolean {
+  const aAll = a === 'all';
+  const bAll = b === 'all';
+  // 'all'（显式不限制）与「维度对象」是两个不同状态，不能相等
+  if (aAll || bAll) return aAll === bAll;
+  return ROLE_SCOPE_DIMS.every((d) => {
+    const x = scopeDimSet(a, d);
+    const y = scopeDimSet(b, d);
+    return x.length === y.length && x.every((v, i) => v === y[i]);
+  });
+}
+
+/** 该配置是否表示「一条记录都看不到」（未配置 / 所有维度都空，且不是 `'all'`） */
+export function isScopeDenyAll(scope: unknown): boolean {
+  if (scope === 'all') return false;
+  return ROLE_SCOPE_DIMS.every((d) => scopeDimSet(scope, d).length === 0);
+}
+
+/**
+ * 用户表「数据密级上限」的**原始值** → 引擎密级，供会话写入。
+ *
+ * 三种输入、三种结果：
+ *  - **留空**（`''` / `undefined` / 空白）⇒ 返回 `undefined`
+ *    ⇒ 会话里不带 `maxDataLevel` ⇒ `maxDataLevelOf()` 回退到**角色管理里的「数据密级上限」**。
+ *  - 已知取值（一般 / 内部 / 敏感 / 高度敏感 / L4）⇒ 对应的 `L1`–`L4`（**覆盖**角色上限）。
+ *  - **无法识别**（错别字等）⇒ `L1`
+ *    🔴 不能按"留空"处理：那等于**给写错值的人提权**到角色上限。宁可 fail-closed。
+ *
+ * 🔴 2026-09-18 修正的坑：原实现在调用处写成 `toText(...) ?? 'L1'`，
+ *    留空被写成 L1 ⇒ `maxDataLevelOf()` 里「个人没有才看角色」的分支**永远走不到**
+ *    ⇒ 角色管理页的「密级上限」从来没参与过判定（设了也不生效，纯误导）。
+ *    抽成函数之后这条口径就有单测兜着，不会再被某个 `?? 'L1'` 悄悄改回去。
+ */
+export function engineLevelOfUserField(raw: unknown): DataLevel | undefined {
+  const v = typeof raw === 'string' ? raw.trim() : '';
+  if (!v) return undefined;
+  return USER_LEVEL_TO_ENGINE[v] ?? 'L1';
 }
 
 /** 角色权限矩阵配置（持久化于系统配置表） */

@@ -57,6 +57,47 @@ describe('ABAC 密级与校区', () => {
     expect(maxDataLevelOf({ roles: ['教师本人'], campuses: [], maxDataLevel: 'L3' })).toBe('L3');
   });
 
+  /**
+   * 🔴 2026-09-18：「用户表 · 数据密级上限」**留空**才轮到角色上限。
+   *
+   * 存在的意义：这条回退分支长期是**死代码** —— 因为 `auth.service` 曾经把空值写成 'L1'，
+   * 于是个人值永远"有值"，角色管理页上的「密级上限」设了也不生效（峰哥报的"误导"）。
+   * 改法是「空 ⇒ 不写 maxDataLevel」，这组断言把这个口径钉住：
+   *   - 个人留空 ⇒ 取角色上限（角色那栏这才真正参与判定）
+   *   - 个人有值 ⇒ 以个人为准（**不**取两者较高者，避免静默提权）
+   */
+  it('个人密级留空 ⇒ 回退到角色上限（角色那栏真正生效）', () => {
+    // ⚠️ 这里只断言**内置角色**：自定义角色（Phase1/Phase2 等）的上限来自运行时加载的
+    //    系统配置（`loadRolePermissionConfig` → `effectiveMaxLevel`），纯函数单测里没有配置，
+    //    会被当成未知角色兜底 L1。自定义角色那条改由生产实测覆盖（/auth/permissions）。
+    expect(maxDataLevelOf({ roles: ['系统管理员'], campuses: [] })).toBe('L4');
+    expect(maxDataLevelOf({ roles: ['教师本人'], campuses: [] })).toBe('L2');
+    expect(maxDataLevelOf({ roles: ['财务'], campuses: [] })).toBe('L3');
+    expect(maxDataLevelOf({ roles: ['学生事务'], campuses: [] })).toBe('L3');
+  });
+
+  it('个人密级有值 ⇒ 以个人为准，**不**取较高者（防静默提权）', () => {
+    // 财务角色上限 L3，但个人写了一般(L1) ⇒ 就是 L1
+    expect(maxDataLevelOf({ roles: ['财务'], campuses: [], maxDataLevel: 'L1' })).toBe('L1');
+    // 反过来也一样：个人写 L4 就按 L4，不会被角色上限"压低"
+    expect(maxDataLevelOf({ roles: ['教师本人'], campuses: [], maxDataLevel: 'L4' })).toBe('L4');
+  });
+
+  it('个人留空 + 多角色 ⇒ 取各角色最高', () => {
+    expect(maxDataLevelOf({ roles: ['教师本人', '财务'], campuses: [] })).toBe('L3');
+    expect(maxDataLevelOf({ roles: ['教师本人', '系统管理员'], campuses: [] })).toBe('L4');
+  });
+
+  it('个人留空 + 无角色 ⇒ 兜底 L1（不清空到"无上限"）', () => {
+    expect(maxDataLevelOf({ roles: [], campuses: [] })).toBe('L1');
+    expect(maxDataLevelOf({ roles: ['不存在的角色'], campuses: [] })).toBe('L1');
+  });
+
+  it('个人值非法（脏数据）⇒ 不被采纳，按缺省走角色回退', () => {
+    // 注：auth.service 对非法值会先归一到 L1 再落进会话，这里直接验证纯函数对脏值的宽容度
+    expect(maxDataLevelOf({ roles: ['教师本人'], campuses: [], maxDataLevel: '机密' })).toBe('L2');
+  });
+
   it('L3 记录对 L2 上限用户拒绝', () => {
     const d = authorize(p('教师本人'), 'grade:read', { dataLevel: 'L3' });
     expect(d.allowed).toBe(false);

@@ -40,7 +40,15 @@ export interface SessionUser {
   name: string;
   roles: string[];
   campuses: string[];
-  maxDataLevel: string;
+  /**
+   * 用户级密级上限（引擎取值 L1–L4）。
+   *
+   * 🔴 **可缺省**：缺省 = 用户表「数据密级上限」留空 ⇒ 由 `maxDataLevelOf()` 回退到
+   *    「角色管理 · 数据密级上限」里该用户各角色的最高值。
+   *    2026-09-18 之前这里被写成 `?? 'L1'`，个人值永远是 L1 ⇒ 角色上限那段分支成为死代码。
+   *    不要为了"省事"给它补默认值，那会让角色上限再次失效。
+   */
+  maxDataLevel?: string;
   /** 学生端/家长端会话：绑定的学生档案 record_id（同时作为关联学生编号的 link 值） */
   studentId?: string;
   /**

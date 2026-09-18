@@ -10,6 +10,10 @@ import {
   MODULE_RESOURCES,
   MODULE_ACTION_LABELS,
   moduleByMenuKey,
+  DATA_LEVEL_RANK,
+  sameDataScope,
+  isScopeDenyAll,
+  type RoleDataScope,
   DEFAULT_NAV_MENU_CONFIG,
   type NavMenuConfig,
   type NavMenuGroup,
@@ -141,7 +145,7 @@ interface Draft {
    * 学生档案数据范围：`'all'` = 显式「不限制（看全部学生）」；对象 = 按维度过滤；
    * undefined = **一条都看不到**（2026-09-18 起；此前 undefined 表示「不限制」，别改回去）。
    */
-  dataScope?: 'all' | { 当前年级?: string[]; 当前状态?: string[] };
+  dataScope?: RoleDataScope;
   protected?: boolean;
   lockedPermissions?: boolean;
   isNew?: boolean;
@@ -177,6 +181,15 @@ export default function RoleManagementPage() {
     cross: { 当前年级: string; 当前状态: string; count: number }[];
     total: number;
   } | null>(null);
+  /**
+   * 账号清单（只为算「密级上限对谁生效」）。
+   *
+   * 为什么要拉这个：`数据密级上限` 的判定是**个人值优先、留空才看角色**
+   * （`maxDataLevelOf()`），而生产上所有人都填了个人值 ⇒ 这一栏设了也不生效。
+   * 不把这个事实摆在界面上，管理员只会以为「配了不起作用」= 系统坏了。
+   * 拉不到（非管理员 403）时置 null，界面自动隐藏该提示。
+   */
+  const [accounts, setAccounts] = useState<{ roles: string[]; level: string; name: string }[] | null>(null);
   const [moduleQuery, setModuleQuery] = useState('');
   /** 复制本角色模块权限的目标角色（权限矩阵里的「复制模块权限给」—— 并入既有角色，不新建） */
   const [copyTarget, setCopyTarget] = useState('');
@@ -207,6 +220,24 @@ export default function RoleManagementPage() {
 
   useEffect(() => {
     load();
+    // 账号清单：只为在「数据密级上限」旁注明它对谁生效（拉不到就隐藏提示，不影响主流程）
+    api
+      .listUsers({ pageSize: '500' })
+      .then((p) =>
+        setAccounts(
+          (p.items ?? []).map((u: Record<string, unknown>) => {
+            const rawRoles = u['系统角色'];
+            return {
+              name: String(u['姓名'] ?? ''),
+              roles: Array.isArray(rawRoles)
+                ? rawRoles.map((x) => String(x))
+                : [String(rawRoles ?? '')].filter(Boolean),
+              level: String(u['数据密级上限'] ?? '').trim(),
+            };
+          }),
+        ),
+      )
+      .catch(() => setAccounts(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -570,8 +601,8 @@ export default function RoleManagementPage() {
       const scope: { 当前年级?: string[]; 当前状态?: string[] } = { ...(ds ?? {}) };
       if (next.length) scope[dim] = next;
       else delete scope[dim];
-      const empty = !scope.当前年级?.length && !scope.当前状态?.length;
-      return { ...prev, dataScope: empty ? undefined : scope };
+      // 两个维度都空 ⇒ 收敛成 undefined（= 一条都看不到），与 role-scope.ts 的判据同源
+      return { ...prev, dataScope: isScopeDenyAll(scope) ? undefined : scope };
     });
   }
 
@@ -593,13 +624,34 @@ export default function RoleManagementPage() {
     if (!scopeOpts) return null;
     const ds = draft?.dataScope;
     if (ds === 'all') return scopeOpts.total;
+    if (isScopeDenyAll(ds)) return 0;
     const g = (typeof ds === 'object' ? ds?.当前年级 : undefined) ?? [];
     const s = (typeof ds === 'object' ? ds?.当前状态 : undefined) ?? [];
-    if (!g.length && !s.length) return 0;
     return scopeOpts.cross
       .filter((r) => (!g.length || g.includes(r.当前年级)) && (!s.length || s.includes(r.当前状态)))
       .reduce((sum, r) => sum + r.count, 0);
   }, [scopeOpts, draft?.dataScope]);
+
+  /**
+   * 「数据密级上限」这一栏在本角色上到底对谁生效。
+   *
+   * 判定口径（`maxDataLevelOf()`）：**个人值优先，留空才回退到角色上限**。
+   * 生产上所有人都填了个人值，于是这一栏设了也看不出效果 —— 必须把这件事说出来，
+   * 否则管理员只会以为「配了不生效 = 系统坏了」。
+   */
+  const levelUsage = useMemo(() => {
+    if (!draft || draft.isNew || !accounts) return null;
+    const members = accounts.filter((a) => a.roles.includes(draft.key));
+    if (!members.length) return { total: 0, overrides: 0, beyond: 0 };
+    const rankOf = (v: string) => (DATA_LEVEL_RANK as Record<string, number>)[v] ?? 0;
+    const capRank = rankOf(draft.maxDataLevel);
+    return {
+      total: members.length,
+      overrides: members.filter((a) => a.level).length,
+      // 个人值比角色上限还高的：他们不仅不受此上限约束，还超出了它
+      beyond: members.filter((a) => a.level && rankOf(a.level) > capRank).length,
+    };
+  }, [draft, accounts]);
 
   async function handleSave() {
     if (!draft) return;
@@ -757,6 +809,10 @@ export default function RoleManagementPage() {
       return (
         orig.label !== draft.label ||
         orig.maxDataLevel !== draft.maxDataLevel ||
+        // 🔴 2026-09-18 补：原来漏了 dataScope ⇒ 只改数据范围时 dirty 恒为 false，
+        //    保存按钮是 `disabled={!dirty}` ⇒ 改完点不动（峰哥报障）。
+        //    用 sameDataScope 而不是比字符串：维度数组要**与勾选顺序无关**。
+        !sameDataScope(orig.dataScope, draft.dataScope) ||
         menusChanged ||
         orig.permissions.length !== draft.permissions.length ||
         orig.permissions.some((p) => !draft.permissions.includes(p)) ||
@@ -915,6 +971,33 @@ export default function RoleManagementPage() {
                       <option key={lv} value={lv}>{LEVEL_LABELS[lv] ?? lv}</option>
                     ))}
                   </select>
+                  {/* 🔴 生效口径（2026-09-18 起）：个人值优先，留空才看这里。
+                      不写出来就会长期被当成「设了没用」的坏功能（实际情况是个人值覆盖了它）。 */}
+                  {levelUsage && levelUsage.total > 0 && (
+                    <div
+                      style={{
+                        fontSize: 'var(--font-xs)',
+                        color: levelUsage.overrides ? 'var(--fg-tertiary)' : 'var(--fg-secondary)',
+                        marginTop: 6,
+                        lineHeight: 1.55,
+                        maxWidth: 320,
+                      }}
+                    >
+                      {tl('该角色')} <strong>{levelUsage.total}</strong> {tl('名账号中，')}
+                      <strong>{levelUsage.overrides}</strong>{' '}
+                      {tl('人已单独设置个人密级，其实际密级以个人值为准，此处上限对他们不生效。')}
+                      {levelUsage.beyond > 0 && (
+                        <>
+                          {' '}
+                          {tl('其中')} <strong>{levelUsage.beyond}</strong>{' '}
+                          {tl('人的个人密级高于此处上限。')}
+                        </>
+                      )}
+                      {levelUsage.overrides === 0 && (
+                        <> {tl('（当前无人覆盖，此处上限对全部成员生效）')}</>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="form-field" style={{ minWidth: 160, alignSelf: 'flex-end' }}>
                   <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{ts('grantedPermissions')}</div>

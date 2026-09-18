@@ -21,8 +21,11 @@
  *    避免两个地方各写一遍导致口径漂移。
  */
 
-/** 可配置的维度。只做两个（2026-09-15 峰哥确认）：入学年级字典与实际数据不符，故不纳入。 */
-export const STUDENT_SCOPE_DIMS = ['当前年级', '当前状态'] as const;
+import { ROLE_SCOPE_DIMS } from '@acms/contracts';
+
+/** 可配置的维度。**真源在 `@acms/contracts` 的 `ROLE_SCOPE_DIMS`**（前端角色管理页也用同一个），
+ *  这里只做别名 —— 两边各写一遍迟早漂移（改了维度却只改一处 ⇒ 界面与判定不一致）。 */
+export const STUDENT_SCOPE_DIMS = ROLE_SCOPE_DIMS;
 export type StudentScopeDim = (typeof STUDENT_SCOPE_DIMS)[number];
 
 /** 一个范围配置：维度 → 允许的值集合 */

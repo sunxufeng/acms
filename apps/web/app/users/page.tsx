@@ -18,7 +18,10 @@ const COLUMNS: CrudColumn[] = [
   // ⚠️ 不写死 options：表单区已由 UserForm 接管，角色动态取自 GET /role-management
   { key: '系统角色', label: '系统角色', width: '200px', form: true, type: 'multiselect', render: (v) => <RoleLabelsCell value={v} /> },
   { key: '教师类型', label: '教师类型', width: '120px', form: true, type: 'select', dictKey: '教师类型', options: ['班主任', '招生老师'], filter: true },
-  { key: '数据密级上限', label: '数据密级', width: '110px', form: true, type: 'select', options: LEVEL_OPTS, list: false },
+  // 🔴 2026-09-18 起**在列表里显示**（原来 list:false 隐藏）：密级的生效口径是
+  //    「个人值优先，留空才看角色管理里的『数据密级上限』」——
+  //    个人值不露在列表上，管理员就没法看出「角色那栏为什么设了不生效」。
+  { key: '数据密级上限', label: '数据密级', width: '110px', form: true, type: 'select', options: LEVEL_OPTS, filter: true },
   // 校区：默认选中字典第一项（=「申昆路校区」，真实校区）。
   // 原因：ABAC 会按校区逐行过滤 —— 选错校区 ⇒ 一条数据都看不到；
   // 而**留空**反而会被判成「不受校区限制」，能看到全部数据，是更危险的反向口子。

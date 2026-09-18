@@ -2515,7 +2515,13 @@
     "预览中": "Loading",
     "预览失败": "Preview failed",
     "预览打码效果": "Preview masking",
-    "（读不到用户列表，不影响下方配置）": "(user list unavailable; the config below still works)"
+    "（读不到用户列表，不影响下方配置）": "(user list unavailable; the config below still works)",
+    "该角色": "This role has",
+    "名账号中，": "account(s);",
+    "人已单独设置个人密级，其实际密级以个人值为准，此处上限对他们不生效。": "have a personal level set, which takes precedence over this cap — the cap does not apply to them.",
+    "其中": "Of them,",
+    "人的个人密级高于此处上限。": "have a personal level above this cap.",
+    "（当前无人覆盖，此处上限对全部成员生效）": "(Nobody overrides it — this cap applies to all members.)"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common';
 import { timingSafeEqual } from 'node:crypto';
 import type { Redis } from 'ioredis';
-import { USER_LEVEL_TO_ENGINE, USER_TABLE, type DataLevel, type SessionUser } from '@acms/contracts';
+import { USER_LEVEL_TO_ENGINE, USER_TABLE, engineLevelOfUserField, type SessionUser } from '@acms/contracts';
 import { getRoleList } from '@acms/domain';
 import { toText, toStringArray, type BaseClient } from '@acms/base-adapter';
 import { SessionService } from './session.service.js';
@@ -205,9 +205,20 @@ export class AuthService {
     const validRoles = new Set(getRoleList());
     const roles = toStringArray(record.fields['系统角色']).filter((r: string) => validRoles.has(r));
     const campuses = toStringArray(record.fields['默认校区']);
-    const levelRaw = toText(record.fields['数据密级上限']) ?? 'L1';
-    const maxDataLevel: DataLevel =
-      levelRaw in USER_LEVEL_TO_ENGINE ? (USER_LEVEL_TO_ENGINE[levelRaw] ?? 'L1') : 'L1';
+    // 🔴 密级口径（2026-09-18 修正一处长期误导）：
+    //    用户表「数据密级上限」是**显式覆盖**；留空 ⇒ 交给 `maxDataLevelOf()` 回退到
+    //    「角色管理 · 数据密级上限」里该用户各角色的最高值（都没有则 L1）。
+    //
+    //    原实现是 `?? 'L1'`，即**空值也当成 L1 写死** ⇒ 个人值永远"有值" ⇒
+    //    `maxDataLevelOf()` 里那段「个人没有才看角色」的分支**永远走不到** ⇒
+    //    角色管理页上的「密级上限」从来没参与过判定（设了也不生效，纯误导）。
+    //    改成空 → undefined 后该字段才真正生效；对「个人有值」的人**行为完全不变**。
+    const levelRaw = String(toText(record.fields['数据密级上限']) ?? '').trim();
+    // 空 ⇒ undefined（回退角色上限）；已知值 ⇒ 覆盖；无法识别 ⇒ L1（fail-closed）
+    const maxDataLevel = engineLevelOfUserField(levelRaw);
+    if (levelRaw && !(levelRaw in USER_LEVEL_TO_ENGINE)) {
+      this.logger.warn(`用户 ${openId} 的「数据密级上限」取值无法识别（${levelRaw}），按 L1 处理`);
+    }
     return { openId, name: toText(record.fields['姓名']) || name, roles, campuses, maxDataLevel };
   }
 

@@ -100,7 +100,14 @@ if subprocess.run(['git', 'cat-file', '-e', remote_sha + '^{commit}']).returncod
 base_tree = api('GET', '/git/commits/' + remote_sha)['tree']['sha']
 print('base tree:', base_tree)
 
-changed = [f for f in git('diff', '--name-only', remote_sha, local_sha).split('\n') if f.strip()]
+# ⚠️ 必须带 `--no-renames`（2026-09-19 实测踩到）：
+#    开了重命名检测时，`diff --name-only` 对「A 改名到 B」**只输出新路径 B**，
+#    旧路径 A 根本不出现在列表里 ⇒ 脚本不会把它标成 deleted ⇒ base_tree 里那份旧文件
+#    继续留在远端，**远端 tree 与本地 HEAD 不再一致**。
+#    本次表现：`git mv home-school-comms/AiSummarizeModal.tsx components/` 之后，
+#    远端多出一个 `apps/web/app/home-school-comms/AiSummarizeModal.tsx`（本地早已没有）。
+#    加 --no-renames 后，改名会被拆成「删除旧 + 新增新」两条，删除才表达得出来。
+changed = [f for f in git('diff', '--name-only', '--no-renames', remote_sha, local_sha).split('\n') if f.strip()]
 print('本次差异文件 %d 个' % len(changed))
 entries = []
 for f in changed:

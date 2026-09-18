@@ -1,4 +1,4 @@
-import { toText } from '@acms/base-adapter';
+import { isAttachmentArray, toText } from '@acms/base-adapter';
 
 /**
  * 飞书字段类型 → 读取侧格式化。
@@ -33,6 +33,13 @@ export interface FieldTypeInfo {
 /** 按字段类型还原读取值（对应飞书 BaseClient 的 fromReadFields） */
 export function formatReadValue(v: unknown, info: FieldTypeInfo | undefined): unknown {
   if (v == null) return v;
+  // 🔴 附件数组（type=17）**先豁免**，不能交给下面任何一条类型分支。
+  //
+  // 背景：「沟通附件清单」这类字段在历史建表时被登记成了文本字段（type=1），
+  // 于是按 type=1 走 `toText` —— 而 toText 是富文本语义（取每项 `.text` 拼接），
+  // 附件项没有 `.text` ⇒ 非空附件当场被拍成空串，界面上永远看不到附件、
+  // 音频播放器也渲染不出来（2026-09-18 修「转出的录音看不见」时定位到此处）。
+  if (isAttachmentArray(v)) return v;
   const type = info?.type;
   if (type === 5) return formatDate(v, info?.hasTime ?? false);
   if (type === 1) return toText(v);

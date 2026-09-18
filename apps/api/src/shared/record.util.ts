@@ -1,5 +1,6 @@
 /** 通用记录读写辅助（M2 各模块复用，避免重复 student 模式代码） */
 import {
+  isAttachmentArray,
   toWriteSingle,
   toWriteMulti,
   toStringArray,
@@ -33,7 +34,10 @@ export function buildWriteFields(
   for (const [k, v] of Object.entries(dto)) {
     if (readonly.has(k) || isAuditField(k)) continue;
     if (v === undefined || v === null) continue;
-    if (Array.isArray(v)) fields[k] = toWriteMulti(v);
+    if (Array.isArray(v))
+      // 附件数组原样写：`toWriteMulti` 用的也是「取 .text」那套（见 isAttachmentArray），
+      // 传数组进来会被拆成空数组 —— 与读侧对称，写入侧同样要豁免附件。
+      fields[k] = isAttachmentArray(v) ? v : toWriteMulti(v);
     else if (typeof v === 'string') {
       if (numbers.has(k)) {
         const n = Number(v);
@@ -43,6 +47,13 @@ export function buildWriteFields(
   }
   return fields;
 }
+
+/**
+ * 附件数组的判据（`isAttachmentArray`）**住在 `@acms/base-adapter`**，不在本文件 ——
+ * 因为拍平会在两处发生：① `SqlStore.normalize` 按字段元数据类型格式化（type=1 走 toText）；
+ * ② 本文件的展平/写入。判据只有一份，才能避免「改了一处、另一处还在拍平」。
+ * 具体后果与判据说明见 `packages/base-adapter/src/convert.ts`。
+ */
 
 export function toFlatRecord(
   rec: { recordId: string; fields: Record<string, unknown>; audit?: RecordAudit },
@@ -61,10 +72,13 @@ export function toFlatRecord(
   for (const [k, v] of Object.entries(rec.fields)) {
     // 审计字段以物理列为准，data 里的同名历史值一律忽略（历史值已由回填脚本迁走）
     if (isAuditField(k) && !keepBusinessFields.has(k)) continue;
+    // 🔴 附件数组必须**原样保留**，且要排在 link / multi / readonly 之前 ——
+    //    那三个分支最终都会走 toText / toStringArray，把附件拍成空串（见 isAttachmentArray）
+    if (isAttachmentArray(v)) obj[k] = v;
     // ⚠️ link 分支必须优先于 multi 判断：
     // 字段同时登记在 linkFields 与 multi 时（如 AI 路由的「所属分组」既要多选、又要显示分组名），
     // 若先走 multi 分支就不会注入 __link，resolveLinks 拿不到 id，列表里会直接显示一串 record id。
-    if (linkFields.has(k)) {
+    else if (linkFields.has(k)) {
       // type=18 关联字段返回值形如 [{ record_ids:[id], table_id, text:null, ... }]
       // 先暂存 id（解析后由 BaseRecordService.resolveLinks 替换为可读名），并附 __link 数组供前端跳转
       const ids = linkIds(v);

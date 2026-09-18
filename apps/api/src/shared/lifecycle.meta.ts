@@ -7,6 +7,9 @@
  *  - statusField/ defaultStatus: 状态展示与新建默认
  */
 import { TABLES, USER_TABLE } from '@acms/contracts';
+// 「学生记录」三合一（2026-09-18）：类型字段名与「类型值 → 模块 key」映射都取自契约，
+// 与前端 / 权限判定共用同一份，避免两边各写一套枚举导致漂移。
+import { STUDENT_RECORD_TYPE_FIELD, STUDENT_RECORD_TYPE_TO_MODULE } from '@acms/contracts';
 import { scheduleStateOf } from '../ai-route/schedule-state.js';
 import type { RecordMeta } from './generic-crud.module.js';
 import { getSqlStore } from '../base.provider.js';
@@ -19,6 +22,49 @@ import {
 
 const PERM_R = 'student:read';
 const PERM_W = 'student:write';
+
+/**
+ * 「学生记录」的类型域配置：类型字段 → 类型值到模块 key 的映射。
+ *
+ * 用户能看/能写哪些**类型**，由各类型模块的 `module:<key>:<read|write>` 权限决定；
+ * 一个角色的配置都不用改（合并前它们就持有各自的模块权限）。
+ */
+const STUDENT_RECORD_TYPE_SCOPE: NonNullable<RecordMeta['typeScope']> = {
+  field: STUDENT_RECORD_TYPE_FIELD,
+  typeModules: STUDENT_RECORD_TYPE_TO_MODULE,
+  // 缺省类型 = 主表（日常跟进表）的原义。用于给「未打类型的历史记录」兜底 ——
+  // 没有它，任何漏打类型的记录会对所有人静默消失。
+  defaultType: '日常跟进',
+};
+
+/**
+ * 「学生记录」四个入口共用的表定义（表 = 日常跟进表，三合一后的唯一物理表）。
+ *
+ * 字段取三个模块的**并集**：
+ *   - readonly 新增「关联学生编号 / 关联监护人」两个关联字段（来自家校沟通）
+ *   - linkFields 使详情页能把它们解析成可读名
+ *   - 「家长 / 家长反馈态度 / 家长反馈 / 观察类型」四个专有字段**不在 readonly 里**
+ *     （它们是可写的业务字段），由前端按「记录类型」动态显隐
+ */
+const STUDENT_RECORD_BASE: Omit<RecordMeta, 'path'> = {
+  tableId: TABLES.dailyFollowup.tableId,
+  studentMatch: { field: '关联学生', by: 'name' },
+  studentScoped: true,
+  readPerm: PERM_R,
+  writePerm: PERM_W,
+  numbers: ['沟通时长(分钟)'],
+  dateFields: ['沟通时间', '跟进截止日期', '闭环日期'],
+  readonly: ['待办负责人', '沟通附件', '关联学生编号', '关联监护人'],
+  linkFields: [
+    { field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
+    { field: '关联监护人', table: TABLES.guardian.tableId, nameField: '监护人姓名' },
+  ],
+  statusField: '闭环状态',
+  defaultStatus: '无需跟进',
+  searchField: '关联学生',
+  sortField: '沟通时间',
+  typeScope: STUDENT_RECORD_TYPE_SCOPE,
+};
 
 /**
  * 按「跟进人」反查其跟进过的联系人 id 集合（卫瓴跟进记录表）。
@@ -140,56 +186,42 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     searchField: '活动名称',
     sortField: '活动开始日期',
   },
+  // ── 学生记录（2026-09-18）：日常跟进 / 家校沟通 / 学生观察 三表合一 ────────────
+  //
+  // 合并依据（都在本文件里看得到）：三者的 numbers / dateFields / readonly / statusField /
+  // defaultStatus / searchField / sortField 逐字相同，dict.data.ts 共用同一批字典，
+  // homepage.ts 的笔记转出字段映射也完全一致 —— 它们本来就是「同一张表的三个视图」。
+  //
+  // 合并后：**表 = 沿用「日常跟进表」** + 一个「记录类型」单选字段区分三类记录；
+  //         **权限 = 各自模块的权限点原样保留**（角色配置一个字都不用改），
+  //         由 typeScope 逐类型过滤（读见 generic-crud.rowScopeFor，写见 resolveWriteType）。
+  //
+  // ⚠️ 四个 path 指向**同一张表**是有意的，不是重复登记：
+  //   student-records        主入口（前端页面用它）
+  //   daily-followups        兼容入口（旧 URL / 书签 / 外部集成不失效）
+  //   home-school-comms      兼容入口，create 时 defaults 打「家校沟通」
+  //   student-observations   兼容入口，create 时 defaults 打「学生观察」
+  //   四个入口共用同一份 typeScope，所以谁都不会绕过类型权限；返回内容也一律按
+  //   「用户有权持有的类型」过滤，不会出现「用家校沟通的权限看到日常跟进的记录」。
   {
-    path: 'home-school-comms',
-    tableId: TABLES.homeSchoolComm.tableId,
-    studentMatch: { field: '关联学生', by: 'name' },
-    studentScoped: true,
-    readPerm: PERM_R,
-    writePerm: PERM_W,
-    numbers: ['沟通时长(分钟)'],
-    dateFields: ['沟通时间', '跟进截止日期', '闭环日期'],
-    readonly: ['待办负责人', '沟通附件', '关联学生编号', '关联监护人'],
-    linkFields: [
-      { field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
-      { field: '关联监护人', table: TABLES.guardian.tableId, nameField: '监护人姓名' },
-    ],
-    statusField: '闭环状态',
-    defaultStatus: '无需跟进',
-    searchField: '关联学生',
-    sortField: '沟通时间',
+    path: 'student-records',
+    defaults: { [STUDENT_RECORD_TYPE_FIELD]: '日常跟进' },
+    ...STUDENT_RECORD_BASE,
   },
   {
     path: 'daily-followups',
-    tableId: TABLES.dailyFollowup.tableId,
-    studentMatch: { field: '关联学生', by: 'name' },
-    studentScoped: true,
-    readPerm: PERM_R,
-    writePerm: PERM_W,
-    numbers: ['沟通时长(分钟)'],
-    dateFields: ['沟通时间', '跟进截止日期', '闭环日期'],
-    readonly: ['待办负责人', '沟通附件'],
-    statusField: '闭环状态',
-    defaultStatus: '无需跟进',
-    searchField: '关联学生',
-    sortField: '沟通时间',
+    defaults: { [STUDENT_RECORD_TYPE_FIELD]: '日常跟进' },
+    ...STUDENT_RECORD_BASE,
   },
-  // 学生观察（2026-09-06 新增）：字段结构照搬日常跟进，新增「观察类型」单选字段。
-  // 界面统一把「沟通X」显示为「观察X」，但飞书字段名保持「沟通X」，以便复用字典同步逻辑。
+  {
+    path: 'home-school-comms',
+    defaults: { [STUDENT_RECORD_TYPE_FIELD]: '家校沟通' },
+    ...STUDENT_RECORD_BASE,
+  },
   {
     path: 'student-observations',
-    tableId: TABLES.studentObservation.tableId,
-    studentMatch: { field: '关联学生', by: 'name' },
-    studentScoped: true,
-    readPerm: PERM_R,
-    writePerm: PERM_W,
-    numbers: ['沟通时长(分钟)'],
-    dateFields: ['沟通时间', '跟进截止日期', '闭环日期'],
-    readonly: ['待办负责人', '沟通附件'],
-    statusField: '闭环状态',
-    defaultStatus: '无需跟进',
-    searchField: '关联学生',
-    sortField: '沟通时间',
+    defaults: { [STUDENT_RECORD_TYPE_FIELD]: '学生观察' },
+    ...STUDENT_RECORD_BASE,
   },
   {
     path: 'stage-evaluations',

@@ -780,6 +780,23 @@ export const api = {
   updateDailyFollowup: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/daily-followups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveDailyFollowup: (id: string) => request<{ ok: boolean }>(`/daily-followups/${id}`, { method: 'DELETE' }),
 
+  // ── 学生记录（2026-09-18）：日常跟进 / 家校沟通 / 学生观察 三合一后的主入口 ──
+  //
+  // 后端四个路径（student-records / daily-followups / home-school-comms / student-observations）
+  // 指向**同一张表**，共用同一份类型权限过滤（RecordMeta.typeScope）。前端只用主入口；
+  // 其余三个是兼容入口（旧书签、外部集成、AI 总结按 prefix 调用）。
+  listStudentRecords: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/student-records${q ? `?${q}` : ''}`);
+  },
+  /** 学生记录单条（详情只读页用） */
+  getStudentRecord: (id: string) => request<Record<string, unknown>>(`/student-records/${id}`),
+  createStudentRecord: (data: Record<string, unknown>) => request<Record<string, unknown>>('/student-records', { method: 'POST', body: JSON.stringify(data) }),
+  updateStudentRecord: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/student-records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveStudentRecord: (id: string) => request<{ ok: boolean }>(`/student-records/${id}`, { method: 'DELETE' }),
+
   /** 卫瓴SCRM 联系人（2026-09-11 新增）：只读，数据由后台从卫瓴同步 */
   listWeilingContacts: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();

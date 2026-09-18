@@ -12,8 +12,11 @@
  */
 export const MODULE_FIELDS: Record<string, string[]> = {
   // 学生闭环
-  homeSchoolComms: ['沟通总结', '沟通明细', '家长反馈', '沟通人备注', '待办事项', '沟通附件清单'],
-  dailyFollowups: ['沟通总结', '沟通明细', '沟通人备注', '待办事项', '沟通附件清单'],
+  // 学生记录（2026-09-18 三合一）：日常跟进 / 家校沟通 / 学生观察 共用一张表，
+  // 字段级密级的候选字段取三者并集（家长反馈 原属家校沟通）。
+  // ⚠️ 三个旧 key 已删除 —— 菜单里不再有它们；生产 field_level_config 里的历史配置
+  //    需要迁移到 studentRecords，否则那几条密级规则会静默失效（配置在、模块没了）。
+  studentRecords: ['沟通总结', '沟通明细', '家长反馈', '沟通人备注', '待办事项', '沟通附件清单'],
   sourceFollowups: ['沟通总结', '沟通明细', '跟进内容', '参观反馈', '家长或学生诉求', '下一步行动'],
   practiceActivities: ['活动内容', '活动表现', '参与情况', '成果与反思', '活动名称', '活动证明'],
   grades: ['课堂表现', '教师评语', '考核名称', '成绩附件'],
@@ -21,7 +24,7 @@ export const MODULE_FIELDS: Record<string, string[]> = {
   studentAttendances: ['异常描述', '处理结果', '佐证附件'],
   alumniFollowups: ['跟进事项', '跟进备注', '跟进附件'],
   idpPlans: ['展示内容', '展示亮点', '原始文档'],
-  studentObservations: ['沟通总结', '沟通明细', '沟通人备注', '待办事项', '沟通附件清单'],
+  // 2026-09-18：studentObservations 已并入 studentRecords（见上），此处不再单列。
   // 组织管理：会议纪要（2026-09-11）
   meetingMinutes: ['会议总结', '会议明细', '待办事宜', '会议议题', '会议附件'],
 };

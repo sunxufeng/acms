@@ -1,5 +1,7 @@
 export * from './role.js';
 export * from './module-permissions.js';
+// 「学生记录」合并类型（依赖 module-permissions 的 modulePermission）
+export * from './student-records.js';
 export * from './tables.js';
 export * from './api.js';
 export * from './homepage.js';

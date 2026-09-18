@@ -64,7 +64,8 @@ export interface RowScopeContext {
 
 /**
  * 判断一行是否满足行级范围条件。
- * 只实现 rowScope 用得到的子集：等值 / contains / and / or。
+ * 只实现 rowScope / typeScope 用得到的子集：等值 / contains / isempty / isnotempty / and / or。
+ * （算子名与 `SqlStore.buildCondition` 对齐，两边必须能表达同一件事，否则服务端分页与内存兜底会漂移。）
  *
  * 存在的意义：行级范围既要在**服务端查询**里表达（否则分页与 total 都是错的），
  * 又要在**拿到单行之后**判断（详情、导出、内存深筛）。两处各写一套的话早晚漂移，
@@ -80,8 +81,6 @@ export function matchFilter(row: Record<string, unknown>, cond: RowScopeFilter |
       ? list.some((c) => matchFilter(row, c))
       : list.every((c) => matchFilter(row, c));
   }
-  const want = (cond.value ?? []).map((v) => String(v));
-  if (!want.length) return true;
   // ⚠️ 关联字段（link）在内存路径里，展示值已被 `resolveLinks` 换成姓名，
   //    原始 record id 只留在 `<字段>__link` 数组里。行级范围条件用的是 **id**
   //    （姓名会重名，不能当判据），所以这里必须把 `__link` 也纳入候选，
@@ -93,7 +92,15 @@ export function matchFilter(row: Record<string, unknown>, cond: RowScopeFilter |
     .flatMap((c) => (Array.isArray(c) ? c : [c]))
     .filter((v) => v !== undefined && v !== null)
     .map((v) => String(toText(v)));
-  return want.some((w) => (cond.op === 'contains' ? have.some((h) => h.includes(w)) : have.includes(w)));
+  const op = (cond.op ?? 'is').toLowerCase();
+  // ⚠️ 空值判断必须排在下面「want 为空 ⇒ 不限制」之前：`isempty` 的 value 本来就是空数组，
+  //    顺序反了会走成 `!want.length ⇒ return true`（变成「谁都能看」），语义正好相反。
+  //    算子名与 SqlStore.buildCondition 一致（`coalesce(col,'') = ''`，等价于「无值或空串」）。
+  if (op === 'isempty') return have.every((h) => h === '');
+  if (op === 'isnotempty') return have.some((h) => h !== '');
+  const want = (cond.value ?? []).map((v) => String(v));
+  if (!want.length) return true;
+  return want.some((w) => (op === 'contains' ? have.some((h) => h.includes(w)) : have.includes(w)));
 }
 
 export interface RecordMeta {
@@ -184,6 +191,33 @@ export interface RecordMeta {
    */
   dedupParams?: boolean;
   /**
+   * 行级「记录类型」权限过滤（2026-09-18）。
+   *
+   * 用于**多个业务模块合并到同一张表**的场景（学生记录 = 日常跟进 / 家校沟通 / 学生观察）：
+   * 表里用一个单选字段区分类型，用户能看**哪些类型**由各自模块的权限点决定。
+   *
+   * 生效方式（三条，都在本文件里，改一处要一起看）：
+   *   - 读：`rowScopeFor` 追加一条「类型 ∈ 有权限的类型」，服务端过滤 ⇒ 分页与 total 正确；
+   *         详情 / 导出 / 内存深筛消费同一份条件（matchFilter）。
+   *         一条类型权限都没有 ⇒ 返回 `'none'`（一条都看不到）。
+   *   - 进入：`require('read')` 放宽成「任一类型权限即可」，见 `anyStudentRecordPerm` 的注释 ——
+   *         合并前每个模块各有权限点、角色配置里存的就是那三个，主入口若只认新权限点会**没人能进**。
+   *   - 写：create 校验「所填类型」对应的 write 权限，避免用日常跟进的写权限建出家校沟通记录。
+   *
+   * ⚠️ `defaultType` 是给「未打类型的历史记录」兜底的：字段为空时按它归属。
+   *    没有这层兜底，任何漏打类型的记录会对**所有人**静默消失（比权限放大更危险）。
+   */
+  typeScope?: {
+    /** 类型字段名（单选），如「记录类型」 */
+    field: string;
+    /** 类型值 → 模块 key（用 `module:<key>:read|write` 拼权限点） */
+    typeModules: Record<string, string>;
+    /** 字段为空/未打类型时视为哪一类（缺省取 typeModules 的第一个） */
+    defaultType?: string;
+    /** 绕过类型过滤的角色（缺省 `['系统管理员']`） */
+    bypassRoles?: string[];
+  };
+  /**
    * 自定义深度筛选钩子：返回 false 表示剔除该行，其它值（含 undefined）表示保留。
    * 只在 URL/查询里出现 deepParams 中的参数时才有必要实现。
    */
@@ -219,6 +253,57 @@ export interface RecordMeta {
 
 function toPrincipal(user: SessionUser): Principal {
   return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
+}
+
+/**
+ * 「记录类型」域：当前用户对该模块各类型持有的权限集合。
+ *
+ * 返回值三态，**必须区分**（混了就是权限漏洞或功能消失）：
+ *   - `null`：本模块没有 typeScope，或用户命中豁免角色（默认系统管理员）⇒ **不限制**
+ *   - `[]`  ：有类型域但一个类型权限都没有 ⇒ **什么都不允许**
+ *   - 非空数组：允许的类型值
+ *
+ * 导出给 `student-360` 复用 —— 学生全景要按同一判据决定「这个分区能不能看」，
+ * 两处各写一套必然漂移（会出现「列表看不到、全景看得到」这类鬼故事）。
+ */
+export function typeAllowedValues(
+  meta: Pick<RecordMeta, 'typeScope'>,
+  user: SessionUser,
+  action: ModuleAction,
+): string[] | null {
+  const ts = meta.typeScope;
+  if (!ts) return null;
+  const bypass = ts.bypassRoles ?? ['系统管理员'];
+  if ((user.roles ?? []).some((r) => bypass.includes(r))) return null;
+  const principal = toPrincipal(user);
+  return Object.entries(ts.typeModules)
+    .filter(([, key]) => authorize(principal, modulePermission(key, action) as Permission).allowed)
+    .map(([value]) => value);
+}
+
+/**
+ * 「记录类型」域的行级可见条件。
+ *
+ *   - `null`   不限制（无 typeScope / 豁免角色）
+ *   - `'none'` 一条都不可见（有类型域但无任何类型权限）
+ *   - 条件对象 可直接并入 rowScope（服务端过滤 ⇒ 分页与 total 正确，详情/导出/内存深筛复用同一份）
+ *
+ * ⚠️ 未打类型的记录按 `defaultType` 归属：只有用户对该类型有权限时才放行。
+ *    没有这层兜底，任何漏打类型的记录会对**所有人**静默消失（比权限放大更危险）。
+ */
+export function buildTypeScopeFilter(
+  meta: Pick<RecordMeta, 'typeScope'>,
+  user: SessionUser,
+): RowScopeFilter | 'none' | null {
+  const ts = meta.typeScope;
+  if (!ts) return null;
+  const allowed = typeAllowedValues(meta, user, 'read');
+  if (allowed === null) return null;
+  if (!allowed.length) return 'none';
+  const conds: RowScopeFilter[] = [{ field: ts.field, op: 'is', value: allowed }];
+  const def = ts.defaultType ?? Object.keys(ts.typeModules)[0] ?? '';
+  if (def && allowed.includes(def)) conds.push({ field: ts.field, op: 'isempty', value: [] });
+  return conds.length === 1 ? conds[0]! : { conjunction: 'or', conditions: conds };
 }
 
 export class BaseRecordService {
@@ -317,8 +402,69 @@ export class BaseRecordService {
       }
     }
 
+    // 记录类型权限（2026-09-18）：多个模块合并到同一张表后，按用户持有的类型权限过滤。
+    // 与 rowScope 同址，所以 list / listDeep / detail / exportCsv 自动一致；且列表是**服务端**过滤，
+    // 分页与 total 才正确。判据与学生全景共用同一份（buildTypeScopeFilter），避免两处漂移。
+    const typeCond = buildTypeScopeFilter(this.meta, user);
+    if (typeCond === 'none') return 'none'; // 一个类型权限都没有 ⇒ 一条也不可见
+    if (typeCond) parts.push(typeCond);
+
     if (!parts.length) return null;
     return parts.length === 1 ? parts[0]! : { conjunction: 'and', conditions: parts };
+  }
+
+  /**
+   * 当前用户对「记录类型」的可见/可写集合。
+   *
+   * 返回值三态，三个分支**必须区分**（混了就是权限漏洞或功能消失）：
+   *   - `null`：本模块没有 typeScope，或用户命中豁免角色（默认系统管理员）⇒ **不限制**
+   *   - `[]`  ：有类型域但一个类型权限都没有 ⇒ **什么都不允许**
+   *   - 非空数组：允许的类型值
+   */
+  private typeAllows(user: SessionUser, action: ModuleAction): string[] | null {
+    // 判据只写一份（模块级 typeAllowedValues）—— 学生全景也会消费同一份，
+    // 两处各实现一遍必然漂移（会出现「列表看不到、全景看得到」这类鬼故事）。
+    return typeAllowedValues(this.meta, user, action);
+  }
+
+  /**
+   * 写入前校验「记录类型」。
+   *
+   * 校验三件事，缺一不可：
+   *   ① 类型必须落在一个已知取值上（写错别字会造出一条**谁都看不见**的记录 —— 它匹配不上
+   *      任何类型的过滤条件，等于静默丢数据）；
+   *   ② 用户对所写类型有同名动作权限（否则「只有日常跟进写权限的人」能建/改出家校沟通记录，
+   *      越权写入别人的业务域）；
+   *   ③ create 缺省时补 `defaultType`（保证每条记录都带类型）。
+   *
+   * ⚠️ `fill: false`（update 场景）时必须传 `currentType`：用户没改类型就**绝不写回类型字段**，
+   *    否则一条「家校沟通」记录会在编辑别的字段时被静默改成「日常跟进」——
+   *    类型是业务含义的载体，不能被默认值覆盖。
+   */
+  private resolveWriteType(
+    user: SessionUser,
+    dto: Record<string, unknown>,
+    action: ModuleAction,
+    opts?: { fill?: boolean; currentType?: unknown },
+  ): void {
+    const ts = this.meta.typeScope;
+    if (!ts) return;
+    const fallback = ts.defaultType ?? Object.keys(ts.typeModules)[0] ?? '';
+    const has = dto[ts.field] !== undefined && String(dto[ts.field]).trim() !== '';
+    const value = has
+      ? String(dto[ts.field]).trim()
+      : opts?.fill === false
+        ? String(opts.currentType ?? '').trim() || fallback
+        : fallback;
+    if (!(value in ts.typeModules)) {
+      throw new BadRequestException(`VALIDATION:未知的${ts.field}「${value}」`);
+    }
+    // 豁免角色（系统管理员）typeAllows 返回 null ⇒ 不限制
+    const allowed = this.typeAllows(user, action);
+    if (allowed && !allowed.includes(value)) {
+      throw new ForbiddenException(`FORBIDDEN:${ts.field}=${value}`);
+    }
+    if (has || opts?.fill !== false) dto[ts.field] = value;
   }
 
   /**
@@ -391,6 +537,22 @@ export class BaseRecordService {
   }
   /** 命中模块资源时用模块权限；否则回退 legacy meta 权限（前向兼容未登记模块）。 */
   private require(user: SessionUser, action: ModuleAction): void {
+    const m = this.mod;
+    // 类型域模块（学生记录三合一）：判定改为「**任一类型模块的同名动作**权限」。
+    //
+    // 为什么不能直接用 `module:studentRecords:<action>`：合并前每个模块各有权限点，
+    // 角色配置里存的就是那三个（生产实测：24 人的主力角色 Phase1 只持有
+    // `module:studentObservations:enter/read/refresh`，系统管理员持有全套）。
+    // 若主入口只认新权限点，结果就是「没有任何角色能进入 / 没有任何人能新建」——
+    // 把「看得见」降级成「看不见」，且不报错、只是内容空掉。
+    //
+    // ⚠️ 这里只放宽「能不能进出这个入口」；**具体能看/能写哪个类型**由 typeAllows 逐类型判定
+    //    （读见 rowScopeFor，写见 resolveWriteType），所以范围**不会**被放大。
+    if (this.meta.typeScope) {
+      const allowed = this.typeAllows(user, action);
+      if (allowed === null || allowed.length) return;
+      throw new ForbiddenException(`FORBIDDEN:${m ? modulePermission(m.key, action) : action}`);
+    }
     const p =
       this.modPerm(action) ??
       ((action === 'read' || action === 'refresh' ? this.meta.readPerm : this.meta.writePerm) as Permission);
@@ -863,6 +1025,9 @@ export class BaseRecordService {
 
   async create(user: SessionUser, dto: Record<string, unknown>) {
     this.require(user, 'create');
+    // 类型域：补齐/校验「记录类型」（写在 strip/writeFields 之前 —— 那两步会过滤字段，
+    // 类型可能被过滤掉，必须在原始 dto 上判）
+    this.resolveWriteType(user, dto, 'create');
     const stripped = this.mod ? this.mask.stripProtected(user, this.mod.key, dto) : dto;
     const fields = this.writeFields(stripped);
     this.validateTimeRange(fields);
@@ -887,10 +1052,17 @@ export class BaseRecordService {
 
   async update(user: SessionUser, id: string, dto: Record<string, unknown>) {
     this.require(user, 'update');
-    await this.detail(user, id);
+    // detail 既做越权读校验（越界会 404），也把**当前**记录取回来给类型校验用
+    const current = await this.detail(user, id);
+    // 类型域：用户没传「记录类型」时**不改动它**（fill:false），只校验现有类型他有没有写权限。
+    // 若这里误用 create 的补齐语义，编辑任意字段都会把类型重置成默认值。
+    this.resolveWriteType(user, dto, 'update', {
+      fill: false,
+      currentType: this.meta.typeScope ? current[this.meta.typeScope.field] : undefined,
+    });
     const stripped = this.mod ? this.mask.stripProtected(user, this.mod.key, dto) : dto;
     const fields = this.writeFields(stripped);
-    this.validateTimeRange({ ...(await this.detail(user, id)), ...fields });
+    this.validateTimeRange({ ...current, ...fields });
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
     await this.base.update(this.tableId, id, fields);
     this.emitAudit(user, '更新', id, Object.keys(fields).join(','));
@@ -948,6 +1120,9 @@ export class BaseRecordService {
     let failed = 0;
     for (const row of rows) {
       try {
+        // 类型域：批量导入同样要补齐 + 校验「记录类型」——
+        // 导入是绕过表单的入口，漏了这一步就能用导入造出「越权类型」或「无类型」的记录。
+        this.resolveWriteType(user, row, 'create');
         const fields = this.writeFields(row);
         if (Object.keys(fields).length === 0) {
           failed++;

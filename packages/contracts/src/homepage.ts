@@ -173,6 +173,10 @@ export const DEFAULT_CONVERT_FIELDS: Record<
   string,
   { summaryField: string; rawField: string; audioField?: string }
 > = {
+  // 学生记录（2026-09-18）：日常跟进 / 家校沟通 / 学生观察 三合一后的唯一入口。
+  studentRecords: { summaryField: '沟通总结', rawField: '沟通明细', audioField: '沟通附件清单' },
+  // ⚠️ 以下三个旧 key 保留，不是遗漏：note_convert_config 里已落库的历史配置、
+  //    以及三个旧导出/接口别名仍在按旧 key 查找模块；删掉会让它们静默退化成「手工填字段」。
   homeSchoolComms: { summaryField: '沟通总结', rawField: '沟通明细', audioField: '沟通附件清单' },
   dailyFollowups: { summaryField: '沟通总结', rawField: '沟通明细', audioField: '沟通附件清单' },
   // 学生观察：字段结构照搬日常跟进，总结/明细 key 完全一致（2026-09-06）
@@ -321,9 +325,11 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'studentAttendances', label: '学生考勤', enLabel: 'Attendance', href: '/student-attendances', icon: 'students', section: '学生闭环', order: 30, perm: 'studentattendance:read' },
     { key: 'grades', label: '学业成绩', enLabel: 'Grades', href: '/grades', icon: 'courses', section: '学生闭环', order: 40, perm: 'grade:read' },
     { key: 'practiceActivities', label: '实践活动', enLabel: 'Activities', href: '/practice-activities', icon: 'students', section: '学生闭环', order: 50, perm: 'activity:read' },
-    { key: 'homeSchoolComms', label: '家校沟通', enLabel: 'Home-School Comms', href: '/home-school-comms', icon: 'notifications', section: '学生闭环', order: 60, perm: 'communication:read' },
-    { key: 'dailyFollowups', label: '日常跟进', enLabel: 'Daily Follow-ups', href: '/daily-followups', icon: 'notifications', section: '学生闭环', order: 70, perm: 'dailyfollowup:read' },
-    { key: 'studentObservations', label: '学生观察', enLabel: 'Student Observations', href: '/student-observations', icon: 'students', section: '学生闭环', order: 72, perm: 'observation:read' },
+    // 学生记录（2026-09-18）：日常跟进 / 家校沟通 / 学生观察 三合一后的唯一入口。
+    // `perm` 留空是有意的 —— 可见性判定走 anyStudentRecordPerm（任一类型权限即可见），
+    // 写死 `module:studentRecords:enter` 会让合并前的主力角色（生产实测 24 人的 Phase1
+    // 只持有 module:studentObservations:*）看不到这个菜单，等于把功能藏起来。
+    { key: 'studentRecords', label: '学生记录', enLabel: 'Student Records', href: '/student-records', icon: 'notifications', section: '学生闭环', order: 60, perm: '' },
     { key: 'idpPlans', label: 'IDP管理', enLabel: 'IDP Plans', href: '/idp-plans', icon: 'target', section: '学生闭环', order: 75, perm: 'idp:read' },
     { key: 'stageEvaluations', label: '阶段评价', enLabel: 'Stage Evaluations', href: '/stage-evaluations', icon: 'students', section: '学生闭环', order: 80, perm: 'evaluation:read' },
     { key: 'alumniFollowups', label: '校友跟进', enLabel: 'Alumni Follow-ups', href: '/alumni-followups', icon: 'students', section: '学生闭环', order: 90, perm: 'alumni:read' },

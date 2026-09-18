@@ -19,7 +19,9 @@ export interface AiSummarizeTableConfig {
 export const HOME_SCHOOL_COMMS_CONFIG: AiSummarizeTableConfig = {
   prefix: 'home-school-comms-ai',
   moduleKey: 'homeSchoolComms',
-  tableId: TABLES.homeSchoolComm.tableId,
+  // 2026-09-18 起「家校沟通」已并入主表（日常跟进表），记录类型=家校沟通。
+  // 权限仍按 moduleKey 判定（合并前角色配置里存的就是它，不改），但**表**换成了主表。
+  tableId: TABLES.dailyFollowup.tableId,
   fieldAttach: '沟通附件清单',
   fieldDetail: '沟通明细',
   fieldSummary: '沟通总结',
@@ -51,11 +53,12 @@ export const DAILY_FOLLOWUP_CONFIG: AiSummarizeTableConfig = {
   ],
 };
 
-// 学生观察（2026-09-06 新增）：字段结构照搬日常跟进，另加「观察类型」作为提示词基本信息
+// 学生观察（2026-09-06 新增）：字段结构照搬日常跟进，另加「观察类型」作为提示词基本信息。
+// 2026-09-18 起并入主表（日常跟进表），记录类型=学生观察；权限仍按 moduleKey 判定。
 export const STUDENT_OBSERVATION_CONFIG: AiSummarizeTableConfig = {
   prefix: 'student-observations-ai',
   moduleKey: 'studentObservations',
-  tableId: TABLES.studentObservation.tableId,
+  tableId: TABLES.dailyFollowup.tableId,
   fieldAttach: '沟通附件清单',
   fieldDetail: '沟通明细',
   fieldSummary: '沟通总结',

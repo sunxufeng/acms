@@ -1,0 +1,88 @@
+/**
+ * 「学生记录」——把 日常跟进 / 家校沟通 / 学生观察 三个模块合并后的类型定义。
+ *
+ * 背景（2026-09-18）：这三个模块本来就是「同一张表的三个视图」——
+ * 三者的 RecordMeta 里 numbers / dateFields / statusField / defaultStatus /
+ * searchField / sortField 逐字相同，共用同一批字典（沟通方式 / 家校闭环状态 /
+ * 信息敏感级别），笔记转出的字段映射也完全一致。合并后：
+ *
+ *   一张表（沿用「日常跟进表」）+ 一个「记录类型」单选字段区分三类记录。
+ *
+ * 🔴 为什么权限要「任一类型权限即可」而不是新造一个 `module:studentRecords:read`：
+ *    合并前每个模块各有自己的权限点，角色配置里存的就是那三个。
+ *    若主入口只认新权限点，则合并后**没有任何角色能进入**（生产实测：24 人的主力角色
+ *    Phase1 只有 `module:studentObservations:*`，没有 dailyFollowups/homeSchoolComms），
+ *    等于把「看得见」降级成「看不见」。所以：
+ *      - 接口侧：`typeScope` 存在时，读权限按「任一类型模块的 read」判定，命中即放行；
+ *      - 菜单侧：同理由 `anyStudentRecordPerm` 判定；
+ *      - 内容侧：具体能看到哪些**类型**，仍由各自的 module 权限逐类型过滤（不放大范围）。
+ *    这样**一个角色的配置都不用改**，权限语义也不降级。
+ */
+
+import { modulePermission, type ModuleAction } from './module-permissions.js';
+
+/** 类型字段名（与数据库字段名严格一致） */
+export const STUDENT_RECORD_TYPE_FIELD = '记录类型';
+
+export interface StudentRecordTypeDef {
+  /** 「记录类型」单选的取值 */
+  value: string;
+  /** 承载该类型的模块 key（用于拼 `module:<key>:<action>` 权限点） */
+  moduleKey: string;
+  /** 合并前的独立页面路径（保留 301 重定向，书签不失效） */
+  legacyPath: string;
+  /** 该类型的专属字段（表单按类型显隐；公共字段不在其中） */
+  ownFields: readonly string[];
+}
+
+/**
+ * 三类记录的定义。顺序即「记录类型」下拉的展示顺序（日常跟进在最前，与主表原义一致）。
+ *
+ * `ownFields` 只列**该类型独有**的字段 —— 公共字段（沟通人/沟通主题/沟通时间/沟通总结/
+ * 沟通明细/沟通人备注/待办事项/责任人/跟进截止日期/闭环状态/闭环日期/信息敏感级别/
+ * 沟通附件清单/沟通时长）所有类型共用，不重复登记。
+ */
+export const STUDENT_RECORD_TYPES: readonly StudentRecordTypeDef[] = [
+  {
+    value: '日常跟进',
+    moduleKey: 'dailyFollowups',
+    legacyPath: '/daily-followups',
+    ownFields: [],
+  },
+  {
+    value: '家校沟通',
+    moduleKey: 'homeSchoolComms',
+    legacyPath: '/home-school-comms',
+    ownFields: ['家长', '家长反馈态度', '家长反馈'],
+  },
+  {
+    value: '学生观察',
+    moduleKey: 'studentObservations',
+    legacyPath: '/student-observations',
+    ownFields: ['观察类型'],
+  },
+];
+
+/** 类型取值 → 模块 key */
+export const STUDENT_RECORD_TYPE_TO_MODULE: Record<string, string> = Object.fromEntries(
+  STUDENT_RECORD_TYPES.map((t) => [t.value, t.moduleKey]),
+);
+
+/** 三个类型的模块 key（供白名单/遍历用） */
+export const STUDENT_RECORD_MODULE_KEYS: readonly string[] = STUDENT_RECORD_TYPES.map((t) => t.moduleKey);
+
+/**
+ * 是否持有「任一类型」的指定动作权限。
+ *
+ * 用途：合并后的主入口（菜单 / 接口）需要一个「能进吗」的判据，而它不应对应
+ * 任何单一模块 —— 见文件头关于「为什么要任一即可」的说明。
+ */
+export function anyStudentRecordPerm(perms: readonly string[] | undefined | null, action: ModuleAction): boolean {
+  const list = perms ?? [];
+  return STUDENT_RECORD_MODULE_KEYS.some((k) => list.includes(modulePermission(k, action)));
+}
+
+/** 取某类型值对应的模块 key；未知类型返回 undefined */
+export function moduleKeyOfRecordType(value: unknown): string | undefined {
+  return STUDENT_RECORD_TYPE_TO_MODULE[String(value ?? '')];
+}

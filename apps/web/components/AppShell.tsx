@@ -7,7 +7,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { api } from '../lib/api';
 import LocaleSwitcher from './LocaleSwitcher';
 import { useRoleLabels } from './RoleLabels';
-import { modulePermission, moduleByMenuKey } from '@acms/contracts';
+import { modulePermission, moduleByMenuKey, STUDENT_RECORD_MODULE_KEYS } from '@acms/contracts';
 import { loadPermissions, resetPermissions } from '../lib/permissions';
 import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuGroup, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
 
@@ -100,8 +100,10 @@ const LEGACY_NAV_ITEMS: LegacyNavGroup[] = [
       { key: 'studentAttendances', label: '学生考勤', href: '/student-attendances', icon: StudentsIcon },
       { key: 'grades', label: '学业成绩', href: '/grades', icon: CoursesIcon },
       { key: 'practiceActivities', label: '实践活动', href: '/practice-activities', icon: StudentsIcon },
-      { key: 'homeSchoolComms', label: '家校沟通', href: '/home-school-comms', icon: NotificationsIcon },
-      { key: 'dailyFollowups', label: '日常跟进', href: '/daily-followups', icon: NotificationsIcon },
+      // 学生记录（2026-09-18）：日常跟进 / 家校沟通 / 学生观察 三合一后的唯一入口。
+      // 顺带修掉一个既有不一致：这里原先**漏了「学生观察」**（homepage.ts 的默认菜单里有），
+      // 所以学生观察入口一直没出现在侧边栏；合并后不再需要单独一项。
+      { key: 'studentRecords', label: '学生记录', href: '/student-records', icon: NotificationsIcon },
       { key: 'stageEvaluations', label: '阶段评价', href: '/stage-evaluations', icon: StudentsIcon },
       { key: 'alumniFollowups', label: '校友跟进', href: '/alumni-followups', icon: StudentsIcon },
     ],
@@ -402,6 +404,22 @@ export default function AppShell({
     // `module:weiling-contacts:enter` 这种**不存在的权限点**，该菜单对所有人永久隐藏，
     // 而且不报错、不 403，只是"菜单不见了"（2026-09-14 踩过：系统管理员都少 4 个菜单）。
     const modRes = moduleByMenuKey(item.key);
+    // 「学生记录」（2026-09-18 三合一）：可见性按**任一类型权限**判定，不走单一模块权限点。
+    //
+    // 原因：日常跟进 / 家校沟通 / 学生观察 合并成一个菜单后，若只看
+    // `module:studentRecords:enter`，则**没有任何角色持有它**（它是新登记的权限点），
+    // 菜单会对所有人隐藏 —— 包括合并前本来能看日常跟进、学生观察的人。
+    // 生产实测：24 人的主力角色 Phase1 只持有 module:studentObservations:*，
+    // 系统管理员/院级管理持有三个模块的全套。
+    // ⚠️ 这里只决定「菜单显不显示」；进去后**能看哪些类型**仍由后端逐类型过滤。
+    if (item.key === 'studentRecords') {
+      const canSeeAnyType = STUDENT_RECORD_MODULE_KEYS.some((k) =>
+        (myPerms || []).includes(modulePermission(k, 'read')),
+      );
+      if (!canSeeAnyType) return false;
+      if (myMenus && !myMenus.includes(item.key)) return false;
+      return true;
+    }
     const enterPerm = modRes ? modulePermission(modRes.key, 'enter') : item.perm;
     if (enterPerm && !(myPerms || []).includes(enterPerm)) return false;
     if (myMenus && !myMenus.includes(item.key)) return false;

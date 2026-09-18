@@ -10,6 +10,8 @@ import { LIFECYCLE_METAS } from '../shared/lifecycle.meta.js';
 import { FieldMaskService } from '../shared/field-mask.service.js';
 import { IDP_PLAN_META } from '../idp/idp.meta.js';
 import type { RecordMeta } from '../shared/generic-crud.module.js';
+// 学生记录（三合一）的类型域判据 —— 与通用 CRUD 共用同一份，避免「列表看不到、全景看得到」
+import { buildTypeScopeFilter, matchFilter, typeAllowedValues } from '../shared/generic-crud.module.js';
 import { linkIds } from '../shared/record.util.js';
 
 function toPrincipal(user: SessionUser): Principal {
@@ -43,9 +45,10 @@ const SECTION_LABELS: Record<string, string> = {
   'student-attendances': '学生考勤',
   grades: '学业成绩',
   'practice-activities': '实践活动',
-  'home-school-comms': '家校沟通',
-  'daily-followups': '日常跟进',
-  'student-observations': '学生观察',
+  // 学生记录（2026-09-18）：日常跟进 / 家校沟通 / 学生观察 三合一后的分区名。
+  // 三个旧 path 的条目已删除 —— 它们与主表指向同一张表，遍历时被 tableId 去重掉，
+  // 留在这里只会让人误以为还有三个独立分区。
+  'student-records': '学生记录',
   'stage-evaluations': '阶段评价',
   'alumni-followups': '校友跟进',
   'idp-plans': 'IDP方案',
@@ -89,15 +92,36 @@ export class Student360Service {
     const student = await this.studentSvc.detail(user, studentId);
 
     const resultSections: Student360Section[] = [];
+    // 三合一的四个入口（student-records / daily-followups / home-school-comms / student-observations）
+    // 指向**同一张表**：这里按 tableId 去重，只出一个分区。
+    // 不去重会同时踩两个坑：① 学生会看到 4 个内容完全重复的分区；
+    // ② 其中几个因权限被跳过，而剩下的那个又不过滤类型 ⇒ 反而泄漏了别的类型的记录。
+    const seenTables = new Set<string>();
     for (const meta of [...LIFECYCLE_METAS, IDP_PLAN_META]) {
+      if (seenTables.has(meta.tableId)) continue;
+      seenTables.add(meta.tableId);
       // 维度过滤：若传入 sections（中文维度名），只返回命中维度；空数组/未传表示全部
       const label = SECTION_LABELS[meta.path] ?? meta.path;
       if (sections && sections.length && !sections.includes(label)) continue;
       // 区块级权限：无该模块 read 权限则不返回该区块（沿用已有权限点，零新增）
+      // 类型域模块（学生记录）按「任一类型权限」判定 —— 只认新权限点的话，
+      // 合并后没有任何角色持有它，整个分区会对所有人消失。
       const mod = moduleByPath('/' + meta.path);
-      if (mod && !authorize(toPrincipal(user), modulePermission(mod.key, 'read')).allowed) continue;
+      const readOk = mod
+        ? meta.typeScope
+          ? (() => {
+              const allowed = typeAllowedValues(meta, user, 'read');
+              return allowed === null || allowed.length > 0;
+            })()
+          : authorize(toPrincipal(user), modulePermission(mod.key, 'read')).allowed
+        : true;
+      if (!readOk) continue;
       const studentLink = (meta.linkFields ?? []).find((l) => l.table === TABLES.studentProfile.tableId);
-      const items = await this.fetchSection(meta, studentLink, studentId, String(student['学生姓名'] ?? ''), range);
+      const rawItems = await this.fetchSection(meta, studentLink, studentId, String(student['学生姓名'] ?? ''), range);
+      // 类型过滤：只保留用户有权查看的类型（与「学生记录」列表同一判据）
+      const typeCond = buildTypeScopeFilter(meta, user);
+      const items =
+        typeCond && typeCond !== 'none' ? rawItems.filter((r) => matchFilter(r, typeCond)) : rawItems;
       const maskedItems = mod ? this.mask.maskMany(user, mod.key, items) : items;
       resultSections.push({ key: meta.path, label, items: maskedItems });
     }

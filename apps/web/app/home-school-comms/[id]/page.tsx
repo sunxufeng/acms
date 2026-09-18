@@ -1,108 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { api } from '../../../lib/api';
-import { COLUMNS } from '../columns';
-import CrudView from '../../../components/CrudView';
-import { useTranslations } from 'next-intl';
-import { NotePanel, linkText, fieldText } from '../../../components/NotePanel';
 
-export default function HomeSchoolCommDetailPage() {
-  const t = useTranslations('common');
-  const th = useTranslations('homeSchool');
-  const tg = useTranslations('getnote');
+// 详情页已并入「学生记录」（2026-09-18）。
+// 记录 id 在迁移时**原样保留**，所以直接把 id 带过去 —— 旧书签仍落在同一条记录上。
+export default function HomeSchoolCommDetailRedirect() {
   const params = useParams();
   const router = useRouter();
   const id = String(params.id);
-  const [record, setRecord] = useState<Record<string, unknown> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  /** 反向归档后递增，触发 NotePanel 重新拉取关联列表 */
-  const [noteKey, setNoteKey] = useState(0);
-  const [savingNote, setSavingNote] = useState(false);
-
   useEffect(() => {
-    setLoading(true); setError('');
-    api
-      .getHomeSchoolComm(id)
-      .then((data) => setRecord(data))
-      .catch((e) => setError((e as Error).message))
-      .finally(() => setLoading(false));
-  }, [id]);
-
-  if (loading) return <div className="empty-state" style={{ minHeight: '50vh' }}><div style={{ width: 28, height: 28, border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /></div>;
-  if (error) return <div className="page-header"><p className="msg-error">加载失败：{error}</p></div>;
-  if (!record) return <div className="page-header"><p style={{ color: 'var(--fg-tertiary)' }}>{th('notFound')}</p></div>;
-
-  const studentName = (() => {
-    const v = record['关联学生'];
-    if (Array.isArray(v) && v.length) return String((v[0] as { text?: string })?.text ?? '');
-    if (v && typeof v === 'object') return String((v as { text?: string })?.text ?? '');
-    return String(v ?? '—');
-  })();
-
-  /**
-   * 反向归档：把这条沟通记录整体存为一篇 Get笔记 并关联回本条记录。
-   * 正文按列表列定义逐行拼 Markdown，附件列跳过（存进去是一坨 JSON，没有可读性）。
-   */
-  const saveAsNote = async () => {
-    setSavingNote(true);
-    try {
-      const lines = COLUMNS.filter((c) => c.type !== 'attachment').map(
-        (c) => `- **${c.label}**：${fieldText(record[c.key])}`,
-      );
-      await api.createAndLinkGetnote({
-        title: `家校沟通 · ${studentName} · ${fieldText(record['沟通时间'])}`,
-        content: lines.join('\n'),
-        entityType: '家校沟通',
-        entityId: id,
-        entityName: studentName,
-      });
-      setNoteKey((k) => k + 1);
-      alert(tg('savedAsNote'));
-    } catch (e) {
-      alert(tg('opFailed', { msg: (e as Error).message ?? String(e) }));
-    } finally {
-      setSavingNote(false);
-    }
-  };
-
-  return (
-    <div>
-      {/* ── Header ───────────────── */}
-      <div className="page-header">
-        <div className="page-header-row">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-lg)' }}>
-            <Link href="/home-school-comms" className="btn btn-icon" title="返回列表">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="m15 18-6-6 6-6" /></svg>
-            </Link>
-            <div>
-              <div className="page-eyebrow">HOME-SCHOOL-COMM / {String(record['沟通编号'] ?? id.slice(0, 6))}</div>
-              <h1 className="page-title">家校沟通详情 · {studentName}</h1>
-              <p className="page-subtitle">{th('readOnly')}</p>
-            </div>
-          </div>
-          <div className="page-actions">
-            <button className="btn btn-primary btn-sm" disabled={savingNote} onClick={saveAsNote}>
-              {savingNote ? tg('saving') : tg('saveAsNote')}
-            </button>
-            <button className="btn btn-outline btn-sm" onClick={() => router.push('/home-school-comms')}>{t('backToList')}</button>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Read-only fields ──────── */}
-      <CrudView columns={COLUMNS} record={record} />
-
-      {/* ── 关联笔记（得到大脑） ─────────── */}
-      <NotePanel
-        entityType="家校沟通"
-        entityId={id}
-        entityName={linkText(record['关联学生'])}
-        reloadKey={noteKey}
-      />
-    </div>
-  );
+    router.replace(`/student-records/${id}`);
+  }, [id, router]);
+  return null;
 }

@@ -90,7 +90,7 @@ const REPORTS: ReportDef[] = [
     ready: true,
   },
   { key: 'grades', label: '学业成绩', desc: '按学科/学期统计均分、及格率、等级分布', source: '学业成绩表', ready: false, href: '/grades' },
-  { key: 'comms', label: '家校沟通', desc: '沟通次数、闭环率、超期未闭环预警', source: '家校沟通表', ready: false, href: '/home-school-comms' },
+  { key: 'comms', label: '家校沟通', desc: '沟通次数、闭环率、超期未闭环预警', source: '学生记录表（类型=家校沟通）', ready: false, href: '/student-records?type=' + encodeURIComponent('家校沟通') },
   { key: 'evaluation', label: '阶段评价', desc: '评价等级分布、按周期变化趋势', source: '阶段评价表', ready: false, href: '/stage-evaluations' },
 ];
 

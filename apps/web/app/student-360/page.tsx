@@ -30,8 +30,9 @@ interface Section {
 // 其中 沟通明细、沟通总结 以超链接呈现，点击弹出框查看完整内容。
 const COMM_MODULES: Record<string, { time: string; owner: string; theme: string }> = {
   'source-followups': { time: '跟进时间', owner: '跟进负责人', theme: '沟通主题' },
-  'home-school-comms': { time: '沟通时间', owner: '沟通人', theme: '沟通主题' },
-  'daily-followups': { time: '沟通时间', owner: '沟通人', theme: '沟通主题' },
+  // 学生记录（2026-09-18 三合一）：日常跟进 / 家校沟通 / 学生观察 合并成一个分区，
+  // 分区 key 用主入口路径。后端已按 tableId 去重，这里不对应任何单一旧模块。
+  'student-records': { time: '沟通时间', owner: '沟通人', theme: '沟通主题' },
 };
 
 const SECTION_COLUMNS: Record<string, { key: string; label: string; width?: string }[]> = {

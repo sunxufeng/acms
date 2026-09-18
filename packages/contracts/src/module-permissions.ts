@@ -67,6 +67,19 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'homeSchoolComms', label: '家校沟通', path: '/home-school-comms', aliases: ['/home-school-comms-ai', '/export/homeSchoolComm'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'communication:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'dailyFollowups', label: '日常跟进', path: '/daily-followups', aliases: ['/daily-followups-ai', '/export/dailyFollowup'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'dailyfollowup:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'studentObservations', label: '学生观察', path: '/student-observations', aliases: ['/student-observations-ai', '/export/studentObservation'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'observation:read', actions: RECORD_IMPORT, genericCrud: true },
+  // 学生记录（2026-09-18）：日常跟进 / 家校沟通 / 学生观察 三合一后的主入口。
+  //
+  // 🔴 判定特殊，两条都靠 `anyStudentRecordPerm`（contracts/student-records.ts）：
+  //    - 接口：meta.typeScope 存在时，读权限按「任一类型模块的 read」判定；
+  //    - 菜单：AppShell.canSeeItem 对 key=studentRecords 走同一判据。
+  //    原因：这三个模块合并前各有权限点，角色配置里存的也是那三个；若主入口只认
+  //    `module:studentRecords:read`，合并后**没有角色能进入**（生产实测 24 人的主力角色
+  //    Phase1 只有 module:studentObservations:*），等于把功能藏起来。
+  //    所以本资源登记的目的只是「让权限矩阵里看得见这个菜单」，不承担运行时判据。
+  //    能看到哪些**类型**仍由各模块权限逐类型过滤，范围不放大。
+  // legacyRead/Write 为 null：没有可继承的历史权限点（继承会变成「有 student:read 就能进」，
+  // 而 student/parent 角色正是只有 student:read，那会把学生记录暴露给家长账号）。
+  { key: 'studentRecords', label: '学生记录', path: '/student-records', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD_IMPORT, genericCrud: true },
   { key: 'meetingMinutes', label: '会议纪要', path: '/meeting-minutes', aliases: ['/export/meetingMinute'], legacyRead: 'department:read', legacyWrite: 'department:write', menuPermission: 'meeting:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'idpPlans', label: 'IDP管理', path: '/idp-plans', aliases: ['/idp-communications', '/export/idpPlan', '/export/idpCommunication'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'idp:read', actions: RECORD },
   { key: 'stageEvaluations', label: '阶段评价', path: '/stage-evaluations', aliases: ['/export/stageEvaluation'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'evaluation:read', actions: RECORD_IMPORT, genericCrud: true },

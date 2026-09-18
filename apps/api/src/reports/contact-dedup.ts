@@ -116,13 +116,14 @@ export function normalizeName(raw: unknown): string {
   return s.toLowerCase();
 }
 
-/** 归一化手机号：只留数字，剥掉 +86 / 086 前缀 */
-export function normalizePhone(raw: unknown): string {
-  const d = String(raw ?? '').replace(/[^0-9]/g, '');
-  if (d.length === 13 && d.startsWith('86')) return d.slice(2);
-  if (d.length === 14 && d.startsWith('086')) return d.slice(3);
-  return d;
-}
+/**
+ * 手机号的归一化与有效性判据 **已抽到 `shared/phone.util.ts`**（全站唯一一份）——
+ * 因为通用 CRUD 的 `<字段>__invalid=1` 下钻筛选也要用它，两处必须同口径
+ * （否则「报表 2011 / 点进去 1922」这种差值会反复出现）。这里 re-export 仅为兼容既有引用。
+ */
+import { isValidPhone, normalizePhone } from '../shared/phone.util.js';
+
+export { isValidPhone, normalizePhone };
 
 /** 是否为「可作为判据的姓名」：非占位符、非宽泛称呼、至少 2 个字符 */
 export function isUsableName(norm: string): boolean {
@@ -134,11 +135,6 @@ export function isUsableName(norm: string): boolean {
   // 单字符撞名率过高（实测「王」「李」各出现 2~4 次却互不相干）
   if (norm.length < 2) return false;
   return true;
-}
-
-/** 有效手机号：7~15 位（库里存在 19/23 位的异常值，那些不算） */
-export function isValidPhone(phoneKey: string): boolean {
-  return phoneKey.length >= 7 && phoneKey.length <= 15;
 }
 
 /** 安全取 JSON 字符串里的键（`原始数据` / `自定义字段` 存的是 JSON 文本，不是 jsonb 对象） */
@@ -356,4 +352,42 @@ export function buildDedupGroups(rows: DedupRow[], opts: BuildOptions = {}): Ded
   };
 
   return { generatedAt: Date.now(), stats, groups: kept, filterOptions };
+}
+
+/** 「疑似重复」下钻的取值：与页面置信度档位一一对应，外加「合并后可减少」 */
+export type DedupMode = 'strong' | 'likely' | 'all' | 'mergeable';
+
+export const DEDUP_MODES: ReadonlySet<string> = new Set<string>([
+  'strong',
+  'likely',
+  'all',
+  'mergeable',
+]);
+
+/**
+ * 算出「疑似重复」命中哪些联系人记录 —— 供**列表下钻**使用。
+ *
+ * 为什么必须在后端算：重复组是**当场按姓名分桶 + 反证据排除**得出的（见 `buildDedupGroups`），
+ * 表里没有「是否重复」这个字段 ⇒ 列表页没法直接筛。这里复用**同一份**分组逻辑，
+ * 才能保证「卡片显示 50 组 / 点进去多少条」两处口径一致 ——
+ * 各写一份必然漂移，症状就是技能里记过的「下钻数字比卡片少若干」。
+ *
+ * 语义：
+ *   - `strong` / `likely` / `all` → 对应置信档位下的**全部**组成员
+ *   - `mergeable`                → 组内 `keep=false` 的那些（=「合并后可减少」的记录数）
+ *
+ * ⚠️ 调用方必须在**全量行**上算，不要把列表其它筛选的结果传进来 ——
+ *    「先按渠道筛、再分组」会得到比卡片更小的数字，用户会以为下钻错了。
+ */
+export function dedupMemberIds(rows: DedupRow[], mode: DedupMode): Set<string> {
+  const level = mode === 'mergeable' ? 'all' : mode;
+  const { groups } = buildDedupGroups(rows, { level });
+  const out = new Set<string>();
+  for (const g of groups) {
+    for (const m of g.members) {
+      if (mode === 'mergeable' && m.keep) continue;
+      out.add(m.id);
+    }
+  }
+  return out;
 }

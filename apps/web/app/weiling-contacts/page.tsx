@@ -36,11 +36,27 @@ export default function WeilingContactsPage() {
     关联学生__notempty: '已匹配在校生',
     关联学生__empty: '未匹配在校生',
     跟进次数__gt: '有跟进记录',
+    // 去重报表下钻（2026-09-18）：
+    //   dedup=all|mergeable|strong|likely —— 「疑似重复」筛选，后端复用报表分组逻辑算出来的
+    //   手机号__invalid=1 —— 无**有效**手机号（空或位数不在 7~15），与卡片同口径
+    //   手机号__empty=1   —— 手机号真为空（比上面少 89 条，两个口径别混）
+    dedup: '疑似重复',
+    手机号__invalid: '无手机号记录',
+    手机号__empty: '手机号为空',
+  };
+  /** dedup 的取值 → 可读文案（chip 上直接显示 `all` 没人看得懂） */
+  const DEDUP_VALUE_LABELS: Record<string, string> = {
+    all: '全部（含仅同名）',
+    mergeable: '合并后可减少',
+    strong: '仅强证据',
+    likely: '较可信',
   };
   /** chip 的展示值：`__notempty` / `__empty` / `__gt` 这类是标记位，写出来反而让人困惑 */
   const chipValue = (k: string, v: string): string => {
     if (/__(notempty|empty)$/.test(k)) return '';
+    if (/__invalid$/.test(k)) return '';
     if (k === '跟进次数__gt') return '≥1 次';
+    if (k === 'dedup') return DEDUP_VALUE_LABELS[v] ?? v;
     return v;
   };
   useEffect(() => {
@@ -304,6 +320,14 @@ export default function WeilingContactsPage() {
           '跟进次数__gt',
           '创建时间_from',
           '创建时间_to',
+          // 「无有效手机号」= 空 **或** 归一化后位数不在 7~15（与去重报表的
+          // 「无手机号记录」同一判据，见 apps/api/src/shared/phone.util.ts）。
+          // ⚠️ 与 `手机号__empty`（真为空）不是一个口径，两者差 89 条，别混用。
+          '手机号__invalid',
+          '手机号__empty',
+          // 去重报表的「疑似重复」下钻：后端复用报表同一份分组逻辑算命中集合
+          // （strong / likely / all / mergeable），只在本表生效（lifecycle.meta 的 dedupParams）
+          'dedup',
         ]}
 
         api={{

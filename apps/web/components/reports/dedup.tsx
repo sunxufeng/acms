@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api, type ContactDedupResult, type DedupLevel, type DedupMember } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
 import { downloadCsv } from './panels';
@@ -44,6 +45,7 @@ function fmtStamp(ms: number): string {
 
 export function DedupPanel() {
   const tl = useTl();
+  const router = useRouter();
   const [data, setData] = useState<ContactDedupResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
@@ -128,24 +130,74 @@ export function DedupPanel() {
   const groups = useMemo(() => data?.groups ?? [], [data]);
 
   /**
+   * 下钻到「卫瓴联系人」列表看名单（2026-09-18 加）。
+   *
+   * 继承报表当前的筛选（来源渠道 / 归属人）—— 用户既然筛了渠道，点进去就该还是那个渠道的名单。
+   * 下钻条件本身**不需要继承**：`dedup` 由本页决定，`手机号__invalid` 由卡片决定。
+   *
+   * ⚠️ 「疑似重复」这类条件后端是**复用报表同一份分组逻辑**算命中集合的（见
+   *    `reports/contact-dedup.ts#dedupMemberIds`），所以点进去的数字与卡片同口径。
+   */
+  const drill = useCallback(
+    (extra: Record<string, string>) => {
+      const p = new URLSearchParams();
+      if (channel) p.set('来源渠道', channel);
+      if (owner) p.set('归属人', owner);
+      for (const [k, v] of Object.entries(extra)) if (v) p.set(k, v);
+      router.push(`/weiling-contacts?${p.toString()}`);
+    },
+    [channel, owner, router],
+  );
+
+  /**
    * 统计卡的配置。
    *
    * 🔴 「疑似重复」这张卡是**全量口径**（含最弱的「仅参考」一档），而下面的列表受
    * 「置信度」筛选影响、默认只显示「较可信及以上」—— 两个数字对不上是必然的，
    * 用户会把它当 bug 问（2026-09-18 峰哥实问「50 组为什么列表只有 39 组」）。
-   * 所以这张卡做成**可点击**：一下把筛选切到「全部（含仅同名）」，数字立刻对齐。
+   * 所以在卡片下方给了一行分解说明 + 一个「查看全部」按钮（见下方 JSX）。
+   *
+   * 2026-09-18 又补了**下钻**：每张卡可点，跳到「卫瓴联系人」看这批记录到底是谁。
+   * ⚠️ 组数与记录数不是一个量级（50 组 ↔ 109 条），卡片必须写清点进去会看到多少条，
+   *    否则用户会以为下钻漏了数据 —— 这是报表下钻的通用要求。
    */
-  const cards: { label: string; value: string; unit: string; onClick?: () => void; title?: string }[] = [
+  const cards: {
+    label: string;
+    value: string;
+    unit: string;
+    onClick?: () => void;
+    title?: string;
+    hint?: string;
+  }[] = [
     {
       label: '疑似重复',
       value: stats ? `${stats.groups}` : '—',
       unit: '组',
-      onClick: level === 'all' ? undefined : () => setLevel('all'),
-      title: level === 'all' ? '已是全部口径' : '点击查看全部（含「仅参考」）',
+      onClick: () => drill({ dedup: 'all' }),
+      title: '点击查看这批联系人记录',
+      hint: `${tl('点进去看')} ${stats?.records ?? 0} ${tl('条联系人记录')}`,
     },
-    { label: '涉及记录', value: stats ? `${stats.records}` : '—', unit: '条' },
-    { label: '合并后可减少', value: stats ? `${stats.mergeable}` : '—', unit: '条' },
-    { label: '其中强证据', value: stats ? `${stats.byLevel.strong}` : '—', unit: '组' },
+    {
+      label: '涉及记录',
+      value: stats ? `${stats.records}` : '—',
+      unit: '条',
+      onClick: () => drill({ dedup: 'all' }),
+      title: '点击查看联系人名单',
+    },
+    {
+      label: '合并后可减少',
+      value: stats ? `${stats.mergeable}` : '—',
+      unit: '条',
+      onClick: () => drill({ dedup: 'mergeable' }),
+      title: '点击查看可合并的记录',
+    },
+    {
+      label: '其中强证据',
+      value: stats ? `${stats.byLevel.strong}` : '—',
+      unit: '组',
+      onClick: () => drill({ dedup: 'strong' }),
+      title: '点击查看联系人名单',
+    },
   ];
 
   return (
@@ -194,14 +246,21 @@ export function DedupPanel() {
                 {tl(c.unit)}
               </span>
             </div>
+            {/* 下钻提示：组数与记录数不是一个量级，写清点进去会看到多少条 */}
+            {c.hint ? (
+              <div style={{ fontSize: 11, color: 'var(--fg-tertiary)', marginTop: 2 }}>{c.hint}</div>
+            ) : null}
           </div>
         ))}
         <div
+          onClick={stats ? () => drill({ '手机号__invalid': '1' }) : undefined}
+          title={stats ? tl('点击查看联系人名单') : undefined}
           style={{
             border: '1px solid var(--border)',
             borderRadius: 10,
             padding: '12px 14px',
             background: 'var(--bg-subtle)',
+            cursor: stats ? 'pointer' : undefined,
           }}
         >
           <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginBottom: 4 }}>
@@ -215,6 +274,7 @@ export function DedupPanel() {
           </div>
           <div style={{ fontSize: 11, color: 'var(--fg-tertiary)' }}>
             {tl('重复只可能出现在这些里面')}
+            {stats ? ` · ${tl('点击查看名单')}` : ''}
           </div>
         </div>
       </div>

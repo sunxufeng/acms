@@ -21,6 +21,9 @@ import { FieldMaskService } from './field-mask.service.js';
 import { StudentScopeService } from './student-scope.service.js';
 import { encryptSecret, isEncrypted, isSecretMask, maskSecret } from './secret-cipher.js';
 import { buildWriteFields, toFlatRecord, buildFilter } from './record.util.js';
+import { isInvalidPhone } from './phone.util.js';
+// 「疑似重复」下钻：复用**报表那一份**分组逻辑，保证卡片数字与下钻名单同口径
+import { DEDUP_MODES, dedupMemberIds, toDedupRow, type DedupMode } from '../reports/contact-dedup.js';
 
 /** 把「毫秒时间戳（number / 纯数字字符串）」或「日期字符串」统一解析为 epoch ms；无法解析返回 null */
 function toEpochMs(v: unknown): number | null {
@@ -172,6 +175,14 @@ export interface RecordMeta {
    * 列在这里的参数不会被当成「字段名等值匹配」，交由 deepFilter 处理。
    */
   deepParams?: string[];
+  /**
+   * 是否支持「疑似重复」下钻（`?dedup=strong|likely|all|mergeable`）。
+   *
+   * 「是否重复」不是一个字段，而是**报表当场算出来的**（按姓名分桶 + 反证据排除，见
+   * `reports/contact-dedup.ts`）。所以只有那些「有对应去重报表」的表才该打开这个开关，
+   * 否则 `?dedup=` 会静默失去意义（对无关表来说是未知参数，会被当成字段等值筛成 0 条）。
+   */
+  dedupParams?: boolean;
   /**
    * 自定义深度筛选钩子：返回 false 表示剔除该行，其它值（含 undefined）表示保留。
    * 只在 URL/查询里出现 deepParams 中的参数时才有必要实现。
@@ -408,8 +419,12 @@ export class BaseRecordService {
       //   `<字段>__notempty=1`  字段非空（报表下钻「已匹配在校生」= 关联学生非空）
       //   `<字段>__empty=1`     字段为空
       //   `<字段>__gt=数字` / `<字段>__lt=数字`  数值比较（如「跟进次数 > 0」）
-      Object.keys(query).some((k) => /__(has|notempty|empty|gt|lt)$/.test(k) && query[k]) ||
+      //   `<字段>__invalid=1`   字段值**无效**（目前只对「手机号」有定义：空或位数不在 7~15 位，
+      //                         与去重报表的「无手机号记录」同判据 —— 否则下钻数字会少 89 条）
+      Object.keys(query).some((k) => /__(has|notempty|empty|gt|lt|invalid)$/.test(k) && query[k]) ||
       !!(query.dim && query.dimval) ||
+      // 疑似重复下钻（只在声明了 dedupParams 的表上生效）
+      !!(this.meta.dedupParams && query.dedup) ||
       (this.meta.deepParams ?? []).some((k) => query[k]);
     if (hasDeep) {
       return this.listDeep(user, query, scope);
@@ -654,10 +669,10 @@ export class BaseRecordService {
       filtered = filtered.filter((r) => String(r[field] ?? '').toLowerCase().includes(kw));
     }
 
-    // 其余后缀约定：非空 / 为空 / 数值比较。都表达不了「等值」，只能内存过滤。
+    // 其余后缀约定：非空 / 为空 / 数值比较 / 值无效。都表达不了「等值」，只能内存过滤。
     for (const [k, v] of Object.entries(query)) {
       if (!v) continue;
-      const m = /^(.+?)__(notempty|empty|gt|lt)$/.exec(k);
+      const m = /^(.+?)__(notempty|empty|gt|lt|invalid)$/.exec(k);
       if (!m) continue;
       suffixKeys.push(k);
       const field = m[1] as string;
@@ -670,12 +685,34 @@ export class BaseRecordService {
         filtered = filtered.filter((r) => isBlankVal(r[field]));
         continue;
       }
+      if (op === 'invalid') {
+        // 「值无效」目前**只对手机号有定义**：空，或归一化后位数不在 7~15 位
+        // （与去重报表的 `stats.noPhone` 同一判据，见 shared/phone.util.ts）。
+        // 其它字段没有「有效」语义 ⇒ 不加任何过滤（但也不再当字段等值，见 suffixKeys），
+        // 免得退化成「当成空值过滤」这种看着像 bug 的行为。
+        if (field === '手机号') filtered = filtered.filter((r) => isInvalidPhone(r[field]));
+        continue;
+      }
       const num = Number(v);
       if (!Number.isFinite(num)) continue;
       filtered = filtered.filter((r) => {
         const x = Number(r[field]);
         return Number.isFinite(x) && (op === 'gt' ? x > num : x < num);
       });
+    }
+
+    // 「疑似重复」下钻（`?dedup=strong|likely|all|mergeable`，需 `meta.dedupParams`）。
+    // 「是否重复」不是字段而是报表当场算的（按姓名分桶 + 反证据），所以这里复用
+    // `dedupMemberIds` —— 与页面那张卡片**同一份**分组逻辑，数字才能对齐。
+    if (this.meta.dedupParams && query.dedup && DEDUP_MODES.has(String(query.dedup))) {
+      // ⚠️ 在**全量 rows** 上算命中集合，不是在已过滤的 filtered 上：
+      //    报表卡片是全量口径（50 组 / 109 条），若先按渠道筛再分组，数字会变小，
+      //    用户会以为「点进去比卡片少」。其它筛选条件照旧按 AND 叠加在下面。
+      const ids = dedupMemberIds(
+        rows.map((r) => toDedupRow(String(r.id ?? ''), r)),
+        String(query.dedup) as DedupMode,
+      );
+      filtered = filtered.filter((r) => ids.has(String(r.id ?? '')));
     }
 
     // 其余查询参数按字段等值过滤（如会议纪要按「会议类型 / 状态 / 部门」筛选）。
@@ -694,6 +731,9 @@ export class BaseRecordService {
       // `<字段>__has` / `<字段>__contains` 同理，已按各自语义处理过
       ...suffixKeys,
       ...(this.meta.deepParams ?? []),
+      // `dedup` 已在上面按「疑似重复」处理过；不跳过的话会被当字段名等值匹配 ⇒ 恒 0 条。
+      // 只在声明了 dedupParams 的表上跳过，其它表维持「未知参数 = 等值筛选」的既有行为。
+      ...(this.meta.dedupParams ? ['dedup'] : []),
     ]);
     for (const [k, v] of Object.entries(query)) {
       if (!v || skip.has(k)) continue;

@@ -319,6 +319,10 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     sortField: '创建时间',
     // 报表「按跟进人排行」下钻：follower=跟进人姓名 → 反查其跟进过的联系人
     deepParams: ['follower'],
+    // 去重报表的统计卡下钻（`?dedup=strong|likely|all|mergeable`）。
+    // 「是否重复」由 reports/contact-dedup 当场算出，不是本表的字段 —— 只有这张表
+    // 对应那个报表，所以只在这里打开（别的表开了会静默失效）。
+    dedupParams: true,
     deepFilter: async (row, query) => {
       const who = String(query['follower'] ?? '').trim();
       if (!who) return undefined;

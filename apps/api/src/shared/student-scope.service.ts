@@ -6,10 +6,14 @@ import { BASE_CLIENT } from '../base.provider.js';
 import { buildFilter } from './record.util.js';
 import {
   isScopeUnrestricted,
+  mergeRoleScopes,
   mergeScopes,
   normalizeScope,
+  normalizeRoleScope,
   normalizeUserScopeEntry,
+  SCOPE_DENY_ALL,
   studentInScope,
+  type RoleScopeCfg,
   type StudentScope,
   type UserScopeEntry,
 } from './student-scope.js';
@@ -59,7 +63,7 @@ function parseJsonObject(raw: unknown): Record<string, unknown> | null {
 export class StudentScopeService {
   private readonly logger = new Logger('StudentScope');
   private userCfgCache: { at: number; map: Record<string, UserScopeEntry> } | null = null;
-  private roleCfgCache: { at: number; map: Record<string, StudentScope | null> } | null = null;
+  private roleCfgCache: { at: number; map: Record<string, RoleScopeCfg> } | null = null;
   private studentCache: { at: number; rows: { id: string; name: string; rec: Record<string, unknown> }[] } | null =
     null;
 
@@ -88,17 +92,17 @@ export class StudentScopeService {
     return map;
   }
 
-  /** 角色级配置表：角色 key → 范围（未配置 = null） */
-  private async roleScopes(): Promise<Record<string, StudentScope | null>> {
+  /** 角色级配置表：角色 key → 范围配置（未配置 = null ⇒ **一条都看不到**） */
+  private async roleScopes(): Promise<Record<string, RoleScopeCfg>> {
     const now = Date.now();
     if (this.roleCfgCache && now - this.roleCfgCache.at < CACHE_TTL_MS) return this.roleCfgCache.map;
     // ⚠️ 这里是**读**配置：直接解析 systemConfig 里那条 JSON 的 roles[].dataScope。
     //    不要用 @acms/domain 的 loadRolePermissionConfig —— 那是「把矩阵写进权限引擎」的入口，返回 void。
     const raw = await this.readConfig(ROLE_PERMISSION_CONFIG_KEY);
     const roles = (raw?.roles ?? []) as { key?: string; dataScope?: unknown }[];
-    const map: Record<string, StudentScope | null> = {};
+    const map: Record<string, RoleScopeCfg> = {};
     for (const r of roles) {
-      if (r?.key) map[r.key] = normalizeScope(r.dataScope);
+      if (r?.key) map[r.key] = normalizeRoleScope(r.dataScope);
     }
     this.roleCfgCache = { at: now, map };
     return map;
@@ -113,7 +117,12 @@ export class StudentScopeService {
 
   /**
    * 解析当前用户的有效范围。
-   * @returns null = 不限制（看全部）；否则为需要满足的范围
+   * @returns `null` = 不限制（看全部）；`SCOPE_DENY_ALL` = **一条都看不到**；否则为需要满足的范围
+   *
+   * 🔴 2026-09-18 语义翻转：角色级**一个维度都没配**时，原来返回 `null`（放行、看全部），
+   *    现在返回 `SCOPE_DENY_ALL`（看不到任何学生）。原因是「不选 = 看全部」与直觉相反，
+   *    在角色管理页上尤其危险（配了范围却没勾任何值时，人会以为已经收紧了）。
+   *    要「看全部」必须显式：组织级角色 / 人级 `mode:'all'` / 角色勾「不限制」（`dataScope:'all'`）。
    */
   async resolve(user: SessionUser): Promise<StudentScope | null> {
     try {
@@ -127,11 +136,15 @@ export class StudentScopeService {
 
       // 2) 角色级：多角色取并集
       const roleMap = await this.roleScopes();
-      const scopes = (user.roles ?? []).map((r) => roleMap[r] ?? null);
-      const merged = mergeScopes(scopes);
-      return isScopeUnrestricted(merged) ? null : merged;
+      const merged = mergeRoleScopes((user.roles ?? []).map((r) => roleMap[r] ?? null));
+      if (merged === 'all') return null; // 显式配了「不限制（看全部）」
+      if (!merged) return SCOPE_DENY_ALL; // 都没配 ⇒ 一条都看不到（fail-closed）
+      return merged;
     } catch (e) {
-      // 配置读不到时**不阻断**（宁可放行也不要把人挡在门外），但要留日志
+      // 配置读不到时**不阻断**（宁可放行也不要把人挡在门外），但要留日志。
+      // ⚠️ 这是本次 fail-closed 收紧里**刻意保留的唯一例外**：它防的是「基础设施故障」
+      //    （配置表读不到），不是「配置没配」——后者已改为看不到。若哪天要求更严，
+      //    把这里改成 return SCOPE_DENY_ALL 即可（代价：一次读表抖动会让所有人列表变空）。
       this.logger.warn(`解析学生范围失败，按不限制处理: ${(e as Error).message}`);
       return null;
     }
@@ -146,8 +159,10 @@ export class StudentScopeService {
    *   org         组织级角色，豁免
    *   user-all    人级配了「全部学生」（例外放宽）
    *   user-custom 人级配了「自定义」
-   *   role        角色级配置（多角色并集）
-   *   none        都没配 = 不限制
+   *   role-all    角色显式配了「不限制（看全部学生）」
+   *   role        角色级按维度过滤（多角色并集）
+   *   role-none   🔴 角色**都没配**数据范围 ⇒ 一条都看不到（2026-09-18 起；界面要能说清）
+   *   none        都没配但按不限制兜底（仅配置读取失败时会出现）
    */
   async explain(user: SessionUser): Promise<{ level: string; scope: StudentScope | null; visible: number; total: number }> {
     const rows = await this.allStudents();
@@ -167,8 +182,9 @@ export class StudentScopeService {
         };
       }
       const roleMap = await this.roleScopes();
-      const merged = mergeScopes((user.roles ?? []).map((r) => roleMap[r] ?? null));
-      if (isScopeUnrestricted(merged)) return { level: 'none', scope: null, visible: total, total };
+      const merged = mergeRoleScopes((user.roles ?? []).map((r) => roleMap[r] ?? null));
+      if (merged === 'all') return { level: 'role-all', scope: null, visible: total, total };
+      if (!merged) return { level: 'role-none', scope: null, visible: 0, total };
       return { level: 'role', scope: merged, visible: rows.filter((r) => studentInScope(r.rec, merged)).length, total };
     } catch (e) {
       this.logger.warn(`范围说明解析失败，按不限制处理: ${(e as Error).message}`);

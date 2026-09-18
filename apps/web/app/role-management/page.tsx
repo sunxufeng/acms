@@ -137,8 +137,11 @@ interface Draft {
   maxDataLevel: string;
   /** 菜单可见性白名单；undefined = 不限制（按权限点自动显隐） */
   menus?: string[];
-  /** 学生档案数据范围（undefined = 不限制）；维度：当前年级 / 当前状态 */
-  dataScope?: { 当前年级?: string[]; 当前状态?: string[] };
+  /**
+   * 学生档案数据范围：`'all'` = 显式「不限制（看全部学生）」；对象 = 按维度过滤；
+   * undefined = **一条都看不到**（2026-09-18 起；此前 undefined 表示「不限制」，别改回去）。
+   */
+  dataScope?: 'all' | { 当前年级?: string[]; 当前状态?: string[] };
   protected?: boolean;
   lockedPermissions?: boolean;
   isNew?: boolean;
@@ -552,14 +555,19 @@ export default function RoleManagementPage() {
     };
   }, []);
 
-  /** 勾选/取消某个维度的某个值；两个维度都空时收敛为 undefined（= 不限制） */
+  /**
+   * 勾选/取消某个维度的某个值。
+   * 🔴 两个维度都取消勾选 ⇒ 收敛为 `undefined`，语义是**一条都看不到**（不是不限制）。
+   *    要「看全部」请用上面的「不限制（看全部学生）」开关。
+   */
   function toggleScopeDim(dim: '当前年级' | '当前状态', value: string) {
     if (!draft || draft.lockedPermissions) return;
     setDraft((prev) => {
       if (!prev) return prev;
-      const cur = prev.dataScope?.[dim] ?? [];
+      const ds = typeof prev.dataScope === 'object' ? prev.dataScope : undefined;
+      const cur = ds?.[dim] ?? [];
       const next = cur.includes(value) ? cur.filter((x) => x !== value) : [...cur, value];
-      const scope = { ...(prev.dataScope ?? {}) };
+      const scope: { 当前年级?: string[]; 当前状态?: string[] } = { ...(ds ?? {}) };
       if (next.length) scope[dim] = next;
       else delete scope[dim];
       const empty = !scope.当前年级?.length && !scope.当前状态?.length;
@@ -568,15 +576,26 @@ export default function RoleManagementPage() {
   }
 
   /**
+   * 切换「不限制（看全部学生）」。
+   * 勾上 = `dataScope: 'all'`；取消 = 回到未配置（= 一条都看不到）。
+   */
+  function toggleScopeAll() {
+    if (!draft || draft.lockedPermissions) return;
+    setDraft((prev) => (!prev ? prev : { ...prev, dataScope: prev.dataScope === 'all' ? undefined : 'all' }));
+  }
+
+  /**
    * 预览：按当前 draft 的范围算「可见学生数」。
    * 用后端给的「当前年级 × 当前状态」**交叉计数**精确算 —— 两个维度是 AND，不能把各维度人数相加。
-   * 未配置的维度视为不限制（该维度全部算命中）。
+   * 未配置的维度视为不限制（该维度全部算命中）；**两个维度都空 = 0 人**（不是全部）。
    */
   const scopePreview = useMemo(() => {
     if (!scopeOpts) return null;
-    const g = draft?.dataScope?.当前年级 ?? [];
-    const s = draft?.dataScope?.当前状态 ?? [];
-    if (!g.length && !s.length) return scopeOpts.total;
+    const ds = draft?.dataScope;
+    if (ds === 'all') return scopeOpts.total;
+    const g = (typeof ds === 'object' ? ds?.当前年级 : undefined) ?? [];
+    const s = (typeof ds === 'object' ? ds?.当前状态 : undefined) ?? [];
+    if (!g.length && !s.length) return 0;
     return scopeOpts.cross
       .filter((r) => (!g.length || g.includes(r.当前年级)) && (!s.length || s.includes(r.当前状态)))
       .reduce((sum, r) => sum + r.count, 0);
@@ -589,7 +608,7 @@ export default function RoleManagementPage() {
     try {
       // menus 传空数组 = 清除白名单（恢复按权限点自动显隐）
       const menus = draft.menus ?? [];
-      // dataScope 传 null 表示清空（= 不限制）—— 后端把「全空」当删除处理
+      // dataScope 传 null 表示清空 —— 🔴 清空后该角色**看不到任何学生**（不再等于「不限制」）
       const dataScope = draft.dataScope ?? null;
       const payload = draft.isNew
         ? await api.createRole({
@@ -1366,9 +1385,10 @@ export default function RoleManagementPage() {
                 </div>
               </details>
 
-              {/* ② 数据范围（2026-09-15）：决定该角色能看到哪些学生的档案。
-                  空 = 不限制（默认态，因此上线不改变任何人的可见范围）；
-                  维度之间 AND、同一维度内 OR；多角色取并集（见 student-scope.ts）。 */}
+              {/* ② 数据范围：决定该角色能看到哪些学生的档案。
+                  🔴 2026-09-18 语义翻转 —— 未配置（两个维度都不勾）= **看不到任何学生**，
+                  要「看全部」必须显式勾「不限制（看全部学生）」。
+                  维度之间 AND、同一维度内 OR、多角色取并集（见 student-scope.ts）。 */}
               <div
                 className="form-legend"
                 style={{ marginTop: 'var(--space-lg)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}
@@ -1386,9 +1406,40 @@ export default function RoleManagementPage() {
                 {tl('数据范围')}
               </div>
               <p style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)', marginTop: 0, marginBottom: 12 }}>
-                {tl('决定该角色能查看哪些学生的档案。两个维度都留空 = 不限制（看全部）；维度之间同时满足，同一维度勾选多个是满足任一。')}
+                {tl('决定该角色能查看哪些学生的档案。⚠️ 两个维度都不勾 = 该角色看不到任何学生；要放开请勾「不限制」。维度之间同时满足，同一维度勾选多个是满足任一。')}
               </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {/* 「不限制（看全部学生）」显式开关 —— 语义翻转后，看全部必须显式表达 */}
+              <label
+                className="tag"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  marginBottom: 12,
+                  cursor: draft.lockedPermissions ? 'default' : 'pointer',
+                  opacity: draft.dataScope === 'all' ? 1 : 0.8,
+                  borderColor: draft.dataScope === 'all' ? 'var(--accent)' : undefined,
+                  background: draft.dataScope === 'all' ? 'var(--accent-soft)' : undefined,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={draft.dataScope === 'all'}
+                  disabled={draft.lockedPermissions}
+                  onChange={toggleScopeAll}
+                />
+                {tl('不限制（看全部学生）')}
+              </label>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                  // 勾了「不限制」时维度勾选无意义 —— 变灰且不可点，避免"两个都勾了"的歧义状态
+                  opacity: draft.dataScope === 'all' ? 0.45 : 1,
+                  pointerEvents: draft.dataScope === 'all' ? 'none' : undefined,
+                }}
+              >
                 {(scopeOpts?.dims ?? []).map((d) => (
                   <div
                     key={d.dim}
@@ -1398,7 +1449,9 @@ export default function RoleManagementPage() {
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       {d.values.map((v) => {
                         const dim = d.dim as '当前年级' | '当前状态';
-                        const on = (draft.dataScope?.[dim] ?? []).includes(v.value);
+                        // dataScope 可能是字符串 'all'，必须先收窄再取维度
+                        const ds = typeof draft.dataScope === 'object' ? draft.dataScope : undefined;
+                        const on = (ds?.[dim] ?? []).includes(v.value);
                         return (
                           <label
                             key={v.value}
@@ -1435,10 +1488,21 @@ export default function RoleManagementPage() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>{tl('按当前配置可见')}</span>
-                <span style={{ fontSize: 'var(--font-lg)', fontWeight: 700 }}>
+                <span
+                  style={{
+                    fontSize: 'var(--font-lg)',
+                    fontWeight: 700,
+                    color: scopePreview === 0 ? 'var(--color-text-danger, var(--danger, #a32d2d))' : undefined,
+                  }}
+                >
                   {scopePreview === null ? '—' : scopePreview}
                 </span>
                 <span style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>{tl('个学生')}</span>
+                {scopePreview === 0 && !draft.lockedPermissions && (
+                  <span style={{ fontSize: 'var(--font-xs)', color: 'var(--color-text-danger, var(--danger, #a32d2d))' }}>
+                    {tl('⚠️ 该角色将看不到任何学生档案；要放开请勾「不限制（看全部学生）」或勾选年级/状态')}
+                  </span>
+                )}
                 {draft.lockedPermissions && (
                   <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>
                     {tl('系统管理员不受数据范围限制，此处仅作展示')}

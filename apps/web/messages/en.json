@@ -893,7 +893,9 @@
     "scopeSrcUser": "Scope set individually on your account",
     "scopeSrcUserAll": "Your account is set to all students",
     "scopeSrcRole": "Scope comes from your role configuration",
-    "scopeCampus": "Also limited by campus: {campuses}"
+    "scopeCampus": "Also limited by campus: {campuses}",
+    "scopeSrcRoleAll": "Role grants all students",
+    "scopeSrcRoleNone": "⚠️ Role has no data scope — no students visible"
   },
   "admin": {
     "titleRoleManagement": "Role Management",
@@ -1167,7 +1169,6 @@
     "写清本单元要解决的核心问题与达成标准": "State the core question this unit addresses and the mastery criteria",
     "农村": "Rural",
     "冲销": "Reversal",
-    "决定该角色能查看哪些学生的档案。两个维度都留空 = 不限制（看全部）；维度之间同时满足，同一维度勾选多个是满足任一。": "Determines which students this role can view. Leave both dims empty = unrestricted; dims are AND-ed, multiple values within a dim are OR-ed.",
     "凭证（JSON）": "Credential (JSON)",
     "出勤": "Present",
     "出勤率": "Attendance rate",
@@ -2483,7 +2484,10 @@
     "（无分组）": "(No Group)",
     "（明细只回前 50 条）": "(details show the first 50 only)",
     "👤 管理员": "👤 Admin",
-    "🔍 搜索": "🔍 Search"
+    "🔍 搜索": "🔍 Search",
+    "不限制（看全部学生）": "Unrestricted (all students)",
+    "决定该角色能查看哪些学生的档案。⚠️ 两个维度都不勾 = 该角色看不到任何学生；要放开请勾「不限制」。维度之间同时满足，同一维度勾选多个是满足任一。": "Determines which students this role can view. ⚠️ No dimension checked = this role sees NO students; tick “Unrestricted” to grant all. Dims are AND-ed; multiple values within a dim are OR-ed.",
+    "⚠️ 该角色将看不到任何学生档案；要放开请勾「不限制（看全部学生）」或勾选年级/状态": "⚠️ This role will see no student records. Tick “Unrestricted” or check grades/statuses to grant access."
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

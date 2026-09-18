@@ -542,7 +542,9 @@ export default function StudentsPage() {
 
       {/* ── 数据范围提示条 ─────────────────────
           范围受限时必须让用户知道「为什么少」，并区分是哪一层限制的
-          （人级 / 角色级 / 校区），否则表现和「系统坏了」没区别。 */}
+          （人级 / 角色级 / 校区），否则表现和「系统坏了」没区别。
+          🔴 2026-09-18 新增 role-none：角色没配数据范围 ⇒ 一条都看不到 ——
+             这种「空列表」最容易被误判成系统故障，必须显式说清楚。 */}
       {scopeInfo && (
         <div
           style={{
@@ -554,20 +556,32 @@ export default function StudentsPage() {
             marginBottom: 'var(--space-md)',
             borderRadius: 8,
             fontSize: 'var(--font-sm)',
-            background: scopeInfo.level === 'none' || scopeInfo.level === 'org' ? 'var(--bg-subtle)' : 'var(--accent-muted)',
-            border: `1px solid ${scopeInfo.level === 'none' || scopeInfo.level === 'org' ? 'var(--border)' : 'var(--accent-soft)'}`,
-            color: scopeInfo.level === 'none' || scopeInfo.level === 'org' ? 'var(--fg-secondary)' : 'var(--accent)',
+            background:
+              scopeInfo.level === 'none' || scopeInfo.level === 'org' || scopeInfo.level === 'role-all'
+                ? 'var(--bg-subtle)'
+                : 'var(--accent-muted)',
+            border: `1px solid ${
+              scopeInfo.level === 'none' || scopeInfo.level === 'org' || scopeInfo.level === 'role-all'
+                ? 'var(--border)'
+                : 'var(--accent-soft)'
+            }`,
+            color:
+              scopeInfo.level === 'none' || scopeInfo.level === 'org' || scopeInfo.level === 'role-all'
+                ? 'var(--fg-secondary)'
+                : 'var(--accent)',
           }}
         >
           <span style={{ fontWeight: 600 }}>{t('scopeBannerTitle')}</span>
           <span>
-            {scopeInfo.level === 'none' || scopeInfo.level === 'org'
+            {scopeInfo.level === 'none' || scopeInfo.level === 'org' || scopeInfo.level === 'role-all'
               ? t('scopeBannerOrg', { total: scopeInfo.total })
               : t('scopeBannerRestricted', { visible: scopeInfo.visible, total: scopeInfo.total })}
           </span>
           {scopeInfo.level === 'user-custom' && <span>· {t('scopeSrcUser')}</span>}
           {scopeInfo.level === 'user-all' && <span>· {t('scopeSrcUserAll')}</span>}
           {scopeInfo.level === 'role' && <span>· {t('scopeSrcRole')}</span>}
+          {scopeInfo.level === 'role-all' && <span>· {t('scopeSrcRoleAll')}</span>}
+          {scopeInfo.level === 'role-none' && <span>· {t('scopeSrcRoleNone')}</span>}
           {!scopeInfo.orgWide && scopeInfo.campuses.length > 0 && (
             <span>· {t('scopeCampus', { campuses: scopeInfo.campuses.join('、') })}</span>
           )}

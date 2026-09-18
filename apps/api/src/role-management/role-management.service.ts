@@ -30,7 +30,7 @@ import {
 import { BASE_CLIENT } from '../base.provider.js';
 import { runAs, systemActor } from '../shared/actor-context.js';
 import { buildFilter } from '../shared/record.util.js';
-import { normalizeScope, type StudentScope } from '../shared/student-scope.js';
+import { normalizeRoleScope, type StudentScope } from '../shared/student-scope.js';
 import { StudentScopeService } from '../shared/student-scope.service.js';
 
 const TABLE_ID = TABLES.systemConfig.tableId;
@@ -55,17 +55,19 @@ interface StoredRole {
   /** 菜单可见性白名单；空/缺省 = 不额外限制 */
   menus?: string[];
   /**
-   * 学生档案「数据范围」（2026-09-15）：该角色的人能看到哪些学生。
-   * 空/缺省 = 不限制（看全部）—— 这也是默认值，所以上线不改变任何人的可见范围。
-   * 多角色取**并集**（见 student-scope.ts 的 mergeScopes）。
+   * 学生档案「数据范围」：该角色的人能看到哪些学生。
+   *
+   * 🔴 2026-09-18 语义翻转：`'all'` = 显式不限制；非空对象 = 按维度过滤；
+   *    **缺省 = 一条都看不到**（原来缺省是「不限制」，靠 `normalizeRoleScope` 归一）。
+   *    多角色取**并集**（见 student-scope.ts 的 `mergeRoleScopes`）。
    */
-  dataScope?: StudentScope;
+  dataScope?: 'all' | StudentScope;
 }
 
 export interface CreateRoleInput {
   key: string;
   label?: string;
-  /** 学生档案数据范围（可选；留空 = 不限制） */
+  /** 学生档案数据范围：`'all'` = 不限制；`{当前年级?,当前状态?}` = 按维度过滤；留空 = 看不到任何学生 */
   dataScope?: unknown;
   permissions: string[];
   maxDataLevel: string;
@@ -77,7 +79,7 @@ export interface UpdateRoleInput {
   permissions?: string[];
   maxDataLevel?: string;
   menus?: string[];
-  /** 学生档案数据范围；传 null/{} 表示清空（= 不限制） */
+  /** 学生档案数据范围；`'all'` = 不限制；传 null/{} = 清空（**清空后看不到任何学生**） */
   dataScope?: unknown;
 }
 
@@ -394,7 +396,7 @@ export class RoleManagementService implements OnModuleInit {
       permissions: this.sanitizePerms(dto.permissions),
       maxDataLevel: this.normalizeLevel(dto.maxDataLevel),
       menus: this.sanitizeMenus(dto.menus),
-      dataScope: normalizeScope(dto.dataScope) ?? undefined,
+      dataScope: normalizeRoleScope(dto.dataScope) ?? undefined,
     };
     const merged = [...current, next];
     await this.persist(merged);
@@ -429,9 +431,10 @@ export class RoleManagementService implements OnModuleInit {
       if (menus) role.menus = menus;
       else delete role.menus;
     }
-    // 学生档案数据范围：只做「有值就设、全空就删」——空 = 不限制，不写空对象进配置
+    // 学生档案数据范围：`'all'` = 显式「不限制」；非空对象 = 按维度过滤；空 = 删除该字段
+    // 🔴 删掉字段 ≠ 不限制 —— 现在的语义是「一条都看不到」（2026-09-18 翻转，别改回去）
     if (dto.dataScope !== undefined) {
-      const scope = normalizeScope(dto.dataScope);
+      const scope = normalizeRoleScope(dto.dataScope);
       if (scope) role.dataScope = scope;
       else delete role.dataScope;
     }

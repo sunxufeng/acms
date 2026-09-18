@@ -98,6 +98,17 @@ export const COLUMNS: CrudColumn[] = [
     mdImportPerm: 'md:import',
   },
   { key: '待办事宜', label: '待办事宜', list: false, form: true, type: 'textarea' },
+  /**
+   * 会议附件（2026-09-18 新增）。
+   *
+   * 用途：从「我的笔记」转出会议纪要时，笔记的**原始录音**一并写进这个字段，
+   * 于是会议纪要页里能直接播放当时那段录音。会议纪要是笔记转换最热门的目标
+   * （历史 5 条转换记录里有 3 条转到会议纪要），而原表没有任何附件字段 ⇒ 录音无处可放。
+   *
+   * 存储结构照搬其它沟通模块的「沟通附件清单」：文本列存 `[{file_token,name,size,type}]` 的 JSON，
+   * 前端按 `type: 'attachment'` 渲染（音频会自动出内联播放器，见 CrudPage 的 isAudioFile）。
+   */
+  { key: '会议附件', label: '会议附件', width: '220px', list: false, form: true, type: 'attachment' },
   {
     key: '状态',
     label: '状态',

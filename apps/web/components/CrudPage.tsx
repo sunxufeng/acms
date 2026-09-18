@@ -268,6 +268,17 @@ export interface CrudPageProps {
   studentDetailHref?: (row: Record<string, unknown>) => string;
   /** 行级自定义操作按钮（如「AI 总结」）。run(row, reload) 执行后刷新列表；前端仅在非只读模式渲染 */
   rowExtraActions?: { label: string; run: (row: Record<string, unknown>, reload: () => void) => void | Promise<void> }[];
+  /**
+   * 操作列的**自定义插槽**（每行渲染一次，渲染在「编辑」之前）。
+   *
+   * 与 `rowExtraActions` 的分工：那个只支持「一个按钮 + 一个异步动作」，无法表达
+   * 「就地翻转状态的控件」—— 如「播放 / 停止」（按钮文案、图标、是否在播都随状态变，
+   * 还要持有 Audio 实例）。需要组件自管状态的场景用本插槽。
+   *
+   * 返回 null / undefined 即该行不渲染任何东西（例如「这行没有音频」）。
+   * 与 rowExtraActions 一样**只在非只读模式**渲染 —— 只读列表的操作列不该出现可交互控件。
+   */
+  rowActionSlot?: (row: Record<string, unknown>) => React.ReactNode;
   /** 表单（standalone / inline 弹窗）底部自定义操作按钮：run(values, close) 执行，
    *  需要当前表单字段值时用（如「测试连接」）。run 返回 { ok, text } 时 CrudPage 会在表单内展示结果 banner。 */
   formExtraActions?: {
@@ -414,17 +425,61 @@ function toDateTimeLocal(v: unknown): string {
 }
 
 /** 附件字段值：可能为数组（表单态）或 JSON 字符串（飞书存储态） */
-function attachmentFiles(v: unknown): { file_token: string; name: string }[] {
-  if (Array.isArray(v)) return v as { file_token: string; name: string }[];
+function attachmentFiles(
+  v: unknown,
+): { file_token: string; name: string; size?: number; type?: string }[] {
+  if (Array.isArray(v)) return v as { file_token: string; name: string; type?: string }[];
   if (typeof v === 'string' && v.trim()) {
     try {
       const p = JSON.parse(v);
-      if (Array.isArray(p)) return p as { file_token: string; name: string }[];
+      if (Array.isArray(p)) return p as { file_token: string; name: string; type?: string }[];
     } catch {
       /* ignore */
     }
   }
   return [];
+}
+
+/**
+ * 这个附件是不是音频 —— 决定渲染成**内联播放器**还是下载链接。
+ *
+ * 为什么要判：从「我的笔记」转出到业务模块时，录音会作为附件写进目标记录的附件字段
+ * （见 contracts 的 `NoteConvertTarget.audioField`）。只给一个下载链接的话，
+ * 同事还得下载下来用本地播放器听，等于白转。
+ *
+ * 双判据：MIME 优先（`audio/*`），拿不到 MIME 就按扩展名 —— 历史音频的 MIME 曾
+ * 被写死成 `audio/ogg`（其中 40 个实为 MP3），单看 MIME 会漏判，扩展名更可靠。
+ */
+function isAudioFile(f: { name?: string; type?: string }): boolean {
+  const mime = String(f.type ?? '').toLowerCase();
+  if (mime.startsWith('audio/')) return true;
+  const name = String(f.name ?? '').toLowerCase();
+  return /\.(ogg|oga|opus|mp3|m4a|mp4|aac|wav|flac|weba|webm|amr)$/.test(name);
+}
+
+/** 音频附件播放器（列表 / 表单共用；`/api/v1/files/:token` 已支持 Range，可拖进度条） */
+function AudioAttachment({ token, name }: { token: string; name?: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: 300 }}>
+      <audio
+        controls
+        preload="none"
+        src={`/api/v1/files/${encodeURIComponent(token)}`}
+        style={{ height: 30, maxWidth: 240 }}
+      />
+      {name && (
+        <a
+          href={`/api/v1/files/${encodeURIComponent(token)}`}
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: 'var(--fg-tertiary)', fontSize: 11, whiteSpace: 'nowrap' }}
+          title={name}
+        >
+          原始文件
+        </a>
+      )}
+    </span>
+  );
 }
 
 function FilterSelect({
@@ -485,7 +540,7 @@ const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: '
  */
 let weilingContactCache: { value: string; label: string }[] | null = null;
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, createDefaults, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, studentNameKeys, sidebar, extraParams }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, createDefaults, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, studentNameKeys, sidebar, extraParams, rowActionSlot }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -1725,9 +1780,14 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 }
               }} />
               <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {(Array.isArray(form[c.key]) ? (form[c.key] as { file_token: string; name: string }[]) : []).map((a, i) => (
+                {(Array.isArray(form[c.key]) ? (form[c.key] as { file_token: string; name: string; type?: string }[]) : []).map((a, i) => (
                   <div key={a.file_token ?? i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--font-sm)' }}>
-                    <a href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{a.name}</a>
+                    {/* 音频（含从「我的笔记」转出时带过来的录音）直接给播放器，不用先下载 */}
+                    {isAudioFile(a) ? (
+                      <AudioAttachment token={a.file_token} name={a.name} />
+                    ) : (
+                      <a href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{a.name}</a>
+                    )}
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => setForm((f) => ({ ...f, [c.key]: (Array.isArray(f[c.key]) ? (f[c.key] as { file_token: string; name: string }[]) : []).filter((_, j) => j !== i) }))}>{t('crud.remove')}</button>
                   </div>
                 ))}
@@ -2025,10 +2085,14 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                             const files = attachmentFiles(row[c.key]);
                             if (!files.length) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
                             return (
-                              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                                {files.map((a, i) => (
-                                  <a key={a.file_token ?? i} href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{a.name}</a>
-                                ))}
+                              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                {files.map((a, i) =>
+                                  isAudioFile(a) ? (
+                                    <AudioAttachment key={a.file_token ?? i} token={a.file_token} name={a.name} />
+                                  ) : (
+                                    <a key={a.file_token ?? i} href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{a.name}</a>
+                                  ),
+                                )}
                               </span>
                             );
                           })()
@@ -2044,6 +2108,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   {showActions && (
                   <td>
                     <div style={rowActions}>
+                      {/* 自定义插槽（如笔记行的「播放 / 停止」）—— 放最前，操作列一眼可见 */}
+                      {!readonly && rowActionSlot?.(row)}
                       {canUpdate && editHref ? (
                         <Link href={editHref(String(row.id))} className="btn btn-ghost btn-sm">{t('crud.edit')}</Link>
                       ) : canUpdate && (

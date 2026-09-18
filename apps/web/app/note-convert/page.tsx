@@ -17,6 +17,7 @@ function emptyTarget(): NoteConvertTarget {
     enabled: false,
     summaryField: '',
     rawField: '',
+    audioField: '',
     order: 9999,
     custom: true,
   };
@@ -52,7 +53,7 @@ export default function NoteConvertPage() {
       .filter((it) => {
         if (onlyEnabled && !it.enabled) return false;
         if (!kw) return true;
-        return [it.label, it.enLabel ?? '', it.href, it.summaryField, it.rawField]
+        return [it.label, it.enLabel ?? '', it.href, it.summaryField, it.rawField, it.audioField ?? '']
           .join(' ')
           .toLowerCase()
           .includes(kw);
@@ -184,6 +185,11 @@ export default function NoteConvertPage() {
                 <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 150 }}>
                   {tnc('rawField')}
                 </th>
+                {/* 录音附件字段（2026-09-18）：笔记的原始录音一并写进目标模块的这个附件字段。
+                    留空 = 该模块不收录音；填错字段名会被静默丢弃，所以是下拉候选 + 可手填。 */}
+                <th style={{ textAlign: 'left', padding: '8px 10px', minWidth: 150 }}>
+                  {tnc('audioField')}
+                </th>
                 <th style={{ textAlign: 'center', padding: '8px 10px', width: 70 }}>{tl('操作')}</th>
               </tr>
             </thead>
@@ -250,6 +256,13 @@ export default function NoteConvertPage() {
                       placeholder={tnc('notSet')}
                       onChange={(v) => updateView(idx, { rawField: v })}
                     />
+                    <FieldCell
+                      id={`${it.key}-audio`}
+                      value={it.audioField ?? ''}
+                      candidates={cands}
+                      placeholder={tnc('notSet')}
+                      onChange={(v) => updateView(idx, { audioField: v })}
+                    />
                     <td style={{ padding: '6px 10px', textAlign: 'center' }}>
                       <button
                         type="button"
@@ -265,7 +278,7 @@ export default function NoteConvertPage() {
               })}
               {view.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--fg-tertiary)' }}>
+                  <td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--fg-tertiary)' }}>
                     {q || onlyEnabled ? tnc('noMatch') : tnc('empty')}
                   </td>
                 </tr>

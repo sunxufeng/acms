@@ -8,6 +8,8 @@ import type { SessionUser, Permission } from '@acms/contracts';
 import { SessionGuard } from '../auth/session.guard.js';
 import { GetnoteService } from './getnote.service.js';
 import { FileUploadService } from '../file-upload/file-upload.service.js';
+import { sniffAudioFormat, withAudioExt } from '../file-storage/audio-format.js';
+import { parseByteRange } from '../file-storage/byte-range.js';
 
 /**
  * 得到大脑（Get笔记）代理控制器。
@@ -271,13 +273,28 @@ export class GetnoteController {
     const hit = await this.svc.noteAudio(user, id);
     if (!hit) throw new NotFoundException('AUDIO_NOT_FOUND');
     const f = await this.fileUpload.readLocal(hit.token);
-    res.status(200);
-    res.setHeader('Content-Type', f.mime || 'audio/ogg');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename*=UTF-8''${encodeURIComponent(hit.name)}`,
-    );
+
+    // 以**文件头**为准给 Content-Type：落库时 MIME 是写死的 audio/ogg，而实测 554 个
+    // 录音里 40 个实际是 MP3 —— 按 audio/ogg 解 MP3 会解码失败、播放器不出声。
+    const sniffed = sniffAudioFormat(f.buffer);
+    const mime = sniffed?.mime ?? f.mime ?? 'audio/ogg';
+    const name = sniffed ? withAudioExt(hit.name, sniffed.ext) : hit.name;
+
+    // Range 必须支持：录音最长 3 小时 / 单文件 168 MB，全量返流时进度条拖不动，
+    // 且 Safari 会直接拒绝播放。
+    const range = parseByteRange(req.headers.range, f.buffer.length);
+    res.status(range ? 206 : 200);
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(name)}`);
     res.setHeader('Cache-Control', 'private, max-age=3600');
+    if (range) {
+      res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${f.buffer.length}`);
+      res.setHeader('Content-Length', String(range.length));
+      res.end(f.buffer.subarray(range.start, range.end + 1));
+      return;
+    }
+    res.setHeader('Content-Length', String(f.buffer.length));
     res.end(f.buffer);
   }
 

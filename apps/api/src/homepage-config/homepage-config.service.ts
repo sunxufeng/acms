@@ -219,14 +219,20 @@ export class HomepageConfigService {
     // 已存储项：同步菜单上已改动的中文名/英文名/路径（用户可改的 enabled 与字段不动）
     const kept: NoteConvertTarget[] = stored.items.map((it) => {
       const m = menuByKey.get(it.key);
-      if (!m) return it; // 手工新增项，没有对应菜单
+      const def = DEFAULT_CONVERT_FIELDS[it.key];
+      // 注意 `audioField` 的自愈只对「菜单自动带出的项」做：手工新增项没有对应菜单、
+      // 也就没有可信的默认映射，硬塞一个字段名可能指向目标表里不存在的列（静默丢弃）。
+      if (!m) return it;
       return {
         ...it,
         label: m.label,
         enLabel: m.enLabel ?? it.enLabel,
         href: m.href,
-        summaryField: it.summaryField || DEFAULT_CONVERT_FIELDS[it.key]?.summaryField || '',
-        rawField: it.rawField || DEFAULT_CONVERT_FIELDS[it.key]?.rawField || '',
+        summaryField: it.summaryField || def?.summaryField || '',
+        rawField: it.rawField || def?.rawField || '',
+        // 2026-09-18 新增：录音附件字段。存量配置里没有这个键 ⇒ 这里补上，
+        // 于是「笔记转出带上录音」对已启用的 5 个模块立刻生效，无需手工改配置。
+        audioField: it.audioField || def?.audioField || '',
       };
     });
 
@@ -241,6 +247,7 @@ export class HomepageConfigService {
         enabled: false,
         summaryField: DEFAULT_CONVERT_FIELDS[m.key]?.summaryField ?? '',
         rawField: DEFAULT_CONVERT_FIELDS[m.key]?.rawField ?? '',
+        audioField: DEFAULT_CONVERT_FIELDS[m.key]?.audioField ?? '',
         order: 1000 + idx,
       }));
 

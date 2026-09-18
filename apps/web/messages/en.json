@@ -1076,6 +1076,7 @@
     "会议类型": "Meeting Type",
     "会议纪要": "Meeting Minutes",
     "会议议题": "Meeting Topic",
+    "会议附件": "Meeting Attachments",
     "低": "Low",
     "低风险": "Low Risk",
     "体制内学校": "Public School",
@@ -2749,7 +2750,13 @@
     "reload": "Retry",
     "saveAudio": "Save original audio",
     "audioSaving": "Saving original audio…",
-    "audioSaved": "Original audio saved"
+    "audioSaved": "Original audio saved",
+    "play": "Play",
+    "stop": "Stop",
+    "playAudio": "Play recording",
+    "stopAudio": "Stop playback",
+    "noAudioYet": "This note's recording has not been saved to ACMS yet (admins can run “Save original audio” in the toolbar)",
+    "audioWithConvert": "Original recording will be carried over"
   },
   "getnoteSources": {
     "title": "Knowledge Sources",
@@ -2806,7 +2813,7 @@
     "colUserId": "User ID"
   },
   "noteConvert": {
-    "subtitle": "Select which modules may receive note content, and map which field the Summary / Raw Record goes into. Enabled modules appear in the Convert button on the My Notes list. Newly developed modules show up here automatically.",
+    "subtitle": "Select which modules may receive note content, and map which field the Summary / Raw Record / Recording goes into. Enabled modules appear in the Convert button on the My Notes list. Newly developed modules show up here automatically.",
     "addTarget": "Add module",
     "searchPlaceholder": "Search menu name / path / field…",
     "onlyEnabled": "Enabled only",
@@ -2814,6 +2821,7 @@
     "enabled": "Convert",
     "summaryField": "Summary field",
     "rawField": "Raw record field",
+    "audioField": "Recording attachment field",
     "notSet": "Not set",
     "confirmDelete": "Delete this conversion config?",
     "saveSuccess": "Saved. The Convert button on My Notes takes effect immediately.",

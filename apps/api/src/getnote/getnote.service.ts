@@ -30,6 +30,8 @@ import {
 } from './source-cred.js';
 // 音频落库要把字节流存进全站附件目录（`loc_*` token），复用统一的附件基建
 import { FileUploadService } from '../file-upload/file-upload.service.js';
+// 音频容器以文件头为准（上游同批录音里 Ogg/Opus 与 MP3 混杂，写死 MIME 会播不出来）
+import { sniffAudioFormat } from '../file-storage/audio-format.js';
 // 落正文时的字段合并（保住已抓好的音频 —— 走 createWithId 是整体替换，见该文件注释）
 import { mergeNoteBodyPayload } from './note-body-merge.js';
 
@@ -191,6 +193,20 @@ export interface GetnoteNote {
    * 拿别人的笔记必然失败。所以必须在列表阶段就把「这篇该用谁的 Key」记下来。
    */
   _sourceRecordId?: string;
+  /**
+   * 已落库的原始音频元信息。**详情与列表都返回**（列表由 `attachAudioMeta` 批量补）。
+   *
+   * 列表也要的原因：列表页「操作」列要直接给一个播放 / 停止按钮，
+   * 每行为此再打一次详情接口代价太大（一页 20 行 = 20 次上游调用，上游 QPS 只有 2）。
+   * 没有音频的行不带这个字段，前端据此不渲染按钮。
+   */
+  _audio?: {
+    token: string;
+    name: string;
+    size: number;
+    type: string;
+    durationMs: number;
+  } | null;
 }
 
 export interface GetnoteListResult {
@@ -1165,6 +1181,42 @@ export class GetnoteService {
     size = 20,
     filters: NoteListFilters = {},
   ): Promise<GetnoteListResult> {
+    const res = await this.listNotes(user, cursor, q, size, filters);
+    // 列表行补 `_audio`：列表页操作列要直接给「播放 / 停止」按钮。
+    // 放这里统一做，三条返回路径（管理员快照 / 按可见配置收窄 / 上游直查）都能覆盖到。
+    return { ...res, notes: await this.attachAudioMeta(res.notes ?? []) };
+  }
+
+  /**
+   * 给列表行批量补 `_audio` 标记。
+   *
+   * 数据源是**正文表**（`音频附件` / `音频时长`），不是上游 —— 只查本地主键，
+   * 一页 20 行就是 20 次 `SELECT ... WHERE id=$1`，不消耗上游额度、不受 QPS 2 限制。
+   * 逐条查而不是 `search` 全表：正文表带整篇总结（几千字），全表扫描的传输量
+   * 比 20 次主键查询大两个数量级。
+   *
+   * 查不到 / 出错一律视为「这条没有音频」，**不让它影响列表主流程**。
+   */
+  private async attachAudioMeta(notes: GetnoteNote[]): Promise<GetnoteNote[]> {
+    if (!notes.length) return notes;
+    if (!getSqlStore()) return notes;
+    const metas = await Promise.all(
+      notes.map((n) => {
+        const id = String(n.note_id ?? '').trim();
+        if (!id) return Promise.resolve(null);
+        return this.noteAudioMeta(id).catch(() => null);
+      }),
+    );
+    return notes.map((n, i) => (metas[i] ? Object.assign({}, n, { _audio: metas[i] }) : n));
+  }
+
+  private async listNotes(
+    user: SessionUser,
+    cursor?: string,
+    q?: string,
+    size = 20,
+    filters: NoteListFilters = {},
+  ): Promise<GetnoteListResult> {
     // 管理员：跨所有启用配置聚合（走快照分页，不用上游 cursor）
     if (this.isAdmin(user))
       return this.listAllForAdmin(user, cursor ?? '', q ?? '', size, filters);
@@ -1802,15 +1854,20 @@ export class GetnoteService {
     const buf = Buffer.from(await res.arrayBuffer());
     if (!buf.length) throw new Error('音频内容为空');
 
-    const name = `${noteId}.ogg`;
-    const { file_token } = await this.fileUpload.uploadFile(buf, name, 'audio/ogg');
+    // 🔴 容器以**文件头**为准，不能想当然写死 ogg：上游同一批录音里既有 Ogg/Opus
+    //    也有 MP3（实测 554 个里 40 个是 MP3）。写死 MIME 的后果是那批文件带着
+    //    错误名片入库，浏览器按 audio/ogg 解 MP3 直接播放失败（2026-09-18 报障）。
+    const sniffed = sniffAudioFormat(buf);
+    const mime = sniffed?.mime ?? 'audio/ogg';
+    const name = `${noteId}.${sniffed?.ext ?? 'ogg'}`;
+    const { file_token } = await this.fileUpload.uploadFile(buf, name, mime);
 
     const sql = getSqlStore();
     if (!sql) throw new Error('SQL 模式未启用');
     // ⚠️ 用 `update`（SQL 侧是 `data || jsonb` 合并）而**不是** createWithId ——
     //    后者是整体替换，会把总结 / 原始记录 / 标题全清空。
     await sql.update(TABLES.noteBody.tableId, noteId, {
-      音频附件: [{ file_token, name, size: buf.length, type: 'audio/ogg' }],
+      音频附件: [{ file_token, name, size: buf.length, type: mime }],
       音频时长: Number(audio.duration ?? 0) || 0,
       音频状态: AUDIO_STATE_SAVED,
       音频抓取时间: Date.now(),
@@ -1834,9 +1891,13 @@ export class GetnoteService {
    * ⚠️ **不做权限校验** —— 只给 `detail()` 用来给前端打「有没有音频」的标记
    * （详情本身已经过鉴权）。对外播放必须走 `noteAudio()`，那里才有可见性校验。
    */
-  private async noteAudioMeta(
-    noteId: string,
-  ): Promise<{ token: string; name: string; durationMs: number } | null> {
+  private async noteAudioMeta(noteId: string): Promise<{
+    token: string;
+    name: string;
+    size: number;
+    type: string;
+    durationMs: number;
+  } | null> {
     const sql = getSqlStore();
     if (!sql) return null;
     const rec = await sql.get(TABLES.noteBody.tableId, noteId);
@@ -1845,12 +1906,18 @@ export class GetnoteService {
     const arr = (Array.isArray(f['音频附件']) ? f['音频附件'] : []) as Array<{
       file_token?: string;
       name?: string;
+      size?: number;
+      type?: string;
     }>;
     const token = String(arr[0]?.file_token ?? '').trim();
     if (!token) return null;
     return {
       token,
       name: String(arr[0]?.name ?? `${noteId}.ogg`),
+      // size / type 是「转出到业务记录」时构造附件对象要用的（附件字段的存储结构就是
+      // `[{file_token,name,size,type}]`），列表行不再多余回查一次。
+      size: Number(arr[0]?.size ?? 0) || 0,
+      type: String(arr[0]?.type ?? 'audio/ogg'),
       durationMs: Number(f['音频时长'] ?? 0) || 0,
     };
   }

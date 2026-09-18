@@ -98,6 +98,18 @@ export interface NoteConvertTarget {
   summaryField: string;
   /** 笔记「原始记录」写入目标模块的哪个字段（如家校沟通的 沟通明细） */
   rawField: string;
+  /**
+   * 笔记**原始录音**写入目标模块的哪个附件字段（2026-09-18 新增）。
+   *
+   * 为什么要有：录音是这类笔记最有价值的原始材料，转出后同事要复核「当时到底怎么说的」，
+   * 之前转出的业务记录只有文字，录音还得回「我的笔记」找。
+   *
+   * ⚠️ 转出**不上传新文件**，而是把笔记音频的 `file_token` 直接写进目标记录的附件字段
+   *   （ACMS 附件字段的存储结构就是 `[{file_token,name,size,type}]`）。同一 token 被两条
+   *   记录引用是安全的：附件是内容寻址（sha1 前缀）的独立文件，删除记录不会删物理文件。
+   * 留空 = 该模块不接收录音（如纯文本类目标模块）。
+   */
+  audioField?: string;
   /** 排序，越小越靠前 */
   order: number;
   /** 是否手工新增（非菜单自动带出） */
@@ -148,26 +160,33 @@ export interface NoteConfigMapItem {
 }
 
 /**
- * 笔记转换的智能默认字段映射：菜单 key → 目标模块的「总结字段 / 原始记录字段」。
+ * 笔记转换的智能默认字段映射：菜单 key → 目标模块的「总结字段 / 原始记录字段 / 录音附件字段」。
  *
  * 只登记已核对过字段名的常用模块（家校沟通 / 日常跟进 / 招生跟进 三者的
  * 「沟通总结」「沟通明细」key 完全一致）。未登记的菜单在配置页降级为手工填写。
  * 新增模块映射时在此登记即可，前后端共用这一份。
+ *
+ * `audioField` 必须写**目标模块真实存在的附件字段**：沟通四件套（家校沟通 / 日常跟进 /
+ * 学生观察 / 招生跟进）与会议纪要都叫「沟通附件清单」/「会议附件」，写错会静默丢弃。
  */
-export const DEFAULT_CONVERT_FIELDS: Record<string, { summaryField: string; rawField: string }> = {
-  homeSchoolComms: { summaryField: '沟通总结', rawField: '沟通明细' },
-  dailyFollowups: { summaryField: '沟通总结', rawField: '沟通明细' },
+export const DEFAULT_CONVERT_FIELDS: Record<
+  string,
+  { summaryField: string; rawField: string; audioField?: string }
+> = {
+  homeSchoolComms: { summaryField: '沟通总结', rawField: '沟通明细', audioField: '沟通附件清单' },
+  dailyFollowups: { summaryField: '沟通总结', rawField: '沟通明细', audioField: '沟通附件清单' },
   // 学生观察：字段结构照搬日常跟进，总结/明细 key 完全一致（2026-09-06）
-  studentObservations: { summaryField: '沟通总结', rawField: '沟通明细' },
+  studentObservations: { summaryField: '沟通总结', rawField: '沟通明细', audioField: '沟通附件清单' },
   // 会议纪要（2026-09-11）：笔记「总结」→ 会议总结，「原始记录」→ 会议明细
-  meetingMinutes: { summaryField: '会议总结', rawField: '会议明细' },
-  sourceFollowups: { summaryField: '沟通总结', rawField: '沟通明细' },
-  alumniFollowups: { summaryField: '跟进事项', rawField: '跟进备注' },
-  idpPlans: { summaryField: '展示内容', rawField: '原始文档' },
-  practiceActivities: { summaryField: '活动内容', rawField: '活动表现' },
-  stageEvaluations: { summaryField: '评价内容', rawField: '改进计划' },
-  grades: { summaryField: '课堂表现', rawField: '教师评语' },
-  studentAttendances: { summaryField: '异常描述', rawField: '处理结果' },
+  // 「会议附件」是为承接录音新加的列（原表没有附件字段）
+  meetingMinutes: { summaryField: '会议总结', rawField: '会议明细', audioField: '会议附件' },
+  sourceFollowups: { summaryField: '沟通总结', rawField: '沟通明细', audioField: '沟通附件清单' },
+  alumniFollowups: { summaryField: '跟进事项', rawField: '跟进备注', audioField: '跟进附件' },
+  idpPlans: { summaryField: '展示内容', rawField: '原始文档', audioField: '原始文档' },
+  practiceActivities: { summaryField: '活动内容', rawField: '活动表现', audioField: '活动证明' },
+  stageEvaluations: { summaryField: '评价内容', rawField: '改进计划', audioField: '评价附件' },
+  grades: { summaryField: '课堂表现', rawField: '教师评语', audioField: '成绩附件' },
+  studentAttendances: { summaryField: '异常描述', rawField: '处理结果', audioField: '佐证附件' },
 };
 
 /** 图标名称（与 AppShell 中 ICONS 映射一一对应）。新增图标时同步更新 AppShell 的组件与 ICON_NAMES。 */

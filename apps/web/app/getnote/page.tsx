@@ -39,17 +39,31 @@ function tagNames(n: Record<string, unknown>): string[] {
 }
 
 /**
- * 详情里「已落库的原始音频」元信息。
+ * 详情 / 列表行里「已落库的原始音频」元信息。
  *
- * 后端在详情返回里附 `_audio`（只有真下载落库过才有）。没有就返回 null，
- * 前端据此**不渲染播放器** —— 避免给用户一个点了报错的空壳控件。
+ * 后端在**详情与列表**返回里都附 `_audio`（只有真下载落库过才有）。没有就返回 null ——
+ * 详情弹窗据此**不渲染播放器**，列表行据此**不渲染播放按钮**，
+ * 避免给用户一个点了报错的空壳控件。
  *
  * ⚠️ 播放地址是 `/api/v1/getnote/notes/:id/audio`，**不是**通用的 `/files/:token`：
  *    那个接口登录即可下载，而录音是私密内容；专用接口会做笔记级可见性校验。
  */
-function audioOf(n: Record<string, unknown> | null): { name?: string; durationMs?: number } | null {
-  const a = n?._audio as { token?: string; name?: string; durationMs?: number } | null | undefined;
+interface NoteAudioMeta {
+  token?: string;
+  name?: string;
+  size?: number;
+  type?: string;
+  durationMs?: number;
+}
+
+function audioOf(n: Record<string, unknown> | null): NoteAudioMeta | null {
+  const a = n?._audio as NoteAudioMeta | null | undefined;
   return a && a.token ? a : null;
+}
+
+/** 音频播放地址（专用接口，带笔记级可见性校验） */
+function audioSrc(noteId: string): string {
+  return `/api/v1/getnote/notes/${encodeURIComponent(noteId)}/audio`;
 }
 
 /** 毫秒 → `12:34`（音频播放器旁边显示时长用） */
@@ -483,6 +497,61 @@ export default function GetnotePage() {
     }, 3000);
   }, []);
 
+  /**
+   * 行内播放（列表「操作」列的播放 / 停止按钮）。
+   *
+   * 用**单个 Audio 实例**而不是每行一个 `<audio>` 元素：一页 20 行就是 20 个播放器，
+   * 每个都挂着 100+ MB 的音频源，内存与网络开销不可接受（录音最长 3 小时 / 168 MB）。
+   * 同一时刻只允许一个在播 —— 点第二行即切歌，前一行自动停。
+   *
+   * `playingId` 只用于**按钮外观**（▶ 播放 / ⏸ 停止），真正的播放靠 `audioRef`。
+   * 组件卸载 / 切页时统一停掉，避免「页面走了还在响」。
+   */
+  const rowAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingId, setPlayingId] = useState('');
+
+  const stopRowAudio = useCallback(() => {
+    const el = rowAudioRef.current;
+    if (el) {
+      el.pause();
+      // 断开 src 才能让浏览器立刻释放这个（可能上百 MB 的）连接
+      el.removeAttribute('src');
+      el.load();
+      rowAudioRef.current = null;
+    }
+    setPlayingId('');
+  }, []);
+
+  const toggleRowAudio = useCallback(
+    (row: Record<string, unknown>) => {
+      const id = String(row.id ?? '');
+      if (!id) return;
+      // 再点同一行 = 停止
+      if (playingId === id) {
+        stopRowAudio();
+        return;
+      }
+      stopRowAudio();
+      const el = new Audio(audioSrc(id));
+      el.preload = 'auto';
+      const clear = () => {
+        if (rowAudioRef.current === el) rowAudioRef.current = null;
+        setPlayingId((cur) => (cur === id ? '' : cur));
+      };
+      el.onended = clear;
+      // 播放失败（接口 404 / 权限不足 / 格式不支持）也要把按钮复位，
+      // 否则会一直显示「停止」，用户以为还在播。
+      el.onerror = clear;
+      rowAudioRef.current = el;
+      setPlayingId(id);
+      void el.play().catch(clear);
+    },
+    [playingId, stopRowAudio],
+  );
+
+  // 离开页面时停掉正在播的录音
+  useEffect(() => () => stopRowAudio(), [stopRowAudio]);
+
   // 笔记转换：候选目标模块 + 当前正在转换的笔记行
   const [convertTargets, setConvertTargets] = useState<NoteConvertTarget[]>([]);
   const [convertRow, setConvertRow] = useState<Record<string, unknown> | null>(null);
@@ -700,6 +769,28 @@ export default function GetnotePage() {
         const values: Record<string, unknown> = {};
         if (target.summaryField) values[target.summaryField] = summary;
         if (target.rawField) values[target.rawField] = raw;
+
+        /**
+         * 原始录音也一起转过去（2026-09-18）。
+         *
+         * 做法是**把笔记音频的 token 直接写进目标记录的附件字段**，不复制文件：
+         * 附件是内容寻址（sha1 前缀）落盘的独立文件，同一 token 被两条记录引用完全安全。
+         * 目标模块的附件字段存储结构就是 `[{file_token,name,size,type}]`，
+         * 与正文表「音频附件」的结构一致，所以这里能原样搬运。
+         *
+         * 没配 `audioField` 的目标模块（如纯文本类）就直接不带 —— 不报错、不阻断转换。
+         */
+        const meta = audioOf(note);
+        if (meta && target.audioField) {
+          values[target.audioField] = [
+            {
+              file_token: meta.token,
+              name: meta.name ?? `${noteId}.ogg`,
+              size: meta.size ?? 0,
+              type: meta.type ?? 'audio/ogg',
+            },
+          ];
+        }
 
         // 留痕：记一条转换记录（同一笔记 + 同一模块累加次数），拿到 logId
         // 供目标页保存成功后回填「转成了哪条记录」。
@@ -1248,6 +1339,42 @@ export default function GetnotePage() {
         }}
         // 当前页行变化后批量拉一次留痕，供「已转」列与转换弹窗显示
         onRowsLoaded={onRowsLoaded}
+        /**
+         * 「操作」列：有录音的笔记直接给「播放 / 停止」按钮，不必再点开详情。
+         *
+         * 为什么放在操作列而不是加一列：列表列已经很密（标题/类型/标签/已转/更新时间），
+         * 而这是**行级动作**，语义上就属于操作列。
+         * 音频元信息来自列表接口的 `_audio`（后端批量补，不打上游）。
+         */
+        rowActionSlot={(row) => {
+          const id = String(row.id ?? '');
+          const meta = audioOf(row);
+          if (!meta) {
+            // 录音类笔记但音频还没落库：给一个**禁用**的按钮并说明原因。
+            // 直接不渲染会让人以为「功能没上线」；灰按钮 + title 能直接指向解法。
+            return String(row.note_type ?? '') === 'recorder_audio' ? (
+              <button type="button" className="btn btn-ghost btn-sm" disabled title={t('noAudioYet')}>
+                ▶ {t('play')}
+              </button>
+            ) : null;
+          }
+          const playing = playingId === id;
+          const dur = fmtDuration(meta.durationMs);
+          return (
+            <button
+              type="button"
+              className={playing ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+              title={playing ? t('stopAudio') : `${t('playAudio')}${dur ? ` ${dur}` : ''}`}
+              // 行上还挂着「点击编辑」，不拦住冒泡会顺手打开编辑表单
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleRowAudio(row);
+              }}
+            >
+              {playing ? `⏸ ${t('stop')}` : `▶ ${t('play')}`}
+            </button>
+          );
+        }}
         api={{
           list: async (p) => {
             const src = String(p['来源'] ?? '').trim();
@@ -1386,9 +1513,7 @@ export default function GetnotePage() {
                       controls
                       preload="none"
                       style={{ flex: 1, height: 32 }}
-                      src={`/api/v1/getnote/notes/${encodeURIComponent(
-                        String(detailNote.id ?? detailId),
-                      )}/audio`}
+                      src={audioSrc(String(detailNote.id ?? detailId))}
                     />
                   </div>
                 )}
@@ -1576,6 +1701,13 @@ export default function GetnotePage() {
                           summary: tg.summaryField || '—',
                           raw: tg.rawField || '—',
                         })}
+                        {/* 让人一眼看出「这次转换会不会带上录音」—— 有音频但目标模块没配
+                            audioField 时什么都不显示，用户自然会去「转换配置」里补字段 */}
+                        {audioOf(convertRow) && tg.audioField ? (
+                          <span style={{ marginLeft: 8, color: 'var(--accent)' }}>
+                            🎧 {t('audioWithConvert')}
+                          </span>
+                        ) : null}
                       </span>
                     </button>
                   );

@@ -53,6 +53,19 @@ function canSeeReport(user: SessionUser, keys: readonly ReportKey[]): boolean {
   return keys.some((k) => authorize(principal, modulePermission(REPORT_MODULE_KEYS[k], 'read')).allowed);
 }
 
+/**
+ * 同上，但**不通过就抛 403**，且错误消息带上真正缺的那个权限点。
+ *
+ * 为什么要收口到这里（2026-09-19 自查发现）：改按报表授权时只换了判定语句，
+ * 抛错文案还留着旧的 `FORBIDDEN:module:reports:read` —— 排查的人会照着提示去勾
+ * 「报表管理」，勾完依旧 403，白折腾一轮。判定与提示必须同源。
+ */
+function requireReport(user: SessionUser, keys: readonly ReportKey[]): void {
+  if (canSeeReport(user, keys)) return;
+  const need = keys.map((k) => modulePermission(REPORT_MODULE_KEYS[k], 'read')).join(' | ');
+  throw new ForbiddenException(`FORBIDDEN:${need}`);
+}
+
 /** 报表维度字段：保留真实值（分组统计与筛选需要） */
 const DIMENSION_FIELDS: readonly string[] = [
   '校区', '当前年级', '入学年级', '入学年份', '是否是新生', '性别',
@@ -195,9 +208,7 @@ export class ReportsService {
    * 只返回维度字段真值 + 完整度占位符，不含姓名/联系方式等明细。
    */
   async studentRows(user: SessionUser, pageSize = 200) {
-    if (!canSeeReport(user, ['overview', 'gradeFlow', 'trend', 'completeness'])) {
-      throw new ForbiddenException('FORBIDDEN:module:reports:read');
-    }
+    requireReport(user, ['overview', 'gradeFlow', 'trend', 'completeness']);
     const names = await this.personNameMap();
     const out: Record<string, unknown>[] = [];
     let token: string | undefined;
@@ -248,9 +259,7 @@ export class ReportsService {
     user: SessionUser,
     query: { level?: string; channel?: string; owner?: string; refresh?: string } = {},
   ): Promise<DedupResult> {
-    if (!canSeeReport(user, ['dedup'])) {
-      throw new ForbiddenException('FORBIDDEN:module:reports:read');
-    }
+    requireReport(user, ['dedup']);
     const rows = await this.dedupRows(query.refresh === '1');
     const level = query.level === 'strong' || query.level === 'all' ? query.level : 'likely';
     const result = buildDedupGroups(rows, { level, channel: query.channel, owner: query.owner });
@@ -272,9 +281,7 @@ export class ReportsService {
    * 系统里没有访问日志，也没有在线时长记录，所以这只反映「什么时候登录过、什么时候动过数据」。
    */
   async activity(user: SessionUser, query: { from?: string; to?: string } = {}) {
-    if (!canSeeReport(user, ['activity'])) {
-      throw new ForbiddenException('FORBIDDEN:module:reports:read');
-    }
+    requireReport(user, ['activity']);
 
     const dayMs = 86_400_000;
     const startOf = (d: string): number | null => {
@@ -440,9 +447,7 @@ export class ReportsService {
    * 名字用**当前**的名字解析（用户表 / 配置表），老行没有 ID 时按名字兜底。
    */
   async notes(user: SessionUser, query: { from?: string; to?: string } = {}) {
-    if (!canSeeReport(user, ['notes'])) {
-      throw new ForbiddenException('FORBIDDEN:module:reports:read');
-    }
+    requireReport(user, ['notes']);
 
     const startOf = (d: string): number | null => {
       const t = new Date(`${d}T00:00:00`).getTime();
@@ -923,9 +928,7 @@ export class ReportsService {
     user: SessionUser,
     opts: { batchId?: string; cls?: string; subject?: string } = {},
   ) {
-    if (!canSeeReport(user, ['examDist'])) {
-      throw new ForbiddenException('FORBIDDEN:module:reports:read');
-    }
+    requireReport(user, ['examDist']);
     const batches = await this.examBatchOptions();
     const batchId = String(opts.batchId ?? '') || batches[0]?.id || '';
     if (!batchId) {
@@ -1018,9 +1021,7 @@ export class ReportsService {
    * 班级排名 = 同班内按加权 GPA 的竞赛排名（同 GPA 同名次、下一名跳号）。
    */
   async examGpaRank(user: SessionUser, opts: { batchId?: string; cls?: string } = {}) {
-    if (!canSeeReport(user, ['examGpa'])) {
-      throw new ForbiddenException('FORBIDDEN:module:reports:read');
-    }
+    requireReport(user, ['examGpa']);
     const batches = await this.examBatchOptions();
     const batchId = String(opts.batchId ?? '') || batches[0]?.id || '';
     if (!batchId) {
@@ -1086,9 +1087,7 @@ export class ReportsService {
     user: SessionUser,
     query: { from?: string; to?: string; class?: string; grade?: string } = {},
   ): Promise<AttendanceReport> {
-    if (!canSeeReport(user, ['attendance'])) {
-      throw new ForbiddenException('FORBIDDEN:module:reports:read');
-    }
+    requireReport(user, ['attendance']);
     const idx = await this.attendanceIndex();
     const { rows, truncated } = await this.attendanceRows();
 

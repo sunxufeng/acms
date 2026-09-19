@@ -220,9 +220,13 @@ const MEETING_SPEC: NoteAutoFillSpec = {
 
 export function parseMeetingFromSummary(
   values: Record<string, unknown>,
-  _ctx?: { userName?: string },
+  ctx?: { userName?: string; noteOwner?: string },
 ): Record<string, unknown> {
-  return enrichFromNotes(values, MEETING_SPEC);
+  // 「主持人 / 记录人」默认取**源笔记归属人**（会议纪要通常就是主持人或记录人自己录的），
+  // 拿不到才回退登录用户 —— 管理员代转别人的笔记时，用登录用户会把这两个字段写成自己。
+  // ⚠️ 只默认这两个**单人**字段：「参会 / 缺席 / 列席」是多人名单，默认塞一个人反而错。
+  const owner = ctx?.noteOwner || ctx?.userName || '';
+  return enrichFromNotes(values, MEETING_SPEC, { 主持人: owner, 记录人: owner });
 }
 
 

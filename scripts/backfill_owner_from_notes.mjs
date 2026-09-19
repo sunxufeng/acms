@@ -26,11 +26,17 @@ const CONV = 't_tblmy5lrwr3yblxf'; // 笔记转换记录
 const BODY = 't_tblnotebody000001'; // 笔记正文表（有「归属人」）
 const STUDENT_RECORD = 't_tbljjbchyx9uhbbb'; // 日常跟进表 = 学生记录主表
 const SOURCE_FOLLOWUP = 't_tbldeuatdoixkjzu'; // 生源跟进记录表 = 招生跟进
+const PRACTICE = 't_tbloitwcvobskeuu'; // 实践活动表
+const STAGE_EVAL = 't_tblhk6r8usy6bxv4'; // 阶段评价表
+const ALUMNI = 't_tblk02ggjnalp1gp'; // 校友长期跟进表
+const MEETING = 't_tblmtg0000000001'; // 会议纪要表
 
 /**
  * 模块 KEY → 目标表 + 回填字段。
  * ⚠️ 合并后「学生记录」三种类型的记录都落在同一张表、同一个字段上（都是「沟通人」），
  *    但转换记录里的 模块KEY 仍是**旧 key**（合并前写下的留痕），所以三个都要列出。
+ * ⚠️ 只收「这个人 = 这条记录的责任人」语义的字段 —— 会议纪要的「参会/缺席/列席」是多人名单，
+ *    默认塞一个人是错的，不收。
  */
 const TARGETS = [
   { module: 'dailyFollowups', table: STUDENT_RECORD, field: '沟通人', label: '学生记录 · 记录人' },
@@ -38,6 +44,11 @@ const TARGETS = [
   { module: 'studentObservations', table: STUDENT_RECORD, field: '沟通人', label: '学生记录 · 记录人' },
   { module: 'studentRecords', table: STUDENT_RECORD, field: '沟通人', label: '学生记录 · 记录人' },
   { module: 'sourceFollowups', table: SOURCE_FOLLOWUP, field: '跟进负责人', label: '招生跟进 · 负责人' },
+  { module: 'practiceActivities', table: PRACTICE, field: '活动负责人', label: '实践活动 · 负责人' },
+  { module: 'stageEvaluations', table: STAGE_EVAL, field: '评价人', label: '阶段评价 · 评价人' },
+  { module: 'alumniFollowups', table: ALUMNI, field: '跟进负责人', label: '校友跟进 · 负责人' },
+  { module: 'meetingMinutes', table: MEETING, field: '主持人', label: '会议纪要 · 主持人' },
+  { module: 'meetingMinutes', table: MEETING, field: '记录人', label: '会议纪要 · 记录人' },
 ];
 
 function rows(sql) {
@@ -131,15 +142,21 @@ for (const t of TARGETS) {
 
 // ④ 回读复核
 console.log('\n④ 回读复核');
-for (const tbl of DATA_TABLES) {
-  const field = TARGETS.find((t) => t.table === tbl).field;
+const seenField = new Set();
+for (const t of TARGETS) {
+  const key = `${t.table}.${t.field}`;
+  if (seenField.has(key)) continue;
+  seenField.add(key);
   const [n, emptyN] = rows(
-    `select count(*), count(*) filter (where coalesce(data->>'${field}','') = '') from ${tbl};`,
+    `select count(*), count(*) filter (where coalesce(data->>'${t.field}','') = '') from ${t.table};`,
   )[0];
-  console.log(`  ${tbl}：共 ${n} 条，其中「${field}」为空 ${emptyN} 条`);
-  const sample = rows(
-    `select left(id,26) || ' → ' || coalesce(nullif(data->>'${field}',''),'(空)') from ${tbl} order by updated_at desc limit 5;`,
-  );
-  for (const [s] of sample) console.log(`    ${s}`);
+  console.log(`  ${t.label}（${t.table}.${t.field}）：共 ${n} 条，为空 ${emptyN} 条`);
+  // 只对「本次碰过的表」打样本，避免把 700 多条笔记的表刷屏
+  if (Number(n) > 0 && Number(n) <= 30) {
+    const sample = rows(
+      `select left(id,24) || ' → ' || coalesce(nullif(data->>'${t.field}',''),'(空)') from ${t.table} order by updated_at desc limit 6;`,
+    );
+    for (const [s] of sample) console.log(`      ${s}`);
+  }
 }
 console.log(APPLY ? '\n✅ 已执行' : '\n（dry-run 结束，加 --apply 才会真正写库）');

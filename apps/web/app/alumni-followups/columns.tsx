@@ -36,7 +36,9 @@ const SPEC: NoteAutoFillSpec = {
 
 export function parseAlumniFromSummary(
   values: Record<string, unknown>,
-  ctx?: { userName?: string },
+  ctx?: { userName?: string; noteOwner?: string },
 ): Record<string, unknown> {
-  return enrichFromNotes(values, SPEC, { 跟进负责人: ctx?.userName ?? '' });
+  // 「跟进负责人」默认取**源笔记归属人**（笔记是谁的，跟进人就该是谁），拿不到才回退登录用户
+  // —— 管理员或同事代转别人的笔记时，用登录用户会把负责人写成自己
+  return enrichFromNotes(values, SPEC, { 跟进负责人: ctx?.noteOwner || ctx?.userName || '' });
 }

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   Post,
   Query,
@@ -97,6 +98,8 @@ export class AuthController {
   /** 当前会话用户（未登录 401） */
   @Get('me')
   @UseGuards(SessionGuard)
+  /** `no-store`：会话身份/角色随权限变更而变，同样不该被缓存 */
+  @Header('Cache-Control', 'no-store')
   me(@Req() req: Request & { user: SessionUser }): SessionUser {
     return req.user;
   }
@@ -113,6 +116,17 @@ export class AuthController {
   /** 权限模型 + 当前用户有效权限（菜单「权限与授权」使用） */
   @Get('permissions')
   @UseGuards(SessionGuard)
+  /**
+   * 🔴 `no-store`：权限与角色名映射**绝不能进浏览器缓存**（2026-09-19 加）。
+   *
+   * 这个响应里有 `roleLabels`（角色 key → 展示名）。响应原本只带 ETag、没有任何
+   * `Cache-Control`，而前端的角色名映射是**每个页面加载只取一次**再模块级缓存 ——
+   * 标签页开着的时候管理员新建/改名了角色，页面拿的是旧映射，
+   * 前端就会回退成显示**角色标识**（「Phase9」），看起来像「同一列里一个显示展示名、
+   * 一个显示标识」。线上实测过（徐洁的角色即为此症状）。
+   * 前端已加「查不到就重取」的自愈，这里再加一道**禁止缓存**，两头都堵。
+   */
+  @Header('Cache-Control', 'no-store')
   permissions(@Req() req: Request & { user: SessionUser }) {
     const p = toPrincipal(req.user);
     const menuScope = menusOf(p);

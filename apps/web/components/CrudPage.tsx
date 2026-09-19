@@ -14,6 +14,8 @@ import AudioAttachment from './AudioAttachment';
 import TagInput from './TagInput';
 import MapPicker from './MapPicker';
 import Combobox from './Combobox';
+import SearchMultiSelect from './SearchMultiSelect';
+import DepartmentMultiTree from './DepartmentMultiTree';
 import Pagination from './Pagination';
 import { takeConvertPayload, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../lib/noteConvert';
 import { currentUserName } from '../lib/noteAutoFill';
@@ -102,6 +104,25 @@ export interface CrudColumn {
    * （会增删人），写死必然过期；由 CrudPage 统一拉取也免去每个页面各写一遍 useState + useEffect。
    */
   linkSource?: 'users' | 'departments';
+  /**
+   * 部门字段用**多选树**渲染（仅 `linkSource: 'departments'` + `linkMulti` 时有意义）。
+   *
+   * 用树的理由：部门是有层级的（公司 → 学术轨 → 三个中心），平铺下拉看不出从属关系；
+   * 而「选上级要不要连下级」在平铺列表里根本没法表达。树带上级联后：
+   * 勾上级=整棵子树、取消下级=上级半选。
+   * ⚠️ 存的值仍是 `open_department_id`（与 linkSource 口径一致），不是部门名。
+   */
+  deptTree?: boolean;
+  /**
+   * 字段值变化后**顺带改写其它字段**（返回要合并进表单的 patch）。
+   *
+   * 与 `enrichPrefill`（笔记转换预填）的区别：那个只在带 convert payload 进页面时跑一次，
+   * 本项是**用户在表单里改这个字段时**触发。会议纪要的「选部门 → 自动带出参会人员 +
+   * 可见范围/可见部门跟随」就走这里。
+   *
+   * ⚠️ patch 只合并、不做删除语义；且**别在里面再次改回触发字段自身**（会自激）。
+   */
+  onChangePatch?: (value: unknown, form: Record<string, unknown>) => Record<string, unknown>;
   /**
    * 编辑该字段所需的权限点：**没有该权限时字段渲染为只读**（可看不可改）。
    *
@@ -964,7 +985,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
    * ⚠️ 过滤掉非 `od-…` 形态的（根部门「公司」的 id 是字符串 `'0'`）：多值字段靠 `contains`
    *    子串匹配，单字符 `'0'` 会命中一切。要全公司可见请用可见范围里的「公开」。
    */
-  const [departmentLinkOptions, setDepartmentLinkOptions] = useState<{ value: string; label: string }[]>([]);
+  const [departmentLinkOptions, setDepartmentLinkOptions] = useState<
+    { value: string; label: string; parent: string }[]
+  >([]);
   useEffect(() => {
     if (!columns.some((c) => c.linkSource === 'departments')) return;
     let alive = true;
@@ -978,6 +1001,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             .map((d) => ({
               value: String(d.open_department_id),
               label: String(d.name ?? d.open_department_id),
+              // 层级信息给部门树用（平铺下拉用不到，但多存一个字段比分两处拉数据省事）
+              parent: String(d.parent_department_id ?? ''),
             })),
         );
       })
@@ -998,6 +1023,26 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
    */
   const fieldReadonly = (c: CrudColumn) =>
     !!c.readonly || (!!c.readonlyPerm && !perms.includes(c.readonlyPerm));
+
+  /**
+   * 写字段值 + 应用该字段的**联动 patch**（`CrudColumn.onChangePatch`）。
+   *
+   * 用在「值变化要顺带改别的字段」的场景：会议纪要选了「部门」要自动带出参会人员、
+   * 并让可见范围/可见部门跟随。放在 updater 里跑是为了拿到**最新**的表单状态
+   * （patch 往往要读同批变化的其它字段）。patch 只做合并，不表达删除。
+   * ⚠️ 抛错时只吞掉 patch，字段本身照常写入 —— 联动不该拖垮录入。
+   */
+  const applyFieldChange = useCallback((c: CrudColumn, value: unknown) => {
+    setForm((f) => {
+      const merged = { ...f, [c.key]: value };
+      if (!c.onChangePatch) return merged;
+      try {
+        return { ...merged, ...c.onChangePatch(value, merged) };
+      } catch {
+        return merged;
+      }
+    });
+  }, []);
 
   // 学生字段（student / studentLink / parent 联动）候选项：从学生档案读取「学生姓名 → 父亲/母亲 + record id」
   const [studentOptions, setStudentOptions] = useState<{ value: string; label: string }[]>([]);
@@ -1634,7 +1679,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               height={c.fieldHeight ?? 300}
             />
           ) : c.type === 'select' ? (
-            <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
+            <select className="form-input" value={str(form[c.key])} onChange={(e) => applyFieldChange(c, e.target.value)}>
               <option value="">{t('common.notFilled')}</option>
               {optionsFor(c).map((o) => <option key={o} value={o}>{tl(o)}</option>)}
             </select>
@@ -1667,47 +1712,37 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                 ? userNames.map((n) => ({ value: n, label: n }))
                 : linkOptionsOf(c);
               const ro = fieldReadonly(c);
+              /**
+               * 写入 + **联动 patch**：`onChangePatch` 让字段自己在值变化时顺带改别的字段
+               * （会议纪要「选部门 → 带出参会人员 + 可见范围跟随」）。
+               * 与 select 分支共用同一个 helper，避免两处各写一份。
+               */
+              const apply = (next: string[]) => applyFieldChange(c, next);
+
+              // 部门多选树（仅 linkSource: departments + deptTree）：
+              // 平铺下拉看不出层级，也没法表达「勾上级带上整棵子树」
+              if (c.deptTree && c.linkSource === 'departments') {
+                return (
+                  <DepartmentMultiTree
+                    options={departmentLinkOptions}
+                    value={cur}
+                    onChange={apply}
+                    disabled={ro}
+                    hint={c.hint ? tl(c.hint) : undefined}
+                  />
+                );
+              }
+
+              // 其余多选：已选留在上面、候选收进可搜索下拉
+              // （原来把全部候选铺成一堆复选框 —— 会议纪要四处字段合计 84 个，占三屏）
               return (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, opacity: ro ? 0.75 : 1 }}>
-                  {opts.map((o) => {
-                    const on = cur.includes(o.value);
-                    return (
-                      <label
-                        key={o.value}
-                        title={ro ? t('crud.noEditPerm') : undefined}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '6px 10px',
-                          borderRadius: 999,
-                          border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
-                          background: on ? 'var(--accent-soft)' : 'transparent',
-                          fontSize: 'var(--font-sm)',
-                          cursor: ro ? 'not-allowed' : 'pointer',
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={on}
-                          disabled={ro}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              [c.key]: e.target.checked
-                                ? [...cur, o.value]
-                                : cur.filter((x) => x !== o.value),
-                            }))
-                          }
-                        />
-                        {o.label}
-                      </label>
-                    );
-                  })}
-                  {opts.length === 0 ? (
-                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>暂无可选项</span>
-                  ) : null}
-                </div>
+                <SearchMultiSelect
+                  options={opts}
+                  value={cur}
+                  onChange={apply}
+                  disabled={ro}
+                  placeholder={t('crud.searchToAdd')}
+                />
               );
             })()
           ) : c.type === 'person' ? (

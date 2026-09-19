@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { MEETING_VISIBLE_DEPTS_FIELD } from '@acms/contracts';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { COLUMNS, deptName, parseMeetingFromSummary } from './columns';
+import { buildMeetingColumns, deptName, parseMeetingFromSummary } from './columns';
 
 function str(v: unknown): string {
   if (v == null) return '';
@@ -23,8 +22,8 @@ export default function MeetingMinutesPage() {
   /**
    * 「指定部门可见」新建时的默认选中值 = **我所属的部门**。
    *
-   * 放在页面层查、再喂给 CrudPage 的 `createDefaults`，这样通用组件不必知道
-   * 「当前用户属于哪个部门」这件事（别的模块也不需要这个语义）。
+   * 放在页面层查、再喂给列定义，这样通用组件不必知道「当前用户属于哪个部门」这件事
+   * （别的模块也不需要这个语义）。
    */
   const [myDeptIds, setMyDeptIds] = useState<string[]>([]);
   useEffect(() => {
@@ -33,6 +32,76 @@ export default function MeetingMinutesPage() {
       .then((r) => setMyDeptIds(Array.isArray(r?.ids) ? r.ids : []))
       .catch(() => {});
   }, []);
+
+  /**
+   * 部门 id → 该部门**含下级**的成员姓名。用于「选了部门 → 参会人员默认选中部门下的人」。
+   *
+   * 数据来自三个现成接口，一次拼好（都在本地快照里，不打上游）：
+   *   `/departments`（层级，用来展开子树）
+   * + `/departments/member-index`（部门 → openId）
+   * + `/users/directory`（openId → 姓名）
+   *
+   * ⚠️ 成员快照里虽然也有姓名，但 `member-index` 只给 openId（它是给「算人数」用的轻量索引），
+   *    所以必须 join 一次目录才能拿到姓名 —— 而「参会人员」存的正是**姓名数组**。
+   */
+  const [deptMembers, setDeptMembers] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    let alive = true;
+    Promise.all([api.listDepartments(), api.departmentMemberIndex(), api.listUserDirectory()])
+      .then(([depts, index, dir]) => {
+        if (!alive) return;
+        const nodes = (depts?.items ?? []).filter((d) => d.status !== 'invalid');
+        const children = new Map<string, string[]>();
+        for (const d of nodes) {
+          const p = String(d.parent_department_id ?? '');
+          if (!p) continue;
+          const cur = children.get(p) ?? [];
+          cur.push(String(d.open_department_id));
+          children.set(p, cur);
+        }
+        const nameOfOpenId = new Map(dir.map((u) => [String(u.openId), String(u.name)]));
+        /** 部门 → 直属成员姓名 */
+        const direct = new Map<string, string[]>();
+        for (const r of index ?? []) {
+          const n = nameOfOpenId.get(String(r.openId));
+          if (!n) continue;
+          const cur = direct.get(String(r.departmentId)) ?? [];
+          if (!cur.includes(n)) cur.push(n);
+          direct.set(String(r.departmentId), cur);
+        }
+        /** 部门 → 自身 + 全部下级的成员姓名（带环保护：部门树理论上无环，但不赌） */
+        const out: Record<string, string[]> = {};
+        const collect = (id: string, seen: Set<string>): string[] => {
+          if (out[id]) return out[id];
+          if (seen.has(id)) return [];
+          seen.add(id);
+          const names = [...(direct.get(id) ?? [])];
+          for (const c of children.get(id) ?? []) {
+            for (const n of collect(c, seen)) if (!names.includes(n)) names.push(n);
+          }
+          out[id] = names;
+          return names;
+        };
+        for (const d of nodes) collect(String(d.open_department_id), new Set());
+        setDeptMembers(out);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /** 被手动从「参会人员」删掉的人：再改部门时不自动加回（跨渲染保留，故用 ref） */
+  const manuallyRemoved = useRef<Set<string>>(new Set());
+
+  /**
+   * 列定义随联动数据变化重建（`deptMembers` 是运行期数据，写死在 columns.tsx 里必然过期）。
+   * `manuallyRemoved` 是 ref，引用稳定，不会引起重建。
+   */
+  const columns = useMemo(
+    () => buildMeetingColumns({ deptMembers, manuallyRemoved, myDeptIds }),
+    [deptMembers, myDeptIds],
+  );
 
   // 按部门聚合已选会议纪要，构建 AI 上下文
   const context = useMemo(() => {
@@ -83,13 +152,14 @@ export default function MeetingMinutesPage() {
         title="会议纪要"
         subtitle="部门会议记录与决议闭环（组织管理域）"
         search={{ placeholder: '搜索会议议题…' }}
-        columns={COLUMNS}
+        columns={columns}
         // 模块 key：让按钮级授权、导入按钮、以及「会议明细」的写权限保护都能生效
         moduleKey="meetingMinutes"
         // 从笔记转换进来时，按会议总结文案自动识别议题/地点/时间/人员等字段
         enrichPrefill={parseMeetingFromSummary}
-        // 新建时预填「可见部门」= 我所属的部门（仅在可见范围选「指定部门可见」时用得上，用户可改）
-        createDefaults={{ [MEETING_VISIBLE_DEPTS_FIELD]: myDeptIds }}
+        // ⚠️ 这里**不再**预填「可见部门」：可见部门由「部门」字段派生
+        // （列定义的 onChangePatch + 后端 meetingDefaults 兜底）。若在此写死「我所属部门」，
+        // 用户不选部门直接保存就会得到一条「可见部门 = 我的部门」的记录，范围是错的。
         statusField="状态"
         // 会议时间范围筛选（后端 rangeField='会议时间'，走 listDeep 内存过滤）
         rangeFilters={[{ key: 'meetingTime', label: '会议时间', fromParam: 'from', toParam: 'to' }]}

@@ -4,7 +4,8 @@ import {
   // 「可见范围」的字段名与取值定义在 contracts（前后端共享，前端表单用的是同一份）
   MEETING_CREATOR_FIELD as CREATOR_FIELD,
   MEETING_DEFAULT_VISIBILITY as DEFAULT_VISIBILITY,
-  MEETING_DEPT_FIELD as DEPT_FIELD,
+  // 「部门」字段本身不再参与判据，但 defaults 要用它给「可见部门」派生默认值
+  MEETING_DEPT_FIELD,
   MEETING_VISIBILITY_FIELD as VISIBILITY_FIELD,
   MEETING_VISIBLE_DEPTS_FIELD as VISIBLE_DEPTS_FIELD,
   MEETING_VISIBLE_USERS_FIELD as VISIBLE_USERS_FIELD,
@@ -36,9 +37,13 @@ import type { RowScopeContext, RowScopeFilter } from '../shared/generic-crud.mod
 //
 //   VISIBILITY_FIELD    「可见范围」—— 唯一的分支判据字段
 //   VISIBLE_USERS_FIELD 「可见用户」—— 多选，存**用户表 record id 数组**（与邮件账户/知识库配置的关联用户同款）
+//   VISIBLE_DEPTS_FIELD 「可见部门」—— 多选，存**部门 open_department_id 数组**；
+//                       「部门内可见」与「指定部门可见」**共用**这一支判据（2026-09-19 合并）
 //   CREATOR_FIELD       「创建人ID」—— 冗余存 openId，仅判据使用，界面不展示
-//   DEPT_FIELD          「部门」—— 会议纪要既有字段，存**部门名**
 //   DEFAULT_VISIBILITY  = '部门内可见'（= MEETING_VISIBILITY_SCOPES[0]，与前端 defaultFirstOption 一致）
+//
+// ⚠️ 记录的「部门」字段（`MEETING_DEPT_FIELD`）**不参与判据**了 —— 它现在也是 od-id 数组，
+//    用途是「部门内可见」时**派生**可见部门（前端联动 + defaults 兜底），以及业务展示。
 
 /**
  * 行级范围的豁免角色（`RecordMeta.rowScopeBypassRoles`）—— 即需求里的「系统管理员 + 公司最高领导人」。
@@ -285,7 +290,6 @@ export async function meetingRowScope(
     myDeptScopeOf(user, ctx),
     myUserIdOf(openId, ctx),
   ]);
-  const myDeptNames = deptScope.ownNames;
 
   const conditions: RowScopeFilter[] = [];
 
@@ -311,13 +315,35 @@ export async function meetingRowScope(
     conditions.push({ field: CREATOR_FIELD, value: [openId] });
   }
 
-  // ③ 部门内可见：记录的「部门」落在我（所在 + 所负责）的部门范围内
-  if (myDeptNames.length) {
+  // ③ 部门可见：「部门内可见」与「指定部门可见」**共用同一套判据**。
+  //
+  //    为什么把两支合并（2026-09-19）：
+  //      改版前「部门内可见」比的是记录上的「部门」字段（**部门名**，等值），
+  //      「指定部门可见」比的是「可见部门」（**od-id**，contains）。同一件事两套口径。
+  //      而「部门」字段改成多选后存的是 **id 数组** —— SQL 侧的 `data->>'部门' = '学术轨'`
+  //      会变成拿 `["od-1","od-2"]` 这段 JSON 文本去等值比较，**永远不命中**：
+  //      记录对同事全部隐身，而创建者靠「创建人ID」那条独立分支还能看到
+  //      ⇒ 全程不报错、列表也不空得可疑，只有同事说「看不到」才会暴露。
+  //      所以合并到 id 口径是这次改字段值的**必要配套**，不是顺手重构。
+  //
+  //    语义：记录的「可见部门」里含**我部门范围内的任意一层**即可见。
+  //      · 部门内可见 → 「可见部门」由「部门」字段自动派生（用户不用重选一遍）
+  //      · 指定部门可见 → 「可见部门」是用户手选的
+  //      两种取值来源不同、判据同一段代码，也就不会再漂移。
+  //
+  //    用部门 id（`od-…`）而不是部门名：
+  //      · 多值字段只能靠 `contains` 子串匹配，而部门名会串台
+  //        （「教学」命中「教学管理中心」；现在 9 个名字恰好互不为子串，加一个就可能撞）
+  //      · id 唯一且互不为子串，两条路径（SQL / 内存）行为一致，且免疫改名
+  //
+  //    ⚠️ `assignableIds` 里已并进我的**上级**部门，因此「指定给我上级部门」时我也能命中
+  //       —— 也就是该部门的**整棵子树**都能看到，符合「选对部门的所有人都可以看到」。
+  if (deptScope.assignableIds.length) {
     conditions.push({
       conjunction: 'and',
       conditions: [
-        { field: VISIBILITY_FIELD, value: ['部门内可见'] },
-        { field: DEPT_FIELD, value: myDeptNames },
+        { field: VISIBILITY_FIELD, value: ['部门内可见', '指定部门可见'] },
+        { field: VISIBLE_DEPTS_FIELD, op: 'contains', value: deptScope.assignableIds },
       ],
     });
   }
@@ -334,21 +360,8 @@ export async function meetingRowScope(
     });
   }
 
-  // ⑤ 指定部门可见：记录的「可见部门」里包含**我所在部门树的任意一层**。
-  //
-  //    用部门 id（`od-…`）而不是部门名 —— 多值字段只能靠 `contains` 子串匹配，
-  //    而 id 唯一且互不为子串；部门名会串台（「教学」会命中「教学管理中心」）。
-  //    `assignableIds` 里已经并进了我的**上级**部门，因此「指定给我上级部门」时我也能命中
-  //    —— 也就是该部门的**整棵子树**都能看到，符合「选对部门的所有人都可以看到」。
-  if (deptScope.assignableIds.length) {
-    conditions.push({
-      conjunction: 'and',
-      conditions: [
-        { field: VISIBILITY_FIELD, value: ['指定部门可见'] },
-        { field: VISIBLE_DEPTS_FIELD, op: 'contains', value: deptScope.assignableIds },
-      ],
-    });
-  }
+  // ⑤ 指定部门可见：已并入上面的 ③（两者判据相同，只是「可见部门」的来源不同）
+  //    —— 原来这里单列一支，改版后合并，避免同一件事两处判据。
 
   // 防御：正常至少有「公开」这一支，构不出来说明连公开都不该所见（理论上不可达）
   if (!conditions.length) return 'none';
@@ -375,12 +388,27 @@ export async function meetingDefaults(
   const scope = String(fields[VISIBILITY_FIELD] ?? '').trim();
   if (!scope) out[VISIBILITY_FIELD] = DEFAULT_VISIBILITY;
 
-  // 「指定部门可见」却没选部门 ⇒ 兜底成「我直接所属/负责的部门」（不含下级，与默认选中一致）
+  // 生效的可见范围 = 用户传的，或上面刚补的默认值（「部门内可见」）
+  const effective = scope || DEFAULT_VISIBILITY;
+
   const picked = fields[VISIBLE_DEPTS_FIELD];
   const hasPicked = Array.isArray(picked) ? picked.length > 0 : Boolean(String(picked ?? '').trim());
-  if (scope === '指定部门可见' && !hasPicked && ctx) {
-    const myScope = await myDeptScopeOf(user, ctx);
-    if (myScope.myIds.length) out[VISIBLE_DEPTS_FIELD] = myScope.myIds;
+  if (!hasPicked) {
+    // ① 「部门内可见」⇒ 可见部门**由「部门」字段派生**（用户不用再选一遍，就是他要的
+    //    「可见部门 = 部门里填写的部门」）。判据只认「可见部门」，所以这一步不能省：
+    //    漏了它，这条纪要在判据里没有任何部门命中条件 ⇒ 对同事隐身。
+    //    前端也会做同样的联动（让用户**看得见**这个值），这里再兜一层挡 API 直建。
+    if (effective === '部门内可见') {
+      const depts = fields[MEETING_DEPT_FIELD];
+      const ids = (Array.isArray(depts) ? depts : [depts])
+        .map((v) => String(v ?? '').trim())
+        .filter((v) => /^od-/.test(v));
+      if (ids.length) out[VISIBLE_DEPTS_FIELD] = ids;
+    } else if (effective === '指定部门可见' && ctx) {
+      // ② 「指定部门可见」却没选部门 ⇒ 兜底成「我直接所属/负责的部门」（不含下级，与默认选中一致）
+      const myScope = await myDeptScopeOf(user, ctx);
+      if (myScope.myIds.length) out[VISIBLE_DEPTS_FIELD] = myScope.myIds;
+    }
   }
   return out;
 }

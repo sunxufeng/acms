@@ -283,7 +283,14 @@
     "unselectPage": "取消本页",
     "selectAllResults": "全选所有结果（{count}）",
     "clearSelection": "清除选择",
-    "noEditPerm": "无编辑权限"
+    "noEditPerm": "无编辑权限",
+    "searchToAdd": "输入关键字搜索…",
+    "noMatch": "没有符合条件的结果",
+    "allSelected": "已全部选中",
+    "noOptions": "暂无可选项",
+    "noneSelected": "未选择",
+    "expand": "展开",
+    "collapse": "收起"
   },
   "ai": {
     "config": {

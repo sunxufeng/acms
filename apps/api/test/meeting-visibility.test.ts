@@ -214,19 +214,38 @@ describe('meetingRowScope（可见范围判据）', () => {
     return out;
   }
 
-  it('判据结构：三个「可见范围」分支 + 一条「创建人」分支（丁懿）', async () => {
+  it('判据结构：两个「可见范围」分支 + 一条「创建人」分支（丁懿）', async () => {
     const scope = await meetingRowScope(user(DING), makeCtx());
     const scopes = leaves(scope)
       .filter((c) => c.field === '可见范围')
       .flatMap((c) => c.value as string[]);
     // 「仅自己可见」不再单独成支 —— 它由下面那条「创建人 = 我」覆盖
+    // 「部门内可见」与「指定部门可见」自 2026-09-19 起**共用同一支**（判据相同、来源不同）
     expect(scopes.sort()).toEqual(['公开', '指定部门可见', '指定用户可见', '部门内可见'].sort());
     // 「创建人 = 我」是**独立**分支（用 openId）
     expect(leaves(scope).find((c) => c.field === '创建人ID')?.value).toEqual([DING]);
-    // 「指定用户可见」用用户 record id + contains；「部门」用部门名等值
+    // 「指定用户可见」用用户 record id + contains
     expect(leaves(scope).find((c) => c.field === '可见用户')?.value).toEqual(['rec_ding']);
     expect(leaves(scope).find((c) => c.field === '可见用户')?.op).toBe('contains');
-    expect(leaves(scope).find((c) => c.field === '部门')?.value?.length).toBe(4);
+    // 🔴 部门这一侧**统一走「可见部门」+ id + contains**（不再有「部门」名字段等值那一支）
+    const deptCond = leaves(scope).find((c) => c.field === '可见部门');
+    expect(deptCond?.op).toBe('contains');
+    expect((deptCond?.value as string[]).length).toBeGreaterThan(0);
+    expect((deptCond?.value as string[]).every((v) => v.startsWith('od-'))).toBe(true);
+    // 「部门」字段不再出现在任何条件里（字段改多选后按名字等值必然失配）
+    expect(leaves(scope).some((c) => c.field === '部门')).toBe(false);
+  });
+
+  it('🔴 回归：两种部门取值共用一支（前端改字段值形态后，判据不能只认其中一种）', async () => {
+    const scope = await meetingRowScope(user(ALICE), makeCtx());
+    // 同时含「指定部门可见」的那条 and 分支：可见范围的条件里必有这两个取值
+    const deptBranch = leaves(scope).find((c) => c.field === '可见部门');
+    expect(deptBranch).toBeTruthy();
+    const scopes = leaves(scope)
+      .filter((c) => c.field === '可见范围')
+      .flatMap((c) => c.value as string[]);
+    expect(scopes).toContain('部门内可见');
+    expect(scopes).toContain('指定部门可见');
   });
 
   it('🔴 回归：创建人总能看自己创建的（「指定用户可见」且名单不含自己时也必须能看）', async () => {
@@ -248,7 +267,7 @@ describe('meetingRowScope（可见范围判据）', () => {
     const scope = await meetingRowScope(user('ou_ghost'), makeCtx());
     const fields = leaves(scope).map((c) => c.field as string);
 
-    expect(fields).not.toContain('部门'); // 部门集合为空 ⇒ 不产生该分支
+    expect(fields).not.toContain('可见部门'); // 部门集合为空 ⇒ 不产生该分支
     expect(fields).not.toContain('可见用户'); // 用户 record id 为空 ⇒ 不产生该分支
     // 只剩「公开」+「创建人 = 我」两支（他有 openId，所以仍能看自己创建的）
     expect(fields).toEqual(['可见范围', '创建人ID']);
@@ -279,7 +298,7 @@ describe('meetingRowScope（可见范围判据）', () => {
     // 可见范围只剩「公开」——「仅自己可见」的记录是靠「创建人 = 我」那条独立分支命中的
     expect(scopes.sort()).toEqual(['公开']);
     expect(leaves(scope).some((c) => c.field === '创建人ID')).toBe(true);
-    expect(leaves(scope).some((c) => c.field === '部门')).toBe(false);
+    expect(leaves(scope).some((c) => c.field === '可见部门')).toBe(false);
     expect(leaves(scope).some((c) => c.field === '可见用户')).toBe(false);
   });
 
@@ -330,6 +349,36 @@ describe('meetingDefaults（新建时自动写创建人 + 兜底可见范围）'
       user(ALICE),
       makeCtx(),
     );
+    expect(out['可见部门']).toBeUndefined();
+  });
+
+  it('🔴「部门内可见」→ 可见部门由「部门」字段派生（否则判据里没有任何部门条件，记录对同事隐身）', async () => {
+    // 可见范围不传 = 默认「部门内可见」
+    const out = await meetingDefaults(
+      { 部门: [OD.academic, OD.teaching] },
+      user(ALICE),
+      makeCtx(),
+    );
+    expect(out['可见部门']).toEqual([OD.academic, OD.teaching]);
+    expect(out['可见范围']).toBe('部门内可见');
+  });
+
+  it('「部门内可见」但「部门」为空 ⇒ 不写可见部门（不瞎猜），判据侧自然只有「公开 / 创建人」可选', async () => {
+    const out = await meetingDefaults({}, user(ALICE), makeCtx());
+    expect(out['可见部门']).toBeUndefined();
+  });
+
+  it('「部门内可见」时用户已手选可见部门 ⇒ 不覆盖', async () => {
+    const out = await meetingDefaults(
+      { 部门: [OD.academic], 可见部门: [OD.brand] },
+      user(ALICE),
+      makeCtx(),
+    );
+    expect(out['可见部门']).toBeUndefined();
+  });
+
+  it('「部门」里的非 id 值（历史遗留的部门名）不参与派生', async () => {
+    const out = await meetingDefaults({ 部门: ['学术轨'] }, user(ALICE), makeCtx());
     expect(out['可见部门']).toBeUndefined();
   });
 });

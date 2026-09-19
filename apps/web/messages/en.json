@@ -283,7 +283,14 @@
     "unselectPage": "Unselect page",
     "selectAllResults": "Select all results ({count})",
     "clearSelection": "Clear selection",
-    "noEditPerm": "No edit permission"
+    "noEditPerm": "No edit permission",
+    "searchToAdd": "Type to search…",
+    "noMatch": "No matching results",
+    "allSelected": "All selected",
+    "noOptions": "No options",
+    "noneSelected": "None selected",
+    "expand": "Expand",
+    "collapse": "Collapse"
   },
   "ai": {
     "config": {

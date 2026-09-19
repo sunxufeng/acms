@@ -303,8 +303,9 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     /**
      * 多值字段：不登记的话数组会被当**字符串**写入（关联字段的经典坑）。
      * 「可见用户 / 可见部门」服务于权限判据；参会 / 缺席 / 列席是业务字段（多选人员，存姓名数组）。
+     * 「部门」自 2026-09-19 起改为**多选**（存 od-id 数组），故也登记在这里。
      */
-    multi: ['可见用户', '可见部门', '参会人员', '缺席人员', '列席人员'],
+    multi: ['可见用户', '可见部门', '参会人员', '缺席人员', '列席人员', '部门'],
     /**
      * 关联字段：读取时会额外注入 `<字段>__link`（原始 id 数组）供前端回显多选，
      * 并把展示值解析成可读名（用户 → 姓名、部门 → 部门名）。
@@ -317,6 +318,10 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
      *    前端回显与后续比较全都要跟着做字符串拆分（实测踩过一次）。只登记 multi 即可。
      */
     linkFields: [
+      // 「部门」自 2026-09-19 起也是多选（存 od-id 数组）：登记后读取会注入 `部门__link`
+      // （原始 id 数组）供前端回显多选树，展示值解析成部门名。
+      // ⚠️ 这与判据无关 —— 判据只认「可见部门」，见 meeting-visibility.ts 的 ③。
+      { field: '部门', table: TABLES.departments.tableId, nameField: 'name' },
       { field: '可见用户', table: USER_TABLE.tableId, nameField: '姓名' },
       { field: '可见部门', table: TABLES.departments.tableId, nameField: 'name' },
     ],

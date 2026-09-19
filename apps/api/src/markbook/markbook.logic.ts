@@ -190,3 +190,64 @@ export function snapshotOf(
     attained: att === null ? '' : att ? '达标' : '未达标',
   };
 }
+
+/**
+ * 成绩册列的写入字段构造（`POST /markbook/columns`）。
+ *
+ * 🔴 **只写「本次真的传了的字段」**（2026-09-20 修，原来是「没传 = 写空串」）。
+ *
+ * 为什么必须这样：新建/编辑列的表单并不会把每个字段都渲染出来 ——
+ * 「学生可见 / 家长可见 / 完成日期」在 2026-09-20 之前根本没有输入项，
+ * 「科目」也没有。于是老师「只改一下权重」，保存后**科目、描述、可见性、完成闸门被一起清空**：
+ * 不报错、不留痕，而且后果很重 —— 科目没了，期末总评就按科目拆不出来。
+ *
+ * 所以约定：`undefined` = 本次不管这个字段（保留库里的值）；显式传 `''` 才是「清空」。
+ * 前端表单现在会把每个字段都带上（空串表示清空），两边语义一致。
+ *
+ * ⚠️ 「班级」与「列名称」是定位字段，任何时候都写：
+ * 班级缺了会把整列挂到错误的班，列名称是唯一必填。
+ * 「关联作业」不在这里 —— 它由作业同步面板走 `/markbook/homework-bind` 单独绑定（唯一真源）。
+ */
+export interface ColumnSavePayload {
+  id?: string;
+  cls: string;
+  name: string;
+  type?: string;
+  subject?: string;
+  weight?: number;
+  fullMark?: number;
+  scaleId?: string;
+  date?: string;
+  desc?: string;
+  sort?: number;
+  status?: string;
+  studentVisible?: string;
+  parentVisible?: string;
+  completeDate?: string;
+}
+
+export function buildColumnFields(payload: ColumnSavePayload): Record<string, unknown> {
+  const fields: Record<string, unknown> = {
+    班级: normClass(payload.cls),
+    列名称: String(payload.name ?? '').trim(),
+  };
+  const set = (key: string, raw: unknown, cast: (v: unknown) => unknown) => {
+    if (raw !== undefined) fields[key] = cast(raw);
+  };
+  set('考核类型', payload.type, (v) => String(v ?? ''));
+  // 科目：文本（与「班级」同一套口径）。期末总评按它拆科目，
+  // 写法不一致（数学 / 数学课）会拆成两个科目 ⇒ 前端用已有值下拉，别手打。
+  set('科目', payload.subject, (v) => String(v ?? '').trim());
+  set('列权重', payload.weight, (v) => (Number(v) > 0 ? Number(v) : 1));
+  set('满分', payload.fullMark, (v) => (Number(v) > 0 ? Number(v) : DEFAULT_FULL_MARK));
+  // 等级体系是关联字段 ⇒ 存数组（与 markbookColumn 其他 link 字段同口径）
+  set('等级体系', payload.scaleId, (v) => (v ? [String(v)] : []));
+  set('考核日期', payload.date, (v) => String(v ?? ''));
+  set('描述', payload.desc, (v) => String(v ?? ''));
+  set('排序', payload.sort, (v) => Number(v) || 0);
+  set('状态', payload.status, (v) => String(v ?? '启用'));
+  set('学生可见', payload.studentVisible, (v) => String(v ?? ''));
+  set('家长可见', payload.parentVisible, (v) => String(v ?? ''));
+  set('完成日期', payload.completeDate, (v) => String(v ?? ''));
+  return fields;
+}

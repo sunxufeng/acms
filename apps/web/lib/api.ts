@@ -1564,6 +1564,17 @@ export const api = {
   /** 考勤码（教学域配置表，通用 CRUD）。出勤口径的可配置码表，见 /attendance-codes 页面 */
   attendanceCodes: crud('/attendance-codes'),
 
+  // ── 成绩册的配置表（2026-09-20 补页面）──────────────────────────────────
+  // 这四张表以前只有接口没有页面：页面提示「先去配 XX」，而那个页面不存在。
+  /** 成绩等级体系（`gradeScale`）：等级口径的容器，被成绩册列与成绩批次引用 */
+  gradeScales: crud('/grade-scales'),
+  /** 成绩等级（`gradeScaleLevel`）：体系下的一档，「绩点」是 GPA / 班级排名的唯一来源 */
+  gradeScaleLevels: crud('/grade-scale-levels'),
+  /** 成绩类型权重：`班级 × 考核类型 → 权重`（第二层权重，与列上的「列权重」相乘） */
+  markbookWeights: crud('/markbook-weights'),
+  /** 学生成绩目标：`学生 × 班级 → 目标等级序号 / 目标分`（决定「是否达标」） */
+  markbookTargets: crud('/markbook-targets'),
+
   // ── 考试与成绩（2026-09-16 参照 RosarioSIS v13 的 Grades 模块）──────────────
   // 四张表全部由后端 generic-crud 承载，端点形状一致
   // （GET / | POST / | PUT /:id | DELETE /:id）。
@@ -1945,6 +1956,8 @@ export interface MarkbookColumn {
   typeColor: string;
   /** 该列属于哪个科目（文本；空 = 不区分科目。期末总评按它拆科目） */
   subject: string;
+  /** 列描述（自由文本）。2026-09-20 起由后端返回 —— 之前不返回，编辑列时会把这个备注清空 */
+  desc: string;
   /** 列权重（第一层权重，与「成绩类型权重」相乘） */
   weight: number;
   fullMark: number;

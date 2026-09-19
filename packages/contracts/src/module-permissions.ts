@@ -22,8 +22,15 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *   迁移依据是 **`module:reports:read`**（不是裸 `report:read`）：生产实测 12 个角色
  *   都持有前者，而裸权限只剩 5 个角色还留着 —— 用裸权限做依据，
  *   Phase2~8 会在升级后**静默失去所有报表**。
+ *
+ * v4（2026-09-20）：新增「成绩批次」「成绩等级体系」两个模块（原先是"有接口没页面"）。
+ *   🔴 迁移依据必须选**接口此刻真正在判的那个权限点**（`module:examGrades:*` /
+ *      `module:markbook:*`）—— 注册模块资源后 `moduleByPath('/exam-batches')` 会命中新 key，
+ *      鉴权**自动从 meta 的旧点切到新点**。若迁移不给原持有者补上，升级瞬间：
+ *      ①「考试与成绩」页的批次下拉 403；②成绩册的等级体系读取失败。
+ *      而这两个点恰恰是「本来就该能配的人」持有的，所以继承它们 = 零行为变化。
  */
-export const ROLE_PERMISSION_VERSION = 3;
+export const ROLE_PERMISSION_VERSION = 4;
 
 /**
  * 报表 key → 模块 key（报表页内每张报表一个权限点）。
@@ -238,6 +245,13 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   //    要单独放宽某类人，在权限矩阵里勾对应菜单即可（每个菜单都有独立权限点）。
   { key: 'attendanceCodes', label: '考勤码', path: '/attendance-codes', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
   { key: 'markbook', label: '成绩册', path: '/markbook', legacyRead: 'grade:read', legacyWrite: 'grade:write', menuPermission: null, actions: RECORD, genericCrud: true },
+  // 成绩类型权重（2026-09-20 补页面）：`班级 × 考核类型 → 权重`，是「列权重」之外的第二层权重。
+  // ⚠️ 实际匹配用的是**「班级」文本**（markbook.service 的 configsOf），「教学班」关联字段目前不参与匹配 ——
+  //    只填教学班不填班级，权重会**静默不生效**（不报错），页面提示里必须说明。
+  { key: 'markbookWeights', label: '成绩类型权重', path: '/markbook-weights', legacyRead: 'module:markbook:read', legacyWrite: 'module:markbook:update', menuPermission: 'module:markbook:read', actions: RECORD, genericCrud: true },
+  // 学生个人目标（2026-09-20 补页面）：`学生 × 班级 → 目标等级序号 / 目标分`。
+  // 「是否达标」= 条目等级序号 ≤ 目标等级序号，没建目标就写「未设目标」（不是不达标）。
+  { key: 'markbookTargets', label: '学生成绩目标', path: '/markbook-targets', legacyRead: 'module:markbook:read', legacyWrite: 'module:markbook:update', menuPermission: 'module:markbook:read', actions: RECORD, genericCrud: true },
   // 考试与成绩（2026-09-16 参照 RosarioSIS v13 Grades 移植）：期末总评 / 成绩单 / 异常审查 / 分析
   // legacyRead/Write 为 null：没有任何历史遗留权限点可继承，管理员由 healLockedRoles() 兜底，
   // 普通角色需在权限矩阵里手工授予（matrix 存的是已派生的完整权限集，不会自动补）。
@@ -246,6 +260,18 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'examGrades', label: '考试与成绩', path: '/exam-grades', legacyRead: null, legacyWrite: null, menuPermission: null, actions: FLOW, genericCrud: true },
   // 考核类型是本模块的配置表，但作为独立页面/菜单项（与「考勤码」同一套做法）
   { key: 'examTypes', label: '考核类型', path: '/exam-types', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  // 成绩批次（2026-09-20 补页面）：一次期末结转的批次 —— 起止日期决定「哪些成绩册列参与结转」，
+  // 舍入 / 免考 / 缺考口径与异常阈值也挂在它上面。此前只有接口没有页面（`/exam-batches` 已存在，
+  // 但侧边栏没有入口），页面上只能看到「先去『成绩批次』建一个」却无处可建。
+  // ⚠️ legacy 挂 `module:examGrades:*`：这两个接口在 meta 里的 readPerm/writePerm 就是它，
+  //    注册模块资源后鉴权切到 `module:examBatches:*` ⇒ 继承它们才能保证升级后「考试与成绩」
+  //    页里的批次下拉与结转继续可用（否则是**升级即 403**）。
+  { key: 'examBatches', label: '成绩批次', path: '/exam-batches', legacyRead: 'module:examGrades:read', legacyWrite: 'module:examGrades:update', menuPermission: 'module:examGrades:read', actions: RECORD, genericCrud: true },
+  // 成绩等级体系（2026-09-20 补页面）：等级体系（`gradeScale`）→ 等级（`gradeScaleLevel`，含**绩点**）。
+  // 「绩点」是 GPA / 班级排名的唯一数据来源，没配就明说「未配置绩点」，不是一堆 0.00。
+  // aliases 把「等级」表的 API 一并纳入本模块：两级配置同属一件事，
+  // 分开授权会出现「能改体系、却改不了体系里的等级」这种半开门。
+  { key: 'gradeScales', label: '成绩等级体系', path: '/grade-scales', aliases: ['/grade-scale-levels'], legacyRead: 'module:markbook:read', legacyWrite: 'module:markbook:update', menuPermission: 'module:markbook:read', actions: RECORD, genericCrud: true },
   // 常用评语库（2026-09-16）：各科老师写评语时套用的句子。独立权限点 ——
   // 它是「写评语」的生产资料，跟考试与成绩的 admin 类操作分开授权。
   { key: 'examComments', label: '常用评语库', path: '/exam-comments', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },

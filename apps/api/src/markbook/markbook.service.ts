@@ -2,6 +2,7 @@ import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { TABLES } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import {
+  buildColumnFields,
   effectiveWeight,
   normClass,
   normScore,
@@ -30,6 +31,12 @@ export interface GridColumn {
   typeColor: string;
   /** 该列属于哪个科目（文本，与「班级」同一套口径；空 = 不区分科目） */
   subject: string;
+  /**
+   * 列描述（自由文本）。2026-09-20 补进返回体：
+   * 原先只在写入时用得到，读取不返回 ⇒ 前端编辑一列时初始化成空串，
+   * 保存后**描述被静默清空**（老师改个权重，顺带丢了备注）。
+   */
+  desc: string;
   weight: number;
   fullMark: number;
   scaleId: string;
@@ -248,6 +255,7 @@ export class MarkbookService implements OnModuleInit {
       type,
       typeColor: typeIdx?.get(type)?.color ?? '',
       subject: String(f['科目'] ?? '').trim(),
+      desc: String(f['描述'] ?? ''),
       weight: safeWeight(f['列权重']),
       fullMark: Number(f['满分']) > 0 ? Number(f['满分']) : 100,
       scaleId: this.linkIds(f['等级体系'])[0] ?? '',
@@ -723,24 +731,16 @@ export class MarkbookService implements OnModuleInit {
     const sql = getSqlStore();
     if (!sql) throw new Error('未配置数据库');
     if (!payload.id && !normClass(payload.cls)) throw new Error('班级不能为空');
-    const fields: Record<string, unknown> = {
-      班级: normClass(payload.cls),
-      列名称: String(payload.name ?? '').trim(),
-      考核类型: String(payload.type ?? ''),
-      // 科目：文本（与「班级」同一套口径）。前端从已有值下拉选，保证写法一致 ——
-      // 期末总评按它拆分科目，写法不一致（数学 / 数学课）会拆出两个科目。
-      科目: String(payload.subject ?? '').trim(),
-      列权重: Number(payload.weight) > 0 ? Number(payload.weight) : 1,
-      满分: Number(payload.fullMark) > 0 ? Number(payload.fullMark) : 100,
-      等级体系: payload.scaleId ? [String(payload.scaleId)] : [],
-      考核日期: String(payload.date ?? ''),
-      描述: String(payload.desc ?? ''),
-      排序: Number(payload.sort) || 0,
-      状态: String(payload.status ?? '启用'),
-      学生可见: String(payload.studentVisible ?? ''),
-      家长可见: String(payload.parentVisible ?? ''),
-      完成日期: String(payload.completeDate ?? ''),
-    };
+    /**
+     * 字段构造放在纯函数 `buildColumnFields` 里（2026-09-20）。
+     *
+     * 抽出去是为了能单测：这条「未传的字段不覆盖」的规则一旦回退成
+     * `String(payload.x ?? '')`，症状是「改一下权重，把科目/可见性/完成闸门一起清空」——
+     * 不报错、不留痕，而且科目没了期末总评就拆不出科目。纯函数才测得住。
+     *
+     * ⚠️ 「关联作业」不在这里：它由作业同步面板走 /markbook/homework-bind 单独绑定（唯一真源）。
+     */
+    const fields = buildColumnFields(payload);
     if (!fields['列名称']) throw new Error('列名称不能为空');
     if (payload.id) {
       await sql.update(TABLES.markbookColumn.tableId, payload.id, fields);

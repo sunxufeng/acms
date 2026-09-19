@@ -34,9 +34,12 @@ export const EXAM_GRADE_METAS: RecordMeta[] = [
   {
     path: 'exam-batches',
     tableId: TABLES.gradeBatch.tableId,
-    readPerm: 'module:examGrades:read',
-    writePerm: 'module:examGrades:update',
-    numbers: [],
+    // 2026-09-20 起本表有了独立页面与独立权限点（`module:examBatches:*`）。
+    // 原先写的是 `module:examGrades:*` —— 注册模块资源后 `moduleByPath('/exam-batches')`
+    // 会命中新模块，鉴权自动切到新点；这里同步改口径，避免「写的是一套、判的是另一套」。
+    readPerm: 'module:examBatches:read',
+    writePerm: 'module:examBatches:update',
+    numbers: ['异常阈值高倍', '异常阈值低倍', '异常突变分差'],
     dateFields: ['起日期', '止日期'],
     linkFields: [{ field: '等级体系', table: TABLES.gradeScale.tableId, nameField: '名称' }],
     statusField: '状态',

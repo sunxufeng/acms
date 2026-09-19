@@ -60,11 +60,17 @@ export const MARKBOOK_METAS: RecordMeta[] = [
   {
     path: 'markbook-targets',
     tableId: TABLES.markbookTarget.tableId,
-    readPerm: 'module:markbook:read',
-    writePerm: 'module:markbook:update',
+    // 2026-09-20：本表有了独立页面与独立权限点（`module:markbookTargets:*`）；
+    // 迁移（v4）已让原本持有 module:markbook:* 的角色继承，零行为变化。
+    readPerm: 'module:markbookTargets:read',
+    writePerm: 'module:markbookTargets:update',
     numbers: ['目标等级序号', '目标分'],
     linkFields: [{ field: '学生', table: TABLES.studentProfile.tableId, nameField: '学生姓名' }],
     searchFields: ['学生姓名', '班级', '备注'],
+    // 目标也是「按学生」的数据：沿用成绩册同一套学生档案数据范围，
+    // 老师不该在目标页看到授权范围之外的学生（与成绩册条目同口径）。
+    studentMatch: { field: '学生', by: 'id' },
+    studentScoped: true,
     sortField: '更新时间',
   },
 ];

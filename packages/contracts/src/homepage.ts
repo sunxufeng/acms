@@ -340,11 +340,18 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'markbook', label: '成绩册', enLabel: 'Markbook', href: '/markbook', icon: 'target', section: '教学管理', order: 10, perm: 'module:markbook:read' },
     // 考试与成绩（2026-09-16 参照 RosarioSIS v13 Grades 移植）：成绩册负责过程录入，这一项负责结果产出
     { key: 'examGrades', label: '考试与成绩', enLabel: 'Exam & Grades', href: '/exam-grades', icon: 'award', section: '教学管理', order: 15, perm: 'module:examGrades:read' },
+    // 成绩批次（2026-09-20 补页面）：结转的起止日期就配在这里，所以入口紧跟「考试与成绩」
+    { key: 'examBatches', label: '成绩批次', enLabel: 'Exam Batches', href: '/exam-batches', icon: 'award', section: '教学管理', order: 16, perm: 'module:examBatches:read' },
     { key: 'learningOutcomes', label: '学习成果', enLabel: 'Outcomes', href: '/learning-outcomes', icon: 'award', section: '教学管理', order: 20, perm: 'module:learningOutcomes:read' },
     { key: 'curriculum', label: '课程规划', enLabel: 'Curriculum', href: '/curriculum', icon: 'book', section: '教学管理', order: 30, perm: 'module:curriculum:read' },
     { key: 'lessonPlans', label: '课时教案', enLabel: 'Lesson Plans', href: '/lesson-plans', icon: 'list', section: '教学管理', order: 40, perm: 'module:lessonPlan:read' },
     { key: 'behaviour', label: '行为记录', enLabel: 'Behaviour', href: '/behaviour', icon: 'flag', section: '教学管理', order: 50, perm: 'module:behaviour:read' },
     { key: 'attendanceCodes', label: '考勤码', enLabel: 'Attendance Codes', href: '/attendance-codes', icon: 'check', section: '教学管理', order: 90, perm: 'module:attendanceCodes:read' },
+    // 成绩册的四张配置表（2026-09-20 补页面）：等级体系与绩点、类型权重、学生成绩目标。
+    // 它们此前只有接口没有页面 —— 页面提示「先去配 XX」却无处可配。
+    { key: 'gradeScales', label: '成绩等级体系', enLabel: 'Grade Scales', href: '/grade-scales', icon: 'award', section: '教学管理', order: 92, perm: 'module:gradeScales:read' },
+    { key: 'markbookWeights', label: '成绩类型权重', enLabel: 'Type Weights', href: '/markbook-weights', icon: 'list', section: '教学管理', order: 93, perm: 'module:markbookWeights:read' },
+    { key: 'markbookTargets', label: '学生成绩目标', enLabel: 'Grade Targets', href: '/markbook-targets', icon: 'target', section: '教学管理', order: 94, perm: 'module:markbookTargets:read' },
     { key: 'examTypes', label: '考核类型', enLabel: 'Exam Types', href: '/exam-types', icon: 'list', section: '教学管理', order: 95, perm: 'module:examTypes:read' },
     // 常用评语库（2026-09-16）：各科老师写评语时一键套用的句子
     { key: 'examComments', label: '常用评语库', enLabel: 'Comment Library', href: '/exam-comments', icon: 'chat', section: '教学管理', order: 96, perm: 'module:examComments:read' },

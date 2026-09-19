@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   api,
+  type MarkbookCell,
   type MarkbookClassOption,
   type MarkbookColumn,
   type MarkbookGrid,
@@ -69,16 +70,27 @@ export default function MarkbookPage() {
     void loadGrid(cls);
   }, [cls, loadGrid]);
 
-  /** 单元格当前值：未保存改动优先，否则取服务端值 */
+  /**
+   * 格子显示文本（单元格当前值：未保存改动优先，否则取服务端值）。
+   *
+   * ⚠️ **不能只显示 `score`**（2026-09-20 修）：免考落库时得分为空、缺考落库时得分是 0，
+   *    只看 score 会让「免考」显示成空白、「缺考」显示成普普通通的 0 ——
+   *    老师录完看不出到底录上没有，也分不清免考与缺考（两者对总评分母的影响完全不同）。
+   */
   const cellText = (columnId: string, studentId: string): string => {
     const k = `${columnId}__${studentId}`;
     if (dirty.has(k)) return dirty.get(k)!;
     const c = cellMap.get(k);
-    return c?.score == null ? '' : String(c.score);
+    if (!c) return '';
+    if (c.status === '免考') return t('cellExcused');
+    if (c.status === '缺考') return t('cellAbsent');
+    if (c.score != null) return String(c.score);
+    // 只录了等级（等级区间没有分数上下限时，得分可能为空）→ 显示等级本身
+    return c.level || '';
   };
 
   const cellMap = useMemo(() => {
-    const m = new Map<string, { score: number | null; level: string; concern: boolean; attained: string }>();
+    const m = new Map<string, MarkbookCell>();
     for (const c of grid?.cells ?? []) m.set(`${c.columnId}__${c.studentId}`, c);
     return m;
   }, [grid]);
@@ -105,7 +117,18 @@ export default function MarkbookPage() {
       const rows: MarkbookSaveRow[] = [...dirty.entries()].map(([k, v]) => {
         const [columnId, studentId] = k.split('__');
         const trimmed = v.trim();
-        return { columnId, studentId, score: trimmed === '' ? null : Number(trimmed) };
+        /**
+         * 🔴 **原样传字符串，绝不要 `Number()`**（2026-09-20 修）。
+         *
+         * 服务端的 `parseScoreInput` 支持一整套写法：`85` / `85%`（按满分折算）/
+         * `B`（折成该等级区间中位）/ `*`｜`免考`｜`EX`（免考，得分为空）/ `缺`（缺考，按 0 分）。
+         * 而前端原先这里 `Number(trimmed)` —— 于是 `A`、`缺`、`免考` 全变成 **NaN**，
+         * `JSON.stringify` 把 NaN 写成 `null`，服务端按「未录入」处理，**直接把格子删掉**：
+         * 老师录了免考、保存后格子变空，看不出是哪一步错了，也没有任何报错。
+         *
+         * ⚠️ 空串仍传 null（= 删掉该格）—— 这是唯一该由前端判空的地方。
+         */
+        return { columnId, studentId, score: trimmed === '' ? null : trimmed };
       });
       const r = await api.markbookSaveEntries(cls, rows);
       setMsg({
@@ -251,9 +274,15 @@ export default function MarkbookPage() {
                             <td key={c.id} className="mb-cell">
                               <input
                                 className={`form-input mb-input${isDirty ? ' mb-input-dirty' : ''}`}
-                                inputMode="decimal"
+                                /**
+                                 * 用 text 而不是 decimal：格子里除了数字，还要能录
+                                 * `85%` / `B`（字母等级）/ `*`（免考）/ `缺`（缺考）（2026-09-20）。
+                                 * 限成数字键盘会让移动端根本打不出这些写法。
+                                 */
+                                inputMode="text"
                                 value={v}
                                 placeholder="—"
+                                title={t('cellInputHint')}
                                 onChange={(e) => onCellChange(c.id, s.id, e.target.value)}
                               />
                             </td>
@@ -314,6 +343,8 @@ export default function MarkbookPage() {
             cls={cls}
             col={editing.col}
             scales={grid?.scales ?? []}
+            // 该班用过的科目（去重）—— 给「科目」下拉当候选，保证写法一致
+            subjects={[...new Set((grid?.columns ?? []).map((c) => c.subject).filter(Boolean))]}
             onClose={() => setEditing(null)}
             onSaved={async () => {
               setEditing(null);
@@ -351,25 +382,43 @@ function ColumnEditor({
   cls,
   col,
   scales,
+  subjects,
   onClose,
   onSaved,
 }: {
   cls: string;
   col: MarkbookColumn | null;
   scales: { id: string; name: string; isDefault: boolean }[];
+  /** 该班已用过的科目（来自网格现有列）—— 给下拉用，避免手打出「数学 / 数学课」两种科目 */
+  subjects: string[];
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
   const t = useTranslations('markbook');
   const [name, setName] = useState(col?.name ?? '');
   const [type, setType] = useState(col?.type ?? '');
+  const [subject, setSubject] = useState(col?.subject ?? '');
   const [weight, setWeight] = useState(String(col?.weight ?? 1));
   const [fullMark, setFullMark] = useState(String(col?.fullMark ?? 100));
   const [scaleId, setScaleId] = useState(col?.scaleId ?? '');
   const [date, setDate] = useState(col?.date ?? '');
   const [sort, setSort] = useState(String(col?.sort ?? 0));
-  const [desc, setDesc] = useState('');
+  // 描述要从原值回填：不回填的话「改个权重」会把备注一起清掉（后端已改为未传不覆盖，
+  // 这里再补上回显，两头都对）
+  const [desc, setDesc] = useState(col?.desc ?? '');
   const [status, setStatus] = useState(col?.status ?? '启用');
+  /**
+   * 可见性与「完成闸门」（2026-09-20 补录入项）。
+   *
+   * 三个值的语义（判据在 apps/api/src/portal/portal-visibility.ts，写死不可改）：
+   *  - 空串 = **未设置**（学生/家长都看不到）—— 只有显式选「是」才公开，
+   *    所以别把空串当「是」，也别把它当「否」。
+   *  - 完成日期（闸门）= 到达该日期前**不对家长**开放；留空 = 不设闸门（立即开放）。
+   *    学生侧不看闸门（闸门只拦家长）。
+   */
+  const [studentVisible, setStudentVisible] = useState(col?.studentVisible ?? '');
+  const [parentVisible, setParentVisible] = useState(col?.parentVisible ?? '');
+  const [completeDate, setCompleteDate] = useState(col?.completeDate ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -386,6 +435,7 @@ function ColumnEditor({
         cls,
         name: name.trim(),
         type,
+        subject: subject.trim(),
         weight: Number(weight) || 1,
         fullMark: Number(fullMark) || 100,
         scaleId,
@@ -393,9 +443,10 @@ function ColumnEditor({
         desc,
         sort: Number(sort) || 0,
         status,
-        studentVisible: col?.studentVisible ?? '',
-        parentVisible: col?.parentVisible ?? '',
-        completeDate: col?.completeDate ?? '',
+        // 这三个从 state 取（原先用 col?.xxx —— 表单里没有输入项，等于永远写回旧值）
+        studentVisible,
+        parentVisible,
+        completeDate,
       });
       await onSaved();
     } catch (e) {
@@ -459,10 +510,67 @@ function ColumnEditor({
             <option value="停用">{t('disabled')}</option>
           </select>
         </label>
+        {/* ── 科目（2026-09-20 补）：期末总评按它拆科目，缺了就没法按科目合成 ── */}
+        <label className="mb-field">
+          <span>{t('fSubject')}</span>
+          {/* 用 datalist：既能挑该班已用过的科目（消灭「数学 / 数学课」两种写法），也能录新科目 */}
+          <input
+            className="form-input"
+            list="mb-subject-options"
+            placeholder={t('fSubjectHint')}
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+          />
+          <datalist id="mb-subject-options">
+            {subjects.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        </label>
+        {/* ── 可见性与完成闸门（2026-09-20 补）：三态各一档，空串 = 未设置（都不公开） ── */}
+        <label className="mb-field">
+          <span>{t('fStudentVisible')}</span>
+          <select
+            className="form-input"
+            value={studentVisible}
+            onChange={(e) => setStudentVisible(e.target.value)}
+          >
+            <option value="">{t('visibleUnset')}</option>
+            <option value="是">{t('visibleYes')}</option>
+            <option value="否">{t('visibleNo')}</option>
+          </select>
+        </label>
+        <label className="mb-field">
+          <span>{t('fParentVisible')}</span>
+          <select className="form-input" value={parentVisible} onChange={(e) => setParentVisible(e.target.value)}>
+            <option value="">{t('visibleUnset')}</option>
+            <option value="是">{t('visibleYes')}</option>
+            <option value="否">{t('visibleNo')}</option>
+          </select>
+        </label>
+        <label className="mb-field">
+          <span>{t('fCompleteDate')}</span>
+          <input
+            className="form-input"
+            type="date"
+            value={completeDate.slice(0, 10)}
+            onChange={(e) => setCompleteDate(e.target.value)}
+          />
+        </label>
         <label className="mb-field mb-field-wide">
           <span>{t('fDesc')}</span>
           <input className="form-input" value={desc} onChange={(e) => setDesc(e.target.value)} />
         </label>
+        {col ? (
+          <div className="mb-field mb-field-wide">
+            <span>{t('fHomework')}</span>
+            <span className="muted">
+              {col.homeworkName ? col.homeworkName : t('homeworkUnbound')}
+              {' · '}
+              {t('homeworkBindHint')}
+            </span>
+          </div>
+        ) : null}
       </div>
       {err ? <div className="notice notice-error mb-editor-msg">{err}</div> : null}
       <div className="mb-editor-foot">

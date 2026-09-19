@@ -633,11 +633,14 @@ export const TEACHING_CONFIG_METAS: RecordMeta[] = [
   {
     path: 'grade-scales',
     tableId: TABLES.gradeScale.tableId,
-    // 等级体系与类型权重都算成绩册的配置，共用 markbook 权限点
-    readPerm: 'module:markbook:read',
-    writePerm: 'module:markbook:update',
-    // 「达标线」存等级序号（越小越好，1 为最好）—— 注意达标判定是「序号 ≤ 达标线」，
-    // 与直觉的「分数 ≥ 及格线」相反，前端提示里要写清楚。
+    // 2026-09-20：等级体系有了独立页面与独立权限点（`module:gradeScales:*`，含 `/grade-scale-levels`）。
+    // 此前挂 markbook 的点 —— 注册模块资源后 `moduleByPath` 命中新 key，鉴权随之切换，
+    // 迁移（v4）已让「原本持有 module:markbook:* 的角色」继承新点，所以零行为变化。
+    readPerm: 'module:gradeScales:read',
+    writePerm: 'module:gradeScales:update',
+    // ⚠️ 判据方向容易搞反：**等级「序号」越小越好**（1 为最好），
+    //    而「是否达标」是拿条目等级的序号与**个人目标**（`markbookTarget.目标等级序号`）比：
+    //    `达标 ⇔ 等级序号 ≤ 目标等级序号`。与直觉的「分数 ≥ 及格线」相反，前端提示要写清楚。
     numbers: ['排序'],
     statusField: '状态',
     defaultStatus: '启用',
@@ -647,24 +650,30 @@ export const TEACHING_CONFIG_METAS: RecordMeta[] = [
   {
     path: 'grade-scale-levels',
     tableId: TABLES.gradeScaleLevel.tableId,
-    readPerm: 'module:markbook:read',
-    writePerm: 'module:markbook:update',
-    numbers: ['序号'],
+    readPerm: 'module:gradeScales:read',
+    writePerm: 'module:gradeScales:update',
+    // 「绩点」是 GPA 与班级排名的**唯一**数据来源（ACMS 不做学分制）：没配就明说「未配置绩点」，
+    // 而不是显示一堆 0.00。「是否计入GPA」= 否 的等级不进 GPA（如「免考」档）。
+    numbers: ['序号', '分数下限', '分数上限', '绩点'],
     linkFields: [{ field: '所属体系', table: TABLES.gradeScale.tableId, nameField: '名称' }],
     searchField: '显示值',
     sortField: '序号',
+    defaults: { 是否计入GPA: '是' },
   },
   {
     path: 'markbook-weights',
     tableId: TABLES.markbookWeight.tableId,
-    readPerm: 'module:markbook:read',
-    writePerm: 'module:markbook:update',
+    readPerm: 'module:markbookWeights:read',
+    writePerm: 'module:markbookWeights:update',
     // 第二层权重：与成绩册列上的「列权重」相乘。
     // ⚠️ 汇总口径是「分母 = 实际参与项的权重和」（自归一化），
     // 不要要求各类型权重合计 100 —— 那样会在只录了部分考核时算错。
+    // 🔴 实际匹配用的是 **「班级」文本**（markbook.service 的 configsOf：`normClass(w.f['班级']) === cls`），
+    //    「教学班」关联字段**目前不参与匹配**（教学班表还没有成员关系）——
+    //    只填教学班不填班级 ⇒ 权重静默不生效，且不报错。
     numbers: ['权重'],
     linkFields: [{ field: '教学班', table: TABLES.teachingClass.tableId, nameField: '教学班名称' }],
-    searchField: '类型',
+    searchFields: ['班级', '类型', '说明'],
     sortField: '更新时间',
   },
   {

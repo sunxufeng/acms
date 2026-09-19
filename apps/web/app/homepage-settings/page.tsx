@@ -7,6 +7,7 @@ import { api } from '../../lib/api';
 import LoginShell from '../login/LoginShell';
 import ImageField from './ImageField';
 import { useTl } from '../../lib/useTl';
+import ColorPicker from '../../components/ColorPicker';
 
 const PREVIEW_BASE_W = 1440;
 const PREVIEW_BASE_H = 900;
@@ -165,19 +166,16 @@ function TextArea({
   );
 }
 
-function ColorInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <input
-        type="color"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{ width: 40, height: 32, padding: 0, border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' }}
-      />
-      <input className="input" type="text" value={value} onChange={(e) => onChange(e.target.value)} />
-    </div>
-  );
-}
+/**
+ * 颜色选择：主题色也复用通用控件（色板点选 + 手输 + 系统取色器）。
+ *
+ * 实现收口在 `components/ColorPicker.tsx` —— 以前「首页设置」和「首页管理」各写了一份
+ * 几乎相同的「原生取色器 + 文本框」，改一处漏一处；现在只有一份。
+ * 外层仍用 `className="input"`（这两页的既有样式类），不改成 form-input。
+ */
+const ColorInput = (props: { value: string; onChange: (v: string) => void }) => (
+  <ColorPicker {...props} inputClassName="input" />
+);
 
 function FeatureRow({
   idx,

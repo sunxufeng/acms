@@ -16,6 +16,7 @@ import MapPicker from './MapPicker';
 import Combobox from './Combobox';
 import SearchMultiSelect from './SearchMultiSelect';
 import DepartmentMultiTree from './DepartmentMultiTree';
+import ColorPicker, { ColorChip } from './ColorPicker';
 import Pagination from './Pagination';
 import { takeConvertPayload, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../lib/noteConvert';
 import { currentUserName } from '../lib/noteAutoFill';
@@ -26,7 +27,7 @@ import { isAudioFile } from '../lib/rowAudio';
 // 注意组件内已有名为 api 的 prop，所以全局 api 必须起别名，否则会遮蔽。
 import { api as globalApi } from '../lib/api';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags' | 'password' | 'weilingContact' | 'link';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags' | 'password' | 'color' | 'weilingContact' | 'link';
 
 export interface CrudColumn {
   key: string;
@@ -1698,6 +1699,17 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             </div>
           ) : c.type === 'number' ? (
             <input className="form-input" type="number" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
+          ) : c.type === 'color' ? (
+            /**
+             * 色值字段：色板点选 + 手输 + 系统取色器（组件见 `components/ColorPicker.tsx`）。
+             * 之前这类字段是纯文本框，用户得自己记住并打出 `#4ECDC4`，
+             * 打错**不报错**、只是色块不显示（看起来像功能坏了）。
+             */
+            <ColorPicker
+              value={str(form[c.key])}
+              onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))}
+              disabled={fieldReadonly(c)}
+            />
           ) : c.linkMulti && (c.type === 'link' || c.type === 'person') ? (
             (() => {
               const cur = Array.isArray(form[c.key])
@@ -2123,7 +2135,10 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                             ? <Link href={studentDetailHref(row)} style={{ color: 'var(--accent)', fontWeight: 600 }}>{studentLabel(str(row[c.key]), row[STUDENT_ENGLISH_KEY])}</Link>
                             : c.render
                               ? c.render(row[c.key], row)
-                              : (c.type === 'student' || c.type === 'studentLink'
+                              // 色值列：色块 + 色值。默认长相收口在这里（各模块别再自己写一份）
+                              : c.type === 'color'
+                                ? <ColorChip value={str(row[c.key])} />
+                                : (c.type === 'student' || c.type === 'studentLink'
                                 ? studentLabel(str(row[c.key]), row[STUDENT_ENGLISH_KEY])
                                 : (c.openRecord
                                   /**

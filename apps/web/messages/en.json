@@ -306,7 +306,11 @@
     "noOptions": "No options",
     "noneSelected": "None selected",
     "expand": "Expand",
-    "collapse": "Collapse"
+    "collapse": "Collapse",
+    "pickColor": "Pick a colour",
+    "customColor": "Custom…",
+    "clearColor": "Clear",
+    "invalidColor": "Not a valid colour (use #RGB or #RRGGBB)"
   },
   "ai": {
     "config": {
@@ -3027,7 +3031,7 @@
     "colExamTypeCounted": "Counts to Term",
     "colDesc": "Description",
     "hintExamTypeName": "Unique. e.g. Homework / Quiz / Unit Test / Midterm Exam / Final Exam / Project. Markbook columns pick from this list, so weight matching never breaks on spelling",
-    "hintExamTypeColor": "Hex colour, e.g. #4ECDC4. Used for the markbook column header swatch",
+    "hintExamTypeColor": "Click the swatch to pick from the palette, or type #RRGGBB. The markbook column header uses it as a colour block",
     "hintExamTypeWeight": "Global default for the second-layer weight, multiplied by the column weight. Per-class overrides live in Markbook Type Weights",
     "hintExamTypeCounted": "Set to No to exclude the whole category from the term grade (e.g. Classwork) while still recording it",
     "hintExamTypeSort": "Controls the order of type groups in the markbook header",

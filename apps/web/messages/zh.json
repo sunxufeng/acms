@@ -306,7 +306,11 @@
     "noOptions": "暂无可选项",
     "noneSelected": "未选择",
     "expand": "展开",
-    "collapse": "收起"
+    "collapse": "收起",
+    "pickColor": "选择颜色",
+    "customColor": "自定义…",
+    "clearColor": "清除颜色",
+    "invalidColor": "不是合法色值（支持 #RGB / #RRGGBB）"
   },
   "ai": {
     "config": {
@@ -3027,7 +3031,7 @@
     "colExamTypeCounted": "计入总评",
     "colDesc": "说明",
     "hintExamTypeName": "唯一。如 作业 / 小测 / 阶段测试 / 期中考试 / 期末考试 / 项目。成绩册列从这里下拉选择，避免手写出现多种叫法导致权重匹配不上",
-    "hintExamTypeColor": "色值，如 #4ECDC4。成绩册列头用它出色块",
+    "hintExamTypeColor": "点左侧色块从色板里选，也可以直接输入 #RRGGBB。成绩册列头用它出色块",
     "hintExamTypeWeight": "第二层权重的全局缺省，与列上的「列权重」相乘。按教学班覆盖请用「成绩类型权重」表",
     "hintExamTypeCounted": "设为「否」的整类不进期末总评（如随堂练习），可以放心录进成绩册留痕",
     "hintExamTypeSort": "决定成绩册列头的类型顺序",

@@ -45,18 +45,14 @@ export default function ExamTypesPage() {
       label: t('colExamTypeColor'),
       width: '130px',
       form: true,
-      type: 'text',
+      /**
+       * 色值字段用 `color` 类型 = **色板点选 + 手输 + 系统取色器**（组件见 components/ColorPicker.tsx）。
+       * 原先是纯文本框：要自己记住并打出 `#4ECDC4`，打错**不报错**，
+       * 只是成绩册列头不出色块 —— 看起来像功能坏了，其实是色值不合法。
+       * 列表里的「色块 + 色值」由 CrudPage 的默认渲染统一给出，不必在这写 render。
+       */
+      type: 'color',
       hint: t('hintExamTypeColor'),
-      render: (v) => {
-        const c = String(v ?? '').trim();
-        if (!c) return <span className="muted">—</span>;
-        return (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <i style={{ width: 14, height: 14, borderRadius: 4, background: c, display: 'block', flex: '0 0 14px' }} />
-            <span className="muted" style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5 }}>{c}</span>
-          </span>
-        );
-      },
     },
     {
       key: '缺省权重',

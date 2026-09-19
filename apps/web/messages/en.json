@@ -130,7 +130,23 @@
     "submit": "Submit",
     "submitting": "Submitting…",
     "submitted": "Submitted. The teacher will follow up shortly",
-    "submitFailed": "Failed to submit"
+    "submitFailed": "Failed to submit",
+    "parentPhone": "Parent phone (optional; required to manage multiple children)",
+    "parentTitle": "Parent Portal",
+    "addChild": "Add child",
+    "addChildTitle": "Add a Child",
+    "addChildDesc": "Bind another child with their student No. and name. Use the same parent phone as before so both children stay under one account.",
+    "back": "Back",
+    "tabAttendance": "Attendance",
+    "tabGrades": "Grades",
+    "tabHomework": "Homework",
+    "tabComms": "Communication",
+    "tabFeedback": "Feedback",
+    "noGrades": "No grades yet",
+    "noHomework": "No homework yet",
+    "noComms": "No communication records yet",
+    "score": "Score",
+    "level": "Level"
   },
   "topbar": {
     "campus": "Main Campus",
@@ -2548,7 +2564,9 @@
     "人已单独设置个人密级，其实际密级以个人值为准，此处上限对他们不生效。": "have a personal level set, which takes precedence over this cap — the cap does not apply to them.",
     "其中": "Of them,",
     "人的个人密级高于此处上限。": "have a personal level above this cap.",
-    "（当前无人覆盖，此处上限对全部成员生效）": "(Nobody overrides it — this cap applies to all members.)"
+    "（当前无人覆盖，此处上限对全部成员生效）": "(Nobody overrides it — this cap applies to all members.)",
+    "是否达标": "Attained",
+    "得分": "Score"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",
@@ -2605,7 +2623,9 @@
     "emptyTeachers": "No teachers yet",
     "emptyAttendance": "No attendance records yet",
     "distanceMeters": "Distance (m)",
-    "result": "Result"
+    "result": "Result",
+    "emptyHomework": "No homework yet",
+    "emptyComms": "No communication records yet"
   },
   "settings": {
     "builtIn": "Built-in",

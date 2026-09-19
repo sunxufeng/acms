@@ -18,9 +18,19 @@ export class PortalController {
     return this.svc.me(userOf(req));
   }
 
-  /** 学业成绩（只读） */
+  /** 学业成绩（只读，仅「学生可见=是」的格子） */
   @Get('grades') grades(@Req() req: Request) {
     return this.svc.grades(userOf(req));
+  }
+
+  /** 作业布置（只读，需教案已发布 + 学生可见） */
+  @Get('homework') homework(@Req() req: Request) {
+    return this.svc.homework(userOf(req));
+  }
+
+  /** 家校沟通记录（只读，仅「家校沟通」类型） */
+  @Get('comms') comms(@Req() req: Request) {
+    return this.svc.comms(userOf(req));
   }
 
   /** 周课表 */

@@ -5,12 +5,15 @@ import { api } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
 import { useTranslations } from 'next-intl';
 
-type Tab = 'profile' | 'schedule' | 'grades' | 'teachers' | 'attendance';
+type Tab = 'profile' | 'schedule' | 'grades' | 'homework' | 'comms' | 'teachers' | 'attendance';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'profile', label: '本人档案' },
   { key: 'schedule', label: '周课表' },
   { key: 'grades', label: '成绩' },
+  // 作业与沟通记录（2026-09-19，issue #2）：只返回老师已对「学生可见」的内容
+  { key: 'homework', label: '作业' },
+  { key: 'comms', label: '沟通记录' },
   { key: 'teachers', label: '授课教师' },
   { key: 'attendance', label: '考勤' },
 ];
@@ -39,6 +42,8 @@ export default function PortalPage() {
   const [profile, setProfile] = useState<Record<string, unknown> | null>(null);
   const [schedule, setSchedule] = useState<Record<string, unknown>[]>([]);
   const [grades, setGrades] = useState<Record<string, unknown>[]>([]);
+  const [homework, setHomework] = useState<Record<string, unknown>[]>([]);
+  const [comms, setComms] = useState<Record<string, unknown>[]>([]);
   const [teachers, setTeachers] = useState<Record<string, unknown>[]>([]);
   const [attendances, setAttendances] = useState<Record<string, unknown>[]>([]);
   const [signing, setSigning] = useState(false);
@@ -66,6 +71,8 @@ export default function PortalPage() {
       if (t === 'profile') setProfile(await api.portalMe() as Record<string, unknown>);
       else if (t === 'schedule') setSchedule((await api.portalSchedule()).items);
       else if (t === 'grades') setGrades((await api.portalGrades()).items);
+      else if (t === 'homework') setHomework((await api.portalHomework()).items);
+      else if (t === 'comms') setComms((await api.portalComms()).items);
       else if (t === 'teachers') setTeachers((await api.portalTeachers()).items);
       else if (t === 'attendance') setAttendances((await api.portalAttendances()).items);
     } catch (e: unknown) {
@@ -181,23 +188,64 @@ export default function PortalPage() {
         </div>
       )}
 
+      {/* 成绩来自成绩册，且**只含教师勾了「学生可见」的格子**（查询层过滤，前端不再二次筛） */}
       {!loading && !error && tab === 'grades' && (
         <div className="data-table-wrap">
           <table className="data-table">
-            <thead><tr><th>{tl('学科')}</th><th>{tl('学期')}</th><th>{tl('考核类型')}</th><th>{tl('成绩')}</th><th>{tl('等级')}</th><th>{tl('任课教师')}</th><th>{tl('评语')}</th></tr></thead>
+            <thead><tr><th>{tl('考核')}</th><th>{tl('科目')}</th><th>{tl('考核日期')}</th><th>{tl('得分')}</th><th>{tl('满分')}</th><th>{tl('等级')}</th><th>{tl('是否达标')}</th><th>{tl('评语')}</th></tr></thead>
             <tbody>
               {grades.map((g, i) => (
                 <tr key={i}>
-                  <td>{val(g['学科'])}</td>
-                  <td>{val(g['学期'])}</td>
-                  <td>{val(g['考核类型'])}</td>
-                  <td>{val(g['成绩'])}</td>
-                  <td>{val(g['成绩等级'])}</td>
-                  <td>{val(g['任课教师'])}</td>
-                  <td>{val(g['教师评语'])}</td>
+                  <td>{val(g['列名称'])}</td>
+                  <td>{val(g['科目'])}</td>
+                  <td>{val(g['考核日期'])}</td>
+                  <td>{val(g['得分'])}</td>
+                  <td>{val(g['满分'])}</td>
+                  <td>{val(g['等级'])}</td>
+                  <td>{val(g['是否达标'])}</td>
+                  <td>{val(g['评语'])}</td>
                 </tr>
               ))}
-              {grades.length === 0 && <tr><td colSpan={7}><div className="empty-state"><div className="empty-state-text">{tp('emptyGrades')}</div></div></td></tr>}
+              {grades.length === 0 && <tr><td colSpan={8}><div className="empty-state"><div className="empty-state-text">{tp('emptyGrades')}</div></div></td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && !error && tab === 'homework' && (
+        <div className="data-table-wrap">
+          <table className="data-table">
+            <thead><tr><th>{tl('备课日期')}</th><th>{tl('课题')}</th><th>{tl('作业布置')}</th><th>{tl('教学班')}</th></tr></thead>
+            <tbody>
+              {homework.map((h, i) => (
+                <tr key={i}>
+                  <td>{val(h['备课日期'])}</td>
+                  <td>{val(h['课题'])}</td>
+                  <td>{val(h['作业布置'])}</td>
+                  <td>{val(h['教学班'])}</td>
+                </tr>
+              ))}
+              {homework.length === 0 && <tr><td colSpan={4}><div className="empty-state"><div className="empty-state-text">{tp('emptyHomework')}</div></div></td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && !error && tab === 'comms' && (
+        <div className="data-table-wrap">
+          <table className="data-table">
+            <thead><tr><th>{tl('沟通时间')}</th><th>{tl('沟通主题')}</th><th>{tl('沟通人')}</th><th>{tl('沟通总结')}</th><th>{tl('闭环状态')}</th></tr></thead>
+            <tbody>
+              {comms.map((c, i) => (
+                <tr key={i}>
+                  <td>{val(c['沟通时间'])}</td>
+                  <td>{val(c['沟通主题'])}</td>
+                  <td>{val(c['沟通人'])}</td>
+                  <td>{val(c['沟通总结'])}</td>
+                  <td>{val(c['闭环状态'])}</td>
+                </tr>
+              ))}
+              {comms.length === 0 && <tr><td colSpan={5}><div className="empty-state"><div className="empty-state-text">{tp('emptyComms')}</div></div></td></tr>}
             </tbody>
           </table>
         </div>

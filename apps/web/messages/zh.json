@@ -130,7 +130,23 @@
     "submit": "提交",
     "submitting": "提交中…",
     "submitted": "已提交，老师会尽快跟进",
-    "submitFailed": "提交失败"
+    "submitFailed": "提交失败",
+    "parentPhone": "家长手机号（选填，填了可在同一账号下管理多个子女）",
+    "parentTitle": "家长门户",
+    "addChild": "添加子女",
+    "addChildTitle": "添加子女",
+    "addChildDesc": "再绑定一个孩子的学号与姓名；绑好后可在此页面切换查看。请填写与上次相同的家长手机号，多个子女才会归到同一账号。",
+    "back": "返回",
+    "tabAttendance": "考勤",
+    "tabGrades": "成绩",
+    "tabHomework": "作业",
+    "tabComms": "沟通记录",
+    "tabFeedback": "反馈",
+    "noGrades": "暂无成绩",
+    "noHomework": "暂无作业",
+    "noComms": "暂无沟通记录",
+    "score": "得分",
+    "level": "等级"
   },
   "topbar": {
     "campus": "主校区",
@@ -2548,7 +2564,9 @@
     "人已单独设置个人密级，其实际密级以个人值为准，此处上限对他们不生效。": "人已单独设置个人密级，其实际密级以个人值为准，此处上限对他们不生效。",
     "其中": "其中",
     "人的个人密级高于此处上限。": "人的个人密级高于此处上限。",
-    "（当前无人覆盖，此处上限对全部成员生效）": "（当前无人覆盖，此处上限对全部成员生效）"
+    "（当前无人覆盖，此处上限对全部成员生效）": "（当前无人覆盖，此处上限对全部成员生效）",
+    "是否达标": "是否达标",
+    "得分": "得分"
   },
   "idp": {
     "idpPlanNotFound": "未找到该 IDP 方案",
@@ -2605,7 +2623,9 @@
     "emptyTeachers": "暂无授课教师",
     "emptyAttendance": "暂无考勤记录",
     "distanceMeters": "距离(米)",
-    "result": "结果"
+    "result": "结果",
+    "emptyHomework": "暂无作业",
+    "emptyComms": "暂无沟通记录"
   },
   "settings": {
     "builtIn": "内置",

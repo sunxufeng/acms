@@ -16,8 +16,19 @@ export interface MobileBindCardProps {
   busy: boolean;
   /** 业务错误（网络/校验失败），由页面写入；组件内字段为空的提示优先级低于它 */
   error?: string;
-  /** 校验通过后的提交回调，收到已 trim 的学号与姓名 */
-  onSubmit: (studentNo: string, name: string) => void;
+  /**
+   * 校验通过后的提交回调，收到已 trim 的学号与姓名（第三个参数仅当 `showPhone` 时才有值）。
+   * 第三个参数是可选的，所以「不需要手机号」的调用方（学生登录）不用改签名。
+   */
+  onSubmit: (studentNo: string, name: string, phone?: string) => void;
+  /**
+   * 是否显示「家长手机号（选填）」（2026-09-19，issue #2 多子女）。
+   *
+   * 为什么手机号决定多子女：家长身份键取「手机号」时，同一家长下再绑第二个孩子
+   * 会自动进同一份子女名单，于是能切换。不填则维持历史行为（一个孩子一个身份）。
+   * 只在**家长绑定**场景打开；学生登录不需要，也不该被要求填家长手机号。
+   */
+  showPhone?: boolean;
   /** 卡片底部插槽，用于放「我是教职工？」之类的次要链接 */
   children?: React.ReactNode;
 }
@@ -46,11 +57,13 @@ export default function MobileBindCard({
   busy,
   error,
   onSubmit,
+  showPhone,
   children,
 }: MobileBindCardProps) {
   const t = useTranslations('bind');
   const [studentNo, setStudentNo] = useState('');
   const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   // 只表示「两个字段没填全」，业务错误由 error 传入，两者取其一展示
   const [fieldErr, setFieldErr] = useState('');
 
@@ -63,7 +76,7 @@ export default function MobileBindCard({
       setFieldErr(t('requiredFields'));
       return;
     }
-    onSubmit(no, nm);
+    onSubmit(no, nm, phone.trim() || undefined);
   }
 
   const shownError = error || fieldErr;
@@ -86,6 +99,16 @@ export default function MobileBindCard({
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
+        {showPhone && (
+          /* 选填：填了才能在同一账号下管理多个子女（家长身份按手机号聚合） */
+          <input
+            className="form-input mobile-field"
+            placeholder={t('parentPhone')}
+            inputMode="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+        )}
 
         {shownError && <p className="msg-error">{shownError}</p>}
 

@@ -59,6 +59,34 @@ export class SessionService {
     await this.redis.expire(this.prefix + sessionId, ttlSeconds);
   }
 
+  /**
+   * 只改会话**内容**、不动 TTL 与反向索引（家长端切换子女用）。
+   *
+   * 为什么需要它：`SessionGuard` 每请求都从 Redis 读会话体（`sessions.get`），
+   * 所以改了这里的内容**下一个请求立即生效**，不需要重新登录。
+   * 家长「切换子女」本质就是把会话里的「当前子女」换掉 —— 如果退回成"重新走一次 bind"，
+   * 每次切换都要用户重新输学号姓名，且会额外签发一堆会话。
+   *
+   * ⚠️ 三条边界：
+   *   1. `expiresAt` 保持原值（沿用旧 TTL 剩余秒数），否则切换会把会话续期成"新登录"，
+   *      活跃时段统计会出现一串假登录。
+   *   2. **不重建 `openid → sid` 索引**：openId 是登录身份，不随切换子女变化。
+   *   3. 身份模拟 / API 令牌会话（`impersonatedBy` / `limits`）**不允许**用它 ——
+   *      那类会话的身份由发起人固定，能改就等于模拟者可以自我提权。
+   */
+  async update(
+    sessionId: string,
+    patch: Partial<Omit<SessionUser, 'sessionId' | 'expiresAt'>>,
+  ): Promise<SessionUser | null> {
+    const cur = await this.get(sessionId);
+    if (!cur) return null;
+    if (cur.impersonatedBy || cur.limits) return null;
+    const merged: SessionUser = { ...cur, ...patch, sessionId: cur.sessionId, expiresAt: cur.expiresAt };
+    const ttl = await this.redis.ttl(this.prefix + sessionId);
+    await this.redis.set(this.prefix + sessionId, JSON.stringify(merged), 'EX', ttl > 0 ? ttl : 3600);
+    return merged;
+  }
+
   async destroy(sessionId: string): Promise<void> {
     const raw = await this.redis.get(this.prefix + sessionId);
     if (raw) {

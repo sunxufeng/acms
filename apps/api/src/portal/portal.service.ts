@@ -1,10 +1,21 @@
-import { Inject, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Inject, Injectable, ForbiddenException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
 import { BaseClient, toText } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
-import { BASE_CLIENT } from '../base.provider.js';
+import type { SqlStore } from '../sql-store/sql-store.js';
+import { BASE_CLIENT, getSqlStore } from '../base.provider.js';
 import { linkIds } from '../shared/record.util.js';
 import { SignService } from '../attendance/sign.service.js';
+import {
+  attendancesOf,
+  commsOf,
+  homeworkOf,
+  gradesOf,
+  type PortalAttendanceItem,
+  type PortalCommItem,
+  type PortalGradeItem,
+  type PortalHomeworkItem,
+} from './portal-queries.js';
 
 /** 学生自助门户一键打卡请求体（studentId 由会话解析，不暴露给前端） */
 export interface PortalSignDto {
@@ -19,6 +30,13 @@ export interface PortalSignDto {
 /**
  * 学生自助门户（M5）：以登录用户的 openId 映射到「学生档案表.飞书 Open ID」，
  * 所有查询严格限定到该学生本人（ABAC 仅本人隔离）；打卡写复用 SignService。
+ *
+ * 2026-09-19（issue #2）改动的两处口径：
+ *   1. **成绩不再读老「学业成绩表」**（它没有任何可见性字段），改读成绩册
+ *      （`markbookColumn` / `markbookEntry`），并**在查询层**套用「学生可见」开关 ——
+ *      否则老师没打算公开的格子会直接出现在学生手机上。
+ *   2. 新增**作业**与**家校沟通**两个自助查询，判据统一在 `portal-queries.ts`
+ *      （与家长端共用同一份，避免两端"看到的不一样"）。
  */
 @Injectable()
 export class PortalService {
@@ -64,20 +82,30 @@ export class PortalService {
     return obj;
   }
 
-  /** 学业成绩（只读，按关联学生过滤） */
-  async grades(user: SessionUser) {
+  /**
+   * 学业成绩（只读）。
+   *
+   * 🔴 口径：来自**成绩册**，且只回「学生可见 = 是」的格子（列与条目两级开关都要过）。
+   *    老「学业成绩表」不参与门户 —— 它没有可见性字段，读它等于绕过开关。
+   */
+  async grades(user: SessionUser): Promise<{ items: PortalGradeItem[]; total: number }> {
     const stu = await this.requireStudent(user);
-    const res = await this.base.search(TABLES.academicGrade.tableId, { pageSize: 200 });
-    const items = res.items
-      .filter((r) => linkIds(r.fields['关联学生编号']).includes(stu.id))
-      .map((r) => this.flatGrade(r.fields));
+    const items = await gradesOf(this.sql(), stu.id, 'student');
     return { items, total: items.length };
   }
 
-  private flatGrade(f: Record<string, unknown>) {
-    const o: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(f)) o[k] = toText(v);
-    return o;
+  /** 作业布置（只读，来自课时教案的「作业布置」，需「教案状态=已发布」+「学生可见=是」） */
+  async homework(user: SessionUser): Promise<{ items: PortalHomeworkItem[]; total: number }> {
+    const stu = await this.requireStudent(user);
+    const items = await homeworkOf(this.sql(), stu.id, 'student');
+    return { items, total: items.length };
+  }
+
+  /** 家校沟通记录（只读） */
+  async comms(user: SessionUser): Promise<{ items: PortalCommItem[]; total: number }> {
+    const stu = await this.requireStudent(user);
+    const items = await commsOf(this.sql(), stu.id);
+    return { items, total: items.length };
   }
 
   /** 周课表：录取关系 → 教学班 → 课次 */
@@ -175,31 +203,10 @@ export class PortalService {
     return { items, total: items.length };
   }
 
-  /** 本人考勤记录（只读，按关联学生过滤，最近 100 条倒序） */
-  async attendances(user: SessionUser) {
+  /** 本人考勤记录（只读，按关联学生过滤，倒序） */
+  async attendances(user: SessionUser): Promise<{ items: PortalAttendanceItem[]; total: number }> {
     const stu = await this.requireStudent(user);
-    const res = await this.base.search(TABLES.attendance.tableId, {
-      pageSize: 100,
-      filter: { conjunction: 'and', conditions: [{ field: '关联学生编号', value: [stu.id] }] },
-    });
-    const items = res.items
-      .map((r) => {
-        const f = r.fields;
-        const date = typeof f['考勤日期'] === 'string' ? (f['考勤日期'] as string).slice(0, 10) : '';
-        return {
-          id: r.recordId,
-          考勤日期: date,
-          方向: toText(f['方向']) ?? '',
-          考勤状态: toText(f['考勤状态']) ?? '',
-          签到方式: toText(f['签到方式']) ?? '',
-          校区: toText(f['校区']) ?? '',
-          到校时间: toText(f['到校时间']) ?? '',
-          离校时间: toText(f['离校时间']) ?? '',
-          签到距离: toText(f['签到距离(米)']) ?? '',
-          考勤结果: toText(f['考勤结果']) ?? '',
-        };
-      })
-      .sort((a, b) => `${b.考勤日期}${b.到校时间}`.localeCompare(`${a.考勤日期}${a.到校时间}`));
+    const items = await attendancesOf(this.sql(), stu.id);
     return { items, total: items.length };
   }
 
@@ -215,5 +222,18 @@ export class PortalService {
       at: dto.at,
       campus: dto.campus,
     });
+  }
+
+  /**
+   * 门户查询走 SqlStore（成绩册 / 教案 / 沟通记录都是 jsonb 表）。
+   *
+   * 生产 `SQL_TABLES=*` ⇒ 必然可用；本地或未启用 SQL 时返回空结果而不是抛错
+   * —— 门户是只读展示，宁可空列表也不能整个页面 500。
+   */
+  private sql(): SqlStore {
+    const sql = getSqlStore();
+    if (sql) return sql;
+    // 与 fetchAll 的签名对齐：给一个永远空的只读实现
+    return { search: async () => ({ items: [], hasMore: false }) } as unknown as SqlStore;
   }
 }

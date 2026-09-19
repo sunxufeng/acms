@@ -52,6 +52,18 @@ export interface SessionUser {
   /** 学生端/家长端会话：绑定的学生档案 record_id（同时作为关联学生编号的 link 值） */
   studentId?: string;
   /**
+   * 家长端会话：**本家长名下可切换的子女** record_id 列表（2026-09-19，issue #2 多子女）。
+   *
+   * 语义分工：
+   *   - `studentId`   = **当前选中**的子女（所有既有查询都读它，一行都不用改）
+   *   - `studentIds`  = 可切换的全集（只给「切换子女」用；为空/缺省 = 单子女，不显示切换器）
+   *
+   * 🔴 两者必须满足 `studentId ∈ studentIds`。切换接口只允许切到 `studentIds` 里的值 ——
+   *    若凭前端传来的 studentId 直接改会话，等于把"看哪个孩子"变成客户端可任选，
+   *    越权访问别的孩子档案。判定放在服务端（`ParentService.switchChild`）。
+   */
+  studentIds?: string[];
+  /**
    * 身份模拟（2026-09-16）：本会话由哪位系统管理员发起。缺省 = 本人真实登录。
    *
    * 存在的意义有两个：

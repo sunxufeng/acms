@@ -524,7 +524,12 @@ export const api = {
 
   // ── M5 学生自助门户 ─────────────────────────
   portalMe: () => request<Record<string, unknown>>('/portal/me'),
+  /** 成绩：来自**成绩册**，只含「学生可见 = 是」的格子（弹窗/列表口径见 api 侧 portal-queries） */
   portalGrades: () => request<{ items: Record<string, unknown>[]; total: number }>('/portal/grades'),
+  /** 作业布置：教案「作业布置」，需「教案状态 = 已发布」且「学生可见 = 是」 */
+  portalHomework: () => request<{ items: Record<string, unknown>[]; total: number }>('/portal/homework'),
+  /** 家校沟通记录：仅「家校沟通」类型，敏感级别高于「内部」的不返回 */
+  portalComms: () => request<{ items: Record<string, unknown>[]; total: number }>('/portal/comms'),
   portalSchedule: () => request<{ items: Record<string, unknown>[]; total: number; classes: string[] }>('/portal/schedule'),
   portalTeachers: () => request<{ items: Record<string, unknown>[]; total: number }>('/portal/teachers'),
 

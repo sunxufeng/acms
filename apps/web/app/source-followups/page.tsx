@@ -1,11 +1,19 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
 import { COLUMNS, contactName, parseSourceFollowupFromSummary } from './columns';
+// 操作列的录音播放（与学生记录共用同一套；逻辑见 lib/rowAudio）
+import { audioAttachmentsOf, attachmentAudioSrc, useRowAudio } from '../../lib/rowAudio';
+
+/**
+ * 招生跟进的录音存在**附件字段**里（「我的笔记」转出时把音频 token 写进这个字段）。
+ * 一条记录可能挂多个音频 —— 操作列的按钮播第 1 个，全部音频可在详情页逐个播放。
+ */
+const AUDIO_FIELD = '沟通附件清单';
 
 function str(v: unknown): string {
   if (v == null) return '';
@@ -18,6 +26,37 @@ function str(v: unknown): string {
 export default function SourceFollowupsPage() {
   const ts = useTranslations('students');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
+
+  /**
+   * 操作列的行内播放（有录音才出现）—— 与学生记录页同一套交互：
+   * 点一下就地播放、再点停止、点另一行自动切歌；播的是该行第 1 个音频。
+   */
+  const audioSrcOf = useCallback((row: Record<string, unknown>) => {
+    const first = audioAttachmentsOf(row, AUDIO_FIELD)[0];
+    return first?.file_token ? attachmentAudioSrc(first.file_token) : null;
+  }, []);
+  const { playingId, toggle: toggleRowAudio } = useRowAudio(audioSrcOf);
+
+  const renderAudioAction = (row: Record<string, unknown>) => {
+    const audios = audioAttachmentsOf(row, AUDIO_FIELD);
+    if (!audios.length) return null;
+    const playing = playingId === String(row.id ?? '');
+    const n = audios.length;
+    return (
+      <button
+        type="button"
+        className={playing ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+        title={playing ? ts('stop') : n > 1 ? ts('playAudioN', { n }) : ts('playAudio')}
+        // 行上还挂着「点击编辑」（沟通主题列 openRecord），不拦住冒泡会顺手打开表单
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleRowAudio(row);
+        }}
+      >
+        {playing ? `⏸ ${ts('stop')}` : `▶ ${ts('play')}`}
+      </button>
+    );
+  };
 
   // 按联系人聚合已选招生跟进记录，构建 AI 上下文
   const context = useMemo(() => {
@@ -73,6 +112,8 @@ export default function SourceFollowupsPage() {
         inlineEdit
         standaloneForm
         detailHref={(id) => `/source-followups/${id}`}
+        // 操作列：有录音就给「播放 / 停止」（与学生记录页同款，逻辑共用 lib/rowAudio）
+        rowActionSlot={renderAudioAction}
         selection
         onSelectionChange={setSelected}
         api={{

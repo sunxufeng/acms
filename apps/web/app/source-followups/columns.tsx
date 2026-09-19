@@ -107,6 +107,9 @@ export function studentName(row: Record<string, unknown>): string {
  *
  * 解析实现统一在 `lib/noteAutoFill.ts`（全站共用一套），这里只声明本模块的字段规则。
  * ⚠️ 只填当前为空的字段，笔记映射已写入或用户已改的值不覆盖。
+ *
+ * 「负责人」默认取**笔记归属人**（笔记是谁的，跟进人就该是谁），拿不到才回退当前登录用户
+ * （2026-09-19）—— 管理员代转别人的笔记时，用登录用户会把负责人写成自己。
  */
 const SPEC: NoteAutoFillSpec = {
   sourceKeys: ['沟通总结', '沟通明细'],
@@ -126,7 +129,7 @@ const SPEC: NoteAutoFillSpec = {
 
 export function parseSourceFollowupFromSummary(
   values: Record<string, unknown>,
-  ctx?: { userName?: string },
+  ctx?: { userName?: string; noteOwner?: string },
 ): Record<string, unknown> {
-  return enrichFromNotes(values, SPEC, { 跟进负责人: ctx?.userName ?? '' });
+  return enrichFromNotes(values, SPEC, { 跟进负责人: ctx?.noteOwner || ctx?.userName || '' });
 }

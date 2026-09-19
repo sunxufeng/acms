@@ -97,7 +97,6 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
         return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{studentLabel(name, row[STUDENT_ENGLISH_KEY])}</span>;
       },
     },
-    { key: '沟通人', label: w.person, width: '100px', form: true, type: 'person' },
     // 观察类不用「沟通方式」，用「观察类型」这个分类维度（沿用学生观察模块的既有做法）
     {
       key: '沟通方式',
@@ -150,6 +149,11 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
     // ── 公共字段 ────────────────────────────────────
     { key: '沟通主题', label: w.theme, width: '120px', form: true },
     { key: '沟通时间', label: w.time, width: '150px', form: true, type: 'datetime' },
+    // 「记录人」放在「时间」之后（2026-09-19 峰哥要求）：列表从左到右读成
+    // 「谁的学生 → 什么方式 → 什么事 → 什么时候 → 谁记的」，跟进人不是首要信息。
+    // ⚠️ 列顺序只影响列表；表单里的顺序仍由 `form` 列数组顺序决定（这里也跟着往后挪了一位，
+    //    因为同一份数组既管列表也管表单，若要拆开得另加 formOrder 之类的机制）。
+    { key: '沟通人', label: w.person, width: '100px', form: true, type: 'person' },
     { key: '沟通附件清单', label: '附件', width: '180px', list: false, form: true, type: 'attachment' },
     { key: '沟通时长(分钟)', label: '时长(分钟)', width: '130px', list: false, form: true, type: 'number' },
     { key: '沟通总结', label: w.summary, list: false, form: true, type: 'markdown' },
@@ -209,14 +213,14 @@ export function studentName(row: Record<string, unknown>): string {
 
 /**
  * 笔记转换落地时从「沟通总结」里再解析出结构化字段：
- *   时间 / 时长 / 主题；记录人默认取当前登录用户（笔记谁录的，记录人就是谁）。
- *   只填空字段，笔记映射已写入的值不覆盖。
+ *   时间 / 时长 / 主题；**记录人默认取「笔记归属人」**（笔记是谁的，记录人就该是谁），
+ *   只在拿不到归属人时才回退当前登录用户。只填空字段，笔记映射已写入的值不覆盖。
  *
  * 三类的字段名原本就相同（这也是能合并的原因），所以合并后共用同一份解析规则。
  */
 export function parseStudentRecordFromSummary(
   values: Record<string, unknown>,
-  ctx?: { userName?: string },
+  ctx?: { userName?: string; noteOwner?: string },
 ): Record<string, unknown> {
-  return enrichFromNotes(values, COMM_SPEC, { 沟通人: ctx?.userName ?? '' });
+  return enrichFromNotes(values, COMM_SPEC, { 沟通人: ctx?.noteOwner || ctx?.userName || '' });
 }

@@ -9,6 +9,8 @@ import { useTl } from '../lib/useTl';
 import { MODULE_RESOURCES } from '@acms/contracts';
 import { api as apiClient, type Page, type DictMeta } from '../lib/api';
 import MarkdownField from './MarkdownField';
+// 音频附件播放器：编辑表单与只读详情共用同一个组件
+import AudioAttachment from './AudioAttachment';
 import TagInput from './TagInput';
 import MapPicker from './MapPicker';
 import Combobox from './Combobox';
@@ -265,7 +267,7 @@ export interface CrudPageProps {
    */
   enrichPrefill?: (
     values: Record<string, unknown>,
-    ctx: { userName: string },
+    ctx: { userName: string; noteOwner?: string },
   ) => Record<string, unknown>;
   /** studentLink 列（关联学生姓名）点击跳转：传入行，返回目标 href（如学生档案页） */
   studentDetailHref?: (row: Record<string, unknown>) => string;
@@ -444,34 +446,12 @@ function attachmentFiles(
 }
 
 /**
- * 音频附件播放器（表单 / 详情共用；`/api/v1/files/:token` 已支持 Range，可拖进度条）。
+ * 音频附件播放器已抽到 `./AudioAttachment`（2026-09-19）—— 只读详情页（`CrudView`）也要用，
+ * 留在组件内部会变成「编辑表单能播、详情页只能下载」。
  *
  * ⚠️ 列表行的播放入口在**「操作」列**，由页面通过 `rowActionSlot` 渲染
  *    （见 `lib/rowAudio.ts` 的 `useRowAudio`：单实例 + ▶/⏸ 切换，不给每行挂 audio 元素）。
  */
-function AudioAttachment({ token, name }: { token: string; name?: string }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: 300 }}>
-      <audio
-        controls
-        preload="none"
-        src={`/api/v1/files/${encodeURIComponent(token)}`}
-        style={{ height: 30, maxWidth: 240 }}
-      />
-      {name && (
-        <a
-          href={`/api/v1/files/${encodeURIComponent(token)}`}
-          target="_blank"
-          rel="noreferrer"
-          style={{ color: 'var(--fg-tertiary)', fontSize: 11, whiteSpace: 'nowrap' }}
-          title={name}
-        >
-          原始文件
-        </a>
-      )}
-    </span>
-  );
-}
 
 function FilterSelect({
   label,
@@ -1219,13 +1199,14 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       ? { noteId: String(payload.noteId), noteTitle: String(payload.noteTitle ?? ''), moduleLabel: payload.label }
       : null;
     // 预填增强：让目标模块从长文本里再解析出结构化字段（解析失败就退回原值）。
-    // 先取登录用户名：沟通人/观察人这类字段的默认值就是当前用户（笔记谁录的，跟进人就是谁）。
+    // 「记录人 / 跟进负责人」这类字段的默认值优先取**笔记归属人**（笔记是谁的，跟进人就该是谁），
+    // 取不到才回退当前登录用户 —— 管理员代转别人的笔记时，用登录用户会把归属人写错。
     void (async () => {
       let values = payload.values ?? {};
       if (enrichPrefill) {
         const userName = await currentUserName();
         try {
-          values = enrichPrefill(values, { userName });
+          values = enrichPrefill(values, { userName, noteOwner: String(payload.noteOwner ?? '') });
         } catch {
           /* 解析失败不影响预填 */
         }

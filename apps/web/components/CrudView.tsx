@@ -2,6 +2,9 @@
 
 import type { CrudColumn } from './CrudPage';
 import Markdown from './Markdown';
+// 音频判据与播放器：与列表「操作」列、编辑表单共用同一套（判据只写一份）
+import AudioAttachment from './AudioAttachment';
+import { isAudioFile } from '../lib/rowAudio';
 
 /** 只读记录渲染器：用于「详情页」展示，不可修改。复用 CrudColumn 定义决定字段顺序与类型。 */
 export default function CrudView({ columns, record }: { columns: CrudColumn[]; record: Record<string, unknown> }) {
@@ -14,12 +17,18 @@ export default function CrudView({ columns, record }: { columns: CrudColumn[]; r
       const files = attachmentFiles(v);
       if (!files.length) return <span className="view-empty">—</span>;
       return (
-        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 8 }}>
-          {files.map((a, i) => (
-            <a key={a.file_token ?? i} href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" className="name-link">
-              {a.name}
-            </a>
-          ))}
+        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          {files.map((a, i) =>
+            // 音频给**内联播放器**而不是下载链接（2026-09-19 统一）：只给链接的话，
+            // 想听录音得先下载再找播放器；而且编辑表单里本来就有播放器，同一附件两种待遇说不过去
+            isAudioFile(a) ? (
+              <AudioAttachment key={a.file_token ?? i} token={a.file_token} name={a.name} />
+            ) : (
+              <a key={a.file_token ?? i} href={`/api/v1/files/${a.file_token}`} target="_blank" rel="noreferrer" className="name-link">
+                {a.name}
+              </a>
+            ),
+          )}
         </span>
       );
     }
@@ -67,12 +76,13 @@ function str(v: unknown): string {
   return String(v);
 }
 
-function attachmentFiles(v: unknown): { file_token: string; name: string }[] {
-  if (Array.isArray(v)) return v as { file_token: string; name: string }[];
+/** 附件项：`type` 要保留 —— 音频判定（isAudioFile）靠它，剥掉就只能按扩展名退化猜 */
+function attachmentFiles(v: unknown): { file_token: string; name: string; type?: string }[] {
+  if (Array.isArray(v)) return v as { file_token: string; name: string; type?: string }[];
   if (typeof v === 'string' && v.trim()) {
     try {
       const p = JSON.parse(v);
-      if (Array.isArray(p)) return p as { file_token: string; name: string }[];
+      if (Array.isArray(p)) return p as { file_token: string; name: string; type?: string }[];
     } catch {
       /* ignore */
     }

@@ -785,6 +785,9 @@ export default function GetnotePage() {
           values,
           noteId,
           noteTitle: String(note?.title ?? row.title ?? ''),
+          // 归属人一并发过去：目标模块的「记录人 / 负责人」默认值要用它，
+          // 不能用当前登录用户（管理员代转别人的笔记会写成自己）
+          noteOwner: String((note as { _owner?: unknown } | null)?._owner ?? row._owner ?? ''),
           logId,
         });
         router.push(`${target.href}?${CONVERT_QUERY_FLAG}=${CONVERT_QUERY_VALUE}`);

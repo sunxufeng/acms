@@ -34,6 +34,13 @@ export interface ConvertPayload {
   /** 来源笔记 id */
   noteId: string;
   noteTitle: string;
+  /**
+   * 来源笔记的**归属人**（列表/详情对象上的 `_owner`，形如「孙旭峰｜Richard」）。
+   *
+   * 用途：「记录人 / 负责人」这类字段的默认值取它，而**不是**当前登录用户 ——
+   * 管理员或同事代转别人的笔记时，用登录用户会把归属人写错（张冠李戴且不易察觉）。
+   */
+  noteOwner?: string;
   /** 留痕记录 id：目标页保存成功后要回填「转成了哪条记录」 */
   logId?: string;
   /** 写入时间戳，用于过期判断 */

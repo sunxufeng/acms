@@ -1,5 +1,7 @@
 'use client';
 
+import { Fragment } from 'react';
+
 import type { CrudColumn } from './CrudPage';
 import Markdown from './Markdown';
 // 音频判据与播放器：与列表「操作」列、编辑表单共用同一套（判据只写一份）
@@ -62,15 +64,36 @@ export default function CrudView({ columns, record }: { columns: CrudColumn[]; r
 
   return (
     <div className="crud-view">
-      {cols.map((c) => (
-        <div
-          key={c.key}
-          className="crud-view-field"
-          style={c.type === 'textarea' || c.type === 'markdown' ? { gridColumn: '1 / -1' } : undefined}
-        >
-          <div className="crud-view-label">{c.label}</div>
-          <div className="crud-view-value">{disp(c)}</div>
-        </div>
+      {cols.map((c, ci) => (
+        <Fragment key={c.key}>
+          {/* 分区标题：与上一列分区不同时插入一行（跨整行），与**编辑表单**同一套分区语义。
+              ⚠️ 比的是 `cols`（showIf 过滤后的实际渲染序列）而不是原始 columns：
+              拿 columns[ci-1] 比会在有隐藏字段时**索引错位**，标题会重复或该有却没有。
+              （表单侧此前就踩过这个坑，见 CrudPage 的 shownCols）
+              没有标 section 的模块不受影响（undefined 不渲染）。 */}
+          {c.section && c.section !== cols[ci - 1]?.section ? (
+            <div
+              style={{
+                gridColumn: '1 / -1',
+                marginTop: ci === 0 ? 0 : 'var(--space-md)',
+                paddingBottom: 6,
+                borderBottom: '1px solid var(--border)',
+                fontSize: 'var(--font-sm)',
+                fontWeight: 600,
+                color: 'var(--fg-secondary)',
+              }}
+            >
+              {c.section}
+            </div>
+          ) : null}
+          <div
+            className="crud-view-field"
+            style={c.type === 'textarea' || c.type === 'markdown' ? { gridColumn: '1 / -1' } : undefined}
+          >
+            <div className="crud-view-label">{c.label}</div>
+            <div className="crud-view-value">{disp(c)}</div>
+          </div>
+        </Fragment>
       ))}
     </div>
   );

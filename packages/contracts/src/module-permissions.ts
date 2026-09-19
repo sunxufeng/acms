@@ -86,6 +86,16 @@ export interface ModuleResource {
   /** 是否由通用 CRUD（GenericCrudModule.registerAll）承载，具备标准 /import 批量导入端点。
    *  仅用于前端 CrudPage 自动接线导入按钮，不影响鉴权（鉴权走 module:<key>:<action>）。 */
   genericCrud?: boolean;
+  /**
+   * **没有自己的菜单**、但要作为某个菜单的「子行」出现在权限矩阵里时，填该菜单对应的模块 key。
+   *
+   * 存在的理由（2026-09-19 修）：权限矩阵的行是「**菜单 → 模块**」按菜单 key 匹配生成的，
+   * 而报表页内每张报表（`reportOverview` 等）**不在侧边栏**（侧边栏只有「报表管理」一个入口）。
+   * 只把权限点登记进 `MODULE_RESOURCES` 是**不够的** —— 矩阵里根本生不出那一行，
+   * 于是「报表按角色授权」上线后管理员**找不到勾选的地方**，功能等于不可用。
+   * 填了本字段，矩阵会在该父菜单行下面渲染成缩进的子行。
+   */
+  subOf?: string;
 }
 
 const READ = ['enter', 'read', 'refresh'] as const;
@@ -160,6 +170,8 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
     legacyWrite: null,
     menuPermission: null,
     actions: READ,
+    // 报表没有自己的菜单 ⇒ 必须挂到「报表管理」下当子行，否则权限矩阵里看不到（见 subOf 注释）
+    subOf: 'reports',
   })),
   { key: 'mailAccounts', label: '邮件账户', path: '/mail-accounts', aliases: ['/export/mailAccount'], legacyRead: 'mail:read', legacyWrite: 'mail:write', menuPermission: 'mail:write', actions: RECORD },
   { key: 'mailArchive', label: '邮件归档', path: '/mail-archive', aliases: ['/export/mailArchive'], legacyRead: 'mail:read', legacyWrite: 'mail:write', menuPermission: 'mail:read', actions: [...READ, 'update', 'export'] },

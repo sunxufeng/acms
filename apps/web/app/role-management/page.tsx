@@ -132,6 +132,14 @@ interface MatrixRow {
   /** 无模块资源但有独立权限点时，用它当「进入菜单」的判据 */
   legacyPerm?: string;
   adminOnly: boolean;
+  /**
+   * 子行：本身**没有自己的菜单**，只是父菜单行下的一个「按项授权」开关
+   * （当前唯一用途 = 报表页内 11 张报表各自授权）。
+   *
+   * 子行不显示「进入菜单」勾选：它没有独立入口（入口是父菜单「报表管理」），
+   * 列出 `module:reportXxx:enter` 只会让管理员以为「勾了才能进报表页」。
+   */
+  sub?: boolean;
 }
 
 interface Draft {
@@ -338,9 +346,10 @@ export default function RoleManagementPage() {
    *   71 个模块**全部**有对应菜单 ⇒ 矩阵不会漏掉任何模块。
    */
   const matrixRows = useMemo<MatrixRow[]>(() => {
-    return orderedMenuItems.map((it) => {
+    const out: MatrixRow[] = [];
+    for (const it of orderedMenuItems) {
       const mod = moduleByMenuKey(it.key);
-      return {
+      out.push({
         key: it.key,
         label: it.label,
         section: it.section ?? '未分组',
@@ -348,8 +357,29 @@ export default function RoleManagementPage() {
         actions: (mod?.actions ?? []).filter((a) => a !== 'enter'),
         legacyPerm: mod ? undefined : it.perm,
         adminOnly: it.adminOnly === true,
-      };
-    });
+      });
+      /**
+       * 紧跟父行插入「子行」：没有自己菜单、但需要按项授权的模块（当前 = 报表页 11 张报表）。
+       *
+       * 🔴 这一段是必需的，不是锦上添花：矩阵行原本只由「菜单 → 模块」生成，
+       *    而报表不在侧边栏 ⇒ 11 个报表权限点**在界面上无处可勾**，
+       *    后端与前端都按权限点判定了，管理员却没地方配置，功能等于不可用
+       *    （2026-09-19 峰哥截图反馈的就是这个）。
+       */
+      if (!mod) continue;
+      for (const sub of MODULE_RESOURCES.filter((r) => r.subOf === mod.key)) {
+        out.push({
+          key: `${it.key}::${sub.key}`,
+          label: sub.label,
+          section: it.section ?? '未分组',
+          moduleKey: sub.key,
+          actions: sub.actions.filter((a) => a !== 'enter'),
+          adminOnly: false,
+          sub: true,
+        });
+      }
+    }
+    return out;
   }, [orderedMenuItems]);
 
   /**
@@ -379,6 +409,8 @@ export default function RoleManagementPage() {
    * 两者都没有 ⇒ adminOnly 项，不需要授权。
    */
   function rowEnterPerm(r: MatrixRow): Permission | undefined {
+    // 子行没有独立入口（入口是父菜单）⇒ 不产出 enter，避免「勾了才能进」的误导
+    if (r.sub) return undefined;
     if (r.moduleKey) return `module:${r.moduleKey}:enter` as Permission;
     return r.legacyPerm as Permission | undefined;
   }
@@ -1162,7 +1194,9 @@ export default function RoleManagementPage() {
                                         title={tl('整行全选')}
                                       />
                                     )}
-                                    <span>{r.label}</span>
+                                    <span style={r.sub ? { paddingLeft: 18, fontWeight: 400, color: 'var(--fg-secondary)' } : undefined}>
+                                      {r.sub ? `└ ${r.label}` : r.label}
+                                    </span>
                                     {r.adminOnly && <span className="tag tag-muted" style={{ fontSize: 10 }}>{tl('仅管理员')}</span>}
                                   </div>
                                 </td>
@@ -1248,7 +1282,9 @@ export default function RoleManagementPage() {
                                       onChange={(e) => toggleRowAll(r, e.target.checked)}
                                     />
                                   )}
-                                  <span>{r.label}</span>
+                                  <span style={r.sub ? { paddingLeft: 4, fontWeight: 400, color: 'var(--fg-secondary)' } : undefined}>
+                                    {r.sub ? `└ ${r.label}` : r.label}
+                                  </span>
                                   {r.adminOnly && <span className="tag tag-muted" style={{ fontSize: 10 }}>{tl('仅管理员')}</span>}
                                 </label>
                               </td>

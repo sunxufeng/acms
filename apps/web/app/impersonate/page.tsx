@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { useTranslations } from 'next-intl';
 import { api, type ImpersonateListResult, type ImpersonateUserRow } from '../../lib/api';
 import { resetPermissions } from '../../lib/permissions';
+import { useRoleLabels } from '../../components/RoleLabels';
 
 /**
  * 身份模拟（后台管理，2026-09-16）。**仅系统管理员**。
@@ -45,6 +46,14 @@ function hhmm(ts: number): string {
 
 export default function ImpersonatePage() {
   const t = useTranslations('impersonate');
+  /**
+   * 角色显示统一走 key → 展示名映射（`RoleLabels`）。
+   *
+   * ⚠️ 曾经这里直接渲染 `r`（角色标识），页面上会出现「Phase5」这种东西，
+   * 而同一个人名在**用户管理**页显示的是「后端老师-班主任-Pre3」—— 同一份数据两种长相。
+   * 凡是把角色呈现给用户的地方（列表标签、筛选下拉、导出、AI 上下文）一律用 labelOf。
+   */
+  const { labelOf } = useRoleLabels();
 
   const [phase, setPhase] = useState<Phase>('locked');
   const [blocked, setBlocked] = useState<Blocked>('');
@@ -198,9 +207,14 @@ export default function ImpersonatePage() {
     return (data?.users ?? []).filter((u) => {
       if (campus && u.campus !== campus) return false;
       if (role && !u.roles.includes(role)) return false;
-      if (kw && !`${u.name} ${u.teacherType} ${u.roles.join(' ')}`.toLowerCase().includes(kw)) return false;
+      // 关键字同时匹配**角色标识与展示名**：界面显示的是展示名（如「后端老师-班主任-Pre3」），
+      // 若只拿 key 去比，用户按屏幕上看到的字搜索会一个人都搜不到。
+      const roleText = u.roles.map((r) => `${r} ${labelOf(r)}`).join(' ');
+      if (kw && !`${u.name} ${u.teacherType} ${roleText}`.toLowerCase().includes(kw)) return false;
       return true;
     });
+    // labelOf 随 roleLabels 加载完成而变化，但只影响「搜得到/搜不到」，不进依赖也无副作用
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, campus, role, q]);
 
   // ── 渲染 ──────────────────────────────────────────────────────────
@@ -344,7 +358,7 @@ export default function ImpersonatePage() {
                 <option value="">{t('filterRole')}</option>
                 {allRoles.map((r) => (
                   <option key={r} value={r}>
-                    {r}
+                    {labelOf(r)}
                   </option>
                 ))}
               </select>
@@ -395,7 +409,7 @@ export default function ImpersonatePage() {
                           {u.roles.length ? (
                             u.roles.map((r) => (
                               <span key={r} className="imp-role">
-                                {r}
+                                {labelOf(r)}
                               </span>
                             ))
                           ) : (

@@ -2125,7 +2125,19 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                               ? c.render(row[c.key], row)
                               : (c.type === 'student' || c.type === 'studentLink'
                                 ? studentLabel(str(row[c.key]), row[STUDENT_ENGLISH_KEY])
-                                : cellText(row[c.key], c, tl, dictMeta)))}
+                                : (c.openRecord
+                                  /**
+                                   * 🔴 `openRecord` 列是可点进详情的，**必须给统一的链接样式**。
+                                   *
+                                   * 2026-09-19 修：此前只有「自己写了 render 的列」才有样式
+                                   * （学生记录的主题列手写了 `accent + 700`），而没写 render 的
+                                   * 列（招生跟进的「沟通主题」）虽然也能点，看上去却是普通文本 ——
+                                   * 同一件事两种长相，用户会以为「这个不能点/那个格式不对」。
+                                   * 收口在这里之后，凡 `openRecord` 的列自动一致；
+                                   * 列若自带 render（如联系人姓名、学生姓名），仍走自己的样式。
+                                   */
+                                  ? <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{cellText(row[c.key], c, tl, dictMeta)}</span>
+                                  : cellText(row[c.key], c, tl, dictMeta))))}
                     </td>
                   ))}
                   {showActions && (

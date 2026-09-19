@@ -1,6 +1,7 @@
 import { Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import type { SessionUser } from '@acms/contracts';
+import { modulePermission, REPORT_MODULE_KEYS } from '@acms/contracts';
 import { authorize } from '@acms/domain';
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { SessionGuard } from '../auth/session.guard.js';
@@ -19,13 +20,16 @@ export class WeilingController {
   }
 
   /**
-   * 「报表 → 招生分析」专用：认 `report:read` **或** `weiling:read`。
+   * 「报表 → 招生分析」专用：认 `module:reportWeiling:read` **或** `module:weilingContacts:read`。
    *
-   * 为什么要单独一条：`/weiling/analyze` 是**报表**的数据源，而「报表管理」菜单本身就是
-   * 由 `report:read` 管控的（`homepage.ts` 里 `/reports` 的 perm）。但原先它复用
+   * 为什么要单独一条：`/weiling/analyze` 是**报表**的数据源，而原先它复用
    * `requireRead`（只认 `weiling:read` —— 那是「联系人管理」模块的权限点），
    * 结果**除系统管理员外所有角色都能看见报表卡片、点进去却 403**
    * （2026-09-14 吴倩反馈；实测 8 个角色全中，全站只有系统管理员有 `weiling:read`）。
+   *
+   * 2026-09-19 起报表改为**按报表授权**：招生分析有自己的权限点 `module:reportWeiling:read`，
+   * 所以这里改认它。「联系人管理」的人（`module:weilingContacts:read`）仍可看分析 ——
+   * 他们本来就能看到线索明细，看聚合不构成越权。
    *
    * 收口原则：**能看见这张报表的人就该能取到它的数据**；
    * 而联系人明细（列表 / 详情 / 字段 / 同步）仍只认 `weiling:read` + `module:weilingContacts:read`，
@@ -33,8 +37,9 @@ export class WeilingController {
    */
   private static requireReportRead(user: SessionUser): void {
     const principal = { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
-    if (authorize(principal, 'module:reports:read').allowed || authorize(principal, 'module:weilingContacts:read').allowed) return;
-    throw new HttpException('FORBIDDEN:module:reports:read', HttpStatus.FORBIDDEN);
+    const need = modulePermission(REPORT_MODULE_KEYS.weiling, 'read');
+    if (authorize(principal, need).allowed || authorize(principal, 'module:weilingContacts:read').allowed) return;
+    throw new HttpException(`FORBIDDEN:${need}`, HttpStatus.FORBIDDEN);
   }
 
   /** 字段描述（中文名 + 枚举选项），前端用它渲染详情与翻译自定义字段 */

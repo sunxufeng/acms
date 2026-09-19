@@ -2,7 +2,14 @@ import { Inject, Injectable, ForbiddenException, Logger } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
 import { BaseClient } from '@acms/base-adapter';
-import { TABLES, USER_TABLE, NOTE_SOURCE_TYPES } from '@acms/contracts';
+import {
+  TABLES,
+  USER_TABLE,
+  NOTE_SOURCE_TYPES,
+  modulePermission,
+  REPORT_MODULE_KEYS,
+  type ReportKey,
+} from '@acms/contracts';
 import { BASE_CLIENT, getSqlStore } from '../base.provider.js';
 import { LoginLogService } from '../login-log/login-log.service.js';
 import { buildDedupGroups, toDedupRow, type DedupResult, type DedupRow } from './contact-dedup.js';
@@ -29,6 +36,21 @@ import {
 
 function toPrincipal(user: SessionUser): Principal {
   return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
+}
+
+/**
+ * 报表接口鉴权：**任一**报表权限即可（v3，2026-09-19）。
+ *
+ * 为什么是「任一」而不是一对一：
+ *   `/reports/students` 一个接口同时喂四张报表（学生结构概览 / 年级升级流向 / 入学趋势 /
+ *   档案完整度），拆成四个接口只为了对齐权限并不划算。角色被授予其中**任意一张**，
+ *   这个接口就放行 —— 前端只会渲染他有权限的那几张卡，不会因此多看到东西。
+ *
+ * 权限点来自 contracts 的 `REPORT_MODULE_KEYS`（单一真源），不要在这里手写字符串。
+ */
+function canSeeReport(user: SessionUser, keys: readonly ReportKey[]): boolean {
+  const principal = toPrincipal(user);
+  return keys.some((k) => authorize(principal, modulePermission(REPORT_MODULE_KEYS[k], 'read')).allowed);
 }
 
 /** 报表维度字段：保留真实值（分组统计与筛选需要） */
@@ -173,7 +195,7 @@ export class ReportsService {
    * 只返回维度字段真值 + 完整度占位符，不含姓名/联系方式等明细。
    */
   async studentRows(user: SessionUser, pageSize = 200) {
-    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+    if (!canSeeReport(user, ['overview', 'gradeFlow', 'trend', 'completeness'])) {
       throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
     const names = await this.personNameMap();
@@ -226,7 +248,7 @@ export class ReportsService {
     user: SessionUser,
     query: { level?: string; channel?: string; owner?: string; refresh?: string } = {},
   ): Promise<DedupResult> {
-    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+    if (!canSeeReport(user, ['dedup'])) {
       throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
     const rows = await this.dedupRows(query.refresh === '1');
@@ -250,7 +272,7 @@ export class ReportsService {
    * 系统里没有访问日志，也没有在线时长记录，所以这只反映「什么时候登录过、什么时候动过数据」。
    */
   async activity(user: SessionUser, query: { from?: string; to?: string } = {}) {
-    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+    if (!canSeeReport(user, ['activity'])) {
       throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
 
@@ -418,7 +440,7 @@ export class ReportsService {
    * 名字用**当前**的名字解析（用户表 / 配置表），老行没有 ID 时按名字兜底。
    */
   async notes(user: SessionUser, query: { from?: string; to?: string } = {}) {
-    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+    if (!canSeeReport(user, ['notes'])) {
       throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
 
@@ -901,7 +923,7 @@ export class ReportsService {
     user: SessionUser,
     opts: { batchId?: string; cls?: string; subject?: string } = {},
   ) {
-    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+    if (!canSeeReport(user, ['examDist'])) {
       throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
     const batches = await this.examBatchOptions();
@@ -996,7 +1018,7 @@ export class ReportsService {
    * 班级排名 = 同班内按加权 GPA 的竞赛排名（同 GPA 同名次、下一名跳号）。
    */
   async examGpaRank(user: SessionUser, opts: { batchId?: string; cls?: string } = {}) {
-    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+    if (!canSeeReport(user, ['examGpa'])) {
       throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
     const batches = await this.examBatchOptions();
@@ -1064,7 +1086,7 @@ export class ReportsService {
     user: SessionUser,
     query: { from?: string; to?: string; class?: string; grade?: string } = {},
   ): Promise<AttendanceReport> {
-    if (!authorize(toPrincipal(user), 'module:reports:read').allowed) {
+    if (!canSeeReport(user, ['attendance'])) {
       throw new ForbiddenException('FORBIDDEN:module:reports:read');
     }
     const idx = await this.attendanceIndex();

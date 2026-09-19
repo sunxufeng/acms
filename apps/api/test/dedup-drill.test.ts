@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEDUP_MODES,
+  buildDedupGroups,
   dedupMemberIds,
   type DedupRow,
 } from '../src/reports/contact-dedup.js';
@@ -100,12 +101,32 @@ describe('dedupMemberIds：四种模式下钻命中哪些记录', () => {
     expect(ids.has('e1')).toBe(false);
   });
 
-  it('likely → 强证据 + 较可信（滤掉仅同名的 C）', () => {
-    expect([...dedupMemberIds(rows, 'likely')].sort()).toEqual(['a1', 'a2', 'b1', 'b2']);
+  it('likely → **仅**较可信档（不是「较可信及以上」）', () => {
+    /**
+     * 🔴 2026-09-19 #570 核对时改正的语义。
+     * 报表页的分解说明按**档**列组数（强证据 25 / 较可信 14 / 仅参考 11），
+     * 所以每个下钻都必须只给**本档**的记录，否则点「较可信」看到的是
+     * 「强 + 较可信」的累计（线上实测 87 条 vs 该档应有多少条），数字对不上。
+     * ⚠️ 这与页面**列表**的「置信度」筛选（`BuildOptions.level`，'likely' = 较可信**及以上**）
+     *    是两套语义，别混。
+     */
+    expect([...dedupMemberIds(rows, 'likely')].sort()).toEqual(['b1', 'b2']);
   });
 
   it('strong → 只有强证据组', () => {
     expect([...dedupMemberIds(rows, 'strong')].sort()).toEqual(['a1', 'a2']);
+  });
+
+  it('🔴 weak → 只有最弱的「仅参考」组（2026-09-19 补）', () => {
+    /**
+     * 报表页的分解说明里写着「仅参考 N 组」，用户自然会想点进去看是谁 ——
+     * 而此前 `weak` **不在** `DEDUP_MODES` 里，接口层不认这个取值。
+     * 老实现的判定是 `if (... && DEDUP_MODES.has(mode))`，不认就整段跳过 ⇒
+     * **返回全表**（线上实测 3675 条，而该档实际只有 11 组 20 余条）——
+     * 画面上是「疑似重复 3675」这种大几十倍的假数字，比「少几条」更容易误导。
+     * 现在两件事都做了：weak 成为合法档位（这一条），且非法取值一律给空结果（见 generic-crud）。
+     */
+    expect([...dedupMemberIds(rows, 'weak')].sort()).toEqual(['c1', 'c2']);
   });
 
   it('mergeable → 每组去掉「建议保留」的那条（= 合并后可减少）', () => {
@@ -120,8 +141,30 @@ describe('dedupMemberIds：四种模式下钻命中哪些记录', () => {
     expect(all.size - canMerge.size).toBe(3);
   });
 
-  it('DEDUP_MODES 覆盖全部四个取值（接口层用它挡非法值）', () => {
-    expect([...DEDUP_MODES].sort()).toEqual(['all', 'likely', 'mergeable', 'strong']);
-    expect(DEDUP_MODES.has('weak')).toBe(false); // weak 不对外暴露：页面用 all 表达
+  it('DEDUP_MODES 覆盖全部五个取值（接口层用它挡非法值）', () => {
+    expect([...DEDUP_MODES].sort()).toEqual(['all', 'likely', 'mergeable', 'strong', 'weak']);
+    expect(DEDUP_MODES.has('weak')).toBe(true); // 「仅参考 N 组」也要能下钻
+    expect(DEDUP_MODES.has('bogus')).toBe(false);
+  });
+
+  it('🔴 下钻条数 == 报表各档的记录数（byLevelRecords）：卡片 hint 与列表 total 同口径', () => {
+    const { stats } = buildDedupGroups(rows);
+    // 组数（byLevel）与记录数（byLevelRecords）不是一个量级，两个都要对
+    expect(stats.byLevel).toEqual({ strong: 1, likely: 1, weak: 1 });
+    expect(stats.byLevelRecords).toEqual({ strong: 2, likely: 2, weak: 2 });
+    // 各档记录数之和 == 全部重复记录数
+    expect(stats.byLevelRecords.strong + stats.byLevelRecords.likely + stats.byLevelRecords.weak).toBe(stats.records);
+    // 关键：卡片的 hint 数字必须等于对应下钻的条数，否则用户会以为下钻漏数据
+    for (const [mode, level] of [
+      ['strong', 'strong'],
+      ['likely', 'likely'],
+      ['weak', 'weak'],
+    ] as const) {
+      expect(dedupMemberIds(rows, mode).size).toBe(stats.byLevelRecords[level]);
+    }
+    // 「涉及记录」卡 = all 下钻
+    expect(dedupMemberIds(rows, 'all').size).toBe(stats.records);
+    // 「合并后可减少」卡 = mergeable 下钻
+    expect(dedupMemberIds(rows, 'mergeable').size).toBe(stats.mergeable);
   });
 });

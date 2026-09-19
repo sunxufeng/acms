@@ -863,18 +863,35 @@ export class BaseRecordService {
       });
     }
 
-    // 「疑似重复」下钻（`?dedup=strong|likely|all|mergeable`，需 `meta.dedupParams`）。
+    // 「疑似重复」下钻（`?dedup=strong|likely|weak|all|mergeable`，需 `meta.dedupParams`）。
     // 「是否重复」不是字段而是报表当场算的（按姓名分桶 + 反证据），所以这里复用
     // `dedupMemberIds` —— 与页面那张卡片**同一份**分组逻辑，数字才能对齐。
-    if (this.meta.dedupParams && query.dedup && DEDUP_MODES.has(String(query.dedup))) {
-      // ⚠️ 在**全量 rows** 上算命中集合，不是在已过滤的 filtered 上：
-      //    报表卡片是全量口径（50 组 / 109 条），若先按渠道筛再分组，数字会变小，
-      //    用户会以为「点进去比卡片少」。其它筛选条件照旧按 AND 叠加在下面。
-      const ids = dedupMemberIds(
-        rows.map((r) => toDedupRow(String(r.id ?? ''), r)),
-        String(query.dedup) as DedupMode,
-      );
-      filtered = filtered.filter((r) => ids.has(String(r.id ?? '')));
+    if (this.meta.dedupParams && query.dedup) {
+      const mode = String(query.dedup);
+      if (!DEDUP_MODES.has(mode)) {
+        /**
+         * 🔴 非法取值**绝不能静默放行**（2026-09-19 #570 逐项核对时抓到）。
+         *
+         * 原来写法是 `if (... && DEDUP_MODES.has(mode))` —— 取值不认识就整段跳过，
+         * 结果 `?dedup=weak` 返回了**全表 3675 条**（真值只有 11 组 20 余条）。
+         * 用户看到的画面是「疑似重复 3675 条」这种**比卡片大几十倍**的数字，
+         * 与「少了若干条」同样是误导，而且更吓人。
+         * 现在给**空结果**：异常一眼可见，也不会伪造出一批「重复记录」。
+         */
+        console.warn(
+          `[dedup] 未知的 dedup 取值 "${mode}"（表 ${this.meta.path}）；合法值：${[...DEDUP_MODES].join('/')}。返回空结果。`,
+        );
+        filtered = [];
+      } else {
+        // ⚠️ 在**全量 rows** 上算命中集合，不是在已过滤的 filtered 上：
+        //    报表卡片是全量口径（50 组 / 109 条），若先按渠道筛再分组，数字会变小，
+        //    用户会以为「点进去比卡片少」。其它筛选条件照旧按 AND 叠加在下面。
+        const ids = dedupMemberIds(
+          rows.map((r) => toDedupRow(String(r.id ?? ''), r)),
+          mode as DedupMode,
+        );
+        filtered = filtered.filter((r) => ids.has(String(r.id ?? '')));
+      }
     }
 
     // 其余查询参数按字段等值过滤（如会议纪要按「会议类型 / 状态 / 部门」筛选）。

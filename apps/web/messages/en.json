@@ -938,6 +938,8 @@
     "copyNotBring": "Built-in and locked flags are not copied — the copy stays fully editable and deletable"
   },
   "labels": {
+    "暂无可用报表": "No reports available",
+    "报表已改为按报表授权：请联系系统管理员，在「角色管理」里为你的角色勾选需要的报表。": "Reports are now granted per report. Ask a system administrator to enable the ones your role needs under Role management.",
     "可见范围": "Visibility",
     "可见用户": "Visible Users",
     "可见部门": "Visible Departments",

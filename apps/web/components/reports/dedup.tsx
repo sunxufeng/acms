@@ -183,6 +183,7 @@ export function DedupPanel() {
       unit: '条',
       onClick: () => drill({ dedup: 'all' }),
       title: '点击查看联系人名单',
+      hint: `${tl('点进去看')} ${stats?.records ?? 0} ${tl('条联系人记录')}`,
     },
     {
       label: '合并后可减少',
@@ -190,6 +191,7 @@ export function DedupPanel() {
       unit: '条',
       onClick: () => drill({ dedup: 'mergeable' }),
       title: '点击查看可合并的记录',
+      hint: `${tl('点进去看')} ${stats?.mergeable ?? 0} ${tl('条联系人记录')}`,
     },
     {
       label: '其中强证据',
@@ -197,6 +199,15 @@ export function DedupPanel() {
       unit: '组',
       onClick: () => drill({ dedup: 'strong' }),
       title: '点击查看联系人名单',
+      /**
+       * 🔴 这张卡写的是**组数**，而点进去看到的是**记录数** —— 两个数字不是一个量级。
+       *
+       * 2026-09-19 #570 逐项核对时发现：四张卡里只有这张**没写 hint**，
+       * 于是「25 组」点进去看到 59 条，用户会以为下钻漏了数据（另两张组数卡早就写了）。
+       * 现在四张卡都写明「点进去看多少条」，数字取自后端 `byLevelRecords`，
+       * 与下钻接口的 total **同口径**（同一份分组逻辑算出来的，不会再漂移）。
+       */
+      hint: `${tl('点进去看')} ${stats?.byLevelRecords?.strong ?? 0} ${tl('条联系人记录')}`,
     },
   ];
 
@@ -294,9 +305,37 @@ export function DedupPanel() {
           }}
         >
           <span>
-            {tl('统计为全量口径')}：{tl('强证据')} {stats.byLevel.strong} · {tl('较可信')} {stats.byLevel.likely}
-            {' · '}
-            {tl('仅参考')} {stats.byLevel.weak}
+            {tl('统计为全量口径')}：
+            {/*
+              三个档的数字都做成**可点下钻**（2026-09-19 #570）。
+              原来这里是纯文本：用户看到「仅参考 11 组」却没有任何入口去看到底是谁，
+              而上面四张卡都能点 —— 同一页两套交互，是本次核对发现的又一处不一致。
+              点进去看到的条数 = 该档的 `byLevelRecords`（与下钻接口同口径，逐项对得上）。
+            */}
+            {([
+              ['strong', '强证据', stats.byLevel.strong, stats.byLevelRecords?.strong ?? 0],
+              ['likely', '较可信', stats.byLevel.likely, stats.byLevelRecords?.likely ?? 0],
+              ['weak', '仅参考', stats.byLevel.weak, stats.byLevelRecords?.weak ?? 0],
+            ] as const).map(([mode, label, groups, records], i) => (
+              <span key={mode}>
+                {i > 0 ? ' · ' : ''}
+                <button
+                  type="button"
+                  onClick={() => drill({ dedup: mode })}
+                  title={`${tl('点进去看')} ${records} ${tl('条联系人记录')}`}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--accent)',
+                    cursor: 'pointer',
+                    padding: 0,
+                    font: 'inherit',
+                  }}
+                >
+                  {tl(label)} {groups}
+                </button>
+              </span>
+            ))}
           </span>
           <span>{tl('列表默认只显示「较可信及以上」，少掉的那些就是「仅参考」')}</span>
           {level === 'all' ? (

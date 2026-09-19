@@ -73,7 +73,18 @@ export interface DedupStats {
   records: number;
   /** 合并后可减少的记录数 = records - groups */
   mergeable: number;
+  /** 各置信档的**组数** */
   byLevel: Record<DedupLevel, number>;
+  /**
+   * 各置信档的**记录数**（= 该档全部组的成员条数）。
+   *
+   * 为什么需要它（2026-09-19 补，#570 逐项核对时发现）：
+   *   卡片上写的是**组数**（「其中强证据 25 组」），而点进去看到的是**记录数**（59 条）。
+   *   两个数字天然不是一个量级，卡片若不写明「点进去看多少条」，用户必然以为下钻漏了数据
+   *   ——「疑似重复」那张卡早就写了 hint，但「其中强证据」漏了，于是它成了唯一一处对不上的。
+   *   有了这份映射，卡片 hint 能与下钻 total **逐项对齐**，同一个数字两处口径一致。
+   */
+  byLevelRecords: Record<DedupLevel, number>;
 }
 
 export interface DedupResult {
@@ -260,8 +271,14 @@ function keepScore(m: DedupMember): number {
 const LEVEL_ORDER: Record<DedupLevel, number> = { strong: 0, likely: 1, weak: 2 };
 
 export interface BuildOptions {
-  /** 'strong' 只给强证据；'likely'（默认）给强+较可信；'all' 全部 */
-  level?: 'strong' | 'likely' | 'all';
+  /**
+   * 档位过滤（**不是**「最低档」语义，别按 minLevel 去理解）：
+   *  - `'strong'` 只要强证据
+   *  - `'likely'`（默认）强 + 较可信，**排除**最弱的「仅参考」
+   *  - `'weak'`   只要最弱的「仅参考」一档（下钻「仅参考」用；2026-09-19 补）
+   *  - `'all'`    全部，不过滤
+   */
+  level?: 'strong' | 'likely' | 'weak' | 'all';
   channel?: string;
   owner?: string;
 }
@@ -279,6 +296,7 @@ export function buildDedupGroups(rows: DedupRow[], opts: BuildOptions = {}): Ded
     records: 0,
     mergeable: 0,
     byLevel: { strong: 0, likely: 0, weak: 0 },
+    byLevelRecords: { strong: 0, likely: 0, weak: 0 },
   };
 
   // 1) 按归一化姓名分桶（只有可用姓名参与）
@@ -319,6 +337,7 @@ export function buildDedupGroups(rows: DedupRow[], opts: BuildOptions = {}): Ded
 
   for (const g of all) {
     stats.byLevel[g.level] += 1;
+    stats.byLevelRecords[g.level] += g.members.length;
     stats.groups += 1;
     stats.records += g.members.length;
   }
@@ -337,10 +356,13 @@ export function buildDedupGroups(rows: DedupRow[], opts: BuildOptions = {}): Ded
   });
 
   // 4) 筛选（只影响列表，不影响上面的 stats）
-  const minLevel = opts.level ?? 'likely';
+  const level = opts.level ?? 'likely';
   const kept = all.filter((g) => {
-    if (minLevel === 'strong' && g.level !== 'strong') return false;
-    if (minLevel === 'likely' && g.level === 'weak') return false;
+    if (level === 'strong' && g.level !== 'strong') return false;
+    if (level === 'likely' && g.level === 'weak') return false;
+    // 'weak'：只看最弱一档（「仅参考」）。别写成 `g.level !== 'weak'` 之外的形式，
+    // 也别忘了这一支 —— 漏了会让 dedup=weak 静默退化成「不过滤」（返回全表）。
+    if (level === 'weak' && g.level !== 'weak') return false;
     if (opts.channel && !g.members.some((m) => m.channel === opts.channel)) return false;
     if (opts.owner && !g.members.some((m) => m.owner === opts.owner)) return false;
     return true;
@@ -355,11 +377,13 @@ export function buildDedupGroups(rows: DedupRow[], opts: BuildOptions = {}): Ded
 }
 
 /** 「疑似重复」下钻的取值：与页面置信度档位一一对应，外加「合并后可减少」 */
-export type DedupMode = 'strong' | 'likely' | 'all' | 'mergeable';
+export type DedupMode = 'strong' | 'likely' | 'weak' | 'all' | 'mergeable';
 
 export const DEDUP_MODES: ReadonlySet<string> = new Set<string>([
   'strong',
   'likely',
+  // 「仅参考」这一档也要能下钻：报表页把它列在分解说明里，用户会想点进去看是谁
+  'weak',
   'all',
   'mergeable',
 ]);
@@ -372,18 +396,30 @@ export const DEDUP_MODES: ReadonlySet<string> = new Set<string>([
  * 才能保证「卡片显示 50 组 / 点进去多少条」两处口径一致 ——
  * 各写一份必然漂移，症状就是技能里记过的「下钻数字比卡片少若干」。
  *
- * 语义：
- *   - `strong` / `likely` / `all` → 对应置信档位下的**全部**组成员
- *   - `mergeable`                → 组内 `keep=false` 的那些（=「合并后可减少」的记录数）
+ * 语义（🔴 2026-09-19 #570 逐项核对后**统一**，每个取值恰好对应报表上的一个数字）：
+ *   - `all`        → `stats.records`            （涉及记录）
+ *   - `strong`     → `stats.byLevelRecords.strong`（仅强证据档）
+ *   - `likely`     → `stats.byLevelRecords.likely`（仅较可信档）
+ *   - `weak`       → `stats.byLevelRecords.weak`  （仅参考档）
+ *   - `mergeable`  → `stats.mergeable`          （合并后可减少，= 组内 keep=false 的那些）
+ *
+ * ⚠️ **这里不是 `BuildOptions.level` 的那套过滤**：那个是「档位门槛」语义
+ *   （`'likely'` = 较可信**及以上**，页面列表默认就用它），而本函数是「下钻到某一档」。
+ *   早先直接透传给 `buildDedupGroups`，导致 `dedup=likely` 下钻出来的是
+ *   **强 + 较可信的累计**（实测 87 条），而报表上写的是「较可信 14 组」——
+ *   数字对不上，正是 #570 要消除的那类不一致。
+ *   所以下面一律先拿**全部分组**，再按档位自己筛。
  *
  * ⚠️ 调用方必须在**全量行**上算，不要把列表其它筛选的结果传进来 ——
  *    「先按渠道筛、再分组」会得到比卡片更小的数字，用户会以为下钻错了。
  */
 export function dedupMemberIds(rows: DedupRow[], mode: DedupMode): Set<string> {
-  const level = mode === 'mergeable' ? 'all' : mode;
-  const { groups } = buildDedupGroups(rows, { level });
+  // 「合并后可减少」不是某一档，而是各组去掉「建议保留」那条 ⇒ 用全部分组
+  const { groups } = buildDedupGroups(rows, { level: 'all' });
   const out = new Set<string>();
   for (const g of groups) {
+    // 档位过滤：all/mergeable 不过滤；其余只收**本档**的组
+    if (mode !== 'all' && mode !== 'mergeable' && g.level !== mode) continue;
     for (const m of g.members) {
       if (mode === 'mergeable' && m.keep) continue;
       out.add(m.id);

@@ -273,7 +273,14 @@ export interface ContactDedupResult {
     groups: number;
     records: number;
     mergeable: number;
+    /** 各置信档的**组数** */
     byLevel: Record<DedupLevel, number>;
+    /**
+     * 各置信档的**记录数**（= 该档全部组的成员条数）。
+     * 卡片上写的是组数，点进去看到的是记录数 —— 有了它卡片才能写明「点进去看多少条」，
+     * 否则两个数字天然对不上（2026-09-19 补）。
+     */
+    byLevelRecords: Record<DedupLevel, number>;
   };
   groups: DedupGroup[];
   filterOptions: { channels: string[]; owners: string[] };

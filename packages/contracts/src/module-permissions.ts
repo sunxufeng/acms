@@ -13,7 +13,58 @@ export const MODULE_ACTION_LABELS = {
 
 export type ModuleAction = keyof typeof MODULE_ACTION_LABELS;
 export type ModulePermission = `module:${string}:${ModuleAction}`;
-export const ROLE_PERMISSION_VERSION = 2;
+/**
+ * 角色权限矩阵版本。改动「权限点目录」时必须 +1，否则存量角色不会走迁移、新权限点永远是空的。
+ *
+ * v3（2026-09-19）：新增**报表级**权限点（见 `REPORT_MODULE_KEYS`）——
+ *   报表管理原先只有一个 `module:reports:read`，于是「能看到学生结构概览」的人
+ *   必然也「能看到成绩排名、考勤、活跃时段」，角色里无法区分。
+ *   迁移依据是 **`module:reports:read`**（不是裸 `report:read`）：生产实测 12 个角色
+ *   都持有前者，而裸权限只剩 5 个角色还留着 —— 用裸权限做依据，
+ *   Phase2~8 会在升级后**静默失去所有报表**。
+ */
+export const ROLE_PERMISSION_VERSION = 3;
+
+/**
+ * 报表 key → 模块 key（报表页内每张报表一个权限点）。
+ *
+ * 为什么单独列出来：报表不在侧边栏（侧边栏只有「报表管理」一个入口），
+ * 但**用户要按报表授权**，所以每个报表在权限矩阵里占一行。
+ * 前端拿它算「这张卡我能不能看」，后端拿它挡接口 —— 单一真源，不各写一份。
+ *
+ * ⚠️ 这**不是**导航菜单：`MODULE_RESOURCES` 里的这些条目只用于权限矩阵与鉴权，
+ *    不参与 `AppShell` 的菜单渲染（菜单来自 `homepage` 配置）。
+ */
+export const REPORT_MODULE_KEYS = {
+  overview: 'reportOverview',
+  gradeFlow: 'reportGradeFlow',
+  trend: 'reportTrend',
+  completeness: 'reportCompleteness',
+  weiling: 'reportWeiling',
+  dedup: 'reportDedup',
+  notes: 'reportNotes',
+  activity: 'reportActivity',
+  attendance: 'reportAttendance',
+  examDist: 'reportExamDist',
+  examGpa: 'reportExamGpa',
+} as const;
+
+export type ReportKey = keyof typeof REPORT_MODULE_KEYS;
+
+/** 报表展示名（权限矩阵里的行名 / 报表页卡片名共用同一份，避免两处措辞漂移） */
+export const REPORT_LABELS: Record<ReportKey, string> = {
+  overview: '学生结构概览',
+  gradeFlow: '年级升级流向',
+  trend: '入学趋势',
+  completeness: '档案完整度',
+  weiling: '招生分析',
+  dedup: '联系人去重',
+  notes: '笔记统计',
+  activity: '活跃时段',
+  attendance: '考勤分析',
+  examDist: '考试成绩分布',
+  examGpa: 'GPA 与班级排名',
+};
 
 export interface ModuleResource {
   /** 稳定标识：沿用 DEFAULT_NAV_MENU_CONFIG 的 key，而非接口路径。 */
@@ -87,6 +138,29 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'openPlatformApps', label: '开放平台', path: '/open-platform', legacyRead: 'openplatform:read', legacyWrite: 'openplatform:write', menuPermission: 'openplatform:read', actions: RECORD, genericCrud: true },
   { key: 'weilingContacts', label: '联系人管理', path: '/weiling-contacts', legacyRead: 'weiling:read', legacyWrite: 'weiling:write', menuPermission: 'weiling:read', actions: READ, genericCrud: true },
   { key: 'reports', label: '报表管理', path: '/reports', legacyRead: 'report:read', legacyWrite: null, menuPermission: 'report:read', actions: READ },
+  // ── 报表级权限（v3，2026-09-19）：每个报表一个权限点 ──
+  //
+  // 背景（峰哥要求）：报表管理原先只有一个 `module:reports:read`，
+  // 于是「能看学生结构概览」的人必然也能看成绩排名、考勤、活跃时段 —— 角色里无法区分。
+  //
+  // 🔴 `legacyRead` 这里填的是 **`module:reports:read`**（v2 之后的模块权限点，不是裸 `report:read`）：
+  //    生产实测 12 个角色**全部**持有 `module:reports:read`，而裸 `report:read` 只剩 5 个角色
+  //    （含 Phase1 / student / parent）。若按裸权限迁移，Phase2~8 会在升级瞬间静默丢掉全部报表。
+  //    `inheritModulePermissions` 只看「legacy.has(...)」，所以填哪个权限点就是按哪个继承。
+  //
+  // ⚠️ 这些条目**不是侧边栏菜单**（侧边栏只有「报表管理」一个入口）：
+  //    它们只出现在权限矩阵里供勾选，菜单渲染仍走 `homepage` 配置。
+  //    前端「这张报表我能不能看」用各自的 `read` 权限点判断，不要用 `enter` ——
+  //    `enter` 还要过角色的菜单白名单（历史角色多数有白名单），拿它判会误杀。
+  ...Object.entries(REPORT_MODULE_KEYS).map(([key, moduleKey]) => ({
+    key: moduleKey,
+    label: REPORT_LABELS[key as ReportKey] ?? moduleKey,
+    path: `/reports?report=${key}`,
+    legacyRead: 'module:reports:read',
+    legacyWrite: null,
+    menuPermission: null,
+    actions: READ,
+  })),
   { key: 'mailAccounts', label: '邮件账户', path: '/mail-accounts', aliases: ['/export/mailAccount'], legacyRead: 'mail:read', legacyWrite: 'mail:write', menuPermission: 'mail:write', actions: RECORD },
   { key: 'mailArchive', label: '邮件归档', path: '/mail-archive', aliases: ['/export/mailArchive'], legacyRead: 'mail:read', legacyWrite: 'mail:write', menuPermission: 'mail:read', actions: [...READ, 'update', 'export'] },
   { key: 'teachers', label: '教师档案', path: '/teachers', aliases: ['/export/teacherProfile'], legacyRead: 'teacher:read', legacyWrite: 'teacher:write', menuPermission: 'teacher:read', actions: RECORD, legacyActions: { delete: ['teacher:archive'] } },

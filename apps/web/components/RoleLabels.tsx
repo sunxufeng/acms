@@ -14,21 +14,39 @@ import { api } from '../lib/api';
  */
 let cache: Record<string, string> | null = null;
 let inflight: Promise<Record<string, string>> | null = null;
+/** 上次失败时间 —— 失败后短暂不再重试，避免每个用到角色的组件都重打一次接口 */
+let failedAt = 0;
+const RETRY_MS = 30_000;
 
+/**
+ * 🔴 **只有成功才写 cache**（2026-09-19 修）。
+ *
+ * 原实现是无条件 `cache = map` —— 一旦首次调用失败（或后端尚未载入角色配置、
+ * 返回空的 roleLabels），那个**空映射会被永久缓存**，于是整个会话里所有角色都退化成
+ * 显示角色标识（「Phase5」这种），且**再也不会重试**。
+ * 症状是「同一个人名，在用户管理页显示展示名、在别处显示标识」——
+ * 看起来像「两个页面写法不同」，实际是这份缓存被一次失败污染了。
+ */
 function loadLabels(): Promise<Record<string, string>> {
   if (cache) return Promise.resolve(cache);
   if (inflight) return inflight;
+  if (Date.now() - failedAt < RETRY_MS) return Promise.resolve({});
   inflight = (async () => {
     const map: Record<string, string> = {};
+    let ok = false;
     try {
       const d = await api.getPermissions();
-      if (d?.roleLabels) Object.assign(map, d.roleLabels);
+      if (d?.roleLabels && Object.keys(d.roleLabels).length) {
+        Object.assign(map, d.roleLabels);
+        ok = true;
+      }
     } catch {
-      /* 加载失败时回退到 key 本身 */
+      /* 保留未缓存状态，稍后重试 */
     } finally {
       inflight = null;
     }
-    cache = map;
+    if (ok) cache = map;
+    else failedAt = Date.now();
     return map;
   })();
   return inflight;

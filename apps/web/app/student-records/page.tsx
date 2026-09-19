@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
 import { STUDENT_RECORD_TYPE_FIELD, STUDENT_RECORD_TYPES } from '@acms/contracts';
 import { buildStudentRecordColumns, parseStudentRecordFromSummary, studentName } from './columns';
+import { audioAttachmentsOf, attachmentAudioSrc, useRowAudio } from '../../lib/rowAudio';
 
 function str(v: unknown): string {
   if (v == null) return '';
@@ -27,6 +28,12 @@ function str(v: unknown): string {
  * ⚠️ `extraParams` 必须用 useMemo 稳定住：CrudPage 把它放进了拉数据的依赖里，
  *    每次 render 新建一个对象字面量会导致**渲染死循环**（页面持续闪烁 + 每圈打一次接口）。
  */
+/**
+ * 沟通类记录的录音存在**附件字段**里（「我的笔记」转出时把音频 token 直接写进这个字段）。
+ * 一条记录可能挂多个音频 —— 操作列的按钮播第 1 个，全部音频可在详情页逐个播放。
+ */
+const AUDIO_FIELD = '沟通附件清单';
+
 export default function StudentRecordsPage() {
   const ts = useTranslations('students');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
@@ -59,6 +66,40 @@ export default function StudentRecordsPage() {
     () => ({ [STUDENT_RECORD_TYPE_FIELD]: activeType || '日常跟进' }),
     [activeType],
   );
+
+  /**
+   * 操作列的行内播放（有录音才出现）。
+   *
+   * 播的是该行**第 1 个**音频；多个音频时按钮带数量提示，全部音频可在详情页逐个播放。
+   * 播放地址走通用附件接口 `/api/v1/files/:token`（已支持 Range/206 + inline，
+   * 且按**文件头**嗅探真实容器 —— 上游同批录音 Ogg/Opus 与 MP3 混杂，写死 MIME 会静默不出声）。
+   */
+  const audioSrcOf = useCallback((row: Record<string, unknown>) => {
+    const first = audioAttachmentsOf(row, AUDIO_FIELD)[0];
+    return first?.file_token ? attachmentAudioSrc(first.file_token) : null;
+  }, []);
+  const { playingId, toggle: toggleRowAudio } = useRowAudio(audioSrcOf);
+
+  const renderAudioAction = (row: Record<string, unknown>) => {
+    const audios = audioAttachmentsOf(row, AUDIO_FIELD);
+    if (!audios.length) return null;
+    const playing = playingId === String(row.id ?? '');
+    const n = audios.length;
+    return (
+      <button
+        type="button"
+        className={playing ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+        title={playing ? ts('stop') : n > 1 ? ts('playAudioN', { n }) : ts('playAudio')}
+        // 行上还挂着「点击编辑」，不拦住冒泡会顺手打开编辑表单
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleRowAudio(row);
+        }}
+      >
+        {playing ? `⏸ ${ts('stop')}` : `▶ ${ts('play')}`}
+      </button>
+    );
+  };
 
   // AI 上下文：按学生聚合已选记录（与合并前三个页面同一套语义）
   const context = useMemo(() => {
@@ -137,6 +178,8 @@ export default function StudentRecordsPage() {
         inlineEdit
         standaloneForm
         detailHref={(id) => `/student-records/${id}`}
+        // 操作列：有录音就给「播放 / 停止」（与「我的笔记」同款交互，逻辑共用 lib/rowAudio）
+        rowActionSlot={renderAudioAction}
         selection
         onSelectionChange={setSelected}
         api={{

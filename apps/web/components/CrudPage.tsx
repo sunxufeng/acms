@@ -15,6 +15,9 @@ import Combobox from './Combobox';
 import Pagination from './Pagination';
 import { takeConvertPayload, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../lib/noteConvert';
 import { currentUserName } from '../lib/noteAutoFill';
+// 音频判定下沉到 lib/rowAudio（2026-09-19）：列表「操作」列的行内播放也要用同一判据，
+// 两处各写一份必然漂移（会出现「表单认它是音频、列表不认」）
+import { isAudioFile } from '../lib/rowAudio';
 // 仅用于转换场景的留痕回填（把新建出的业务记录 id 写回「笔记转换记录」）。
 // 注意组件内已有名为 api 的 prop，所以全局 api 必须起别名，否则会遮蔽。
 import { api as globalApi } from '../lib/api';
@@ -441,23 +444,11 @@ function attachmentFiles(
 }
 
 /**
- * 这个附件是不是音频 —— 决定渲染成**内联播放器**还是下载链接。
+ * 音频附件播放器（表单 / 详情共用；`/api/v1/files/:token` 已支持 Range，可拖进度条）。
  *
- * 为什么要判：从「我的笔记」转出到业务模块时，录音会作为附件写进目标记录的附件字段
- * （见 contracts 的 `NoteConvertTarget.audioField`）。只给一个下载链接的话，
- * 同事还得下载下来用本地播放器听，等于白转。
- *
- * 双判据：MIME 优先（`audio/*`），拿不到 MIME 就按扩展名 —— 历史音频的 MIME 曾
- * 被写死成 `audio/ogg`（其中 40 个实为 MP3），单看 MIME 会漏判，扩展名更可靠。
+ * ⚠️ 列表行的播放入口在**「操作」列**，由页面通过 `rowActionSlot` 渲染
+ *    （见 `lib/rowAudio.ts` 的 `useRowAudio`：单实例 + ▶/⏸ 切换，不给每行挂 audio 元素）。
  */
-function isAudioFile(f: { name?: string; type?: string }): boolean {
-  const mime = String(f.type ?? '').toLowerCase();
-  if (mime.startsWith('audio/')) return true;
-  const name = String(f.name ?? '').toLowerCase();
-  return /\.(ogg|oga|opus|mp3|m4a|mp4|aac|wav|flac|weba|webm|amr)$/.test(name);
-}
-
-/** 音频附件播放器（列表 / 表单共用；`/api/v1/files/:token` 已支持 Range，可拖进度条） */
 function AudioAttachment({ token, name }: { token: string; name?: string }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: 300 }}>

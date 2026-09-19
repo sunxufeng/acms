@@ -11,6 +11,8 @@ import type { NoteConvertTarget, NoteConvertLogItem, NoteConfigMapItem } from '@
 import { NOTE_SOURCE_TYPES, noteTagNames, splitNoteTags } from '@acms/contracts';
 import { putConvertPayload, formatConvertLogs, totalConvertCount, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../../lib/noteConvert';
 import { useTl } from '../../lib/useTl';
+// 行内播放（操作列 ▶/⏸）已抽成通用 hook，学生记录等附件字段的列表共用同一份逻辑
+import { useRowAudio } from '../../lib/rowAudio';
 import { useTranslations } from 'next-intl';
 
 /** 开放平台（用户去这里创建应用、拿 Client ID 与 API Key） */
@@ -500,57 +502,16 @@ export default function GetnotePage() {
   /**
    * 行内播放（列表「操作」列的播放 / 停止按钮）。
    *
-   * 用**单个 Audio 实例**而不是每行一个 `<audio>` 元素：一页 20 行就是 20 个播放器，
-   * 每个都挂着 100+ MB 的音频源，内存与网络开销不可接受（录音最长 3 小时 / 168 MB）。
-   * 同一时刻只允许一个在播 —— 点第二行即切歌，前一行自动停。
-   *
-   * `playingId` 只用于**按钮外观**（▶ 播放 / ⏸ 停止），真正的播放靠 `audioRef`。
-   * 组件卸载 / 切页时统一停掉，避免「页面走了还在响」。
+   * 逻辑已抽到 `lib/rowAudio.ts` 的 `useRowAudio`（2026-09-19）—— 学生记录等**附件字段**的列表
+   * 也要用同一套（单实例 + ▶/⏸ 切换），两处各写一份必然漂移。
+   * 这里只负责给出「播放地址怎么来」：笔记走**专用接口**（带笔记级可见性校验），
+   * 不是通用的 `/files/:token`。
    */
-  const rowAudioRef = useRef<HTMLAudioElement | null>(null);
-  const [playingId, setPlayingId] = useState('');
-
-  const stopRowAudio = useCallback(() => {
-    const el = rowAudioRef.current;
-    if (el) {
-      el.pause();
-      // 断开 src 才能让浏览器立刻释放这个（可能上百 MB 的）连接
-      el.removeAttribute('src');
-      el.load();
-      rowAudioRef.current = null;
-    }
-    setPlayingId('');
-  }, []);
-
-  const toggleRowAudio = useCallback(
-    (row: Record<string, unknown>) => {
-      const id = String(row.id ?? '');
-      if (!id) return;
-      // 再点同一行 = 停止
-      if (playingId === id) {
-        stopRowAudio();
-        return;
-      }
-      stopRowAudio();
-      const el = new Audio(audioSrc(id));
-      el.preload = 'auto';
-      const clear = () => {
-        if (rowAudioRef.current === el) rowAudioRef.current = null;
-        setPlayingId((cur) => (cur === id ? '' : cur));
-      };
-      el.onended = clear;
-      // 播放失败（接口 404 / 权限不足 / 格式不支持）也要把按钮复位，
-      // 否则会一直显示「停止」，用户以为还在播。
-      el.onerror = clear;
-      rowAudioRef.current = el;
-      setPlayingId(id);
-      void el.play().catch(clear);
-    },
-    [playingId, stopRowAudio],
+  const rowAudioSrcOf = useCallback(
+    (row: Record<string, unknown>) => audioSrc(String(row.id ?? '')),
+    [],
   );
-
-  // 离开页面时停掉正在播的录音
-  useEffect(() => () => stopRowAudio(), [stopRowAudio]);
+  const { playingId, toggle: toggleRowAudio } = useRowAudio(rowAudioSrcOf);
 
   // 笔记转换：候选目标模块 + 当前正在转换的笔记行
   const [convertTargets, setConvertTargets] = useState<NoteConvertTarget[]>([]);

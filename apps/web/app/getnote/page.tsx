@@ -788,6 +788,9 @@ export default function GetnotePage() {
           // 归属人一并发过去：目标模块的「记录人 / 负责人」默认值要用它，
           // 不能用当前登录用户（管理员代转别人的笔记会写成自己）
           noteOwner: String((note as { _owner?: unknown } | null)?._owner ?? row._owner ?? ''),
+          // 笔记创建时间：目标模块的「时间」类字段默认取它（毫秒时间戳）
+          noteCreatedAt:
+            Number((note as { created_at?: unknown } | null)?.created_at ?? row.created_at ?? 0) || undefined,
           logId,
         });
         router.push(`${target.href}?${CONVERT_QUERY_FLAG}=${CONVERT_QUERY_VALUE}`);

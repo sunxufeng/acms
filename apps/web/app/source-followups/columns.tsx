@@ -47,7 +47,9 @@ export const COLUMNS: CrudColumn[] = [
   { key: '跟进时间', label: '跟进时间', width: '150px', form: true, type: 'datetime', listOrder: 3 },
   { key: '跟进状态', label: '跟进状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '跟进状态', listOrder: 4 },
   { key: '活动类型', label: '活动类型', width: '110px', filter: true, form: true, type: 'select', dictKey: '活动类型', listOrder: 5 },
-  { key: '跟进负责人', label: '负责人', width: '110px', listOrder: 6 },
+  // ⚠️ 2026-09-19 峰哥要求：负责人要能在**新建/修改表单里看到并修改** ——
+  //    原先只配了 listOrder（列表可见）而没开 form，表单里根本找不到这个字段。
+  { key: '跟进负责人', label: '负责人', width: '110px', form: true, listOrder: 6 },
   { key: '付款状态', label: '付款状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '付款状态', list: false },
   // ── 参考家校沟通编辑页面新增的字段 ──
   // ⚠️ 非必填（2026-09-14 用户反馈）：招生阶段常常还没确认学生，「家长」跟着「关联学生」
@@ -127,9 +129,38 @@ const SPEC: NoteAutoFillSpec = {
   },
 };
 
+/**
+ * 笔记转换预填：主题 / 时间 / 负责人 的默认值。
+ *
+ *  - **沟通主题 ← 笔记标题**、**跟进时间 ← 笔记创建时间**（2026-09-19 峰哥要求）
+ *  - **负责人 ← 笔记归属人**（笔记是谁的，跟进人就该是谁），拿不到才回退登录用户
+ *
+ * 主题 / 时间**先塞进 values 再走 `enrichFromNotes`**，而不是当 `defaults` 传 ——
+ * `defaults` 是最低优先级（只在正文什么都没抽到时才填），而峰哥要的是「笔记标题就是主题」。
+ * 已存在的值一律不覆盖。
+ */
 export function parseSourceFollowupFromSummary(
   values: Record<string, unknown>,
-  ctx?: { userName?: string; noteOwner?: string },
+  ctx?: { userName?: string; noteOwner?: string; noteTitle?: string; noteCreatedAt?: number },
 ): Record<string, unknown> {
-  return enrichFromNotes(values, SPEC, { 跟进负责人: ctx?.noteOwner || ctx?.userName || '' });
+  const seeded: Record<string, unknown> = { ...values };
+  const has = (k: string) => String(seeded[k] ?? '').trim() !== '';
+  if (!has('沟通主题') && ctx?.noteTitle) seeded['沟通主题'] = ctx.noteTitle;
+  if (!has('跟进时间')) {
+    const dt = msToLocalDateTime(ctx?.noteCreatedAt);
+    if (dt) seeded['跟进时间'] = dt;
+  }
+  return enrichFromNotes(seeded, SPEC, { 跟进负责人: ctx?.noteOwner || ctx?.userName || '' });
+}
+
+/**
+ * 毫秒时间戳 → 本地时区的 `YYYY-MM-DDTHH:mm`。
+ * ⚠️ 不能用 `toISOString()`（那是 UTC，东八区差 8 小时）；`<input type="datetime-local">` 只认带 T 的格式。
+ */
+export function msToLocalDateTime(ms?: number): string {
+  const n = Number(ms ?? 0);
+  if (!n || Number.isNaN(n)) return '';
+  const d = new Date(n);
+  const p = (x: number) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }

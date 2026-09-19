@@ -267,7 +267,15 @@ export interface CrudPageProps {
    */
   enrichPrefill?: (
     values: Record<string, unknown>,
-    ctx: { userName: string; noteOwner?: string },
+    ctx: {
+      userName: string;
+      /** 源笔记归属人（`_owner`，会话姓名格式）——「记录人 / 负责人」类字段的默认值 */
+      noteOwner?: string;
+      /** 源笔记标题 —— 「主题 / 议题」类字段的默认值 */
+      noteTitle?: string;
+      /** 源笔记创建时间（毫秒时间戳）—— 「时间」类字段的默认值 */
+      noteCreatedAt?: number;
+    },
   ) => Record<string, unknown>;
   /** studentLink 列（关联学生姓名）点击跳转：传入行，返回目标 href（如学生档案页） */
   studentDetailHref?: (row: Record<string, unknown>) => string;
@@ -1199,14 +1207,19 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       ? { noteId: String(payload.noteId), noteTitle: String(payload.noteTitle ?? ''), moduleLabel: payload.label }
       : null;
     // 预填增强：让目标模块从长文本里再解析出结构化字段（解析失败就退回原值）。
-    // 「记录人 / 跟进负责人」这类字段的默认值优先取**笔记归属人**（笔记是谁的，跟进人就该是谁），
-    // 取不到才回退当前登录用户 —— 管理员代转别人的笔记时，用登录用户会把归属人写错。
+    // 「记录人 / 跟进负责人」默认取**笔记归属人**（笔记是谁的，跟进人就该是谁），
+    // 「主题 / 时间」默认取**笔记标题 / 笔记创建时间**，取不到才回退登录用户名与正文解析。
     void (async () => {
       let values = payload.values ?? {};
       if (enrichPrefill) {
         const userName = await currentUserName();
         try {
-          values = enrichPrefill(values, { userName, noteOwner: String(payload.noteOwner ?? '') });
+          values = enrichPrefill(values, {
+            userName,
+            noteOwner: String(payload.noteOwner ?? ''),
+            noteTitle: String(payload.noteTitle ?? ''),
+            noteCreatedAt: Number(payload.noteCreatedAt ?? 0) || undefined,
+          });
         } catch {
           /* 解析失败不影响预填 */
         }
@@ -1534,8 +1547,11 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     <div className="form-grid">
       {shownCols.map((c, ci) => (
         <Fragment key={c.key}>
-        {/* 分区标题：与上一列分区不同时插入一行（跨整行），让长表单分块可读 */}
-        {c.section && c.section !== formCols[ci - 1]?.section ? (
+        {/* 分区标题：与上一列分区不同时插入一行（跨整行），让长表单分块可读
+            ⚠️ 比的是 `shownCols`（过滤后的实际渲染序列）而不是 `formCols`：
+            拿 formCols[ci-1] 比会在有 showIf 隐藏字段时**索引错位** ——
+            学生记录这类「同一份列定义按类型显隐」的模块会表现成标题重复或该有标题却没有 */}
+        {c.section && c.section !== shownCols[ci - 1]?.section ? (
           <div
             style={{
               gridColumn: '1 / -1',

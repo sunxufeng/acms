@@ -9,7 +9,14 @@ import { isAudioFile } from '../lib/rowAudio';
 /** 只读记录渲染器：用于「详情页」展示，不可修改。复用 CrudColumn 定义决定字段顺序与类型。 */
 export default function CrudView({ columns, record }: { columns: CrudColumn[]; record: Record<string, unknown> }) {
   // 仅渲染在表单 / 列表中出现的字段（避免内部字段如 *_link 误显示）
-  const cols = columns.filter((c) => c.form || c.list !== false);
+  //
+  // ⚠️ 再叠一层 `showIf`：只读详情也要**按类型 / 条件只显示用得上的字段**。
+  // 学生记录这类「一份列定义按类型显隐」的模块，光看 form/list 会把 20 个字段全摊开、
+  // 一半是空的（日常跟进的详情里出现家长三件套、家校沟通里出现观察类型），整片「—」很难读。
+  // 这里传的是**已保存的记录**，与表单里传 form 是同一个语义。
+  const cols = columns.filter(
+    (c) => (c.form || c.list !== false) && (!c.showIf || c.showIf(record)),
+  );
 
   function disp(c: CrudColumn): React.ReactNode {
     const v = record[c.key];

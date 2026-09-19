@@ -1,26 +1,29 @@
+import Link from 'next/link';
 import type { CrudColumn } from '../../components/CrudPage';
 import { COMM_SPEC, enrichFromNotes } from '../../lib/noteAutoFill';
 import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
 import { STUDENT_RECORD_TYPES, STUDENT_RECORD_TYPE_FIELD } from '@acms/contracts';
 
 /**
- * 「学生记录」列定义（2026-09-18 三合一）。
+ * 「学生记录」列定义（2026-09-19 三合一的第二轮改版）。
  *
  * 一张表装着三类记录（日常跟进 / 家校沟通 / 学生观察），靠「记录类型」区分。
- * 两条设计线索，别混：
+ * 四条设计线索，别混：
  *
  *  ① **词表随类型切换**（表头措辞）：日常跟进与家校沟通用「沟通人 / 沟通主题 / 沟通时间」，
  *     学生观察用「观察人 / 主题 / 观察时间」，看「全部」时用中性词。
- *     实现方式是**按当前筛选的类型重新生成列**（见 `buildStudentRecordColumns(activeType)`），
- *     而不是给 CrudPage 加动态 label —— 后者要改 9 处消费点（表头 / 表单 / 筛选 / 导出），
- *     收益不抵风险。
+ *     实现方式是**按当前筛选的类型重新生成列**，而不是给 CrudPage 加动态 label。
  *
- *  ② **字段随类型显隐**（表单里出现什么）：用 CrudPage 既有的 `showIf`。
- *     ⚠️ 显隐只作用于**表单**；已填的值提交时照常提交，不会因为切类型被清空
- *     （CrudPage 的既有语义，避免「改成家校沟通再改回来」丢数据）。
+ *  ② **字段随类型显隐**：用 CrudPage 既有的 `showIf`。表单与**只读详情页**共用同一判据
+ *     （CrudView 也按 showIf 过滤），所以三种类型的界面看到的字段集合一致，风格统一。
  *
- * 数据库字段名一律保持「沟通X」不变 —— 只有**界面措辞**随类型走。这样既不用迁移字段，
- * 也复用了既有的字典同步逻辑（dict.service 按字段名找字典）。
+ *  ③ **列表顺序与表单顺序分离**：
+ *     - 列表列序由 `listOrder` 决定（峰哥要求：主题在最前，学生在它之后）
+ *     - 表单顺序由**数组顺序**决定，并按 `section` 分成四块
+ *     若混用一套顺序，就没法既满足「列表里主题第一」又满足「表单里主题排在类型/学生之后」。
+ *
+ *  ④ **数据库字段名一律保持「沟通X」不变**，只有**界面措辞**随类型走 ——
+ *     不用迁移字段，也复用了既有的字典同步逻辑（dict.service 按字段名找字典）。
  */
 
 /** 三类记录的类型值（真源在 contracts，与后端权限映射共用同一份） */
@@ -55,6 +58,12 @@ export function wordsForType(type?: string): TypeWords {
   return (type && WORDS[type]) || NEUTRAL_WORDS;
 }
 
+/** 表单分区标题（跨整行显示，让 20 个字段的长表单分块可读） */
+const SECTION_BASE = '基本信息';
+const SECTION_CONTENT = '沟通内容';
+const SECTION_PARENT = '家长反馈';
+const SECTION_CLOSE = '跟进闭环';
+
 /**
  * 生成列定义。
  * @param activeType 列表当前筛选的记录类型；'全部'/undefined 时用中性词表
@@ -68,37 +77,51 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
   const isObservation = (f: Record<string, unknown>) => f[STUDENT_RECORD_TYPE_FIELD] === '学生观察';
 
   return [
+    // ── 基本信息 ────────────────────────────────────
     {
-      // 记录类型放第一列：这是三类记录唯一的区分维度，不看它就看不懂这张列表。
       // ⚠️ 只在「全部」Tab 下显示该列（切到某一类型后所有行都一样，列没有信息量）；
       //    `filter` 关掉 —— 类型由页面顶部 Tab 控制，两套筛选并存会互相矛盾
       //    （筛选器说「学生观察」而 Tab 传的是「日常跟进」）。
       key: STUDENT_RECORD_TYPE_FIELD,
       label: '记录类型',
-      width: '110px',
+      width: '100px',
       form: true,
       type: 'select',
       dictKey: STUDENT_RECORD_TYPE_FIELD,
       required: true,
       list: !activeType,
+      listOrder: 3,
       filter: false,
+      section: SECTION_BASE,
     },
     {
+      // 学生列：点击进**学生档案**（不是本条记录 —— 那个入口在主题列上）。
+      // 需要 `关联学生编号` 关联字段有值，后端会解析出 `__link`（学生档案 id 数组）。
       key: '关联学生',
       label: '学生',
-      width: '180px',
+      width: '170px',
       form: true,
       type: 'student',
       required: true,
-      openRecord: true,
+      listOrder: 2,
+      section: SECTION_BASE,
       render: (_v, row) => {
         const name = studentName(row);
         if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-        return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{studentLabel(name, row[STUDENT_ENGLISH_KEY])}</span>;
+        const label = studentLabel(name, row[STUDENT_ENGLISH_KEY]);
+        const ids = row['关联学生编号__link'] as string[] | undefined;
+        const sid = Array.isArray(ids) ? ids[0] : '';
+        // 没关联到档案就不给链接 —— 点了跳到空列表比不给链接更让人困惑
+        if (!sid) return <span style={{ fontWeight: 700 }}>{label}</span>;
+        return (
+          <Link href={`/students/${sid}`} style={{ color: 'var(--accent)', fontWeight: 700 }}>
+            {label}
+          </Link>
+        );
       },
     },
-    // 观察类不用「沟通方式」，用「观察类型」这个分类维度（沿用学生观察模块的既有做法）
     {
+      // 观察类不用「沟通方式」，用「观察类型」这个分类维度（沿用学生观察模块的既有做法）
       key: '沟通方式',
       label: '沟通方式',
       width: '110px',
@@ -108,7 +131,9 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
       type: 'select',
       dictKey: '沟通方式',
       list: !onlyObservation,
+      listOrder: 4,
       showIf: (f) => !isObservation(f),
+      section: SECTION_BASE,
     },
     {
       key: '观察类型',
@@ -120,9 +145,31 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
       type: 'select',
       dictKey: '观察类型',
       list: onlyObservation,
+      listOrder: 4,
       showIf: isObservation,
+      section: SECTION_BASE,
     },
-    // ── 家校沟通专有 ────────────────────────────────
+    // ── 沟通内容（峰哥要求：这一组排在「家长反馈」之前）──
+    {
+      // 主题列：列表第一列，点击进**本条记录**详情（openRecord + 页面的 detailHref）。
+      key: '沟通主题',
+      label: w.theme,
+      width: '200px',
+      form: true,
+      openRecord: true,
+      listOrder: 1,
+      section: SECTION_CONTENT,
+      render: (v) => {
+        const txt = String(v ?? '').trim();
+        if (!txt) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
+        return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{txt}</span>;
+      },
+    },
+    { key: '沟通时间', label: w.time, width: '150px', form: true, type: 'datetime', listOrder: 5, section: SECTION_CONTENT },
+    { key: '沟通人', label: w.person, width: '100px', form: true, type: 'person', listOrder: 6, section: SECTION_CONTENT },
+    { key: '沟通附件清单', label: '附件', width: '180px', list: false, form: true, type: 'attachment', section: SECTION_CONTENT },
+    { key: '沟通时长(分钟)', label: '时长(分钟)', width: '130px', list: false, form: true, type: 'number', section: SECTION_CONTENT },
+    // ── 家长反馈（仅「家校沟通」类型出现）─────────────
     {
       key: '家长',
       label: '家长',
@@ -132,6 +179,7 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
       type: 'parent',
       dependsOn: '关联学生',
       showIf: isHomeSchool,
+      section: SECTION_PARENT,
     },
     {
       key: '家长反馈态度',
@@ -144,19 +192,11 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
       type: 'select',
       dictKey: '家长反馈态度',
       showIf: isHomeSchool,
+      section: SECTION_PARENT,
     },
-    { key: '家长反馈', label: '家长反馈', list: false, form: true, type: 'markdown', showIf: isHomeSchool },
-    // ── 公共字段 ────────────────────────────────────
-    { key: '沟通主题', label: w.theme, width: '120px', form: true },
-    { key: '沟通时间', label: w.time, width: '150px', form: true, type: 'datetime' },
-    // 「记录人」放在「时间」之后（2026-09-19 峰哥要求）：列表从左到右读成
-    // 「谁的学生 → 什么方式 → 什么事 → 什么时候 → 谁记的」，跟进人不是首要信息。
-    // ⚠️ 列顺序只影响列表；表单里的顺序仍由 `form` 列数组顺序决定（这里也跟着往后挪了一位，
-    //    因为同一份数组既管列表也管表单，若要拆开得另加 formOrder 之类的机制）。
-    { key: '沟通人', label: w.person, width: '100px', form: true, type: 'person' },
-    { key: '沟通附件清单', label: '附件', width: '180px', list: false, form: true, type: 'attachment' },
-    { key: '沟通时长(分钟)', label: '时长(分钟)', width: '130px', list: false, form: true, type: 'number' },
-    { key: '沟通总结', label: w.summary, list: false, form: true, type: 'markdown' },
+    { key: '家长反馈', label: '家长反馈', list: false, form: true, type: 'markdown', showIf: isHomeSchool, section: SECTION_PARENT },
+    // ── 跟进闭环 ────────────────────────────────────
+    { key: '沟通总结', label: w.summary, list: false, form: true, type: 'markdown', section: SECTION_CLOSE },
     {
       key: '沟通明细',
       label: w.detail,
@@ -166,11 +206,12 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
       // 原始记录属正式留痕，用专项权限控制：无 md:edit 只能浏览，无 md:import 不显示导入按钮
       mdEditPerm: 'md:edit',
       mdImportPerm: 'md:import',
+      section: SECTION_CLOSE,
     },
-    { key: '沟通人备注', label: w.note, list: false, form: true, type: 'markdown' },
-    { key: '待办事项', label: '待办事宜', list: false, form: true, type: 'textarea' },
-    { key: '责任人', label: '责任人', width: '110px', list: false, form: true, type: 'person' },
-    { key: '跟进截止日期', label: '截止时间', width: '130px', list: false, form: true, type: 'date' },
+    { key: '沟通人备注', label: w.note, list: false, form: true, type: 'markdown', section: SECTION_CLOSE },
+    { key: '待办事项', label: '待办事宜', list: false, form: true, type: 'textarea', section: SECTION_CLOSE },
+    { key: '责任人', label: '责任人', width: '110px', list: false, form: true, type: 'person', section: SECTION_CLOSE },
+    { key: '跟进截止日期', label: '截止时间', width: '130px', list: false, form: true, type: 'date', section: SECTION_CLOSE },
     {
       key: '闭环状态',
       label: '闭环状态',
@@ -181,8 +222,9 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
       form: true,
       type: 'select',
       dictKey: '家校闭环状态',
+      section: SECTION_CLOSE,
     },
-    { key: '闭环日期', label: '闭环日期', width: '130px', list: false, form: true, type: 'date' },
+    { key: '闭环日期', label: '闭环日期', width: '130px', list: false, form: true, type: 'date', section: SECTION_CLOSE },
     {
       key: '信息敏感级别',
       label: '敏感级别',
@@ -193,6 +235,7 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
       form: true,
       type: 'select',
       dictKey: '信息敏感级别',
+      section: SECTION_CLOSE,
     },
     // 关联字段：由后端在学生/监护人变化时回填，不在表单里手填（与合并前家校沟通一致）
     { key: '关联学生编号', label: '关联学生编号', list: false, form: false },
@@ -212,15 +255,40 @@ export function studentName(row: Record<string, unknown>): string {
 }
 
 /**
- * 笔记转换落地时从「沟通总结」里再解析出结构化字段：
- *   时间 / 时长 / 主题；**记录人默认取「笔记归属人」**（笔记是谁的，记录人就该是谁），
- *   只在拿不到归属人时才回退当前登录用户。只填空字段，笔记映射已写入的值不覆盖。
+ * 毫秒时间戳 → 本地时区的 `YYYY-MM-DDTHH:mm`。
  *
- * 三类的字段名原本就相同（这也是能合并的原因），所以合并后共用同一份解析规则。
+ * ⚠️ 必须用**本地时区**（`getFullYear/getHours` 系）而不是 `toISOString()` ——
+ * 后者转出来是 UTC，东八区会差 8 小时，把「下午 3 点的会」写成早上 7 点。
+ * 格式也要带 `T`：`<input type="datetime-local">` 只认 `YYYY-MM-DDTHH:mm`。
+ */
+export function msToLocalDateTime(ms?: number): string {
+  const n = Number(ms ?? 0);
+  if (!n || Number.isNaN(n)) return '';
+  const d = new Date(n);
+  const p = (x: number) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/**
+ * 笔记转换落地时补默认值：
+ *   - **主题 ← 笔记标题**、**时间 ← 笔记创建时间**（2026-09-19 峰哥要求）
+ *   - **记录人 ← 笔记归属人**（笔记是谁的，记录人就该是谁），拿不到才回退登录用户
+ *
+ * 主题 / 时间**先塞进去再走 `enrichFromNotes`**，而不是当 `defaults` 传：
+ * `defaults` 是最低优先级（只在正文什么都没抽到时才填），而峰哥要的是「笔记标题就是主题」——
+ * 笔记标题是用户精心写的，比从正文里正则抽的碎片可靠。
+ * 已存在的值一律不覆盖。
  */
 export function parseStudentRecordFromSummary(
   values: Record<string, unknown>,
-  ctx?: { userName?: string; noteOwner?: string },
+  ctx?: { userName?: string; noteOwner?: string; noteTitle?: string; noteCreatedAt?: number },
 ): Record<string, unknown> {
-  return enrichFromNotes(values, COMM_SPEC, { 沟通人: ctx?.noteOwner || ctx?.userName || '' });
+  const seeded: Record<string, unknown> = { ...values };
+  const has = (k: string) => String(seeded[k] ?? '').trim() !== '';
+  if (!has('沟通主题') && ctx?.noteTitle) seeded['沟通主题'] = ctx.noteTitle;
+  if (!has('沟通时间')) {
+    const dt = msToLocalDateTime(ctx?.noteCreatedAt);
+    if (dt) seeded['沟通时间'] = dt;
+  }
+  return enrichFromNotes(seeded, COMM_SPEC, { 沟通人: ctx?.noteOwner || ctx?.userName || '' });
 }

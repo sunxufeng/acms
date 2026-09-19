@@ -102,12 +102,12 @@ describe('查询层：成绩 / 作业 / 沟通', () => {
   const col = (id: string, f: Record<string, unknown>) => ({ id, fields: f });
   const entry = (id: string, columnId: string, studentId: string, f: Record<string, unknown> = {}) => ({
     id,
-    fields: { 成绩册列: [columnId], 学生: [studentId], 得分: 88, 等级: 'A', ...f },
+    fields: { 成绩册列: [columnId], 学生: [studentId], 得分: 88, 百分制: '88', 等级: 'A', ...f },
   });
 
   const sql = fakeSql({
     [COL]: [
-      col('c_open', { 列名称: '期中测验', 科目: '数学', 考核日期: '2026-09-10', 家长可见: '是', 学生可见: '是' }),
+      col('c_open', { 列名称: '期中测验', 科目: '数学', 考核日期: '2026-09-10', 家长可见: '是', 学生可见: '是', 满分: 120 }),
       col('c_gate', { 列名称: '期末总评', 科目: '数学', 考核日期: '2026-09-20', 家长可见: '是', 学生可见: '是', 完成日期: '2026-09-30' }),
       col('c_private', { 列名称: '内部摸底', 科目: '数学', 家长可见: '', 学生可见: '' }),
       col('c_off', { 列名称: '停用列', 家长可见: '是', 学生可见: '是', 状态: '停用' }),
@@ -128,6 +128,15 @@ describe('查询层：成绩 / 作业 / 沟通', () => {
     //   e1 c_open 放行 · e6 c_open 放行（条目上遮的是「家长可见」，对不学生生效）
     //   e2 期末总评 放行 · e3(内部摸底, 开关空) / e4(停用列) / e5(别人) 全部不出
     expect(rows.map((r) => r.id).sort()).toEqual(['e1', 'e2', 'e6']);
+  });
+
+  it('成绩：满分取**列**的「满分」，不能取条目的「百分制」', async () => {
+    // 「百分制」是录入时的换算结果（≈学生得分），当满分显示会出现「得分 88/88」
+    const rows = await gradesOf(sql, 'rec_s1', 'parent', '2026-09-30');
+    // 按列名取，别取 rows[0]：列表按考核日期倒序，第一行是别的列
+    const open = rows.find((r) => r.列名称 === '期中测验');
+    expect(open?.满分).toBe('120');
+    expect(open?.得分).toBe('88');
   });
 
   it('成绩：条目级「家长可见=否」只遮家长，学生照常看到', async () => {

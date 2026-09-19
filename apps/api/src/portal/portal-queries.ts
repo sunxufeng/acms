@@ -40,6 +40,7 @@ const COL = {
   studentVisible: '学生可见',
   parentVisible: '家长可见',
   completeDate: '完成日期',
+  fullMark: '满分',
   class: '班级',
 } as const;
 
@@ -106,8 +107,10 @@ export async function gradesOf(
       考核类型: String(col[COL.type] ?? ''),
       考核日期: dayOf(col[COL.date]),
       得分: rawScore === null || rawScore === undefined || rawScore === '' ? '' : String(rawScore),
-      // 满分优先取条目的「百分制」（换算后），没有才回落列的满分口径
-      满分: String(e.f[ENTRY.full] ?? '') || '100',
+      // 🔴 满分取**列**的「满分」，不要取条目的「百分制」
+      //    ——「百分制」是录入时把原始分换算到 100 分制的**结果**（学生得分），
+      //    当满分显示会出现「得分 88/88」这种一眼假的数据（2026-09-19 线上验证时发现）。
+      满分: String(col[COL.fullMark] ?? '') || '100',
       等级: String(e.f[ENTRY.level] ?? ''),
       是否达标: String(e.f[ENTRY.attained] ?? ''),
       评语: String(e.f[ENTRY.comment] ?? ''),

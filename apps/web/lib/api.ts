@@ -1999,6 +1999,30 @@ export interface MarkbookColumn {
   /** 绑定作业后附带的完成率（只读展示：已完成 / 应完成） */
   homework?: { done: number; total: number; rate: number };
 }
+/** 每项（列）的全班统计：竖排视图行尾的均分/最高/最低（口径由服务端算，见 statsOfScores） */
+export interface MarkbookColumnStat {
+  columnId: string;
+  count: number;
+  mean: number | null;
+  max: number | null;
+  min: number | null;
+}
+/** 学生 × 考核类型 的原始分合计（视图里的「小计」） */
+export interface MarkbookTypeTotal {
+  studentId: string;
+  type: string;
+  sum: number | null;
+  count: number;
+}
+/** 学生 × 学科 的加权均分与等级（学科视图用；subject 为 '' = 未指定学科） */
+export interface MarkbookSubjectSummary {
+  studentId: string;
+  subject: string;
+  weighted: number | null;
+  count: number;
+  level: string;
+}
+
 export interface MarkbookStudent {
   id: string;
   name: string;
@@ -2051,6 +2075,12 @@ export interface MarkbookGrid {
   students: MarkbookStudent[];
   cells: MarkbookCell[];
   summary: MarkbookSummary[];
+  /** 每项（列）的全班统计（竖排视图的行尾均分/最高/最低） */
+  columnStats: MarkbookColumnStat[];
+  /** 学生 × 考核类型 的原始分合计（各视图的「类型小计」） */
+  typeTotals: MarkbookTypeTotal[];
+  /** 学生 × 学科 的加权均分与等级（两种学科视图用） */
+  subjectSummaries: MarkbookSubjectSummary[];
   levels: MarkbookLevel[];
   scales: { id: string; name: string; isDefault: boolean }[];
   typeWeights: { type: string; weight: number }[];

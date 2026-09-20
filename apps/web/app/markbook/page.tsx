@@ -11,6 +11,13 @@ import {
   type MarkbookSaveRow,
 } from '../../lib/api';
 import HomeworkSyncPanel from '../../components/markbook/HomeworkSyncPanel';
+import {
+  MARKBOOK_VIEWS,
+  MarkbookView,
+  SUBJECT_NONE,
+  useTypeFilters,
+  type MarkbookViewKey,
+} from '../../components/markbook/views';
 
 /**
  * 成绩册（Markbook）—— 参照 GibbonEdu/core v31 移植，2026-09-13。
@@ -37,6 +44,30 @@ export default function MarkbookPage() {
 
   /** 未保存的改动：key = `${columnId}__${studentId}` → 输入框里的原始文本 */
   const [dirty, setDirty] = useState<Map<string, string>>(new Map());
+  /**
+   * 视图（四种排版，渲染同一份数据）：横排 / 竖排 / 学科分列 / 学科分行。
+   *
+   * 选择记在 localStorage：老师习惯用哪个视图，下次进来还是它 —— 而不是每次都回默认。
+   * 读取放在 lazy initializer 里（`typeof window` 判断是为了 SSR 首帧不炸）。
+   */
+  const [view, setView] = useState<MarkbookViewKey>('flat');
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem('acms.markbookView') : null;
+    if (saved && (MARKBOOK_VIEWS as string[]).includes(saved)) setView(saved as MarkbookViewKey);
+  }, []);
+  const pickView = (v: MarkbookViewKey) => {
+    setView(v);
+    try {
+      window.localStorage.setItem('acms.markbookView', v);
+    } catch {
+      /* 隐私模式下 localStorage 可能不可写：忽略，仅本次生效 */
+    }
+  };
+  /** 学科筛选：'' = 全部；SUBJECT_NONE = 未指定学科 */
+  const [subjectFilter, setSubjectFilter] = useState('');
+  /** 考核类型筛选：'' = 全部 */
+  const [typeFilter, setTypeFilter] = useState('');
+
   /** 列编辑：null=关闭，{col:null}=新建 */
   const [editing, setEditing] = useState<{ col: MarkbookColumn | null } | null>(null);
 
@@ -223,6 +254,18 @@ export default function MarkbookPage() {
 
   const dirtyCount = dirty.size;
 
+  /** 该班出现过的学科（筛选候选；'' = 未指定学科，用 SUBJECT_NONE 表示） */
+  const subjectFilterOptions = useMemo(() => {
+    const out: string[] = [];
+    for (const c of grid?.columns ?? []) {
+      const sj = c.subject || SUBJECT_NONE;
+      if (!out.includes(sj)) out.push(sj);
+    }
+    // 未指定学科固定放最后（它不是「一个学科」，是兜底分组）
+    return out.sort((a, b) => (a === SUBJECT_NONE ? 1 : 0) - (b === SUBJECT_NONE ? 1 : 0));
+  }, [grid]);
+  const typeFilters = useTypeFilters(grid);
+
   return (
     <div className="page">
       <div className="page-content">
@@ -285,148 +328,73 @@ export default function MarkbookPage() {
           </div>
         ) : (
           <div className="card mb-card">
-            <div className="dept-card-head">
+            <div className="dept-card-head mbv-head">
               <span className="dept-card-title">{t('gridTitle', { cls })}</span>
               <span className="dept-card-meta">{t('weightNote')}</span>
-            </div>
-            <div className="data-table-wrap">
-              <table className="data-table mb-table">
-                <thead>
-                  <tr>
-                    <th className="mb-sticky-col">{t('colStudent')}</th>
-                    {grid.columns.map((c) => (
-                      <th key={c.id} className="mb-col-head">
-                        <div className="mb-col-name" title={`${c.type ? c.type + ' · ' : ''}权重 ${c.weight} · 满分 ${c.fullMark}`}>
-                          {c.name}
-                        </div>
-                        <div className="mb-col-sub">
-                          {c.type ? `${c.type} · ` : ''}
-                          {t('colWeightFull', { weight: c.weight, full: c.fullMark })}
-                        </div>
-                        <div className="mb-col-ops">
-                          <button type="button" className="link-btn" onClick={() => setEditing({ col: c })}>
-                            {t('edit')}
-                          </button>
-                          <button type="button" className="link-btn" onClick={() => void removeColumn(c)}>
-                            {t('delete')}
-                          </button>
-                        </div>
-                      </th>
+
+              {/* 视图切换：四种排版渲染同一份数据，选择记在本机（下次进来还是它） */}
+              <span className="mbv-switch">
+                <span className="mbv-switch-label">{t('viewLabel')}</span>
+                <span className="mbv-seg">
+                  {MARKBOOK_VIEWS.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      className={v === view ? 'on' : undefined}
+                      onClick={() => pickView(v)}
+                    >
+                      {t(`view_${v}`)}
+                    </button>
+                  ))}
+                </span>
+              </span>
+
+              {subjectFilterOptions.length > 1 ? (
+                <label className="mbv-filter">
+                  <span>{t('colSubject')}</span>
+                  <select
+                    className="form-input"
+                    value={subjectFilter}
+                    onChange={(e) => setSubjectFilter(e.target.value)}
+                  >
+                    <option value="">{t('filterAll')}</option>
+                    {subjectFilterOptions.map((sj) => (
+                      <option key={sj} value={sj}>
+                        {sj || t('subjectNone')}
+                      </option>
                     ))}
-                    <th className="mb-sum-col">{t('colTotal')}</th>
-                    <th className="mb-sum-col">{t('colLevel')}</th>
-                    <th className="mb-sum-col">{t('colTarget')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {grid.students.map((s) => {
-                    const sum = summaryMap.get(s.id);
-                    return (
-                      <tr key={s.id}>
-                        <td className="mb-sticky-col">
-                          <div className="dept-emp-name">{s.name}</div>
-                          {s.enName ? <div className="dept-emp-sub">{s.enName}</div> : null}
-                        </td>
-                        {grid.columns.map((c) => {
-                          const v = cellText(c.id, s.id);
-                          const isDirty = dirty.has(`${c.id}__${s.id}`);
-                          return (
-                            <td key={c.id} className="mb-cell">
-                              <input
-                                className={`form-input mb-input${isDirty ? ' mb-input-dirty' : ''}`}
-                                /**
-                                 * 用 text 而不是 decimal：格子里除了数字，还要能录
-                                 * `85%` / `B`（字母等级）/ `*`（免考）/ `缺`（缺考）（2026-09-20）。
-                                 * 限成数字键盘会让移动端根本打不出这些写法。
-                                 */
-                                inputMode="text"
-                                value={v}
-                                placeholder="—"
-                                title={t('cellInputHint')}
-                                onChange={(e) => onCellChange(c.id, s.id, e.target.value)}
-                              />
-                            </td>
-                          );
-                        })}
-                        <td className="mb-sum-col mb-total">{sum?.total == null ? '—' : sum.total}</td>
-                        <td className="mb-sum-col">
-                          {sum?.level ? (
-                            <span className={sum.concern ? 'dept-status dept-status-inactive' : 'dept-status dept-status-ok'}>
-                              {sum.level}
-                            </span>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                        <td className="mb-sum-col">
-                          {(() => {
-                            /**
-                             * 🔴 「有目标」的判据从「目标等级名非空」放宽为「三样里任意一样有值」
-                             * （2026-09-20 修）。原因：「学生成绩目标」页的表单只有
-                             * **目标分 + 目标等级序号**，`目标等级`（名字）那个字段**没有录入入口** ⇒
-                             * 老师设好目标后这里永远显示「未设置」（且达标其实已经算出来了，等于白算）。
-                             * 后端现在会按序号反查等级名，所以正常情况有名字；这里再兜一层
-                             * 「只有序号」或「只有分数」的写法。
-                             */
-                            const hasTarget =
-                              !!sum &&
-                              (sum.targetLevel !== '' || sum.targetOrder != null || sum.targetScore != null);
-                            if (!hasTarget) return <span className="muted">{t('noTarget')}</span>;
-                            const label =
-                              sum!.targetLevel ||
-                              (sum!.targetOrder != null
-                                ? t('targetOrderShort', { n: sum!.targetOrder })
-                                : '');
-                            const scoreText =
-                              sum!.targetScore != null ? t('targetScoreLabel', { score: sum!.targetScore }) : '';
-                            /**
-                             * 目标序号不在该生的等级体系里 ⇒ **永远判不出达标**
-                             * （判定是「实际等级序号 ≤ 目标序号」，序号非法则必然为假）。
-                             * 生产实测：体系序号是 10/15/…/60（A 最好 = 10），有人填了 1。
-                             * 这种「数据非法但接口一切正常」的情况必须在格子里说出来，
-                             * 否则老师只会看到「一直未达标」而以为系统算错。
-                             */
-                            const outOfRange = sum!.targetOrderKnown === false;
-                            const text = [
-                              label,
-                              outOfRange ? t('targetOrderUnknown') : '',
-                              scoreText,
-                            ]
-                              .filter(Boolean)
-                              .join(' · ');
-                            return (
-                              <span
-                                className={
-                                  outOfRange
-                                    ? 'dept-status dept-status-resigned'
-                                    : sum!.attained === false
-                                      ? 'dept-status dept-status-resigned'
-                                      : sum!.attained === true
-                                        ? 'dept-status dept-status-ok'
-                                        : 'dept-status'
-                                }
-                                title={
-                                  outOfRange
-                                    ? t('targetOrderUnknownHint')
-                                    : sum!.attained === false
-                                      ? t('belowTarget')
-                                      : sum!.attained === true
-                                        ? t('atTarget')
-                                        : t('attainUnknown')
-                                }
-                              >
-                                {text}
-                                {!outOfRange && sum!.attained === false ? ' ↓' : ''}
-                              </span>
-                            );
-                          })()}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                  </select>
+                </label>
+              ) : null}
+
+              {typeFilters.length > 1 ? (
+                <label className="mbv-filter">
+                  <span>{t('colTypeLabel')}</span>
+                  <select className="form-input" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                    <option value="">{t('filterAll')}</option>
+                    {(typeFilters as (string | null)[]).map((ty) => (
+                      <option key={String(ty)} value={String(ty)}>
+                        {ty || t('typeNone')}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
+            {/* 四种视图渲染的是同一份数据（见 components/markbook/views.tsx）：
+                横排 / 竖排 / 学科分列 / 学科分行。切换只换排版，不改任何口径。 */}
+            <MarkbookView
+              view={view}
+              grid={grid}
+              cellValue={cellText}
+              isDirty={(colId, stuId) => dirty.has(`${colId}__${stuId}`)}
+              onCellChange={onCellChange}
+              onEditColumn={(c) => setEditing({ col: c })}
+              onRemoveColumn={(c) => void removeColumn(c)}
+              summaryOf={(id) => summaryMap.get(id)}
+              subjectFilter={subjectFilter}
+              typeFilter={typeFilter}
+            />
             <div className="mb-foot">
               {t('footNote', {
                 levels: grid.levels.length,

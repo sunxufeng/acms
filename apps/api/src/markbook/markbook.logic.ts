@@ -182,6 +182,46 @@ export function levelOptionItems(
 }
 
 /**
+ * 一组得分的统计（均分 / 最高 / 最低 / 参与数）—— 四种网格视图共用的**展示口径**。
+ *
+ * 🔴 放在服务端的理由：这是「口径」，前端四种视图各算一遍必然漂移
+ * （某一版把 `免考/缺考` 当成 0、另一版忽略，同一列两个视图显示不同的均分）。
+ *
+ * ⚠️ 只统计**能解析成数字**的得分：等级制的格子（A / B+）与免考不计入分母，
+ * 也不显示 0 —— 与总评「留空 ≠ 0」同一条原则。
+ */
+export function statsOfScores(scores: (number | null | undefined)[]): {
+  count: number;
+  mean: number | null;
+  max: number | null;
+  min: number | null;
+} {
+  const nums = scores.filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+  if (!nums.length) return { count: 0, mean: null, max: null, min: null };
+  const sum = nums.reduce((a, b) => a + b, 0);
+  return {
+    count: nums.length,
+    // 均分保留 1 位小数（与页面展示的总评口径一致，避免 86.33333333 这种）
+    mean: Math.round((sum / nums.length) * 10) / 10,
+    max: Math.max(...nums),
+    min: Math.min(...nums),
+  };
+}
+
+/**
+ * 一组得分的**原始分合计**（视图里的「小计」列 / 行）。
+ *
+ * ⚠️ 同样是「只加能解析成数字的」：等级制、免考、缺考的格子不参与 —— 否则会出现
+ * 「小计 = 分数 + NaN」这种要么 0 要么错的数字。参与数一并返回，供界面标注「按 N 项合计」。
+ */
+export function sumOfScores(scores: (number | null | undefined)[]): { count: number; sum: number | null } {
+  const nums = scores.filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+  if (!nums.length) return { count: 0, sum: null };
+  const sum = nums.reduce((a, b) => a + b, 0);
+  return { count: nums.length, sum: Math.round(sum * 10) / 10 };
+}
+
+/**
  * 目标等级的**显示名**：记录上写了名字就用名字，没写就按「目标等级序号」在
  * **该生实际用的那套等级体系**（`levels`）里反查。
  *

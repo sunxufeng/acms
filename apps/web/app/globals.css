@@ -2090,3 +2090,50 @@ select.form-input:disabled { color: var(--fg); }
 @media (max-width: 640px) {
   .tok-row2 { grid-template-columns: 1fr; }
 }
+
+/* ============================================================================
+   成绩册 · 四种视图（2026-09-20）
+   横排 / 竖排 / 学科分列 / 学科分行 —— 同一份数据的四种排版（见 components/markbook/views.tsx）
+   ============================================================================ */
+.mbv-head { flex-wrap: wrap; gap: var(--space-sm); align-items: center; }
+.mbv-switch { display: inline-flex; align-items: center; gap: 8px; }
+.mbv-switch-label { font-size: var(--font-xs); color: var(--fg-secondary); }
+.mbv-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.mbv-seg button {
+  background: #fff; border: 0; border-right: 1px solid var(--border);
+  padding: 4px 10px; font-size: var(--font-xs); cursor: pointer; color: var(--fg-secondary);
+}
+.mbv-seg button:last-child { border-right: 0; }
+.mbv-seg button.on { background: var(--accent); color: #fff; font-weight: 600; }
+.mbv-filter { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-xs); color: var(--fg-secondary); }
+.mbv-filter .form-input { width: auto; min-width: 110px; padding: 4px 8px; font-size: var(--font-xs); }
+
+.mbv-grouphdr th { background: var(--bg-subtle); text-align: center; font-weight: 700; font-size: var(--font-xs); }
+.mbv-typeband { background: rgba(47, 107, 216, 0.1) !important; }
+.mbv-typeband-none { background: #fff4e3 !important; color: var(--warning); }
+.mbv-bandcount { margin-left: 8px; font-weight: 400; font-size: 11px; color: var(--fg-tertiary); }
+.mbv-subcol { background: #f3f7ff !important; }
+.mbv-subjh { text-align: left !important; }
+
+.mbv-typebandrow td { background: rgba(47, 107, 216, 0.1); font-weight: 700; font-size: var(--font-xs); text-align: left; }
+.mbv-subrow td { background: #f3f7ff; font-weight: 600; }
+.mbv-subrow td:first-child { font-size: var(--font-xs); }
+.mbv-grand td { background: #eef6ef; font-weight: 700; }
+.mbv-grand td:first-child { font-size: var(--font-xs); }
+.mbv-stuh { text-align: left !important; }
+
+.mbv-ro { display: inline-block; min-width: 34px; }
+.mbv-ro-empty { color: var(--fg-tertiary); }
+.mbv-ro-sub { color: #1d4fa8; font-weight: 600; font-size: 11px; }
+.mbv-ro-total { font-weight: 700; }
+
+.mbv-itemname { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.mbv-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; background: var(--border); }
+.mbv-subj { display: inline-block; background: var(--accent-soft); color: #1d4fa8; border-radius: 5px; padding: 0 6px; font-size: 11px; font-weight: 600; }
+.mbv-subj-none { background: #fff2df; color: var(--warning); }
+.mbv-subjcell { background: #fbfcfe; }
+.mbv-firstrow td { border-top: 2px solid var(--border); }
+.mbv-foot { padding: 8px 12px; font-size: var(--font-xs); color: var(--fg-secondary); border-top: 1px solid var(--border); }
+.mbv-empty { padding: 28px; text-align: center; color: var(--fg-secondary); }
+.mbv-t .mb-input { max-width: 72px; }
+.mbv-t .mb-col-ops { display: inline-flex; gap: 6px; margin-left: 6px; }

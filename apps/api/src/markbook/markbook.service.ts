@@ -10,6 +10,8 @@ import {
   safeWeight,
   levelOptionItems,
   snapshotOf,
+  statsOfScores,
+  sumOfScores,
   targetLabelOf,
   weightedTotal,
   type ColumnDef,
@@ -111,12 +113,54 @@ export interface GridSummary {
   weightSum: number;
 }
 
+/**
+ * 每项（列）的全班统计 —— 「竖排」视图的行尾均分/最高/最低。
+ * 口径见 `statsOfScores`（等级制与免考不计入分母）。
+ */
+export interface GridColumnStat {
+  columnId: string;
+  count: number;
+  mean: number | null;
+  max: number | null;
+  min: number | null;
+}
+
+/** 学生 × 考核类型 的**原始分合计**（视图里的「类型小计」；只加能解析成数字的） */
+export interface GridTypeTotal {
+  studentId: string;
+  /** 考核类型名（'' = 未指定类型） */
+  type: string;
+  sum: number | null;
+  count: number;
+}
+
+/**
+ * 学生 × 学科 的**加权均分（百分制）与等级** —— 「按学科分列/分行」两种视图用。
+ *
+ * 与总评**同一套算法**（`Σ(归一化得分 × 列权重 × 类型权重) / Σ权重`），只是把范围限定在一个学科内；
+ * 等级用该生实际使用的等级体系（与 `summary.level` 同源），所以两边不会打架。
+ * `subject` 为空串 = 未指定学科。
+ */
+export interface GridSubjectSummary {
+  studentId: string;
+  subject: string;
+  weighted: number | null;
+  count: number;
+  level: string;
+}
+
 export interface MarkbookGrid {
   cls: string;
   columns: GridColumn[];
   students: GridStudent[];
   cells: GridCell[];
   summary: GridSummary[];
+  /** 每项（列）的全班统计（竖排视图用） */
+  columnStats: GridColumnStat[];
+  /** 学生 × 考核类型 的原始分合计（各视图的「小计」） */
+  typeTotals: GridTypeTotal[];
+  /** 学生 × 学科 的加权均分与等级（学科视图用） */
+  subjectSummaries: GridSubjectSummary[];
   levels: LevelDef[];
   scales: { id: string; name: string; isDefault: boolean }[];
   typeWeights: { type: string; weight: number }[];
@@ -510,6 +554,9 @@ export class MarkbookService implements OnModuleInit {
       students: [],
       cells: [],
       summary: [],
+      columnStats: [],
+      typeTotals: [],
+      subjectSummaries: [],
       levels: [],
       scales: [],
       typeWeights: [],
@@ -588,17 +635,41 @@ export class MarkbookService implements OnModuleInit {
       .map(([type, weight]) => ({ type, weight }))
       .sort((a, b) => a.type.localeCompare(b.type, 'zh-CN'));
     const cellMap = new Map(cells.map((x) => [`${x.columnId}__${x.studentId}`, x]));
+    /**
+     * 展示用的两组中间结果（2026-09-20 四种视图共用）：
+     *  - `bySubject`：学生 × 学科 → 归一化得分与权重（算学科加权均分）
+     *  - `byType`：学生 × 考核类型 → **原始分**（算类型小计）
+     * 两者都只收「能解析成数字」的格子（`modelOf` 已把等级制/免考挡在外面），
+     * 与总评「留空 ≠ 0」同一条原则。
+     */
+    const bySubject = new Map<string, Map<string, { score: number; weight: number }[]>>();
+    const byType = new Map<string, Map<string, (number | null)[]>>();
+    const subjectSummaries: GridSubjectSummary[] = [];
+    const typeTotals: GridTypeTotal[] = [];
     const summary: GridSummary[] = students.map((s) => {
       const items: { score: number; weight: number }[] = [];
+      const subjBucket = new Map<string, { score: number; weight: number }[]>();
+      const typeBucket = new Map<string, (number | null)[]>();
       for (const col of columns) {
         const cell = cellMap.get(`${col.id}__${s.id}`);
         if (!cell || cell.score == null) continue;
+        const w = effectiveWeight(col.weight, tw.get(col.type) ?? 1);
         items.push({
           score: normScore(cell.score, col.fullMark),
           // 两层权重：列权重 × 类型权重
-          weight: effectiveWeight(col.weight, tw.get(col.type) ?? 1),
+          weight: w,
         });
+        const sj = col.subject || '';
+        const sb = subjBucket.get(sj) ?? [];
+        sb.push({ score: normScore(cell.score, col.fullMark), weight: w });
+        subjBucket.set(sj, sb);
+        const tk = col.type || '';
+        const tb = typeBucket.get(tk) ?? [];
+        tb.push(cell.score);
+        typeBucket.set(tk, tb);
       }
+      bySubject.set(s.id, subjBucket);
+      byType.set(s.id, typeBucket);
       const agg = weightedTotal(items);
       // 该生用哪套等级：优先列上指定的体系，否则默认体系
       const scaleIds = new Set(columns.map((x) => x.scaleId).filter(Boolean));
@@ -619,6 +690,23 @@ export class MarkbookService implements OnModuleInit {
        */
       const tgtOrderKnown =
         tgt.order == null || levels.some((x) => Number(x.order) === Number(tgt.order));
+
+      // 展示用聚合（口径与总评同源：同一个 levels、同一个 weightedTotal）
+      for (const [subject, arr] of subjBucket) {
+        const aggS = weightedTotal(arr);
+        const lvS = pickLevel(levels, aggS.total);
+        subjectSummaries.push({
+          studentId: s.id,
+          subject,
+          weighted: aggS.total,
+          count: aggS.count,
+          level: lvS ? lvS.label : '',
+        });
+      }
+      for (const [type, arr] of typeBucket) {
+        const { sum, count } = sumOfScores(arr);
+        typeTotals.push({ studentId: s.id, type, sum, count });
+      }
       return {
         studentId: s.id,
         total: agg.total,
@@ -634,6 +722,15 @@ export class MarkbookService implements OnModuleInit {
         weightSum: agg.weightSum,
       };
     });
+
+    /**
+     * 每项（列）的全班统计 —— 「竖排」视图行尾的均分/最高/最低。
+     * 只统计能解析成数字的格子（见 `statsOfScores`），所以等级制的列会得到 count=0、均分显示「—」。
+     */
+    const columnStats: GridColumnStat[] = columns.map((col) => ({
+      columnId: col.id,
+      ...statsOfScores(students.map((st) => cellMap.get(`${col.id}__${st.id}`)?.score ?? null)),
+    }));
 
     // 「成绩册 → 作业」的反向展示：给绑定了作业的列附上该班完成率（已完成 / 应完成）。
     // 纯只读增强，不引入任何写路径；读失败不影响网格本身（最多少一个列头角标）。
@@ -663,6 +760,9 @@ export class MarkbookService implements OnModuleInit {
       students,
       cells,
       summary,
+      columnStats,
+      typeTotals,
+      subjectSummaries,
       levels: cfg.levelList,
       scales: cfg.scaleList,
       typeWeights: mergedTypeWeights,

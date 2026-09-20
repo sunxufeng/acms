@@ -3,6 +3,8 @@ import {
   buildColumnFields,
   levelOptionItems,
   safeWeight,
+  statsOfScores,
+  sumOfScores,
   targetLabelOf,
   weightedTotal,
   type LevelDef,
@@ -185,5 +187,46 @@ describe('levelOptionItems', () => {
 
   it('空等级表 → 空候选（页面据此退回数字输入）', () => {
     expect(levelOptionItems([])).toEqual([]);
+  });
+});
+
+/**
+ * 视图聚合（2026-09-20 新增）：四种网格视图共用的两套展示口径。
+ *
+ * 为什么必须由服务端算并测住：前端四种视图各算一遍必然漂移 ——
+ * 某一版把「免考/缺考」当成 0 参与分母，另一版忽略，同一列在两个视图里显示不同的均分，
+ * 而且**都不报错**（这正是最贵的一类不一致）。
+ */
+describe('statsOfScores', () => {
+  it('只统计数字：等级制（A）与免考留空不进分母，也不当成 0', () => {
+    const r = statsOfScores([92, 85, null, undefined, 90]);
+    expect(r).toEqual({ count: 3, mean: 89, max: 92, min: 85 });
+  });
+
+  it('均分保留 1 位小数（避免 86.33333333 这种展示）', () => {
+    expect(statsOfScores([90, 85, 84]).mean).toBe(86.3);
+  });
+
+  it('全是空/非数字 → 参与数 0、三个值都是 null（界面显示「—」，不是 0）', () => {
+    expect(statsOfScores([null, undefined])).toEqual({ count: 0, mean: null, max: null, min: null });
+  });
+
+  it('单条也能算（最高=最低=均分）', () => {
+    expect(statsOfScores([77])).toEqual({ count: 1, mean: 77, max: 77, min: 77 });
+  });
+});
+
+describe('sumOfScores', () => {
+  it('只加数字，返回参与数（供界面标注「按 N 项合计」）', () => {
+    expect(sumOfScores([92, 85, null, 90])).toEqual({ count: 3, sum: 267 });
+  });
+
+  it('没有数字项 → sum=null（而不是 0：0 会被误读成「合计为 0 分」）', () => {
+    expect(sumOfScores([null, undefined])).toEqual({ count: 0, sum: null });
+  });
+
+  it('小数分也保留 1 位（部分学校按半分计）', () => {
+    expect(sumOfScores([88.5, 91.5]).sum).toBe(180);
+    expect(sumOfScores([88.25]).sum).toBe(88.3);
   });
 });

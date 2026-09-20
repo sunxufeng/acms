@@ -1604,6 +1604,8 @@ export const api = {
   // （GET / | POST / | PUT /:id | DELETE /:id）。
   // 专用动作（结转预览/一键结转/确认/成绩单/PDF）走 /exam-grades/*，另见下方专用方法。
   examTypes: crud('/exam-types'),
+  /** 考核类型组（2026-09-20 新增）：考核类型的容器，整组启用/停用 */
+  examTypeGroups: crud('/exam-type-groups'),
   examBatches: crud('/exam-batches'),
   examTermGrades: crud('/exam-term-grades'),
   examReportCards: crud('/exam-report-cards'),

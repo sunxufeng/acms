@@ -65,12 +65,37 @@ const LETTER_TRANSITIONS: Record<string, string[]> = {
 interface LinkOption {
   value: string;
   label: string;
+  /**
+   * 服务端解析出来的**展示值**（学生姓名，不含英文名）。
+   *
+   * ⚠️ 筛选必须用这个值：通用 CRUD 的 `<字段>__has` 是拿筛选值与 link 字段解析后的展示值比
+   * （或比 `__link` 里的 id）。下拉里显示「张紫慧 / Haley」，但服务端解析出来只有「张紫慧」
+   * ⇒ 传双语文案会**一条都筛不到**（不报错，静默 0 条）。
+   */
+  name?: string;
 }
 
 /** link 字段候选项：只取第一页（pageSize 上限 500），单校学生量级够用 */
 function toOptions(rows: Record<string, unknown>[], nameKey: string): LinkOption[] {
   return rows
     .map((r) => ({ value: String(r.id ?? ''), label: String(r[nameKey] ?? '') }))
+    .filter((x) => x.value && x.label);
+}
+
+/**
+ * 学生候选项：**「中文名 / 英文名」都要带**（2026-09-20 修）。
+ *
+ * 原来只显示中文名，而本校大量学生以英文名相称（Haley / Zack / …），
+ * 下拉里只看到中文名就得靠记忆对照 —— 选错学生的代价是一条行为记录挂在别人名下。
+ * 与「学生档案」页、成绩册名单的显示口径一致（`studentLabel()`，有英文名才加 `/`）。
+ */
+function studentOptionsOf(rows: Record<string, unknown>[]): LinkOption[] {
+  return rows
+    .map((r) => {
+      const name = String(r['学生姓名'] ?? '');
+      const en = String(r['英文名'] ?? '').trim();
+      return { value: String(r.id ?? ''), label: name && en ? `${name} / ${en}` : name, name };
+    })
     .filter((x) => x.value && x.label);
 }
 
@@ -102,7 +127,7 @@ export default function BehaviourPage() {
     api
       .listStudents({ pageSize: '500' })
       .then((r) => {
-        if (alive) setStudents(toOptions(r.items ?? [], '学生姓名'));
+        if (alive) setStudents(studentOptionsOf(r.items ?? []));
       })
       .catch(() => undefined);
     return () => {
@@ -149,14 +174,17 @@ export default function BehaviourPage() {
       {
         key: '学生', label: '学生', width: '150px',
         form: true, required: true, type: 'link', linkOptions: students,
-        filter: true, filterParam: '学生__has', filterOptions: students.map((x) => x.label),
+        // 筛选用 x.name（纯中文名）：服务端的展示值里没有英文名，传双语会静默 0 条
+        filter: true, filterParam: '学生__has', filterOptions: students.map((x) => x.name || x.label),
         section: '行为信息',
         hint: '选学生后，列表用的「学生姓名 / 班级」由服务端自动补齐',
       },
       // 读字典「行为类型」（正向 / 负向）。这两个值参与告警累计口径（负向才计告警），
       // 所以字典里这两个 key 的文案不要改（改了会让历史与新记录分成两拨）。
       { key: '行为类型', label: '行为类型', width: '90px', form: true, required: true, type: 'select', dictKey: '行为类型', filter: true, section: '行为信息' },
-      { key: '行为分类', label: '行为分类', width: '110px', form: true, type: 'text', section: '行为信息', hint: '如 课堂纪律 / 作业提交 / 文明礼貌；自由文本，同一口径写同一种叫法' },
+      // 读字典「行为分类」（2026-09-20 改）：原来是自由文本，同一种分类会写成
+      // 「作业提交 / 交作业 / 作业」，统计与筛选就分成几拨，而且不报错。
+      { key: '行为分类', label: '行为分类', width: '110px', form: true, type: 'select', dictKey: '行为分类', filter: true, section: '行为信息', hint: '候选在「字典管理」里的「行为分类」维护' },
       { key: '分值', label: '分值', width: '70px', form: true, type: 'number', section: '行为信息', hint: '负向行为填负数或正数都可以，告警按**绝对值**累计；正向行为不计入告警' },
       {
         key: '发生日期', label: '发生日期', width: '110px',

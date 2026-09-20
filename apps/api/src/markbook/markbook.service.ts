@@ -322,6 +322,34 @@ export class MarkbookService implements OnModuleInit {
       const weightRows = c ? await this.readAll(TABLES.markbookWeight.tableId) : [];
 
       /**
+       * 已停用的**考核类型组** id 集合（2026-09-20）。
+       *
+       * 组的「状态 = 停用」⇒ 该组下所有类型**不许再选**：这是「考核类型组」存在的意义
+       * ——换学期时整组停用，而不是逐个停用 7 个类型（逐个必然漏关）。
+       *
+       * ⚠️ 只影响**候选**，不影响已存量的计算：历史成绩册列照常按权重与颜色算，
+       * 停用是「不许再选」，不是「历史作废」（否则一停用就把期末总评改了）。
+       *
+       * 读失败时**不做过滤**（`enabledGroups` 为 null）：宁可多给一个候选，
+       * 也不能因为一张配置表读不到就让老师建不了列（空下拉比多一个选项糟得多）。
+       */
+      let stoppedGroups: Set<string> | null = null;
+      try {
+        const groupRows = await this.readAll(TABLES.examTypeGroup.tableId);
+        stoppedGroups = new Set(
+          groupRows.filter((g) => String(g.f['状态'] ?? '启用') === '停用').map((g) => g.id),
+        );
+      } catch {
+        stoppedGroups = null;
+      }
+      /** 该类型所属组里有没有被停用的（类型本身没组 ⇒ 不过滤，宽容处理） */
+      const inStoppedGroup = (f: Record<string, any>): boolean => {
+        if (!stoppedGroups || !stoppedGroups.size) return false;
+        const ids = this.linkIds(f['所属考核类型组']);
+        return ids.some((id) => stoppedGroups!.has(id));
+      };
+
+      /**
        * 本班已配的「类型 → 权重」。匹配口径与 `configsOf` 完全一致（`normClass(班级) === cls`），
        * 否则会出现「下拉说本班权重 20、实际算的时候按缺省 50」这种对不上。
        */
@@ -333,6 +361,8 @@ export class MarkbookService implements OnModuleInit {
       }
 
       const types = typeRows
+        // 整组停用的类型不进候选（上面 stoppedGroups 的注释：停用 = 不许再选）
+        .filter((r) => !inStoppedGroup(r.f))
         .map((r) => ({
           name: String(r.f['类型名称'] ?? '').trim(),
           // 排序：表上的「排序」字段优先（运营可在「考核类型」页调）；

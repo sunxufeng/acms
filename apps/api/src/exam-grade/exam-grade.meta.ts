@@ -20,6 +20,23 @@ import type { RecordMeta } from '../shared/generic-crud.module.js';
  */
 export const EXAM_GRADE_METAS: RecordMeta[] = [
   {
+    // 考核类型组（2026-09-20 新增）：类型的容器，与类型是两级配置（照「等级体系 → 等级」）。
+    // 权限与 `/exam-types` 同属 `module:examTypes:*`（在 module-permissions 里登记为 alias）——
+    // 分开授权会出现「能改组、却改不了组里的类型」这种半开门。
+    // 🔴 组的「状态 = 停用」⇒ 该组下所有类型在**其它地方不可用**（成绩册建列 / 成绩类型权重
+    //    都不出现），但存量成绩册列照常计算 —— 停用是「不许再选」，不是「历史作废」。
+    path: 'exam-type-groups',
+    tableId: TABLES.examTypeGroup.tableId,
+    readPerm: 'module:examTypes:read',
+    writePerm: 'module:examTypes:update',
+    numbers: ['排序'],
+    statusField: '状态',
+    defaultStatus: '启用',
+    searchFields: ['组名称', '说明'],
+    sortField: '排序',
+    defaults: { 状态: '启用', 排序: 0 },
+  },
+  {
     path: 'exam-types',
     tableId: TABLES.examType.tableId,
     readPerm: 'module:examGrades:read',
@@ -29,6 +46,11 @@ export const EXAM_GRADE_METAS: RecordMeta[] = [
     defaultStatus: '启用',
     searchFields: ['类型名称', '英文名', '说明'],
     sortField: '排序',
+    // 声明 link 字段：通用 CRUD 会把前端传的 id 字符串归一成数组（jsonb 里的 link 形态），
+    // 并在列表里把 id 解析成组名（`所属考核类型组__link`）
+    linkFields: [
+      { field: '所属考核类型组', table: TABLES.examTypeGroup.tableId, nameField: '组名称' },
+    ],
     defaults: { 缺省权重: 1, 计入总评: '是', 排序: 0, 状态: '启用' },
   },
   {

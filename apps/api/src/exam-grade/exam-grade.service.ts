@@ -49,6 +49,9 @@ import {
  */
 
 const T = { TEXT: 1, NUMBER: 2, SELECT: 3, DATE: 5, USER: 11, LINK: 18 } as const;
+
+/** 存量考核类型回填用的默认组名（页面上可改名 / 停用，不写死） */
+const DEFAULT_EXAM_TYPE_GROUP = '默认分组';
 type FieldDef = { name: string; type: number; property?: unknown };
 const sel = (...names: string[]): FieldDef['property'] => ({ options: names.map((name) => ({ name })) });
 
@@ -210,6 +213,16 @@ export class ExamGradeService implements OnModuleInit {
       return;
     }
 
+    // ── 0. 考核类型组表（2026-09-20 新增）─────────────────────────────
+    // 考核类型的容器：整组开关（换学期时一个开关搞定，不用逐个停用 7 个类型）。
+    // 与「成绩等级体系 → 成绩等级」同一套两级结构，页面也是左组右类型。
+    await sql.ensureTable(TABLES.examTypeGroup.tableId, '考核类型组表', [
+      { name: '组名称', type: T.TEXT },
+      { name: '状态', type: T.SELECT, property: sel('启用', '停用') },
+      { name: '排序', type: T.NUMBER, property: { formatter: '0' } },
+      { name: '说明', type: T.TEXT },
+    ]);
+
     // ── 1. 考核类型表 ─────────────────────────────────────────────
     await sql.ensureTable(TABLES.examType.tableId, '考核类型表', [
       { name: '类型名称', type: T.TEXT },
@@ -220,7 +233,14 @@ export class ExamGradeService implements OnModuleInit {
       { name: '排序', type: T.NUMBER, property: { formatter: '0' } },
       { name: '状态', type: T.SELECT, property: sel('启用', '停用') },
       { name: '说明', type: T.TEXT },
+      // 所属考核类型组（2026-09-20）：类型必须挂在某个组下 ——
+      // 没有组就无处开关，页面右侧也筛不到它（看起来像「类型丢了」）
+      { name: '所属考核类型组', type: T.LINK },
     ]);
+
+    // 存量类型迁进一个默认组：此前 7 条类型没有组字段，
+    // 不迁的话它们在「按组筛选」的页面里会**一条都看不到**（像是被删了）。
+    await this.backfillExamTypeGroup();
 
     // ── 2. 成绩批次表 ─────────────────────────────────────────────
     await sql.ensureTable(TABLES.gradeBatch.tableId, '成绩批次表', [
@@ -341,6 +361,43 @@ export class ExamGradeService implements OnModuleInit {
       if (!token || items.length < PAGE) break;
     }
     return out;
+  }
+
+  /**
+   * 存量考核类型迁进一个默认组（2026-09-20 新增，幂等）。
+   *
+   * 为什么必须有这一步：「考核类型」原本没有「所属考核类型组」字段，
+   * 而页面右侧是按组筛的 —— 不迁的话，那 7 条已有类型在页面上**一条都看不到**
+   * （像是被删了，实际还在、成绩册也还在用）。
+   *
+   * 幂等：只在「确实存在无组的类型」时才动；默认组按名称找，没有才建。
+   * 不删任何数据、不改既有字段（只补一个空的关联字段）。
+   */
+  private async backfillExamTypeGroup(): Promise<void> {
+    try {
+      const sql = getSqlStore();
+      if (!sql) return;
+      const types = await this.readAll(TABLES.examType.tableId);
+      const orphan = types.filter((t) => !this.linkIds(t.f['所属考核类型组']).length);
+      if (!orphan.length) return;
+
+      const groups = await this.readAll(TABLES.examTypeGroup.tableId);
+      let gid = groups.find((g) => String(g.f['组名称'] ?? '').trim() === DEFAULT_EXAM_TYPE_GROUP)?.id ?? '';
+      if (!gid) {
+        gid = await sql.create(TABLES.examTypeGroup.tableId, {
+          组名称: DEFAULT_EXAM_TYPE_GROUP,
+          状态: '启用',
+          排序: 1,
+          说明: '系统自动创建：历史考核类型默认归入此组（可改名 / 停用）',
+        });
+      }
+      // LINK 字段在 jsonb 里存 id 数组（与通用 CRUD 写入口径一致，见 generic-crud 的 linkFields 归一）
+      for (const t of orphan) await sql.update(TABLES.examType.tableId, t.id, { 所属考核类型组: [gid] });
+      this.logger.log(`[exam-grade] 考核类型组回填：${orphan.length} 条无组类型 → ${DEFAULT_EXAM_TYPE_GROUP}`);
+    } catch (e) {
+      // 回填失败**不阻塞启动**：只是老类型在页面里可能筛不到，接口与计算不受影响
+      this.logger.warn(`[exam-grade] 考核类型组回填失败（不影响功能）：${String(e)}`);
+    }
   }
 
   private linkIds(v: unknown): string[] {

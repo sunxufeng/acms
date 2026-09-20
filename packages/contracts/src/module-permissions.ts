@@ -259,7 +259,10 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   // （结转、调分、写评语属于 update；导出 PDF 属于 export）。
   { key: 'examGrades', label: '考试与成绩', path: '/exam-grades', legacyRead: null, legacyWrite: null, menuPermission: null, actions: FLOW, genericCrud: true },
   // 考核类型是本模块的配置表，但作为独立页面/菜单项（与「考勤码」同一套做法）
-  { key: 'examTypes', label: '考核类型', path: '/exam-types', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
+  // 考核类型组（2026-09-20 新增容器层）：没有自己的菜单，作为 `/exam-types` 页内的左栏维护，
+  // 用 aliases 把它的 API 路径纳入本模块 —— 与「成绩等级体系」把 `/grade-scale-levels`
+  // 收进来的做法一致：两级配置同属一件事，分开授权会出现「能改组、改不了组里的类型」。
+  { key: 'examTypes', label: '考核类型', path: '/exam-types', aliases: ['/exam-type-groups'], legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD, genericCrud: true },
   // 成绩批次（2026-09-20 补页面）：一次期末结转的批次 —— 起止日期决定「哪些成绩册列参与结转」，
   // 舍入 / 免考 / 缺考口径与异常阈值也挂在它上面。此前只有接口没有页面（`/exam-batches` 已存在，
   // 但侧边栏没有入口），页面上只能看到「先去『成绩批次』建一个」却无处可建。

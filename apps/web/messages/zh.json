@@ -3142,7 +3142,21 @@
     "save": "保存",
     "cancel": "取消",
     "noEditPerm": "无编辑权限",
-    "hintTargetOrderFallback": "等级表没读到，暂时手填序号（越小越好）。⚠️ 必须与成绩等级体系里的序号一致（A 最好 = 10 那一套），填了体系里没有的数字会让这条目标永远判不出达标"
+    "hintTargetOrderFallback": "等级表没读到，暂时手填序号（越小越好）。⚠️ 必须与成绩等级体系里的序号一致（A 最好 = 10 那一套），填了体系里没有的数字会让这条目标永远判不出达标",
+    "groupSidebarTitle": "考核类型组",
+    "newGroup": "新建组",
+    "editGroup": "编辑组",
+    "deleteGroup": "删除组",
+    "confirmDeleteGroup": "确定删除这个考核类型组？（组下还有类型时不能删，先把类型移到别的组）",
+    "errGroupHasTypes": "这个组下还有 {count} 个考核类型，删了它们在页面里就找不到了 —— 先把类型移到别的组再删",
+    "colGroupName": "组名称",
+    "errGroupName": "请先填组名称",
+    "noGroupYet": "还没有考核类型组，点上面的「新建组」建一个（历史类型会自动归到「默认分组」）",
+    "unnamedGroup": "未命名组",
+    "subtitleExamTypesOf": "当前组：{name}。下面的类型都挂在该组下；把组停用，这些类型在成绩册里就都选不到了",
+    "subtitleExamTypesStopped": "当前组「{name}」已停用 ⇒ 该组的类型在成绩册与成绩类型权重里都选不到了（历史成绩册列照常计算）",
+    "colExamTypeGroup": "所属考核类型组",
+    "hintExamTypeGroup": "必须选一个组：换学期时靠整组停用，逐个停用必然漏关"
   },
   "examGrades": {
     "eyebrow": "教学管理",

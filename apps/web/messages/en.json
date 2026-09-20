@@ -3142,7 +3142,21 @@
     "save": "Save",
     "cancel": "Cancel",
     "noEditPerm": "No edit permission",
-    "hintTargetOrderFallback": "The grade scale could not be loaded, so enter the order manually (lower is better). ⚠️ It must match an order in the grade scale, otherwise attainment can never be judged"
+    "hintTargetOrderFallback": "The grade scale could not be loaded, so enter the order manually (lower is better). ⚠️ It must match an order in the grade scale, otherwise attainment can never be judged",
+    "groupSidebarTitle": "Exam type groups",
+    "newGroup": "New group",
+    "editGroup": "Edit group",
+    "deleteGroup": "Delete group",
+    "confirmDeleteGroup": "Delete this exam type group? (A group with types cannot be deleted — move the types first)",
+    "errGroupHasTypes": "This group still has {count} exam types; deleting it would make them invisible. Move the types to another group first",
+    "colGroupName": "Group name",
+    "errGroupName": "Group name is required",
+    "noGroupYet": "No exam type groups yet — use “New group” above (existing types are auto-assigned to “Default group”)",
+    "unnamedGroup": "Unnamed group",
+    "subtitleExamTypesOf": "Group: {name}. Types below belong to it; disabling the group removes them from the markbook pickers",
+    "subtitleExamTypesStopped": "Group “{name}” is disabled ⇒ its types can no longer be picked in the markbook or type weights (existing markbook columns still compute)",
+    "colExamTypeGroup": "Group",
+    "hintExamTypeGroup": "Pick a group: terms are switched off group by group — doing it one type at a time always misses one"
   },
   "examGrades": {
     "eyebrow": "Academics",

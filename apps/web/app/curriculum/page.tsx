@@ -33,7 +33,6 @@ import {
  *   - 「学年」是自由文本而非关联（全站没有学年列表接口）。
  */
 
-const TERMS = ['第一学期', '第二学期', '暑期学期', '全学年'];
 const BLOCK_TYPES = ['导入', '讲解', '演示', '练习', '讨论', '实验', '评估', '总结', '作业讲评', '其它'];
 const ON_OFF = ['启用', '停用'];
 const YES_NO = ['是', '否'];
@@ -158,13 +157,17 @@ export default function CurriculumPage() {
         filter: true, filterParam: '课程方案__has', filterOptions: plans.map((x) => x.label),
       },
       {
+        // 读字典「学年」（2020学年 ~ 2030学年）。原来是自由文本 ⇒ 写法不一（2026-2027 / 2026学年）
+        // 会让按学年检索与聚合都对不上；改下拉后取值统一。
         key: '学年', label: '学年', width: '100px',
-        form: true, type: 'text',
-        // 不做列筛选：自由文本的列筛选在服务端是**精确等值**匹配，输一半筛不到东西；
-        // 按学年找单元走顶部搜索框（后端的 searchFields 里已经含「学年」）。
-        hint: '如 2026-2027；按学年检索用顶部搜索框',
+        form: true, type: 'select', dictKey: '学年', filter: true,
+        hint: '按学年检索也可以用顶部搜索框',
       },
-      { key: '学期', label: '学期', width: '90px', form: true, type: 'select', options: TERMS, filter: true, filterOptions: TERMS },
+      {
+        // 字典「教学学期」（含「暑期学期」，合到同一 key 免得出现两套学期名单）
+        key: '学期', label: '学期', width: '90px',
+        form: true, type: 'select', dictKey: '教学学期', filter: true,
+      },
       { key: '预计课时', label: '预计课时', width: '90px', form: true, type: 'number' },
       { key: '单元状态', label: '单元状态', width: '90px', filter: true, filterOptions: ['草稿', '已发布', '已归档'] },
       { key: '排序', label: '排序', width: '70px', form: true, type: 'number', hint: '同一课程方案内按此升序' },

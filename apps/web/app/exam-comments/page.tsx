@@ -20,7 +20,7 @@ import { formatDateTime } from '../../lib/date';
 export default function ExamCommentsPage() {
   const t = useTranslations('teaching');
 
-  const TAGS = ['通用', '鼓励', '进步', '提醒', '待改进'];
+  /** 状态是流程值，不放字典；「标签」已改为读字典「评语标签」（运营可自行增删） */
   const STATUS = ['启用', '停用'];
 
   const COLUMNS: CrudColumn[] = [
@@ -49,10 +49,10 @@ export default function ExamCommentsPage() {
       label: t('colCommentTag'),
       width: '100px',
       form: true,
+      // 读字典「评语标签」（通用 / 鼓励 / 进步 / 提醒 / 待改进），改档位去「字典管理」页
       type: 'select',
-      options: TAGS,
+      dictKey: '评语标签',
       filter: true,
-      filterOptions: TAGS,
     },
     { key: '排序', label: t('colSort'), width: '80px', form: true, type: 'number', hint: t('hintCommentSort') },
     { key: '状态', label: t('colStatus'), width: '90px', filter: true, filterOptions: STATUS },

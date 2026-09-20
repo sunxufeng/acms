@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
@@ -23,17 +23,43 @@ import { formatDateTime } from '../../lib/date';
 export default function MarkbookWeightsPage() {
   const t = useTranslations('teaching');
 
+  /**
+   * 考核类型候选：读「考核类型」表（`/exam-types` 里已建的记录），**不是字典**。
+   *
+   * 为什么不放字典：权重是按类型名**等值匹配**的（服务端 `configsOf` 拿权重行的「类型」
+   * 与成绩册列上的「考核类型」逐字比），两份名单必然漂移 ⇒ 改名后权重静默不生效。
+   *
+   * 走 `/markbook/type-options` 而不是 `/exam-types`：后者要 `module:examTypes:read`，
+   * 配权重的老师通常只有成绩册权限 ⇒ 直连会 403、下拉空白（看着像「一个类型都没有」）。
+   * 拉失败时不抛错，下拉为空但页面可用（与其它页面一致的降级）。
+   */
+  const [typeOptions, setTypeOptions] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    api
+      .markbookTypeOptions()
+      .then((res) => {
+        if (!alive) return;
+        setTypeOptions(Array.isArray(res?.items) ? res.items : []);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const COLUMNS: CrudColumn[] = useMemo(
     () => [
       {
         key: '班级',
         label: t('colWeightClass'),
         width: '130px',
+        // 改下拉后筛选也跟着变下拉（`dictKey` 会自动供筛选候选；原来 text + contains 是因为自由文本）
         filter: true,
-        filterType: 'text',
-        filterOp: 'contains',
         form: true,
-        type: 'text',
+        // 班级 = 学生档案的「当前年级」⇒ 候选取字典「当前年级」，与成绩册分组、学生档案同一份名单
+        type: 'select',
+        dictKey: '当前年级',
         required: true,
         hint: t('hintWeightClass'),
       },
@@ -42,10 +68,11 @@ export default function MarkbookWeightsPage() {
         label: t('colWeightType'),
         width: '130px',
         filter: true,
-        filterType: 'text',
-        filterOp: 'contains',
+        filterOptions: typeOptions,
         form: true,
-        type: 'text',
+        // 候选项来自「考核类型」表（见上方注释）；不是自由文本，避免写法不一致导致权重不生效
+        type: 'select',
+        options: typeOptions,
         required: true,
         hint: t('hintWeightType'),
       },
@@ -76,7 +103,7 @@ export default function MarkbookWeightsPage() {
         render: (v) => <span className="muted">{formatDateTime(v)}</span>,
       },
     ],
-    [t],
+    [t, typeOptions],
   );
 
   return (

@@ -16,12 +16,7 @@ import { fmtDateTime, statusClassOf } from '../../components/curriculum/fields';
  * 排序、状态与筛选都由后端 RecordMeta 驱动（learning-outcomes/outcomes）。
  */
 
-const SCOPES = ['全校', '学习领域'];
 const STATUSES = ['启用', '停用'];
-const GRADES = [
-  '幼儿园', '一年级', '二年级', '三年级', '四年级', '五年级', '六年级',
-  '初一', '初二', '初三', '高一', '高二', '高三', '全部年级',
-];
 
 /** 成果的启停是二元状态，不做删除（历史教案可能还挂着它） */
 const TRANSITIONS: Record<string, string[]> = {
@@ -38,15 +33,18 @@ function buildColumns(deptOptions: { value: string; label: string }[]): CrudColu
     { key: '成果名称', label: '成果名称', width: '200px', form: true, required: true, type: 'text' },
     { key: '成果简称', label: '成果简称', width: '110px', form: true, type: 'text' },
     {
+      // 候选取字典「适用范围」（原先是页面里的硬编码数组，现挪进字典，可由运营增删）
       key: '适用范围', label: '适用范围', width: '110px',
-      form: true, type: 'select', options: SCOPES,
-      filter: true, filterOptions: SCOPES,
+      form: true, type: 'select', dictKey: '适用范围',
+      filter: true,
       hint: '「全校」按年级适用；「学习领域」按部门（学科组）适用',
     },
     {
+      // 读字典「当前年级」——与学生档案、成绩册分组同一份名单
+      // （原来这里是『幼儿园/一年级/…/高三』那套 K12 年级，与本校口径并不一致，已统一）
       key: '适用年级', label: '适用年级', width: '110px',
-      form: true, type: 'select', options: GRADES,
-      filter: true, filterOptions: GRADES,
+      form: true, type: 'select', dictKey: '当前年级',
+      filter: true,
     },
     {
       key: '所属部门', label: '所属部门', width: '150px',

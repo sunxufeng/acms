@@ -191,6 +191,23 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * 把「批次/全局设置上存的档位文本」归一到合法枚举；**不合法（含空/空白）返回 `''`**，
+ * 由调用方回落下一级（批次 → 全局设置 → 代码缺省）。
+ *
+ * 为什么需要（2026-09-20）：舍入 / 免考 / 缺考这三个档位现在由**字典**供候选，
+ * 而字典是运营可编辑的。谁把「不计入分母」改成「不计分母」，值就不再等于判据字面量：
+ * `if (excusedMode === '不计入分母')` 判假 ⇒ **免考反而被算进分母**（与预期完全相反），
+ * 且不报错、无日志 —— 只有期末对总评时才发现「有的批次对、有的不对」。
+ *
+ * 归一之后，未知值一律回落全局设置（仍是一个合理口径），至少不会算反。
+ * 注意：合法值**原样返回**，因此不会改变任何现有行为。
+ */
+export function pickMode<T extends string>(raw: unknown, allowed: readonly T[]): T | '' {
+  const v = String(raw ?? '').trim();
+  return (allowed as readonly string[]).includes(v) ? (v as T) : '';
+}
+
 /** 按批次口径舍入总评 */
 export function roundBy(mode: RoundMode | string | undefined, value: number | null): number | null {
   if (value == null || !Number.isFinite(value)) return null;

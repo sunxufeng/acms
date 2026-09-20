@@ -12,6 +12,7 @@ import {
   computeGpa,
   computeTermGrade,
   detectAnomalies,
+  pickMode,
   rankTermGrades,
   termGradeKey,
   type AbsentMode,
@@ -510,9 +511,12 @@ export class ExamGradeService implements OnModuleInit {
      * 新建批次也能天然带上一套统一口径。
      */
     const settings = await this.getSettings();
-    const excused = (String(batch.f['免考处理'] ?? '') as ExcusedMode) || settings.excusedMode;
-    const absent = (String(batch.f['缺考处理'] ?? '') as AbsentMode) || settings.absentMode;
-    const round = (String(batch.f['舍入口径'] ?? '') as RoundMode) || settings.roundMode;
+    // 用 `pickMode` 归一：批次上存的档位若不是合法枚举（例如有人把字典里那个选项的文案改了），
+    // 会造成 `excusedMode === '不计入分母'` 判假 ⇒ 免考反而被算进分母，且不报错。
+    // 归一后未知值回落全局设置，至少不会算反。
+    const excused = pickMode(batch.f['免考处理'], EXCUSED_MODES) || settings.excusedMode;
+    const absent = pickMode(batch.f['缺考处理'], ABSENT_MODES) || settings.absentMode;
+    const round = pickMode(batch.f['舍入口径'], ROUND_MODES) || settings.roundMode;
 
     const tw = new Map(grid.typeWeights.map((x) => [x.type, x.weight]));
     const cellMap = new Map(grid.cells.map((c) => [`${c.columnId}__${c.studentId}`, c]));
@@ -685,7 +689,18 @@ export class ExamGradeService implements OnModuleInit {
       const raw = toText(res.items[0]?.fields?.['配置值']);
       if (!raw) return DEFAULT_EXAM_SETTINGS;
       const parsed = JSON.parse(raw) as Partial<ExamGradeSettings>;
-      return { ...DEFAULT_EXAM_SETTINGS, ...parsed };
+      const merged = { ...DEFAULT_EXAM_SETTINGS, ...parsed };
+      /**
+       * 读取侧也归一（2026-09-20）：写入侧本来就有校验，但**手工改库 / 旧版本写进去的脏值**
+       * 会在读取时原样带出，然后静默算反口径（例如免考被算进分母）。
+       * 合法的照原样返回，所以现有配置不受影响。
+       */
+      return {
+        ...merged,
+        roundMode: pickMode(merged.roundMode, ROUND_MODES) || DEFAULT_EXAM_SETTINGS.roundMode,
+        excusedMode: pickMode(merged.excusedMode, EXCUSED_MODES) || DEFAULT_EXAM_SETTINGS.excusedMode,
+        absentMode: pickMode(merged.absentMode, ABSENT_MODES) || DEFAULT_EXAM_SETTINGS.absentMode,
+      };
     } catch {
       // 读不到（表不可用 / JSON 坏了）就用默认值，绝不让设置页 500
       return DEFAULT_EXAM_SETTINGS;
@@ -695,8 +710,9 @@ export class ExamGradeService implements OnModuleInit {
   /** 保存全局成绩口径。非法枚举值一律回落到默认值（不报错，避免前端一个脏值卡死整页） */
   async saveSettings(dto: Partial<ExamGradeSettings>): Promise<ExamGradeSettings> {
     const cur = await this.getSettings();
+    // 归一用共用的 `pickMode`（不合法 → 回落 fallback），别再写一份局部实现
     const pick = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T =>
-      allowed.includes(v as T) ? (v as T) : fallback;
+      (pickMode(v, allowed) as T) || fallback;
     const numOr = (v: unknown, fallback: number): number => {
       const n = Number(v);
       return Number.isFinite(n) ? n : fallback;

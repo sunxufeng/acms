@@ -48,6 +48,21 @@ export class MarkbookController {
     return this.svc.getGrid(cls ?? '');
   }
 
+  /**
+   * 考核类型候选（读）—— 供「成绩类型权重」等页面的下拉。
+   *
+   * 候选项来自「考核类型」表（不是字典），原因见 `MarkbookService.listTypeOptions` 的注释：
+   * 权重按类型名等值匹配，两份名单必然漂移。挂成绩册权限是因为配权重的老师通常
+   * 没有 `module:examTypes:read`，直连那张表的接口会 403、下拉空白。
+   *
+   * ⚠️ 静态路由必须排在 `@Get(':id')` 之前（本控制器目前没有 `:id` 通配，但保持惯例）。
+   */
+  @Get('type-options')
+  typeOptions(@Req() req: { user: SessionUser }) {
+    requireModule(req.user, 'markbook', 'read');
+    return this.svc.listTypeOptions();
+  }
+
   /** 批量保存单元格（写） */
   @Post('entries/save')
   saveEntries(

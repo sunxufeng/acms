@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ABSENT_MODES,
+  EXCUSED_MODES,
+  ROUND_MODES,
   computeGpa,
   computeTermGrade,
   detectAnomalies,
   parseScoreInput,
+  pickMode,
   rankTermGrades,
   roundBy,
   termGradeKey,
@@ -21,6 +25,34 @@ const LEVELS: LevelDef[] = [
 ];
 
 // ───────────────────────── 输入解析 ─────────────────────────
+
+/**
+ * `pickMode`：把批次/设置里存的档位文本归一为合法枚举。
+ *
+ * 加它的原因是一个**静默算反**的坑：这三个档位现在由字典供候选，运营把
+ * 「不计入分母」改成别的写法后，`=== '不计入分母'` 判假 ⇒ 免考反而被算进分母，
+ * 且不报错。归一后未知值回落下一级，至少不会算反。
+ */
+describe('pickMode（档位归一）', () => {
+  it('合法值原样返回', () => {
+    expect(pickMode('不计入分母', EXCUSED_MODES)).toBe('不计入分母');
+    expect(pickMode('计0分', ABSENT_MODES)).toBe('计0分');
+    expect(pickMode('向上取整', ROUND_MODES)).toBe('向上取整');
+  });
+
+  it('空值 / 空白 / null / undefined → 空串（由调用方回落下一级）', () => {
+    expect(pickMode('', ROUND_MODES)).toBe('');
+    expect(pickMode('   ', ROUND_MODES)).toBe('');
+    expect(pickMode(null, ROUND_MODES)).toBe('');
+    expect(pickMode(undefined, ROUND_MODES)).toBe('');
+  });
+
+  it('🔴 未知文案 → 空串（**不能**原样通过：原样通过会让口径算反）', () => {
+    expect(pickMode('不计分母', EXCUSED_MODES)).toBe('');
+    expect(pickMode('记0分', ABSENT_MODES)).toBe('');
+    expect(pickMode('四舍五入 ', ROUND_MODES)).toBe('四舍五入'); // 首尾空白会被 trim
+  });
+});
 
 describe('parseScoreInput', () => {
   it('普通数字原样通过', () => {

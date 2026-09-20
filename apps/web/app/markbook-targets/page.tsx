@@ -41,10 +41,10 @@ export default function MarkbookTargetsPage() {
         label: t('colTargetClass'),
         width: '130px',
         filter: true,
-        filterType: 'text',
-        filterOp: 'contains',
         form: true,
-        type: 'text',
+        // 读字典「当前年级」：成绩册是按「学生档案.当前年级」分组的，用同一份名单才不会写错班名
+        type: 'select',
+        dictKey: '当前年级',
         hint: t('hintTargetClass'),
       },
       {

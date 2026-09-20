@@ -25,12 +25,12 @@ import { formatDateTime } from '../../lib/date';
 export default function ExamBatchesPage() {
   const t = useTranslations('teaching');
 
-  /** 结转口径的取值与服务端常量一一对应（见 exam-grade.logic.ts），不要改文案 —— 判据是字面量 */
-  const TERMS = ['第一学期', '第二学期', '全学年'];
+  /**
+   * 状态：`草稿 / 已发布` 目前**不参与运行时判定**（服务端不按状态拦结转），
+   * 只是给人看的进度标记，所以不做状态流转按钮，避免误导；也**不放进字典**
+   * （它不是运营可调的业务枚举，而是流程值）。
+   */
   const STATUS = ['草稿', '已发布'];
-  const ROUND_MODES = ['四舍五入', '保留1位小数', '向上取整', '向下取整', '不处理'];
-  const EXCUSED_MODES = ['不计入分母', '计0分'];
-  const ABSENT_MODES = ['计0分', '不计入分母'];
 
   /**
    * 「等级体系」是 link 字段（存 record id），候选项是运行期数据 ⇒ 页面自己拉一份给 linkOptions。
@@ -68,16 +68,26 @@ export default function ExamBatchesPage() {
         required: true,
         hint: t('hintBatchName'),
       },
-      { key: '学年', label: t('colSchoolYear'), width: '110px', form: true, type: 'text', hint: t('hintSchoolYear') },
+      {
+        key: '学年',
+        label: t('colSchoolYear'),
+        width: '110px',
+        filter: true,
+        form: true,
+        // 读字典「学年」（2020学年 ~ 2030学年）；改档位去「字典管理」页
+        type: 'select',
+        dictKey: '学年',
+        hint: t('hintSchoolYear'),
+      },
       {
         key: '学期',
         label: t('colTerm'),
         width: '100px',
         filter: true,
-        filterOptions: TERMS,
         form: true,
+        // 字典「教学学期」——刻意不复用「学期」那个 key：那是学生档案的口径（2025春/2025秋）
         type: 'select',
-        options: TERMS,
+        dictKey: '教学学期',
       },
       { key: '起日期', label: t('colFrom'), width: '110px', form: true, type: 'date', hint: t('hintDateRange') },
       { key: '止日期', label: t('colTo'), width: '110px', form: true, type: 'date' },
@@ -91,6 +101,15 @@ export default function ExamBatchesPage() {
         linkOptions: scaleOptions,
         hint: t('hintBatchScale'),
       },
+      /**
+       * 三个结转口径（舍入 / 免考 / 缺考）读字典：`舍入口径 / 免考处理 / 缺考处理`。
+       *
+       * 🔴 字典里这几个 key 的值**就是服务端判据的字面量**（`exam-grade.logic.ts` 的
+       * ROUND_MODES / EXCUSED_MODES / ABSENT_MODES，字典种子直接 import 那几个常量）。
+       * 所以**改字典里这三个 key 的文案会让口径落空**：新选的批次算不出总评，
+       * 而老数据仍按旧值算 —— 症状是「有的批次对、有的不对」，且不报错。
+       * 要加档位得先改服务端常量。
+       */
       {
         key: '舍入口径',
         label: t('colRound'),
@@ -98,7 +117,7 @@ export default function ExamBatchesPage() {
         list: false,
         form: true,
         type: 'select',
-        options: ROUND_MODES,
+        dictKey: '舍入口径',
         hint: t('hintRound'),
       },
       {
@@ -108,7 +127,7 @@ export default function ExamBatchesPage() {
         list: false,
         form: true,
         type: 'select',
-        options: EXCUSED_MODES,
+        dictKey: '免考处理',
         hint: t('hintExcused'),
       },
       {
@@ -118,7 +137,7 @@ export default function ExamBatchesPage() {
         list: false,
         form: true,
         type: 'select',
-        options: ABSENT_MODES,
+        dictKey: '缺考处理',
         hint: t('hintAbsent'),
       },
       // ── 异常成绩审查的三个阈值：只提示、不改分（见「考试与成绩」页的审查面板） ──

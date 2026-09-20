@@ -243,6 +243,37 @@ export class MarkbookService implements OnModuleInit {
     return out;
   }
 
+  /**
+   * 考核类型候选（「成绩类型权重」等页面的下拉数据源）。
+   *
+   * 🔴 为什么候选项来自**「考核类型」表**而不是字典表：
+   *   考核类型是真的业务配置（缺省权重 / 计入总评 / 颜色），而且权重是按**类型名等值匹配**的
+   *   （`configsOf` 里 `String(w.f['类型'])` 与列上的「考核类型」逐字比）。
+   *   若再放一份到字典，改名后两处不同步 ⇒ 权重**静默不生效**（总评看着就是没加权）。
+   *   所以只认这张表（与成绩册列头取颜色、期末考试取「计入总评」都读同一张表）。
+   *
+   * 🔴 为什么不让前端直接调 `/exam-types`：那张表属「考核类型」模块（`module:examTypes:read`），
+   *   而配权重的老师通常只有成绩册权限，直连会 403 ⇒ 下拉空白，看着像「一个类型都没配」。
+   *   这里挂 `module:markbook:read`，返回的也只是**名称列表**（不含权重等配置）。
+   *
+   * ⚠️ 不过滤「状态 = 停用」的类型：停用的类型可能仍被历史列/历史权重引用，
+   *   下拉里若没有它，编辑存量记录时那张 select 会显示成「未填写」（值还在、只是看着像丢了）。
+   */
+  async listTypeOptions(): Promise<{ items: string[] }> {
+    try {
+      const rows = await this.readAll(TABLES.examType.tableId);
+      const items = rows
+        .slice()
+        .sort((a, b) => (Number(a.f['排序']) || 0) - (Number(b.f['排序']) || 0))
+        .map((r) => String(r.f['类型名称'] ?? '').trim())
+        .filter(Boolean);
+      return { items };
+    } catch {
+      // 表还没建 / 读失败 → 空候选（页面下拉为空，但不影响其它功能）
+      return { items: [] };
+    }
+  }
+
   private columnOf(
     id: string,
     f: Record<string, any>,

@@ -39,7 +39,6 @@ import {
  *    且该参数在告警 meta 里登记为 deepParams）。用专用接口语义更明确。
  */
 
-const DIRECTIONS = ['正向', '负向'];
 const YES_NO = ['是', '否'];
 const RECORD_STATUSES = ['草稿', '已发布', '已归档'];
 const ALERT_LEVELS = ['轻度', '中度', '严重'];
@@ -154,7 +153,9 @@ export default function BehaviourPage() {
         section: '行为信息',
         hint: '选学生后，列表用的「学生姓名 / 班级」由服务端自动补齐',
       },
-      { key: '行为类型', label: '行为类型', width: '90px', form: true, required: true, type: 'select', options: DIRECTIONS, filter: true, filterOptions: DIRECTIONS, section: '行为信息' },
+      // 读字典「行为类型」（正向 / 负向）。这两个值参与告警累计口径（负向才计告警），
+      // 所以字典里这两个 key 的文案不要改（改了会让历史与新记录分成两拨）。
+      { key: '行为类型', label: '行为类型', width: '90px', form: true, required: true, type: 'select', dictKey: '行为类型', filter: true, section: '行为信息' },
       { key: '行为分类', label: '行为分类', width: '110px', form: true, type: 'text', section: '行为信息', hint: '如 课堂纪律 / 作业提交 / 文明礼貌；自由文本，同一口径写同一种叫法' },
       { key: '分值', label: '分值', width: '70px', form: true, type: 'number', section: '行为信息', hint: '负向行为填负数或正数都可以，告警按**绝对值**累计；正向行为不计入告警' },
       {

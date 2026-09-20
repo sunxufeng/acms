@@ -2991,7 +2991,7 @@
     "cellAbsent": "Absent",
     "cellInputHint": "Accepts: 85 / 85% / level B / excused (* or \"excused\") / absent (\"absent\"). Empty = not entered (removes the cell)",
     "fSubject": "Subject",
-    "fSubjectHint": "e.g. Mathematics. Term grades are split by subject, so keep the wording consistent",
+    "fSubjectHint": "Options come from the “Teaching subjects” dictionary. Term grades are split by subject, so pick from this list (edit the list under Dictionaries)",
     "fStudentVisible": "Visible to student",
     "fParentVisible": "Visible to parent",
     "fCompleteDate": "Complete date (parent gate)",
@@ -3004,7 +3004,13 @@
     "fTypeNone": "Not set",
     "fTypeEmpty": "No exam types yet — create some under Teaching › Exam types first",
     "fTypeMissing": "no longer in the type list",
-    "fTypeWarn": "No exam type selected: this column will count toward the term final with weight 1"
+    "fTypeWarn": "No exam type selected: this column will count toward the term final with weight 1",
+    "fSubjectNone": "Not set",
+    "fSubjectMissing": "no longer in the dictionary",
+    "fSubjectEmpty": "The “Teaching subjects” dictionary is empty — add values under Dictionaries first",
+    "targetOrderShort": "Order {n}",
+    "targetScoreLabel": "Target {score}",
+    "attainUnknown": "Not enough data to judge yet (needs a score and a target order)"
   },
   "teaching": {
     "titleAttendanceCodes": "Attendance Codes",
@@ -3094,7 +3100,7 @@
     "searchTargets": "Search student / class / notes",
     "colTargetStudent": "Student",
     "colTargetClass": "Class",
-    "hintTargetClass": "Same grouping as the markbook (the student profile's current grade). It can be left empty, but class filters then will not line up",
+    "hintTargetClass": "Picking a student auto-fills the class from their profile (current class, falling back to current grade). The markbook looks up targets by class, so a mismatched class means the target never shows up there",
     "colTargetOrder": "Target level order",
     "hintTargetOrder": "Lower is better (1 = best). \"Attained\" means level order ≤ this value — the opposite direction from \"score ≥ pass mark\"",
     "colTargetScore": "Target score",

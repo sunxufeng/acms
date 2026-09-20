@@ -9,6 +9,7 @@ import {
   pickLevel,
   safeWeight,
   snapshotOf,
+  targetLabelOf,
   weightedTotal,
   type ColumnDef,
   type LevelDef,
@@ -88,8 +89,17 @@ export interface GridSummary {
   level: string;
   levelOrder: number | null;
   concern: boolean;
+  /**
+   * 目标等级**名**。
+   *
+   * ⚠️ 2026-09-20 起是「目标记录上写了名字就用它，没写就按目标等级序号从等级体系反查」——
+   * 因为「学生成绩目标」页的表单只有**目标分 + 目标等级序号**（没有「目标等级」字段），
+   * 只认名字会永远显示「未设置」，见 `getGrid` 里的注释。
+   */
   targetLevel: string;
   targetOrder: number | null;
+  /** 目标分（成绩目标表上的「目标分」；只用于展示与提示，不参与达标判定） */
+  targetScore: number | null;
   attained: boolean | null;
   filled: number;
   weightSum: number;
@@ -479,15 +489,24 @@ export class MarkbookService implements OnModuleInit {
     }
 
     // 目标：学生 × 班级
-    const targets = new Map<string, { level: string; order: number | null }>();
+    //
+    // 🔴 「目标等级」名可能**根本没有写过**（2026-09-20 实测）：「学生成绩目标」页的表单
+    // 只有「目标分 + 目标等级序号」两个值，`目标等级` 是一个**没有录入入口**的字段 ⇒
+    // 生产上 2 条目标记录里 `目标等级` 都不存在（只有 序号=1 / 目标分=95|99）。
+    // 而成绩册网格原来**只认这个名字**（前端 `sum.targetLevel ? … : 未设置`）⇒
+    // 老师明明设了目标，网格却显示「未设置」（而且「达标」其实算得出来，等于白算）。
+    // 所以这里把「等级名」降级为可推导：有名字用名字，没名字就按序号在学生实际用的等级体系里反查。
+    const targets = new Map<string, { level: string; order: number | null; score: number | null }>();
     for (const t of targetRows) {
       if (normClass(t.f['班级']) !== c) continue;
       const sid = this.linkIds(t.f['学生'])[0] ?? '';
       if (!sid) continue;
       const order = Number(t.f['目标等级序号']);
+      const score = Number(t.f['目标分']);
       targets.set(sid, {
         level: String(t.f['目标等级'] ?? ''),
         order: Number.isFinite(order) && t.f['目标等级序号'] !== '' ? order : null,
+        score: Number.isFinite(score) && t.f['目标分'] !== '' && t.f['目标分'] != null ? score : null,
       });
     }
 
@@ -519,15 +538,19 @@ export class MarkbookService implements OnModuleInit {
       const useScale = scaleIds.size === 1 ? [...scaleIds][0] : scaleIds.size > 1 ? '' : cfg.defaultScaleId;
       const levels = useScale ? cfg.levelList.filter((l) => l.scaleId === useScale) : cfg.levelList;
       const lv = pickLevel(levels, agg.total);
-      const tgt = targets.get(s.id) ?? { level: '', order: null };
+      const tgt = targets.get(s.id) ?? { level: '', order: null, score: null };
+      // 目标等级名：记录上有就用；没有就按序号在**该生实际用的那套等级体系**里反查
+      // （用同一个 levels，才不会出现「网格显示的等级来自 A 体系、目标名来自 B 体系」）
+      const tgtLabel = targetLabelOf(tgt.level, tgt.order, levels);
       return {
         studentId: s.id,
         total: agg.total,
         level: lv ? lv.label : '',
         levelOrder: lv ? lv.order : null,
         concern: lv ? lv.concern : false,
-        targetLevel: tgt.level,
+        targetLevel: tgtLabel,
         targetOrder: tgt.order,
+        targetScore: tgt.score,
         attained: tgt.order == null || !lv ? null : lv.order <= tgt.order,
         filled: agg.count,
         weightSum: agg.weightSum,

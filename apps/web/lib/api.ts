@@ -2015,6 +2015,8 @@ export interface MarkbookSummary {
   concern: boolean;
   targetLevel: string;
   targetOrder: number | null;
+  /** 目标分（展示用；达标判定只用 targetOrder） */
+  targetScore: number | null;
   /** true 达标 / false 未达标 / null 无法判定（缺目标或没成绩） */
   attained: boolean | null;
   filled: number;

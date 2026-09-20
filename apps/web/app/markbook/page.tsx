@@ -52,6 +52,34 @@ export default function MarkbookPage() {
    * 建列时一眼能看出这一列会按多少权重算。
    */
   const [typeOptions, setTypeOptions] = useState<{ value: string; label: string }[]>([]);
+
+  /**
+   * 「科目」候选 = 字典 **`授课科目`**（峰哥 2026-09-20 定）。
+   *
+   * 之前候选是「当前班级已有列里出现过的科目」—— 那等于**按班级配的候选**：
+   * 新班、或这个班第一次开某学科时，候选是**空的**，只能手打；而手打的写法一旦不一致
+   * （「数学」/「数学课」）就会让期末总评**按科目拆成两份**（总评是 学生 × 批次 × 科目 的快照）。
+   * 生产实测就出现过同一班两列分别写成「数学课」和空。
+   *
+   * 改读字典后：科目清单在「字典管理」里维护一处、所有班统一，教师也不用再打错字。
+   * 字典 key 与「教师档案 · 授课科目」共用同一份（本校区实际开课的科目就这些）。
+   */
+  const [subjectOptions, setSubjectOptions] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    api
+      .dictionaries()
+      .then((all) => {
+        if (alive) setSubjectOptions(all['授课科目'] ?? []);
+      })
+      .catch(() => {
+        // 读不到字典不阻塞建列：下拉退化成「未指定 + 手输兜底」由列编辑器处理
+        if (alive) setSubjectOptions([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   useEffect(() => {
     if (!cls) {
       setTypeOptions([]);
@@ -331,29 +359,48 @@ export default function MarkbookPage() {
                           )}
                         </td>
                         <td className="mb-sum-col">
-                          {sum?.targetLevel ? (
-                            <span
-                              className={
-                                sum.attained === false
-                                  ? 'dept-status dept-status-resigned'
-                                  : sum.attained === true
-                                    ? 'dept-status dept-status-ok'
-                                    : 'dept-status'
-                              }
-                              title={
-                                sum.attained === false
-                                  ? t('belowTarget')
-                                  : sum.attained === true
-                                    ? t('atTarget')
-                                    : t('noTarget')
-                              }
-                            >
-                              {sum.targetLevel}
-                              {sum.attained === false ? ' ↓' : ''}
-                            </span>
-                          ) : (
-                            <span className="muted">{t('noTarget')}</span>
-                          )}
+                          {(() => {
+                            /**
+                             * 🔴 「有目标」的判据从「目标等级名非空」放宽为「三样里任意一样有值」
+                             * （2026-09-20 修）。原因：「学生成绩目标」页的表单只有
+                             * **目标分 + 目标等级序号**，`目标等级`（名字）那个字段**没有录入入口** ⇒
+                             * 老师设好目标后这里永远显示「未设置」（且达标其实已经算出来了，等于白算）。
+                             * 后端现在会按序号反查等级名，所以正常情况有名字；这里再兜一层
+                             * 「只有序号」或「只有分数」的写法。
+                             */
+                            const hasTarget =
+                              !!sum &&
+                              (sum.targetLevel !== '' || sum.targetOrder != null || sum.targetScore != null);
+                            if (!hasTarget) return <span className="muted">{t('noTarget')}</span>;
+                            const label =
+                              sum!.targetLevel ||
+                              (sum!.targetOrder != null
+                                ? t('targetOrderShort', { n: sum!.targetOrder })
+                                : '');
+                            const scoreText =
+                              sum!.targetScore != null ? t('targetScoreLabel', { score: sum!.targetScore }) : '';
+                            return (
+                              <span
+                                className={
+                                  sum!.attained === false
+                                    ? 'dept-status dept-status-resigned'
+                                    : sum!.attained === true
+                                      ? 'dept-status dept-status-ok'
+                                      : 'dept-status'
+                                }
+                                title={
+                                  sum!.attained === false
+                                    ? t('belowTarget')
+                                    : sum!.attained === true
+                                      ? t('atTarget')
+                                      : t('attainUnknown')
+                                }
+                              >
+                                {label && scoreText ? `${label} · ${scoreText}` : label || scoreText}
+                                {sum!.attained === false ? ' ↓' : ''}
+                              </span>
+                            );
+                          })()}
                         </td>
                       </tr>
                     );
@@ -372,11 +419,21 @@ export default function MarkbookPage() {
 
         {editing && cls && (
           <ColumnEditor
+            /**
+             * 🔴 `key` 必须有（2026-09-20 修）。
+             *
+             * 这个编辑器是**网格下方的内联面板**（`.mb-editor` 只是 `margin-top`，不是模态遮罩），
+             * 所以用户可以在它打开时直接点**另一个列头上的「编辑」**、或点上方的「新建考核列」。
+             * 没有 `key` 时 React 复用同一个组件实例 ⇒ `useState(col?.x)` 的初始值**只在首次挂载时算过**，
+             * 面板里仍是上一列的内容（症状：改了列名/科目后，编辑框里显示的还是别的列）。
+             * 按列 id 给 key ⇒ 换列即重建，表单与所编辑的列永远一致。
+             */
+            key={editing.col?.id ?? '__new__'}
             cls={cls}
             col={editing.col}
             scales={grid?.scales ?? []}
-            // 该班用过的科目（去重）—— 给「科目」下拉当候选，保证写法一致
-            subjects={[...new Set((grid?.columns ?? []).map((c) => c.subject).filter(Boolean))]}
+            // 「科目」候选 = 字典「授课科目」（2026-09-20 改：原来取该班已有列，新班/新科目候选为空）
+            subjects={subjectOptions}
             // 考核类型候选（带本班权重标注）—— 见页面顶部 typeOptions 的注释
             types={typeOptions}
             onClose={() => setEditing(null)}
@@ -424,7 +481,10 @@ function ColumnEditor({
   cls: string;
   col: MarkbookColumn | null;
   scales: { id: string; name: string; isDefault: boolean }[];
-  /** 该班已用过的科目（来自网格现有列）—— 给下拉用，避免手打出「数学 / 数学课」两种科目 */
+  /**
+   * 「科目」候选 = 字典「授课科目」的取值（页面上一次性从 `/dictionaries` 读）。
+   * 必须从候选里选：科目是**期末总评拆分的键**，手打写岔会让总评按科目拆成两份且不报错。
+   */
   subjects: string[];
   /**
    * 考核类型候选（value=类型名，label 里带本班权重）。
@@ -574,19 +634,26 @@ function ColumnEditor({
         {/* ── 科目（2026-09-20 补）：期末总评按它拆科目，缺了就没法按科目合成 ── */}
         <label className="mb-field">
           <span>{t('fSubject')}</span>
-          {/* 用 datalist：既能挑该班已用过的科目（消灭「数学 / 数学课」两种写法），也能录新科目 */}
-          <input
-            className="form-input"
-            list="mb-subject-options"
-            placeholder={t('fSubjectHint')}
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-          />
-          <datalist id="mb-subject-options">
+          {/* 🔴 必须是下拉（2026-09-20 改）：科目是**期末总评拆分的键**（学生 × 批次 × 科目），
+              自由文本写岔（「数学」/「数学课」）会让总评拆成两份，而且不报错。
+              候选读字典「授课科目」—— 字典里维护一处，所有班统一。 */}
+          <select className="form-input" value={subject} onChange={(e) => setSubject(e.target.value)}>
+            <option value="">{t('fSubjectNone')}</option>
+            {/* 编辑既有列时，若该科目已不在字典里（被改名/删除），补一项，避免显示成「未指定」 */}
+            {subject && !subjects.includes(subject) ? (
+              <option value={subject}>{`${subject}（${t('fSubjectMissing')}）`}</option>
+            ) : null}
             {subjects.map((s) => (
-              <option key={s} value={s} />
+              <option key={s} value={s}>
+                {s}
+              </option>
             ))}
-          </datalist>
+          </select>
+          {subjects.length === 0 ? (
+            <span className="mb-meta">{t('fSubjectEmpty')}</span>
+          ) : (
+            <span className="mb-meta">{t('fSubjectHint')}</span>
+          )}
         </label>
         {/* ── 可见性与完成闸门（2026-09-20 补）：三态各一档，空串 = 未设置（都不公开） ── */}
         <label className="mb-field">

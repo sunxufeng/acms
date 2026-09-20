@@ -2991,7 +2991,7 @@
     "cellAbsent": "缺考",
     "cellInputHint": "支持：数字 85 / 百分制 85% / 等级 B / 免考（* 或 免考）/ 缺考（缺）；留空 = 未录入（会删掉这一格）",
     "fSubject": "科目",
-    "fSubjectHint": "如 数学。期末总评按科目拆分，写法要一致",
+    "fSubjectHint": "候选来自字典「授课科目」；期末总评按科目拆分，统一从这里选（要增改选项去「字典管理」）",
     "fStudentVisible": "学生可见",
     "fParentVisible": "家长可见",
     "fCompleteDate": "完成日期（家长可见闸门）",
@@ -3004,7 +3004,13 @@
     "fTypeNone": "未指定",
     "fTypeEmpty": "暂无考核类型 —— 请先到「教学管理 › 考核类型」建几个",
     "fTypeMissing": "已不在类型表中",
-    "fTypeWarn": "未指定考核类型：这一列结转时会按权重 1 计入期末总评"
+    "fTypeWarn": "未指定考核类型：这一列结转时会按权重 1 计入期末总评",
+    "fSubjectNone": "未指定",
+    "fSubjectMissing": "已不在字典中",
+    "fSubjectEmpty": "字典「授课科目」还没有取值 —— 请先到「字典管理」里添加",
+    "targetOrderShort": "序号 {n}",
+    "targetScoreLabel": "目标 {score} 分",
+    "attainUnknown": "暂无成绩或未设目标等级序号，暂无法判定是否达标"
   },
   "teaching": {
     "titleAttendanceCodes": "考勤码",
@@ -3094,7 +3100,7 @@
     "searchTargets": "搜索学生姓名 / 班级 / 备注",
     "colTargetStudent": "学生",
     "colTargetClass": "班级",
-    "hintTargetClass": "与成绩册的分组一致（学生档案的「当前年级」）；留空也能算，但按班级筛选时会对不上",
+    "hintTargetClass": "选学生后会自动带出他档案里的班级（「当前班级」，空则用「当前年级」）；成绩册按班级取目标，写错班级那条目标就不会在成绩册出现",
     "colTargetOrder": "目标等级序号",
     "hintTargetOrder": "越小越好（1 = 最好）。达标判定是「等级序号 ≤ 本值」，与「分数 ≥ 及格线」方向相反",
     "colTargetScore": "目标分",

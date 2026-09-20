@@ -149,6 +149,20 @@ export interface CrudColumn {
   /** 联动来源字段 key（如 parent 类型从 student 类型所选学生的父亲/母亲取候选） */
   dependsOn?: string;
   /**
+   * 选中学生后，**本字段的值自动从学生档案带出**（目前支持的是班级）。
+   *
+   * 用途：字段本身是「按学生来的」却又在表单里单列一项 —— 典型是「学生成绩目标」的
+   * **班级**：成绩册是按「学生档案.当前班级 → 当前年级」分组取名单的，老师手选班级一旦
+   * 与档案不一致，这条目标在成绩册里**永远不会出现**（网格按班级过滤目标，不报错、无日志）。
+   *
+   * 取值口径与后端 `MarkbookService.classOf` 一致：**当前班级优先、空则回落当前年级**
+   * （学生档案的「当前班级」是关联字段且生产数据全为 null，所以实际取到的是「当前年级」）。
+   *
+   * 只在**学生字段变化时**写入（重新选学生就重新带出）；编辑既有记录时不会覆盖已存的值。
+   * 带出后仍可手改（例如要临时换一个班对比），所以是「默认带出」而不是「锁死」。
+   */
+  studentClassAuto?: boolean;
+  /**
    * 表单**条件显隐**：返回 false 时该字段在表单里不渲染。
    *
    * ⚠️ 与 `dependsOn` 不是一回事：那个决定「子字段有哪些**候选项**」，本项决定「字段**要不要出现**」。
@@ -427,6 +441,23 @@ export function studentHref(id: string): string {
 export function studentLabel(name: string, englishName?: unknown): string {
   const en = typeof englishName === 'string' ? englishName.trim() : '';
   return name && en ? `${name} / ${en}` : name;
+}
+
+/**
+ * 学生档案里的「班级」——与后端 `MarkbookService.classOf` **同口径**：
+ * **当前班级优先、空则回落当前年级**。
+ *
+ * ⚠️ 为什么不能只读「当前班级」（2026-09-13 实测，82 名学生）：它是关联字段，
+ * 生产数据全是 `{link_record_ids: null}`；「当前年级」才是真有值的分群维度
+ * （Pre-1 / Pre-2 / Pre-3 / 大一 / 未来企业家班 / 全球领航计划）。
+ * 这里只认字符串值，保证不把关联对象 `[object Object]` 当班级写进去。
+ */
+export function classOfStudent(s: Record<string, unknown>): string {
+  for (const k of ['当前班级', '当前年级']) {
+    const v = s[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
 }
 
 /**
@@ -1050,15 +1081,20 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const [studentLinkOptions, setStudentLinkOptions] = useState<{ value: string; label: string }[]>([]);
   const [studentMap, setStudentMap] = useState<Record<string, { father: string; mother: string }>>({});
   const [studentIdByName, setStudentIdByName] = useState<Record<string, string>>({});
+  /** 学生 → 班级（record id / 姓名 两个键都存一份）：给 `studentClassAuto` 的字段带默认值 */
+  const [studentClassById, setStudentClassById] = useState<Record<string, string>>({});
+  const [studentClassByName, setStudentClassByName] = useState<Record<string, string>>({});
   /** 学生姓名 → 英文名：列表里学生列要显示「中文名 / 英文名」，表单下拉已带英文名，这里补列表用 */
   const [studentEnglishByName, setStudentEnglishByName] = useState<Record<string, string>>({});
   useEffect(() => {
     const needStudentMap =
       columns.some((c) => c.type === 'student' || c.type === 'studentLink' || c.type === 'parent') ||
+      // 要给学生**带出班级**时也得把学生拉下来（否则带不出值）
+      columns.some((c) => c.studentClassAuto) ||
       Boolean(studentNameKeys?.length);
     if (!needStudentMap) return;
     let alive = true;
-    const collected: { id: string; name: string; englishName: string; father: string; mother: string }[] = [];
+    const collected: { id: string; name: string; englishName: string; father: string; mother: string; cls: string }[] = [];
     const fetchPage = async (token?: string): Promise<void> => {
       const params: Record<string, string | undefined> = { pageSize: '100' };
       if (token) params.pageToken = token;
@@ -1072,6 +1108,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           englishName: String(s['英文名'] ?? ''),
           father: String(s['父亲姓名'] ?? ''),
           mother: String(s['母亲姓名'] ?? ''),
+          cls: classOfStudent(s as Record<string, unknown>),
         });
       }
       if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
@@ -1082,14 +1119,22 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         const map: Record<string, { father: string; mother: string }> = {};
         const idByName: Record<string, string> = {};
         const enByName: Record<string, string> = {};
+        const clsById: Record<string, string> = {};
+        const clsByName: Record<string, string> = {};
         for (const s of collected) {
           map[s.name] = { father: s.father, mother: s.mother };
           idByName[s.name] = s.id;
           if (s.englishName) enByName[s.name] = s.englishName;
+          if (s.cls) {
+            clsById[s.id] = s.cls;
+            clsByName[s.name] = s.cls;
+          }
         }
         setStudentMap(map);
         setStudentIdByName(idByName);
         setStudentEnglishByName(enByName);
+        setStudentClassById(clsById);
+        setStudentClassByName(clsByName);
         const seen = new Set<string>();
         const opts = collected
           .filter((s) => {
@@ -1105,6 +1150,22 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     return () => { alive = false; };
   }, [columns, studentNameKeys]);
 
+  /**
+   * 选中学生后，把「随学生走」的字段一起带出来（见 `CrudColumn.studentClassAuto`）。
+   *
+   * 只在**学生字段变化时**调用 ⇒ 编辑既有记录不会覆盖已存的值；带出后仍可手改。
+   * 取不到班级（学生档案里没有当前班级/当前年级）时**原样返回**，绝不写空串 ——
+   * 否则会把用户刚填好的班级清掉。
+   */
+  const applyStudentDerived = (next: Record<string, unknown>, picked: string) => {
+    const autoCols = columns.filter((c) => c.studentClassAuto);
+    if (!autoCols.length || !picked) return next;
+    const cls = studentClassById[picked] ?? studentClassByName[picked] ?? '';
+    if (!cls) return next;
+    const patch = { ...next };
+    for (const c of autoCols) patch[c.key] = cls;
+    return patch;
+  };
   // 学生列补英文名：把「中文名 → 英文名」以 __studentEnglish 注入行上，
   // 这样既有通用单元格渲染、也有各模块自定义 render（如家校沟通的学生列）都能显示双语。
   const studentCols = useMemo(
@@ -1763,9 +1824,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               {userNames.map((o) => <option key={o} value={o}>{tl(o)}</option>)}
             </select>
           ) : c.type === 'student' ? (
-            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentOptions} placeholder="输入学生姓名筛选…" />
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => applyStudentDerived({ ...f, [c.key]: v }, v))} options={studentOptions} placeholder="输入学生姓名筛选…" />
           ) : c.type === 'studentLink' ? (
-            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" />
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => applyStudentDerived({ ...f, [c.key]: v }, v))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" />
           ) : c.type === 'weilingContact' ? (
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={weilingContactOptions} placeholder="输入联系人姓名或手机号筛选…" />
           ) : c.type === 'link' && fieldReadonly(c) ? (

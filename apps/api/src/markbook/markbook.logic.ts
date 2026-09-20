@@ -154,6 +154,26 @@ export function textOf(v: unknown): string {
 }
 
 /**
+ * 目标等级的**显示名**：记录上写了名字就用名字，没写就按「目标等级序号」在
+ * **该生实际用的那套等级体系**（`levels`）里反查。
+ *
+ * 🔴 为什么需要这层推导（2026-09-20 实测）：「学生成绩目标」页的表单只有
+ * **目标分 + 目标等级序号**，`目标等级` 是一个**没有录入入口**的字段 ⇒
+ * 生产上 2 条目标记录里它根本不存在（只有 `目标等级序号 = 1`、`目标分 = 95 / 99`）。
+ * 而成绩册网格原来**只认这个名字**（前端 `targetLevel ? … : 未设目标`）⇒
+ * 老师明明设了目标，网格却显示「未设目标」—— 更糟的是「达标」其实算得出来，等于白算。
+ *
+ * 传进来的 `levels` 必须是**该生算总评用的同一套**（服务的 `getGrid` 就是这么取的），
+ * 否则会出现「网格上的等级来自 A 体系、目标名来自 B 体系」这种对不上的展示。
+ */
+export function targetLabelOf(levelName: unknown, order: number | null | undefined, levels: LevelDef[]): string {
+  const name = typeof levelName === 'string' ? levelName.trim() : '';
+  if (name) return name;
+  if (order == null || !Number.isFinite(Number(order))) return '';
+  return levels.find((l) => Number(l.order) === Number(order))?.label ?? '';
+}
+
+/**
  * 分组维度归一化（成绩册按它把学生分到「班级」下）。
  *
  * ⚠️ 学生档案实测（2026-09-13，82 名学生）：

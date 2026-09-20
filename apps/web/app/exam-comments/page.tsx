@@ -37,11 +37,14 @@ export default function ExamCommentsPage() {
       label: t('colCommentSubject'),
       width: '120px',
       form: true,
-      type: 'text',
+      // 🔴 读字典「授课科目」、与成绩册列的「科目」同源（2026-09-20 改）。
+      // 这里的科目是**与期末总评的科目等值匹配**的键（批量评语按当前科目筛句子）：
+      // 一边写「数学课」、一边是「数学」，那条评语就永远筛不出来，且不报错。
+      type: 'select',
+      dictKey: '授课科目',
       filter: true,
-      // 文本筛选默认是**等值**匹配，要模糊必须显式声明（否则输入部分文字恒 0 条）
-      filterType: 'text',
-      filterOp: 'contains',
+      // 从自由文本改成下拉后，原来配的 contains 模糊筛选要撤掉 ——
+      // 留着会让筛选框仍是文本框（写一半筛不到），删掉才会按 dictKey 渲染成下拉
       hint: t('hintCommentSubject'),
     },
     {

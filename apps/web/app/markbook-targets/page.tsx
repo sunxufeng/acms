@@ -45,6 +45,11 @@ export default function MarkbookTargetsPage() {
         // 读字典「当前年级」：成绩册是按「学生档案.当前年级」分组的，用同一份名单才不会写错班名
         type: 'select',
         dictKey: '当前年级',
+        // 🔴 选中学生后**自动带出档案里的班级**（2026-09-20 加）：
+        // 成绩册取目标时是**按班级过滤**的（`normClass(目标.班级) === 网格的班级`），
+        // 这里手选错了班级，那条目标在成绩册里**永远不出现**，而且不报错、没日志。
+        // 口径与后端 classOf 一致：当前班级 → 当前年级。带出后仍可手改。
+        studentClassAuto: true,
         hint: t('hintTargetClass'),
       },
       {

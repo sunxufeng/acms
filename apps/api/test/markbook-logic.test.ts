@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildColumnFields, safeWeight, weightedTotal } from '../src/markbook/markbook.logic.js';
+import { buildColumnFields, safeWeight, targetLabelOf, weightedTotal, type LevelDef } from '../src/markbook/markbook.logic.js';
 
 /**
  * 成绩册列的写入字段构造（2026-09-20 补页面时新增的回归保护）。
@@ -91,5 +91,44 @@ describe('safeweight / weightedTotal（两层权重与自归一化）', () => {
     const one = weightedTotal([{ score: 60, weight: 3 }]);
     expect(one.total).toBe(60);
     expect(one.weightSum).toBe(3);
+  });
+});
+
+/**
+ * 目标等级的显示名推导（2026-09-20 新增）。
+ *
+ * 背景：「学生成绩目标」页的表单只有**目标分 + 目标等级序号**，`目标等级` 没有录入入口 ⇒
+ * 生产上 2 条目标记录里这个名字字段根本不存在。而成绩册网格原来只认这个名字，
+ * 于是「设了目标却显示未设目标」，且「达标」明明算得出来（等于白算）。
+ * 这条推导就是让「只有序号」也能显示出等级名。
+ */
+describe('targetLabelOf', () => {
+  const levels: LevelDef[] = [
+    { id: 'l1', scaleId: 's1', label: 'A*', order: 1, min: 90, max: 100, concern: false },
+    { id: 'l2', scaleId: 's1', label: 'A', order: 2, min: 80, max: 89, concern: false },
+    { id: 'l3', scaleId: 's1', label: 'B', order: 3, min: 0, max: 79, concern: true },
+  ];
+
+  it('记录里写了等级名 → 原样用它（不拿体系里的同序号值去覆盖历史写法）', () => {
+    expect(targetLabelOf('优秀', 1, levels)).toBe('优秀');
+  });
+
+  it('只有序号（生产真实形态）→ 按序号在学生实际用的体系里反查', () => {
+    expect(targetLabelOf('', 1, levels)).toBe('A*');
+    expect(targetLabelOf(undefined, 3, levels)).toBe('B');
+  });
+
+  it('序号是字符串数字也认（数据库里可能存成 "1"）', () => {
+    expect(targetLabelOf('', '2' as unknown as number, levels)).toBe('A');
+  });
+
+  it('序号在体系里找不到 → 返回空串（前端据此回落显示「序号 N」，不乱猜一个等级名）', () => {
+    expect(targetLabelOf('', 9, levels)).toBe('');
+  });
+
+  it('名字与序号都空 → 空串（这条才是真正的「未设目标」）', () => {
+    expect(targetLabelOf('', null, levels)).toBe('');
+    expect(targetLabelOf('   ', null, levels)).toBe('');
+    expect(targetLabelOf('', undefined, levels)).toBe('');
   });
 });

@@ -263,10 +263,18 @@ export class MarkbookService implements OnModuleInit {
     try {
       const rows = await this.readAll(TABLES.examType.tableId);
       const items = rows
-        .slice()
-        .sort((a, b) => (Number(a.f['排序']) || 0) - (Number(b.f['排序']) || 0))
-        .map((r) => String(r.f['类型名称'] ?? '').trim())
-        .filter(Boolean);
+        .map((r) => ({
+          name: String(r.f['类型名称'] ?? '').trim(),
+          // 排序：表上的「排序」字段优先（运营可在「考核类型」页调）；
+          // 都为空（生产现状：defaults 给了 0）时按「缺省权重」升序兜底 ——
+          // 也就是日常练习 → 平时成绩 → 实践课程 → 月考 → 期末考试，符合教学推进顺序。
+          // 最后按名称兜底，保证**顺序是确定的**（否则下拉顺序会随数据库返回顺序变）。
+          sort: Number(r.f['排序']) || 0,
+          weight: Number(r.f['缺省权重']) || 0,
+        }))
+        .filter((x) => x.name)
+        .sort((a, b) => a.sort - b.sort || a.weight - b.weight || a.name.localeCompare(b.name, 'zh-CN'))
+        .map((x) => x.name);
       return { items };
     } catch {
       // 表还没建 / 读失败 → 空候选（页面下拉为空，但不影响其它功能）

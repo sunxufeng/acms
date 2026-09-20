@@ -1526,6 +1526,15 @@ export const api = {
     }>(`/markbook/type-options${cls ? `?cls=${encodeURIComponent(cls)}` : ''}`),
   /** 整个班级的成绩册网格（列 × 学生 + 单元格 + 加权总评） */
   markbookGrid: (cls: string) => request<MarkbookGrid>(`/markbook/grid?cls=${encodeURIComponent(cls)}`),
+  /**
+   * 成绩等级候选（「学生成绩目标」选**目标等级序号**用）。
+   *
+   * 值 = 等级序号（后端按数字存），label 形如 `A（序号 10）`。
+   * 必须先取这个再渲染表单：自由数字会写出「序号 1」这种体系里不存在的值，
+   * 而达标判定是「实际序号 ≤ 目标序号」⇒ 那条目标**永远判不出达标**，等级名也反查不出来。
+   */
+  markbookLevelOptions: () =>
+    request<{ items: { value: string; label: string }[] }>('/markbook/level-options'),
   /** 批量保存单元格（score 传空 = 删除该条目） */
   markbookSaveEntries: (cls: string, rows: MarkbookSaveRow[]) =>
     request<{
@@ -2015,6 +2024,8 @@ export interface MarkbookSummary {
   concern: boolean;
   targetLevel: string;
   targetOrder: number | null;
+  /** 目标序号是否在该生的等级体系里（false = 永远判不出达标，界面要提示） */
+  targetOrderKnown: boolean;
   /** 目标分（展示用；达标判定只用 targetOrder） */
   targetScore: number | null;
   /** true 达标 / false 未达标 / null 无法判定（缺目标或没成绩） */

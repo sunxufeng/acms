@@ -3010,7 +3010,9 @@
     "fSubjectEmpty": "The “Teaching subjects” dictionary is empty — add values under Dictionaries first",
     "targetOrderShort": "Order {n}",
     "targetScoreLabel": "Target {score}",
-    "attainUnknown": "Not enough data to judge yet (needs a score and a target order)"
+    "attainUnknown": "Not enough data to judge yet (needs a score and a target order)",
+    "targetOrderUnknown": "not in the grade scale",
+    "targetOrderUnknownHint": "This target’s level order does not exist in the grade scale (e.g. 1, while the best level A is 10), so attainment can never be judged. Pick a target level again under Student targets"
   },
   "teaching": {
     "titleAttendanceCodes": "Attendance Codes",
@@ -3102,7 +3104,7 @@
     "colTargetClass": "Class",
     "hintTargetClass": "Picking a student auto-fills the class from their profile (current class, falling back to current grade). The markbook looks up targets by class, so a mismatched class means the target never shows up there",
     "colTargetOrder": "Target level order",
-    "hintTargetOrder": "Lower is better (1 = best). \"Attained\" means level order ≤ this value — the opposite direction from \"score ≥ pass mark\"",
+    "hintTargetOrder": "Pick from the grade scale (lower is better; A is best). Attainment means the student’s level order ≤ this value — so it must be a real order in the scale; a number that does not exist there means attainment can never be judged",
     "colTargetScore": "Target score",
     "hintTargetScore": "Display only; the attainment check uses the level order alone",
     "linkToMarkbook": "Open markbook",
@@ -3139,7 +3141,8 @@
     "delete": "Delete",
     "save": "Save",
     "cancel": "Cancel",
-    "noEditPerm": "No edit permission"
+    "noEditPerm": "No edit permission",
+    "hintTargetOrderFallback": "The grade scale could not be loaded, so enter the order manually (lower is better). ⚠️ It must match an order in the grade scale, otherwise attainment can never be judged"
   },
   "examGrades": {
     "eyebrow": "Academics",

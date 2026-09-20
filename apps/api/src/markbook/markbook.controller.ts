@@ -49,6 +49,21 @@ export class MarkbookController {
   }
 
   /**
+   * 成绩等级候选（读）—— 供「学生成绩目标」选**目标等级序号**。
+   *
+   * 原来那个字段是自由数字，而目标等级序号必须恰好等于某个等级的序号：
+   * 生产实测有人填了 `1`，而本校等级体系的序号是 10/15/…/60（A 最好 = 10，没有 1）
+   * ⇒ 成绩册里显示不出等级名，且对任何成绩都判「未达标」。改下拉从源头堵住。
+   *
+   * 挂 `module:markbook:read`（与网格同权限）；静态路由排在 `@Get(':id')` 之前。
+   */
+  @Get('level-options')
+  levelOptions(@Req() req: { user: SessionUser }) {
+    requireModule(req.user, 'markbook', 'read');
+    return this.svc.listLevelOptions();
+  }
+
+  /**
    * 考核类型候选（读）—— 供「成绩类型权重」与「成绩册 · 新建/修改考核列」的下拉。
    *
    * 候选项来自「考核类型」表（不是字典，也不是「成绩类型权重」表），原因：

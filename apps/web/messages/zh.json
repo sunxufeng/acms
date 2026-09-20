@@ -3010,7 +3010,9 @@
     "fSubjectEmpty": "字典「授课科目」还没有取值 —— 请先到「字典管理」里添加",
     "targetOrderShort": "序号 {n}",
     "targetScoreLabel": "目标 {score} 分",
-    "attainUnknown": "暂无成绩或未设目标等级序号，暂无法判定是否达标"
+    "attainUnknown": "暂无成绩或未设目标等级序号，暂无法判定是否达标",
+    "targetOrderUnknown": "不在等级体系中",
+    "targetOrderUnknownHint": "这条目标的「目标等级序号」在成绩等级体系里不存在（例如填了 1，而体系里 A 最好 = 10）⇒ 永远判不出达标 —— 请到「学生成绩目标」重新选一个目标等级"
   },
   "teaching": {
     "titleAttendanceCodes": "考勤码",
@@ -3102,7 +3104,7 @@
     "colTargetClass": "班级",
     "hintTargetClass": "选学生后会自动带出他档案里的班级（「当前班级」，空则用「当前年级」）；成绩册按班级取目标，写错班级那条目标就不会在成绩册出现",
     "colTargetOrder": "目标等级序号",
-    "hintTargetOrder": "越小越好（1 = 最好）。达标判定是「等级序号 ≤ 本值」，与「分数 ≥ 及格线」方向相反",
+    "hintTargetOrder": "从成绩等级体系里选（越小越好，A 最好）。达标判定是「实际等级序号 ≤ 本值」——所以这个值必须是真的存在的等级序号，手填一个体系里没有的数字会让这条目标永远判不出达标",
     "colTargetScore": "目标分",
     "hintTargetScore": "仅作参考展示，不参与达标判定（判定只看等级序号）",
     "linkToMarkbook": "去成绩册",
@@ -3139,7 +3141,8 @@
     "delete": "删除",
     "save": "保存",
     "cancel": "取消",
-    "noEditPerm": "无编辑权限"
+    "noEditPerm": "无编辑权限",
+    "hintTargetOrderFallback": "等级表没读到，暂时手填序号（越小越好）。⚠️ 必须与成绩等级体系里的序号一致（A 最好 = 10 那一套），填了体系里没有的数字会让这条目标永远判不出达标"
   },
   "examGrades": {
     "eyebrow": "教学管理",

@@ -154,6 +154,34 @@ export function textOf(v: unknown): string {
 }
 
 /**
+ * 成绩等级下拉的候选项（「学生成绩目标」选目标等级序号用）。
+ *
+ * 值 = 等级序号（字符串形式，后端按数字存），label 形如 `A（序号 10）` ——
+ * 把「序号」和「显示值」放在同一个选项里，避免用户只知道要填个数字却不知道填几。
+ *
+ * ⚠️ **按序号去重**：多个等级体系可能有相同序号（各自的 A/B/C）。`multi` 为真时
+ * label 里附上体系名以便区分，并保留排序后的第一个。
+ * 判据是「值必须真实存在于等级体系」—— 达标判定就是 `实际序号 ≤ 目标序号`，
+ * 序号非法 ⇒ 那条目标永远判不出达标（`isAttained` 返回 false，而不是「无法判定」）。
+ */
+export function levelOptionItems(
+  levels: LevelDef[],
+  scaleNameOf: (scaleId: string) => string = () => '',
+  multi = false,
+): { value: string; label: string }[] {
+  const seen = new Set<string>();
+  const out: { value: string; label: string }[] = [];
+  for (const l of [...levels].sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, 'zh-CN'))) {
+    const value = String(l.order);
+    if (seen.has(value)) continue;
+    seen.add(value);
+    const scale = multi ? ` · ${scaleNameOf(l.scaleId)}` : '';
+    out.push({ value, label: `${l.label}（序号 ${l.order}）${scale}` });
+  }
+  return out;
+}
+
+/**
  * 目标等级的**显示名**：记录上写了名字就用名字，没写就按「目标等级序号」在
  * **该生实际用的那套等级体系**（`levels`）里反查。
  *

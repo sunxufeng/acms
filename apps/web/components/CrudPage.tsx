@@ -85,6 +85,17 @@ export interface CrudColumn {
   type?: CrudFieldType;
   options?: string[];
   /**
+   * `select` 的**候选显示名**（`值 → 显示名`）：下拉里显示中文/富文案，提交给后端的是
+   * `options` 里的原始值。适合「库里存数字或码值、界面要显示成人话」的下拉。
+   *
+   * 与 `filterOptionLabels` 的区别：那个只管**筛选区**与列表/导出的显示，
+   * 本字段管**表单下拉**的显示（两者可同时用，例如「目标等级序号」存 10、两处都显示「A（序号 10）」）。
+   *
+   * 报告过的坑（2026-09-20）：学生成绩目标的「目标等级序号」原来是自由数字框，
+   * 有人填了 1，而等级体系的序号是 10/15/…/60（A 最好 = 10）⇒ 那条目标永远判不出达标。
+   */
+  selectLabels?: Record<string, string>;
+  /**
    * 关联字段（type: 'link'）的候选项：value 是目标表的 record id，label 是展示名。
    * 与 options（string[]）分开，避免动到既有模块的 select 行为。
    * 提交时传 value；列表/详情显示的姓名由后端 linkFields 解析。
@@ -468,8 +479,11 @@ export function classOfStudent(s: Record<string, unknown>): string {
 function cellText(v: unknown, c: CrudColumn, tl: (k: string) => string, meta: DictMeta | null): string {
   // 码值列（filterOptionLabels = 「值 → 显示名」）：列表显示与导出都要出中文，
   // 不能把 0/1/4 直接丢进 Excel —— 导出一致性见 MEMORY 的「键值双标识」铁律。
-  if (c.filterOptionLabels) {
-    const labels = c.filterOptionLabels;
+  // selectLabels / filterOptionLabels 都是「值 → 显示名」：列表与导出都要出人话，
+  // 不能把 10 这种码值直接丢给用户看（导出到 Excel 更明显）
+  const valueLabels = c.selectLabels ?? c.filterOptionLabels;
+  if (valueLabels) {
+    const labels = valueLabels;
     const one = (x: unknown): string => tl(labels[str(x)] ?? str(x));
     return Array.isArray(v) ? v.map(one).join('、') : one(v);
   }
@@ -1743,7 +1757,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           ) : c.type === 'select' ? (
             <select className="form-input" value={str(form[c.key])} onChange={(e) => applyFieldChange(c, e.target.value)}>
               <option value="">{t('common.notFilled')}</option>
-              {optionsFor(c).map((o) => <option key={o} value={o}>{tl(o)}</option>)}
+              {optionsFor(c).map((o) => <option key={o} value={o}>{tl(c.selectLabels?.[o] ?? o)}</option>)}
             </select>
           ) : c.type === 'multiselect' ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>

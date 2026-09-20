@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
@@ -24,6 +24,34 @@ import { formatDateTime } from '../../lib/date';
  */
 export default function MarkbookTargetsPage() {
   const t = useTranslations('teaching');
+
+  /**
+   * 成绩等级候选（= 成绩等级表里该体系的实际序号与显示值）。
+   *
+   * 🔴 为什么「目标等级序号」必须是下拉、不能是自由数字（2026-09-20 修）：
+   * 这个值必须**恰好等于某个等级的序号**才有意义 —— 达标判定是 `实际等级序号 ≤ 目标序号`。
+   * 生产实测有人填了 `1`，而本校「致极等第体系-2026」的序号是
+   * **10 / 15 / 20 / 25 / 27 / 30 / 35 / 40 / 50 / 60**（A 最好 = 10，**没有 1**）⇒
+   * 那条目标**永远判不出达标**（哪怕全 A），成绩册里也显示不出等级名、只剩一个裸序号。
+   * 下拉的 label 做成「A（序号 10）」，让「越小越好」这件事在选项里直接可见。
+   *
+   * 读不到等级表（接口失败）时退回数字输入 —— 不能因为一个只读候选就把「建目标」这件事卡死。
+   */
+  const [levels, setLevels] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    api
+      .markbookLevelOptions()
+      .then((r) => {
+        if (alive) setLevels(r?.items ?? []);
+      })
+      .catch(() => {
+        if (alive) setLevels([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const COLUMNS: CrudColumn[] = useMemo(
     () => [
@@ -52,15 +80,29 @@ export default function MarkbookTargetsPage() {
         studentClassAuto: true,
         hint: t('hintTargetClass'),
       },
-      {
-        key: '目标等级序号',
-        label: t('colTargetOrder'),
-        width: '120px',
-        form: true,
-        type: 'number',
-        required: true,
-        hint: t('hintTargetOrder'),
-      },
+      // 目标等级序号：有等级表就读表做下拉（值=序号、显示「A（序号 10）」）；
+      // 读不到退回数字输入（见上面 levels 的注释）
+      levels.length
+        ? {
+            key: '目标等级序号',
+            label: t('colTargetOrder'),
+            width: '160px',
+            form: true,
+            type: 'select',
+            required: true,
+            options: levels.map((l) => l.value),
+            selectLabels: Object.fromEntries(levels.map((l) => [l.value, l.label])),
+            hint: t('hintTargetOrder'),
+          }
+        : {
+            key: '目标等级序号',
+            label: t('colTargetOrder'),
+            width: '120px',
+            form: true,
+            type: 'number',
+            required: true,
+            hint: t('hintTargetOrderFallback'),
+          },
       {
         key: '目标分',
         label: t('colTargetScore'),
@@ -77,7 +119,8 @@ export default function MarkbookTargetsPage() {
         render: (v) => <span className="muted">{formatDateTime(v)}</span>,
       },
     ],
-    [t],
+    // levels 变了要重算：列的类型/候选都取决于等级表是否读到了
+    [t, levels],
   );
 
   return (

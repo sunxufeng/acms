@@ -379,25 +379,44 @@ export default function MarkbookPage() {
                                 : '');
                             const scoreText =
                               sum!.targetScore != null ? t('targetScoreLabel', { score: sum!.targetScore }) : '';
+                            /**
+                             * 目标序号不在该生的等级体系里 ⇒ **永远判不出达标**
+                             * （判定是「实际等级序号 ≤ 目标序号」，序号非法则必然为假）。
+                             * 生产实测：体系序号是 10/15/…/60（A 最好 = 10），有人填了 1。
+                             * 这种「数据非法但接口一切正常」的情况必须在格子里说出来，
+                             * 否则老师只会看到「一直未达标」而以为系统算错。
+                             */
+                            const outOfRange = sum!.targetOrderKnown === false;
+                            const text = [
+                              label,
+                              outOfRange ? t('targetOrderUnknown') : '',
+                              scoreText,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ');
                             return (
                               <span
                                 className={
-                                  sum!.attained === false
+                                  outOfRange
                                     ? 'dept-status dept-status-resigned'
-                                    : sum!.attained === true
-                                      ? 'dept-status dept-status-ok'
-                                      : 'dept-status'
+                                    : sum!.attained === false
+                                      ? 'dept-status dept-status-resigned'
+                                      : sum!.attained === true
+                                        ? 'dept-status dept-status-ok'
+                                        : 'dept-status'
                                 }
                                 title={
-                                  sum!.attained === false
-                                    ? t('belowTarget')
-                                    : sum!.attained === true
-                                      ? t('atTarget')
-                                      : t('attainUnknown')
+                                  outOfRange
+                                    ? t('targetOrderUnknownHint')
+                                    : sum!.attained === false
+                                      ? t('belowTarget')
+                                      : sum!.attained === true
+                                        ? t('atTarget')
+                                        : t('attainUnknown')
                                 }
                               >
-                                {label && scoreText ? `${label} · ${scoreText}` : label || scoreText}
-                                {sum!.attained === false ? ' ↓' : ''}
+                                {text}
+                                {!outOfRange && sum!.attained === false ? ' ↓' : ''}
                               </span>
                             );
                           })()}

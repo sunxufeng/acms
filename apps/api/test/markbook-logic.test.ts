@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildColumnFields, safeWeight, targetLabelOf, weightedTotal, type LevelDef } from '../src/markbook/markbook.logic.js';
+import {
+  buildColumnFields,
+  levelOptionItems,
+  safeWeight,
+  targetLabelOf,
+  weightedTotal,
+  type LevelDef,
+} from '../src/markbook/markbook.logic.js';
 
 /**
  * 成绩册列的写入字段构造（2026-09-20 补页面时新增的回归保护）。
@@ -130,5 +137,53 @@ describe('targetLabelOf', () => {
     expect(targetLabelOf('', null, levels)).toBe('');
     expect(targetLabelOf('   ', null, levels)).toBe('');
     expect(targetLabelOf('', undefined, levels)).toBe('');
+  });
+});
+
+/**
+ * 成绩等级下拉候选（2026-09-20 新增）。
+ *
+ * 这一条防的是**最贵的一类静默错误**：目标等级序号填了个体系里不存在的数字
+ * （生产实测填 1，而本校序号是 10/15/…/60）⇒ 达标判定 `实际序号 ≤ 目标序号` 恒为假，
+ * 学生哪怕全 A 也永远「未达标」，接口还一切正常。下拉的候选必须就是真实等级。
+ */
+describe('levelOptionItems', () => {
+  // 生产真实数据（致极等第体系-2026）：序号越小越好，A 最好 = 10，没有 1
+  const real: LevelDef[] = [
+    { id: 'f', scaleId: 's1', label: 'F', order: 60, min: 0, max: 59, concern: true },
+    { id: 'd', scaleId: 's1', label: 'D', order: 50, min: 60, max: 69, concern: true },
+    { id: 'cm', scaleId: 's1', label: 'C-', order: 40, min: 70, max: 73, concern: false },
+    { id: 'bp', scaleId: 's1', label: 'B+', order: 20, min: 87, max: 89, concern: false },
+    { id: 'am', scaleId: 's1', label: 'A-', order: 15, min: 90, max: 94, concern: false },
+    { id: 'a', scaleId: 's1', label: 'A', order: 10, min: 95, max: 100, concern: false },
+  ];
+
+  it('按序号升序（越小越好 ⇒ A 排最前）且值就是序号本身', () => {
+    const opts = levelOptionItems(real);
+    expect(opts.map((o) => o.value)).toEqual(['10', '15', '20', '40', '50', '60']);
+    expect(opts[0]).toEqual({ value: '10', label: 'A（序号 10）' });
+  });
+
+  it('label 里同时有显示值与序号 ⇒ 用户不必回头查「序号几是 A」', () => {
+    const opts = levelOptionItems(real);
+    expect(opts.map((o) => o.label)).toContain('A-（序号 15）');
+    // 关键：**不含**「序号 1」这种体系里不存在的值（生产就是被它坑的）
+    expect(opts.some((o) => o.value === '1')).toBe(false);
+  });
+
+  it('多体系时同序号只留一个，并在 label 里标出体系名', () => {
+    const two: LevelDef[] = [
+      { id: 'x1', scaleId: 's1', label: 'A', order: 10, min: null, max: null, concern: false },
+      { id: 'x2', scaleId: 's2', label: '优', order: 10, min: null, max: null, concern: false },
+    ];
+    const names: Record<string, string> = { s1: '体系一', s2: '体系二' };
+    const opts = levelOptionItems(two, (id) => names[id] ?? '', true);
+    expect(opts).toHaveLength(1);
+    expect(opts[0].value).toBe('10');
+    expect(opts[0].label).toContain('体系');
+  });
+
+  it('空等级表 → 空候选（页面据此退回数字输入）', () => {
+    expect(levelOptionItems([])).toEqual([]);
   });
 });

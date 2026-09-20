@@ -8,6 +8,7 @@ import {
   normScore,
   pickLevel,
   safeWeight,
+  levelOptionItems,
   snapshotOf,
   targetLabelOf,
   weightedTotal,
@@ -98,6 +99,11 @@ export interface GridSummary {
    */
   targetLevel: string;
   targetOrder: number | null;
+  /**
+   * 目标序号是否存在于该生的等级体系里。false = 这条目标**永远判不出达标**
+   * （判定是「实际等级序号 ≤ 目标序号」，序号不在体系里必然为假），前端要显式提示。
+   */
+  targetOrderKnown: boolean;
   /** 目标分（成绩目标表上的「目标分」；只用于展示与提示，不参与达标判定） */
   targetScore: number | null;
   attained: boolean | null;
@@ -251,6 +257,37 @@ export class MarkbookService implements OnModuleInit {
       /* 配置表还没建 / 读失败 → 空索引，不影响成绩册本身 */
     }
     return out;
+  }
+
+  /**
+   * 成绩等级候选（「学生成绩目标」页选「目标等级序号」用）。
+   *
+   * 🔴 为什么必须有这个端点（2026-09-20 实测）：那个字段原来是**自由数字输入**，
+   * 而「目标等级序号」必须**恰好等于某个等级的序号**才有意义 ——
+   * 达标判定是 `实际等级序号 ≤ 目标等级序号`，序号不在等级体系里 ⇒ 永远判不出达标；
+   * 等级名也反查不出来（成绩册于是显示成一个光秃秃的序号）。
+   *
+   * 生产实测踩的就是这个：本校「致极等第体系-2026」的序号是 **10 / 15 / 20 / 25 / 27 / 30 /
+   * 35 / 40 / 50 / 60**（A 最好 = 10，**没有序号 1**），而两条目标记录都填了 `1`
+   * ⇒ 显示不出等级名，而且对任何成绩都判「未达标」（含全 A 的学生）。
+   *
+   * 所以候选项只能来自**成绩等级表**（真业务配置，与网格取等级名用的是同一份数据）。
+   * 值给序号（后端按数字存），label 带上显示值，例如 `A（序号 10）`。
+   * ⚠️ 按序号去重：多个等级体系可能有相同序号（各自的 A/B/C），此时 label 里附体系名，
+   *    取排序后的第一个；生产目前只有一个体系，不受影响。
+   */
+  async listLevelOptions(): Promise<{ items: { value: string; label: string }[] }> {
+    try {
+      const cfg = await this.configsOf('');
+      const scaleName = new Map(cfg.scaleList.map((s) => [s.id, s.name]));
+      const multi = new Set(cfg.levelList.map((l) => l.scaleId)).size > 1;
+      // 拼选项的规则抽成纯函数（levelOptionItems）以便单测：值必须等于真实等级序号，
+      // 否则那条目标永远判不出达标（见函数注释）
+      return { items: levelOptionItems(cfg.levelList, (id) => scaleName.get(id) ?? '', multi) };
+    } catch {
+      // 表没建 / 读失败 → 空候选（页面据此退回数字输入，不至于建不了目标）
+      return { items: [] };
+    }
   }
 
   /**
@@ -542,6 +579,16 @@ export class MarkbookService implements OnModuleInit {
       // 目标等级名：记录上有就用；没有就按序号在**该生实际用的那套等级体系**里反查
       // （用同一个 levels，才不会出现「网格显示的等级来自 A 体系、目标名来自 B 体系」）
       const tgtLabel = targetLabelOf(tgt.level, tgt.order, levels);
+      /**
+       * 目标序号是否**真的存在于**该生的等级体系里。
+       *
+       * 🔴 生产实测（2026-09-20）：本校等级体系的序号是 10 / 15 / 20 / 25 / 27 / 30 / 35 / 40 / 50 / 60
+       * （A 最好 = 10，**没有 1**），而两条目标记录都填了 `1` ⇒ 判定 `实际序号 ≤ 1` 对任何成绩都是假，
+       * **永远「未达标」**（哪怕全 A），而且等级名也反查不出来。
+       * 这种「数据非法但一切正常返回」的情况必须显式标出来，否则老师只会觉得系统算错了。
+       */
+      const tgtOrderKnown =
+        tgt.order == null || levels.some((x) => Number(x.order) === Number(tgt.order));
       return {
         studentId: s.id,
         total: agg.total,
@@ -550,6 +597,7 @@ export class MarkbookService implements OnModuleInit {
         concern: lv ? lv.concern : false,
         targetLevel: tgtLabel,
         targetOrder: tgt.order,
+        targetOrderKnown: tgtOrderKnown,
         targetScore: tgt.score,
         attained: tgt.order == null || !lv ? null : lv.order <= tgt.order,
         filled: agg.count,

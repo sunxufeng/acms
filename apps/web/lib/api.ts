@@ -1525,7 +1525,20 @@ export const api = {
       detail: { value: string; label: string; weight: number | null; counted: boolean; color: string }[];
     }>(`/markbook/type-options${cls ? `?cls=${encodeURIComponent(cls)}` : ''}`),
   /** 整个班级的成绩册网格（列 × 学生 + 单元格 + 加权总评） */
-  markbookGrid: (cls: string) => request<MarkbookGrid>(`/markbook/grid?cls=${encodeURIComponent(cls)}`),
+  /**
+   * 班级成绩册网格。
+   *
+   * `year` / `term` = 页面顶部「学年 / 学期」筛选；**不传 = 不限**（老行为）。
+   * 未归属学年学期的历史列在任何筛选下都会返回 —— 见后端 `columnInTerm`。
+   */
+  markbookGrid: (cls: string, year?: string, term?: string) =>
+    request<MarkbookGrid>(
+      `/markbook/grid${qs({
+        cls,
+        year: year || undefined,
+        term: term || undefined,
+      })}`,
+    ),
   /**
    * 成绩等级候选（「学生成绩目标」选**目标等级序号**用）。
    *
@@ -1556,8 +1569,12 @@ export const api = {
       body: JSON.stringify({ cls }),
     }),
   /** 新建 / 更新一列 */
+  /** 新建/更新一列。`subjects`（多科目）时 `created` = 实际建了几列 */
   markbookSaveColumn: (payload: MarkbookColumnPayload) =>
-    request<{ id: string }>('/markbook/columns', { method: 'POST', body: JSON.stringify(payload) }),
+    request<{ id: string; ids: string[]; created: number }>('/markbook/columns', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   /** 删除一列（连同其条目） */
   markbookDeleteColumn: (id: string) =>
     request<{ removedEntries: number }>(`/markbook/columns/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -1613,9 +1630,10 @@ export const api = {
   /** 批次下拉 */
   examListBatches: () => request<ExamBatch[]>('/exam-grades/batches'),
   /** 该班可用科目（取成绩册列上「科目」的实际去重值，不读字典） */
-  examSubjects: (cls: string) =>
+  /** 该班可用科目。传批次的学年/学期 ⇒ 只列同期的列（不传 = 不限） */
+  examSubjects: (cls: string, year?: string, term?: string) =>
     request<{ value: string; label: string; columns: number }[]>(
-      `/exam-grades/subjects?cls=${encodeURIComponent(cls)}`,
+      `/exam-grades/subjects${qs({ cls, year: year || undefined, term: term || undefined })}`,
     ),
   /** 结转**预览**（不落库） */
   examPreview: (batchId: string, cls: string, subject = '') =>
@@ -1982,6 +2000,12 @@ export interface MarkbookColumn {
   typeColor: string;
   /** 该列属于哪个科目（文本；空 = 不区分科目。期末总评按它拆科目） */
   subject: string;
+  /** 学年（字典「学年」；空 = 未归属） */
+  year: string;
+  /** 学期（字典「教学学期」；空 = 未归属） */
+  term: string;
+  /** 是否未归属学年学期（历史列）—— 这类列在任何学年学期筛选下都会出现，界面要标出来 */
+  unassigned: boolean;
   /** 列描述（自由文本）。2026-09-20 起由后端返回 —— 之前不返回，编辑列时会把这个备注清空 */
   desc: string;
   /** 列权重（第一层权重，与「成绩类型权重」相乘） */
@@ -2414,6 +2438,14 @@ export interface MarkbookColumnPayload {
   type?: string;
   /** 科目（文本，可空；期末总评按它拆分科目） */
   subject?: string;
+  /** 学年 / 学期（读字典；空 = 未归属） */
+  year?: string;
+  term?: string;
+  /**
+   * 多科目一次性建列：勾 N 个科目 = 建 N 列，每列一个科目（空串 = 未指定科目）。
+   * 只在新建时用；编辑单列仍传 `subject`。
+   */
+  subjects?: string[];
   weight?: number;
   fullMark?: number;
   scaleId?: string;

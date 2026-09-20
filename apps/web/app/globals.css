@@ -2137,3 +2137,85 @@ select.form-input:disabled { color: var(--fg); }
 .mbv-empty { padding: 28px; text-align: center; color: var(--fg-secondary); }
 .mbv-t .mb-input { max-width: 72px; }
 .mbv-t .mb-col-ops { display: inline-flex; gap: 6px; margin-left: 6px; }
+
+/* ============================================================================
+   成绩册 · 弹出框与学年/学期工具栏（2026-09-20）
+   ============================================================================ */
+
+/* 工具栏：动作按钮成组，学年/学期/班级三个下拉在前 */
+.mb-toolbar-actions { display: inline-flex; gap: 8px; align-items: center; }
+
+/* ── 弹出框 ─────────────────────────────────────────────────────── */
+.mb-mask {
+  position: fixed; inset: 0; background: rgba(20, 28, 40, .45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 40px 16px; z-index: 60; overflow-y: auto;
+}
+.mb-modal {
+  width: 100%; background: var(--bg-card, #fff); border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(20, 28, 40, .28); overflow: hidden;
+  margin: auto 0;
+}
+.mb-modal-hd {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+}
+.mb-modal-title b { font-size: 16px; }
+.mb-modal-sub { font-size: var(--font-xs); color: var(--fg-secondary); margin-top: 3px; }
+.mb-modal-x {
+  border: 0; background: transparent; cursor: pointer; color: var(--fg-secondary);
+  font-size: 15px; line-height: 1; padding: 4px 6px; border-radius: 6px;
+}
+.mb-modal-x:hover { background: var(--bg-subtle); }
+.mb-modal-body { padding: 16px 18px; }
+.mb-modal-ft {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 18px; border-top: 1px solid var(--border); background: var(--bg-subtle);
+}
+.mb-modal-summary { font-size: var(--font-xs); color: var(--fg-secondary); flex: 1 1 320px; }
+.mb-modal-hint { margin-top: 4px; color: var(--fg-tertiary); }
+.mb-modal-actions { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }
+.mb-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-xs); color: var(--fg-secondary); }
+.mb-preview-list { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 4px; }
+
+/* 弹窗内的分区（① 归属 ② 考核内容 …）*/
+.mb-sect { margin-bottom: var(--space-lg); }
+.mb-sect-t {
+  display: flex; align-items: center; gap: 8px; font-size: var(--font-xs); font-weight: 700;
+  color: var(--fg-secondary); letter-spacing: .4px; margin-bottom: var(--space-sm);
+}
+.mb-sect-t::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+/* 科目多选 chips */
+.mb-chips {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 7px 8px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-subtle);
+  max-height: 132px; overflow-y: auto;
+}
+.mb-chip {
+  border: 1px solid var(--border); background: #fff; border-radius: 999px;
+  padding: 1px 10px; font-size: var(--font-xs); color: var(--fg-secondary); cursor: pointer;
+}
+.mb-chip:hover { border-color: var(--accent); }
+.mb-chip.on { background: var(--accent-soft); border-color: #bcd2f5; color: #1d4fa8; font-weight: 700; }
+.mb-chip.none { border-style: dashed; }
+.mb-chip.none.on { background: #fff2df; border-color: #f0d9b5; color: var(--warning); }
+.mb-chip.static { cursor: default; background: var(--bg-subtle); }
+.mb-chip.static:hover { border-color: var(--border); }
+
+/* 作业同步弹窗里的四步指示条 */
+.mb-steps {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 9px 18px; background: #f7f9fc; border-bottom: 1px solid var(--border);
+  font-size: var(--font-xs);
+}
+.mb-step { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-tertiary); font-weight: 600; }
+.mb-step i {
+  display: inline-flex; width: 17px; height: 17px; border-radius: 50%;
+  background: #c9d0d8; color: #fff; align-items: center; justify-content: center;
+  font-style: normal; font-size: 10.5px; font-weight: 700;
+}
+.mb-step.on { color: var(--fg); }
+.mb-step.on i { background: var(--accent); }
+.mb-steps-sep { color: #c9d0d8; }
+.mb-hw .mb-editor-body { padding: 0; }

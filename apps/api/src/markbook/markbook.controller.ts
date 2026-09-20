@@ -42,10 +42,21 @@ export class MarkbookController {
   }
 
   /** 整个班级的成绩册网格（读） */
+  /**
+   * 班级成绩册网格。
+   *
+   * `year` / `term` = 页面顶部「学年 / 学期」筛选（读字典）；**不传 = 不限**（保持老链接的旧行为）。
+   * 未归属学年学期的历史列在任何筛选下都会返回（见 `columnInTerm`），避免"一筛选数据就没了"。
+   */
   @Get('grid')
-  grid(@Req() req: { user: SessionUser }, @Query('cls') cls: string) {
+  grid(
+    @Req() req: { user: SessionUser },
+    @Query('cls') cls: string,
+    @Query('year') year?: string,
+    @Query('term') term?: string,
+  ) {
     requireModule(req.user, 'markbook', 'read');
-    return this.svc.getGrid(cls ?? '');
+    return this.svc.getGrid(cls ?? '', year ?? '', term ?? '');
   }
 
   /**
@@ -126,6 +137,14 @@ export class MarkbookController {
       type?: string;
       /** 科目（文本，可空；期末总评按它拆分科目） */
       subject?: string;
+      /** 学年 / 学期（读字典「学年」「教学学期」；空 = 未归属） */
+      year?: string;
+      term?: string;
+      /**
+       * 多科目一次性建列：勾 N 个科目 = 建 N 列（每列一个科目，空串 = 未指定）。
+       * 只在新建时生效（编辑单列仍用 `subject`）。
+       */
+      subjects?: string[];
       weight?: number;
       fullMark?: number;
       scaleId?: string;

@@ -466,8 +466,14 @@ export class ExamGradeService implements OnModuleInit {
    *    ACMS 的字典与实际数据常年不符（校区、年级都踩过），
    *    读字典会出现「选了筛出 0 条」。
    */
-  async subjectOptions(cls: string): Promise<{ value: string; label: string; columns: number }[]> {
-    const grid = await this.markbook.getGrid(cls);
+  async subjectOptions(
+    cls: string,
+    year = '',
+    term = '',
+  ): Promise<{ value: string; label: string; columns: number }[]> {
+    // 按批次同期的列算科目：否则科目下拉里会混进别的学年的科目，
+    // 选了那个科目 ⇒ 结转挑不到列，界面只会说"该批次范围内没有可结转的考核列"（难查）。
+    const grid = await this.markbook.getGrid(cls, year, term);
     const m = new Map<string, number>();
     for (const c of grid.columns) {
       if (c.status === '停用') continue;
@@ -506,12 +512,16 @@ export class ExamGradeService implements OnModuleInit {
     if (!batch) return { ...empty, reason: '批次不存在' };
     if (!cls) return { ...empty, reason: '请先选择年级 / 班级' };
 
+    // 🔴 批次是「2026学年 第一学期」⇒ 只取同一学年同一学期的列参与总评；
+    //    未归属学年学期的历史列仍参与（`columnInTerm` 的兜底），否则会静默少算。
+    const batchYear = String(batch.f['学年'] ?? '');
+    const batchTerm = String(batch.f['学期'] ?? '');
     const [grid, typeIdx, points, existing, subjects] = await Promise.all([
-      this.markbook.getGrid(cls),
+      this.markbook.getGrid(cls, batchYear, batchTerm),
       this.examTypeIndex(),
       this.levelPoints(),
       this.readAll(TABLES.termGrade.tableId),
-      this.subjectOptions(cls),
+      this.subjectOptions(cls, batchYear, batchTerm),
     ]);
     if (!grid.students.length) return { ...empty, subjects, reason: '该分组下暂无在读学生' };
 
@@ -1088,7 +1098,11 @@ export class ExamGradeService implements OnModuleInit {
       swingScore: num(batch?.f['异常突变分差']) ?? settings.swingScore,
     };
 
-    const [grid, typeIdx] = await Promise.all([this.markbook.getGrid(cls), this.examTypeIndex()]);
+    // 与结转同一口径：按批次同期取列（未归属的列仍参与）
+    const [grid, typeIdx] = await Promise.all([
+      this.markbook.getGrid(cls, String(batch?.f['学年'] ?? ''), String(batch?.f['学期'] ?? '')),
+      this.examTypeIndex(),
+    ]);
     const from = String(batch?.f['起日期'] ?? '').slice(0, 10);
     const to = String(batch?.f['止日期'] ?? '').slice(0, 10);
     const inRange = (d: string): boolean => {

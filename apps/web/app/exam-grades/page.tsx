@@ -95,20 +95,29 @@ export default function ExamGradesPage() {
     })();
   }, []);
 
+  /**
+   * 科目候选 = **该班在「当前批次学年学期」里有列的科目**（2026-09-20）。
+   *
+   * 为什么要带批次的学年/学期：成绩册的列现在带学年/学期归属，而结转只取与批次同期的列。
+   * 不筛的话下拉里会出现别的学年的科目 —— 选中它 ⇒ 结转挑不到列，
+   * 界面只会说「该批次范围内没有可结转的考核列」，很难查。
+   */
   useEffect(() => {
     if (!cls) {
       setSubjects([]);
       setSubject('');
       return;
     }
+    const b = batches.find((x) => x.id === batchId);
     void api
-      .examSubjects(cls)
+      .examSubjects(cls, b?.year, b?.term)
       .then((s) => {
         setSubjects(s);
         setSubject((cur) => (cur && s.some((x) => x.value === cur) ? cur : ''));
       })
       .catch(() => setSubjects([]));
-  }, [cls]);
+    // batches/batchId 变化时也要重取：批次换了 ⇒ 同期范围变了
+  }, [cls, batchId, batches]);
 
   /**
    * 从 URL 初始化筛选（报表下钻进来时带上 `?tab=term&batchId=..&cls=..&subject=..`）。

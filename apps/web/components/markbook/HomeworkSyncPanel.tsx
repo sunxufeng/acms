@@ -1,6 +1,6 @@
 'use client';
 
-import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 
 /**
@@ -114,6 +114,11 @@ export interface HomeworkSyncPanelProps {
   bindHomework: (b: { cls: string; columnId: string; homeworkName: string }) => Promise<unknown>;
   /** 同步成功后的回调（成绩册页应在这里 reload 网格） */
   onSynced?: () => void | Promise<void>;
+  /**
+   * 是否嵌在弹出框里（2026-09-20 起成绩册页用按钮 + 弹出框承载本面板）。
+   * 为真时不套自身的 card 外壳与标题（弹窗已有标题），改显示四步指示条。
+   */
+  inModal?: boolean;
 }
 
 /** 原因 → i18n key（**不直接显示后端返回的中文值**，那是机器码，要跟着语言切换） */
@@ -146,6 +151,7 @@ export default function HomeworkSyncPanel({
   runSync,
   bindHomework,
   onSynced,
+  inModal = false,
 }: HomeworkSyncPanelProps) {
   const t = useTranslations('markbook');
 
@@ -283,10 +289,12 @@ export default function HomeworkSyncPanel({
 
   if (!cls) {
     return (
-      <div className="card mb-editor">
-        <div className="dept-card-head">
-          <span className="dept-card-title">{t('hwSyncTitle')}</span>
-        </div>
+      <div className={inModal ? 'mb-hw' : 'card mb-editor'}>
+        {inModal ? null : (
+          <div className="dept-card-head">
+            <span className="dept-card-title">{t('hwSyncTitle')}</span>
+          </div>
+        )}
         <div className="mb-editor-body muted">{t('hwNeedClass')}</div>
       </div>
     );
@@ -296,12 +304,32 @@ export default function HomeworkSyncPanel({
   const rows = preview?.rows ?? [];
   const changed = rows.filter((r) => r.willWrite || r.willClear);
 
+  /**
+   * 当前走到哪一步（只是提示，不拦操作）—— 让「先预览后确认」这件事看得见：
+   * 以前这四步是一段文字说明，埋在网格最下面，老师根本不会读。
+   */
+  const step = !homeworkName ? 1 : !boundColumn ? 2 : !preview ? 3 : 4;
+
   return (
-    <div className="card mb-editor">
-      <div className="dept-card-head">
-        <span className="dept-card-title">{t('hwSyncTitle')}</span>
-        <span className="dept-card-meta">{t('hwSyncSubtitle')}</span>
-      </div>
+    <div className={inModal ? 'mb-hw' : 'card mb-editor'}>
+      {inModal ? (
+        <div className="mb-steps">
+          {[1, 2, 3, 4].map((n, i) => (
+            <Fragment key={n}>
+              {i ? <span className="mb-steps-sep">›</span> : null}
+              <span className={n <= step ? 'mb-step on' : 'mb-step'}>
+                <i>{n}</i>
+                {t(`hwStep${n}`)}
+              </span>
+            </Fragment>
+          ))}
+        </div>
+      ) : (
+        <div className="dept-card-head">
+          <span className="dept-card-title">{t('hwSyncTitle')}</span>
+          <span className="dept-card-meta">{t('hwSyncSubtitle')}</span>
+        </div>
+      )}
 
       <div className="mb-editor-body">
         <div style={rowStyle}>

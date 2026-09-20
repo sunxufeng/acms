@@ -51,11 +51,21 @@ export class ExamGradeController {
     return this.svc.listBatches();
   }
 
-  /** 该班可用科目（读） */
+  /**
+   * 该班可用科目（读）。
+   *
+   * `year` / `term` 传**当前批次的学年学期** ⇒ 科目只列同期的列；不传 = 不限（老行为）。
+   * 不按同期筛的话，下拉里会出现别的学年的科目，选中后结转挑不到列。
+   */
   @Get('subjects')
-  subjects(@Req() req: { user: SessionUser }, @Query('cls') cls: string) {
+  subjects(
+    @Req() req: { user: SessionUser },
+    @Query('cls') cls: string,
+    @Query('year') year?: string,
+    @Query('term') term?: string,
+  ) {
     requireModule(req.user, 'examGrades', 'read');
-    return this.svc.subjectOptions(cls ?? '');
+    return this.svc.subjectOptions(cls ?? '', year ?? '', term ?? '');
   }
 
   /** 结转预览（读，不落库） */

@@ -11,6 +11,9 @@ import {
   type MarkbookSaveRow,
 } from '../../lib/api';
 import HomeworkSyncPanel from '../../components/markbook/HomeworkSyncPanel';
+import ColumnEditor from '../../components/markbook/ColumnEditor';
+import Modal from '../../components/markbook/Modal';
+import { defaultTermOf } from '@acms/contracts';
 import {
   MARKBOOK_VIEWS,
   MarkbookView,
@@ -63,6 +66,21 @@ export default function MarkbookPage() {
       /* 隐私模式下 localStorage 可能不可写：忽略，仅本次生效 */
     }
   };
+  /**
+   * 学年 / 学期（页面顶部筛选，读字典「学年」「教学学期」）。
+   *
+   * 🔴 它们决定**显示哪些考核列**：成绩册的每一列都带学年/学期归属。
+   * 默认值按「今天」推断（见 `defaultTermOf`：8 月起算新学年、2–7 月是第二学期），
+   * 免得老师每次打开都要自己挑一次。
+   * ⚠️ 未归属的历史列在任何筛选下都会出现（后端 `columnInTerm` 的兜底），界面会标出来。
+   */
+  const [year, setYear] = useState(() => defaultTermOf(new Date()).year);
+  const [term, setTerm] = useState(() => defaultTermOf(new Date()).term);
+  /** 学年候选（字典「学年」） */
+  const [yearOptions, setYearOptions] = useState<string[]>([]);
+  /** 学期候选（字典「教学学期」） */
+  const [termOptions, setTermOptions] = useState<string[]>([]);
+
   /** 学科筛选：'' = 全部；SUBJECT_NONE = 未指定学科 */
   const [subjectFilter, setSubjectFilter] = useState('');
   /** 考核类型筛选：'' = 全部 */
@@ -70,6 +88,8 @@ export default function MarkbookPage() {
 
   /** 列编辑：null=关闭，{col:null}=新建 */
   const [editing, setEditing] = useState<{ col: MarkbookColumn | null } | null>(null);
+  /** 「作业转成绩册」弹出框是否打开（2026-09-20：从网格下方的内联面板提到顶部按钮） */
+  const [hwOpen, setHwOpen] = useState(false);
 
   /**
    * 「考核类型」候选（列编辑用）。
@@ -101,7 +121,11 @@ export default function MarkbookPage() {
     api
       .dictionaries()
       .then((all) => {
-        if (alive) setSubjectOptions(all['授课科目'] ?? []);
+        if (!alive) return;
+        setSubjectOptions(all['授课科目'] ?? []);
+        // 学年 / 学期候选与「成绩批次」用的是同一份字典（口径统一，别另立一套）
+        setYearOptions(all['学年'] ?? []);
+        setTermOptions(all['教学学期'] ?? []);
       })
       .catch(() => {
         // 读不到字典不阻塞建列：下拉退化成「未指定 + 手输兜底」由列编辑器处理
@@ -141,21 +165,28 @@ export default function MarkbookPage() {
     void loadClasses().catch(() => setClasses([]));
   }, [loadClasses]);
 
-  const loadGrid = useCallback(async (c: string) => {
-    if (!c) {
-      setGrid(null);
-      return;
-    }
-    setLoading(true);
-    try {
-      setGrid(await api.markbookGrid(c));
-      setDirty(new Map());
-    } catch {
-      setGrid(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  /**
+   * 拉网格。学年/学期从闭包取（调用方一律 `loadGrid(cls)`，不必到处传三个参数）。
+   * ⚠️ 依赖里必须带上 year/term：否则切换学年学期后网格不会重新拉。
+   */
+  const loadGrid = useCallback(
+    async (c: string) => {
+      if (!c) {
+        setGrid(null);
+        return;
+      }
+      setLoading(true);
+      try {
+        setGrid(await api.markbookGrid(c, year, term));
+        setDirty(new Map());
+      } catch {
+        setGrid(null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [year, term],
+  );
 
   useEffect(() => {
     void loadGrid(cls);
@@ -265,6 +296,11 @@ export default function MarkbookPage() {
     return out.sort((a, b) => (a === SUBJECT_NONE ? 1 : 0) - (b === SUBJECT_NONE ? 1 : 0));
   }, [grid]);
   const typeFilters = useTypeFilters(grid);
+  /** 未归属学年学期的列数（历史数据；它们在任何筛选下都会显示，界面要说一句） */
+  const unassignedCount = useMemo(
+    () => (grid?.columns ?? []).filter((c) => c.unassigned).length,
+    [grid],
+  );
 
   return (
     <div className="page">
@@ -287,7 +323,31 @@ export default function MarkbookPage() {
 
         {msg && <div className={msg.tone === 'ok' ? 'notice notice-ok' : 'notice notice-error'}>{msg.text}</div>}
 
+        {/* 学年 / 学期 / 班级：三者共同决定「显示哪些考核列」（学生名单仍只看班级）。
+            🔴 学年学期不是「选完就忘」的筛选项 —— 新建考核列时会作为这一列的归属带进去。 */}
         <div className="mb-toolbar">
+          <label className="mb-field">
+            <span>{t('yearLabel')}</span>
+            <select className="form-input" value={year} onChange={(e) => setYear(e.target.value)}>
+              <option value="">{t('termAll')}</option>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mb-field">
+            <span>{t('termLabel')}</span>
+            <select className="form-input" value={term} onChange={(e) => setTerm(e.target.value)}>
+              <option value="">{t('termAll')}</option>
+              {termOptions.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="mb-field">
             <span>{t('classLabel')}</span>
             <select className="form-input" value={cls} onChange={(e) => setCls(e.target.value)}>
@@ -299,6 +359,19 @@ export default function MarkbookPage() {
               ))}
             </select>
           </label>
+          {/* 两个动作放在一起：都是「往这个成绩册里加/写数据」 */}
+          <span className="mb-toolbar-actions">
+            <button
+              className="btn btn-primary"
+              onClick={() => setEditing({ col: null })}
+              disabled={!cls}
+            >
+              ＋ {t('newColumn')}
+            </button>
+            <button className="btn btn-outline" onClick={() => setHwOpen(true)} disabled={!cls || !grid}>
+              {t('hwButton')}
+            </button>
+          </span>
           <span className="mb-meta">
             {grid ? t('gridMeta', { students: grid.students.length, columns: grid.columns.length }) : ''}
           </span>
@@ -309,10 +382,15 @@ export default function MarkbookPage() {
                 })
               : t('noTypeWeight')}
           </span>
-          <button className="btn btn-outline" onClick={() => setEditing({ col: null })} disabled={!cls}>
-            {t('newColumn')}
-          </button>
         </div>
+
+        {/*
+          未归属学年学期的历史列：它们在任何筛选下都会显示（后端兜底，避免"一筛选数据就没了"），
+          所以必须说明一句 —— 否则老师会疑惑「我切到 2025学年，怎么还看得到这些列」。
+        */}
+        {unassignedCount > 0 ? (
+          <div className="notice notice-info">{t('unassignedNotice', { count: unassignedCount })}</div>
+        ) : null}
 
         {loading ? (
           <div className="dept-loading">{t('loading')}</div>
@@ -404,41 +482,48 @@ export default function MarkbookPage() {
           </div>
         )}
 
-        {editing && cls && (
+        {/*
+          列编辑器 = 弹出框（2026-09-20 从「网格下方的内联面板」改过来）。
+          🔴 `key` 仍然要按列 id 给：模态虽然挡住了页面，但**同一份表单会被复用来「编辑下一列」**
+             （例如从成绩册点另一列的「编辑」时若忘了先关），没有 key 就是老 bug 重现。
+        */}
+        {editing && cls ? (
           <ColumnEditor
-            /**
-             * 🔴 `key` 必须有（2026-09-20 修）。
-             *
-             * 这个编辑器是**网格下方的内联面板**（`.mb-editor` 只是 `margin-top`，不是模态遮罩），
-             * 所以用户可以在它打开时直接点**另一个列头上的「编辑」**、或点上方的「新建考核列」。
-             * 没有 `key` 时 React 复用同一个组件实例 ⇒ `useState(col?.x)` 的初始值**只在首次挂载时算过**，
-             * 面板里仍是上一列的内容（症状：改了列名/科目后，编辑框里显示的还是别的列）。
-             * 按列 id 给 key ⇒ 换列即重建，表单与所编辑的列永远一致。
-             */
             key={editing.col?.id ?? '__new__'}
             cls={cls}
             col={editing.col}
             scales={grid?.scales ?? []}
-            // 「科目」候选 = 字典「授课科目」（2026-09-20 改：原来取该班已有列，新班/新科目候选为空）
+            // 「科目」候选 = 字典「授课科目」（原来取该班已有列 ⇒ 新班/新科目候选为空）
             subjects={subjectOptions}
             // 考核类型候选（带本班权重标注）—— 见页面顶部 typeOptions 的注释
             types={typeOptions}
+            years={yearOptions}
+            terms={termOptions}
+            defaultYear={year}
+            defaultTerm={term}
             onClose={() => setEditing(null)}
-            onSaved={async () => {
-              setEditing(null);
+            onSaved={async (created, keepOpen) => {
+              if (created > 1) setMsg({ tone: 'ok', text: t('createdColumns', { count: created }) });
+              // 勾了「继续建下一个」就留着弹窗（编辑器自己清表单），否则关掉
+              if (!keepOpen) setEditing(null);
               await loadGrid(cls);
             }}
           />
-        )}
+        ) : null}
 
-        {/* ── 作业 → 成绩册同步 ──────────────────────────────────────────
-            放在网格下方：它的产出就是上面那些格子，同步完直接看得到。
-            ⚠️ 有未保存改动时**不渲染面板**：同步成功后要 reload 网格，
-               而 reload 会丢弃 dirty 里的编辑 —— 先用一条提示挡一下，避免白录。 */}
-        {cls && grid && grid.students.length > 0
-          ? dirtyCount > 0
-            ? <div className="notice notice-info">{t('hwDirtyBlock', { count: dirtyCount })}</div>
-            : (
+        {/* ── 作业 → 成绩册同步（弹出框，按钮在工具栏上）────────────────────
+            以前这个面板埋在整张成绩表下面：要滚到底才看得见，而且**有未保存改动时整块不渲染**
+            （老师以为「功能没了」）。现在改成按钮 + 弹窗，并把门控写成弹窗里的一条提示。 */}
+        {hwOpen && cls && grid ? (
+          <Modal
+            title={t('hwSyncTitle')}
+            subtitle={t('hwModalSub', { year: year || t('termAll'), term: term || t('termAll'), cls })}
+            onClose={() => setHwOpen(false)}
+            width={900}
+          >
+            {dirtyCount > 0 ? (
+              <div className="notice notice-info">{t('hwDirtyBlock', { count: dirtyCount })}</div>
+            ) : (
               <HomeworkSyncPanel
                 cls={cls}
                 columns={grid.columns}
@@ -447,254 +532,11 @@ export default function MarkbookPage() {
                 runSync={api.markbookSyncHomework}
                 bindHomework={api.markbookHomeworkBind}
                 onSynced={() => loadGrid(cls)}
+                inModal
               />
-            )
-          : null}
-      </div>
-    </div>
-  );
-}
-
-/** 列编辑（新建 / 修改）—— 用标准卡片 + .form-grid，不引第三方弹窗 */
-function ColumnEditor({
-  cls,
-  col,
-  scales,
-  subjects,
-  types,
-  onClose,
-  onSaved,
-}: {
-  cls: string;
-  col: MarkbookColumn | null;
-  scales: { id: string; name: string; isDefault: boolean }[];
-  /**
-   * 「科目」候选 = 字典「授课科目」的取值（页面上一次性从 `/dictionaries` 读）。
-   * 必须从候选里选：科目是**期末总评拆分的键**，手打写岔会让总评按科目拆成两份且不报错。
-   */
-  subjects: string[];
-  /**
-   * 考核类型候选（value=类型名，label 里带本班权重）。
-   * 必须从候选里选：类型名是**与权重/颜色/计入总评逐字匹配**的键，
-   * 手打错一个字，那一列的权重与「是否计入期末」就双双静默失效。
-   */
-  types: { value: string; label: string }[];
-  onClose: () => void;
-  onSaved: () => void | Promise<void>;
-}) {
-  const t = useTranslations('markbook');
-  const [name, setName] = useState(col?.name ?? '');
-  const [type, setType] = useState(col?.type ?? '');
-  const [subject, setSubject] = useState(col?.subject ?? '');
-  const [weight, setWeight] = useState(String(col?.weight ?? 1));
-  const [fullMark, setFullMark] = useState(String(col?.fullMark ?? 100));
-  const [scaleId, setScaleId] = useState(col?.scaleId ?? '');
-  const [date, setDate] = useState(col?.date ?? '');
-  const [sort, setSort] = useState(String(col?.sort ?? 0));
-  // 描述要从原值回填：不回填的话「改个权重」会把备注一起清掉（后端已改为未传不覆盖，
-  // 这里再补上回显，两头都对）
-  const [desc, setDesc] = useState(col?.desc ?? '');
-  const [status, setStatus] = useState(col?.status ?? '启用');
-  /**
-   * 可见性与「完成闸门」（2026-09-20 补录入项）。
-   *
-   * 三个值的语义（判据在 apps/api/src/portal/portal-visibility.ts，写死不可改）：
-   *  - 空串 = **未设置**（学生/家长都看不到）—— 只有显式选「是」才公开，
-   *    所以别把空串当「是」，也别把它当「否」。
-   *  - 完成日期（闸门）= 到达该日期前**不对家长**开放；留空 = 不设闸门（立即开放）。
-   *    学生侧不看闸门（闸门只拦家长）。
-   */
-  const [studentVisible, setStudentVisible] = useState(col?.studentVisible ?? '');
-  const [parentVisible, setParentVisible] = useState(col?.parentVisible ?? '');
-  const [completeDate, setCompleteDate] = useState(col?.completeDate ?? '');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-
-  const submit = async () => {
-    if (!name.trim()) {
-      setErr(t('nameRequired'));
-      return;
-    }
-    setBusy(true);
-    setErr('');
-    try {
-      await api.markbookSaveColumn({
-        id: col?.id,
-        cls,
-        name: name.trim(),
-        type,
-        subject: subject.trim(),
-        weight: Number(weight) || 1,
-        fullMark: Number(fullMark) || 100,
-        scaleId,
-        date,
-        desc,
-        sort: Number(sort) || 0,
-        status,
-        // 这三个从 state 取（原先用 col?.xxx —— 表单里没有输入项，等于永远写回旧值）
-        studentVisible,
-        parentVisible,
-        completeDate,
-      });
-      await onSaved();
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="card mb-editor">
-      <div className="dept-card-head">
-        <span className="dept-card-title">{col ? t('editColumn', { name: col.name }) : t('newColumn')}</span>
-        <span className="dept-card-meta">{t('weightNote')}</span>
-      </div>
-      <div className="form-grid mb-editor-body">
-        <label className="mb-field">
-          <span>{t('fName')}</span>
-          <input className="form-input" value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="mb-field">
-          <span>{t('fType')}</span>
-          {/* 🔴 必须是下拉：类型名与「成绩类型权重」「考核类型」表逐字匹配，
-              手打错一个字 ⇒ 该列的权重与「是否计入期末」双双静默失效（不报错）。 */}
-          <select className="form-input" value={type} onChange={(e) => setType(e.target.value)}>
-            <option value="">{t('fTypeNone')}</option>
-            {/* 编辑既有列时，若该类型已被停用/删除而不在候选里，补一项，避免显示成「未指定」 */}
-            {type && !types.some((o) => o.value === type) ? (
-              <option value={type}>{`${type}（${t('fTypeMissing')}）`}</option>
-            ) : null}
-            {types.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          {types.length === 0 ? (
-            <span className="mb-meta">{t('fTypeEmpty')}</span>
-          ) : (
-            <span className="mb-meta">{t('fTypeHint')}</span>
-          )}
-          {/*
-            类型留空不阻断保存，但必须把后果说清：结转时该列将按**权重 1** 计入期末总评，
-            老师会看到「总评怎么被这一列影响了」却找不到原因 —— 这类不报错的后果一律显式提示。
-          */}
-          {type === '' && types.length > 0 && !col ? (
-            <span style={{ color: 'var(--warning)', fontSize: 'var(--font-xs)' }}>{t('fTypeWarn')}</span>
-          ) : null}
-        </label>
-        <label className="mb-field">
-          <span>{t('fWeight')}</span>
-          <input className="form-input" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} />
-        </label>
-        <label className="mb-field">
-          <span>{t('fFullMark')}</span>
-          <input className="form-input" inputMode="decimal" value={fullMark} onChange={(e) => setFullMark(e.target.value)} />
-        </label>
-        <label className="mb-field">
-          <span>{t('fScale')}</span>
-          <select className="form-input" value={scaleId} onChange={(e) => setScaleId(e.target.value)}>
-            <option value="">{t('scaleDefault')}</option>
-            {scales.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="mb-field">
-          <span>{t('fDate')}</span>
-          <input className="form-input" type="date" value={date.slice(0, 10)} onChange={(e) => setDate(e.target.value)} />
-        </label>
-        <label className="mb-field">
-          <span>{t('fSort')}</span>
-          <input className="form-input" inputMode="numeric" value={sort} onChange={(e) => setSort(e.target.value)} />
-        </label>
-        <label className="mb-field">
-          <span>{t('fStatus')}</span>
-          <select className="form-input" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="启用">{t('enabled')}</option>
-            <option value="停用">{t('disabled')}</option>
-          </select>
-        </label>
-        {/* ── 科目（2026-09-20 补）：期末总评按它拆科目，缺了就没法按科目合成 ── */}
-        <label className="mb-field">
-          <span>{t('fSubject')}</span>
-          {/* 🔴 必须是下拉（2026-09-20 改）：科目是**期末总评拆分的键**（学生 × 批次 × 科目），
-              自由文本写岔（「数学」/「数学课」）会让总评拆成两份，而且不报错。
-              候选读字典「授课科目」—— 字典里维护一处，所有班统一。 */}
-          <select className="form-input" value={subject} onChange={(e) => setSubject(e.target.value)}>
-            <option value="">{t('fSubjectNone')}</option>
-            {/* 编辑既有列时，若该科目已不在字典里（被改名/删除），补一项，避免显示成「未指定」 */}
-            {subject && !subjects.includes(subject) ? (
-              <option value={subject}>{`${subject}（${t('fSubjectMissing')}）`}</option>
-            ) : null}
-            {subjects.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          {subjects.length === 0 ? (
-            <span className="mb-meta">{t('fSubjectEmpty')}</span>
-          ) : (
-            <span className="mb-meta">{t('fSubjectHint')}</span>
-          )}
-        </label>
-        {/* ── 可见性与完成闸门（2026-09-20 补）：三态各一档，空串 = 未设置（都不公开） ── */}
-        <label className="mb-field">
-          <span>{t('fStudentVisible')}</span>
-          <select
-            className="form-input"
-            value={studentVisible}
-            onChange={(e) => setStudentVisible(e.target.value)}
-          >
-            <option value="">{t('visibleUnset')}</option>
-            <option value="是">{t('visibleYes')}</option>
-            <option value="否">{t('visibleNo')}</option>
-          </select>
-        </label>
-        <label className="mb-field">
-          <span>{t('fParentVisible')}</span>
-          <select className="form-input" value={parentVisible} onChange={(e) => setParentVisible(e.target.value)}>
-            <option value="">{t('visibleUnset')}</option>
-            <option value="是">{t('visibleYes')}</option>
-            <option value="否">{t('visibleNo')}</option>
-          </select>
-        </label>
-        <label className="mb-field">
-          <span>{t('fCompleteDate')}</span>
-          <input
-            className="form-input"
-            type="date"
-            value={completeDate.slice(0, 10)}
-            onChange={(e) => setCompleteDate(e.target.value)}
-          />
-        </label>
-        <label className="mb-field mb-field-wide">
-          <span>{t('fDesc')}</span>
-          <input className="form-input" value={desc} onChange={(e) => setDesc(e.target.value)} />
-        </label>
-        {col ? (
-          <div className="mb-field mb-field-wide">
-            <span>{t('fHomework')}</span>
-            <span className="muted">
-              {col.homeworkName ? col.homeworkName : t('homeworkUnbound')}
-              {' · '}
-              {t('homeworkBindHint')}
-            </span>
-          </div>
+            )}
+          </Modal>
         ) : null}
-      </div>
-      {err ? <div className="notice notice-error mb-editor-msg">{err}</div> : null}
-      <div className="mb-editor-foot">
-        <button className="btn btn-outline" onClick={onClose} disabled={busy}>
-          {t('cancel')}
-        </button>
-        <button className="btn btn-primary" onClick={() => void submit()} disabled={busy}>
-          {busy ? t('saving') : t('confirm')}
-        </button>
       </div>
     </div>
   );

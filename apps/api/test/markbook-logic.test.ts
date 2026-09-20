@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildColumnFields,
+  columnInTerm,
+  isUnassignedTerm,
   levelOptionItems,
   safeWeight,
   statsOfScores,
+  subjectColumnDrafts,
   sumOfScores,
   targetLabelOf,
   weightedTotal,
@@ -228,5 +231,111 @@ describe('sumOfScores', () => {
   it('小数分也保留 1 位（部分学校按半分计）', () => {
     expect(sumOfScores([88.5, 91.5]).sum).toBe(180);
     expect(sumOfScores([88.25]).sum).toBe(88.3);
+  });
+});
+
+/**
+ * 多科目建列展开（2026-09-20）。
+ *
+ * 防的是「一列挂多个科目」这个诱惑：期末总评的幂等键是「批次 + 学生 + 科目」，
+ * 一列挂两个科目 ⇒ 结转时拆不出科目、权重也没法按科目区分，而且**不报错**。
+ * 所以多选必须展开成多列，展开规则在这里测住。
+ */
+describe('subjectColumnDrafts', () => {
+  it('勾 3 个科目 = 3 列，每列一个科目（绝不合成一列）', () => {
+    const d = subjectColumnDrafts({ name: '期末考试', subjects: ['语文', '数学', '英语'], sort: 5 });
+    expect(d).toHaveLength(3);
+    expect(d.map((x) => x.subject)).toEqual(['语文', '数学', '英语']);
+    expect(d.map((x) => x.name)).toEqual(['期末考试 · 语文', '期末考试 · 数学', '期末考试 · 英语']);
+  });
+
+  it('排序连号 ⇒ 同批创建的列在网格里相邻（横着填分不会串到别的考试）', () => {
+    const d = subjectColumnDrafts({ name: '月考', subjects: ['语文', '数学'], sort: 10 });
+    expect(d.map((x) => x.sort)).toEqual([10, 11]);
+  });
+
+  it('只有一个科目 ⇒ 不加后缀（用户自己写的名字已够清楚）', () => {
+    const d = subjectColumnDrafts({ name: '期末语文', subjects: ['语文'] });
+    expect(d).toEqual([{ name: '期末语文', subject: '语文', sort: 0 }]);
+  });
+
+  it('科目去重 + trim（重复勾选不会建出两列同名同科目的）', () => {
+    const d = subjectColumnDrafts({ name: '期末考试', subjects: [' 语文 ', '语文', '数学'] });
+    expect(d.map((x) => x.subject)).toEqual(['语文', '数学']);
+  });
+
+  it('含「未指定」（空串）时：它单独一列且不加后缀，与有科目的列并列', () => {
+    const d = subjectColumnDrafts({ name: '期末考试', subjects: ['语文', '数学', ''] });
+    expect(d).toEqual([
+      { name: '期末考试 · 语文', subject: '语文', sort: 0 },
+      { name: '期末考试 · 数学', subject: '数学', sort: 1 },
+      { name: '期末考试', subject: '', sort: 2 },
+    ]);
+  });
+
+  it('空串只保留一个（多次「未指定」不会建出多列通用列）', () => {
+    const d = subjectColumnDrafts({ name: '期末考试', subjects: ['', '', '无'] });
+    expect(d.filter((x) => x.subject === '')).toHaveLength(1);
+  });
+
+  it('一个科目都没传 ⇒ 退化成 1 列未指定（不报错、不建出 0 列）', () => {
+    expect(subjectColumnDrafts({ name: '期末考试', subjects: [] })).toEqual([
+      { name: '期末考试', subject: '', sort: 0 },
+    ]);
+    expect(subjectColumnDrafts({ name: '期末考试' })).toHaveLength(1);
+  });
+});
+
+/**
+ * 学年 / 学期筛选（2026-09-20）。
+ *
+ * 这一条防的是**最贵的一类静默错误**：加了筛选之后，没归属的历史列被排除 ⇒
+ * 页面上"数据没了"、期末结转跟着少算，而且都不报错。
+ */
+describe('columnInTerm', () => {
+  const col = { year: '2026学年', term: '第一学期' };
+
+  it('页面没选学年学期 ⇒ 全给（老链接/收藏的行为不变）', () => {
+    expect(columnInTerm(col, {})).toBe(true);
+    expect(columnInTerm(col, { year: '', term: '' })).toBe(true);
+  });
+
+  it('学年学期都对 ⇒ 显示', () => {
+    expect(columnInTerm(col, { year: '2026学年', term: '第一学期' })).toBe(true);
+  });
+
+  it('学年不同 ⇒ 不显示（这正是这一层的价值：别把去年的月考算进这学期）', () => {
+    expect(columnInTerm(col, { year: '2025学年', term: '第一学期' })).toBe(false);
+  });
+
+  it('学期不同 ⇒ 不显示', () => {
+    expect(columnInTerm(col, { year: '2026学年', term: '第二学期' })).toBe(false);
+  });
+
+  it('🔴 列的学期是「全学年」⇒ 该学年任何学期都算它', () => {
+    const whole = { year: '2026学年', term: '全学年' };
+    expect(columnInTerm(whole, { year: '2026学年', term: '第一学期' })).toBe(true);
+    expect(columnInTerm(whole, { year: '2026学年', term: '第二学期' })).toBe(true);
+    // 但学年仍然要一致
+    expect(columnInTerm(whole, { year: '2027学年', term: '第一学期' })).toBe(false);
+  });
+
+  it('🔴 未归属的历史列 ⇒ 任何筛选下都显示（否则一筛数据就没了、总评静默少算）', () => {
+    const legacy = { year: '', term: '' };
+    expect(columnInTerm(legacy, { year: '2026学年', term: '第一学期' })).toBe(true);
+    expect(columnInTerm(legacy, { year: '2019学年', term: '第二学期' })).toBe(true);
+  });
+
+  it('列只填了一侧（如只填学年）⇒ 不因缺失的那一侧被排除', () => {
+    expect(columnInTerm({ year: '2026学年', term: '' }, { year: '2026学年', term: '第一学期' })).toBe(true);
+    expect(columnInTerm({ year: '', term: '第一学期' }, { year: '2026学年', term: '第一学期' })).toBe(true);
+    // 但填了的那一侧不符，仍然排除
+    expect(columnInTerm({ year: '', term: '第二学期' }, { year: '2026学年', term: '第一学期' })).toBe(false);
+  });
+
+  it('isUnassignedTerm：两侧都空才算未归属（界面据此标「未归属」）', () => {
+    expect(isUnassignedTerm({ year: '', term: '' })).toBe(true);
+    expect(isUnassignedTerm({})).toBe(true);
+    expect(isUnassignedTerm({ year: '2026学年', term: '' })).toBe(false);
   });
 });

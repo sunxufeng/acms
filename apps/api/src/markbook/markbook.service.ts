@@ -8,8 +8,11 @@ import {
   normScore,
   pickLevel,
   safeWeight,
+  columnInTerm,
+  isUnassignedTerm,
   levelOptionItems,
   snapshotOf,
+  subjectColumnDrafts,
   statsOfScores,
   sumOfScores,
   targetLabelOf,
@@ -35,6 +38,17 @@ export interface GridColumn {
   typeColor: string;
   /** 该列属于哪个科目（文本，与「班级」同一套口径；空 = 不区分科目） */
   subject: string;
+  /** 学年（字典「学年」；空 = 未归属） */
+  year: string;
+  /** 学期（字典「教学学期」；空 = 未归属） */
+  term: string;
+  /**
+   * 是否「未归属学年学期」（历史列）。
+   *
+   * 界面要把它标出来：这类列在**任何**学年学期的筛选下都会出现
+   * （`columnInTerm` 的兜底），不标的话老师会疑惑「我切到 2025学年 怎么还有它」。
+   */
+  unassigned: boolean;
   /**
    * 列描述（自由文本）。2026-09-20 补进返回体：
    * 原先只在写入时用得到，读取不返回 ⇒ 前端编辑一列时初始化成空串，
@@ -453,6 +467,9 @@ export class MarkbookService implements OnModuleInit {
       type,
       typeColor: typeIdx?.get(type)?.color ?? '',
       subject: String(f['科目'] ?? '').trim(),
+      year: String(f['学年'] ?? '').trim(),
+      term: String(f['学期'] ?? '').trim(),
+      unassigned: isUnassignedTerm({ year: String(f['学年'] ?? ''), term: String(f['学期'] ?? '') }),
       desc: String(f['描述'] ?? ''),
       weight: safeWeight(f['列权重']),
       fullMark: Number(f['满分']) > 0 ? Number(f['满分']) : 100,
@@ -546,7 +563,14 @@ export class MarkbookService implements OnModuleInit {
   }
 
   /** 取整个班级的网格（列 × 学生 + 单元格 + 按学生汇总） */
-  async getGrid(cls: string): Promise<MarkbookGrid> {
+  /**
+   * 班级成绩册网格。
+   *
+   * `year` / `term` = 页面上的「学年 / 学期」筛选（读字典）；不传 = 不限（老行为）。
+   * 🔴 过滤规则见纯函数 `columnInTerm`：**未归属的历史列在任何筛选下都保留** ——
+   *    否则一加筛选老数据就"消失"，而且期末结转会跟着少算（静默、且难查）。
+   */
+  async getGrid(cls: string, year = '', term = ''): Promise<MarkbookGrid> {
     const c = normClass(cls);
     const empty: MarkbookGrid = {
       cls: c,
@@ -572,9 +596,12 @@ export class MarkbookService implements OnModuleInit {
       this.examTypeIndex(),
     ]);
 
+    const sel = { year, term };
     const columns = allColumns
       .filter((x) => normClass(x.f['班级']) === c && String(x.f['状态'] ?? '启用') !== '停用')
       .map((x) => this.columnOf(x.id, x.f, typeIdx))
+      // 学年/学期筛选（未归属的列由 columnInTerm 兜底留下）
+      .filter((col) => columnInTerm(col, sel))
       .sort((a, b) => a.sort - b.sort || a.date.localeCompare(b.date) || a.name.localeCompare(b.name, 'zh-CN'));
 
     const colIds = new Set(columns.map((x) => x.id));
@@ -995,6 +1022,11 @@ export class MarkbookService implements OnModuleInit {
     name: string;
     type?: string;
     subject?: string;
+    /** 学年 / 学期（读字典；空 = 未归属） */
+    year?: string;
+    term?: string;
+    /** 多科目一次性建列（勾 N 个 = 建 N 列）；只在新建时用 */
+    subjects?: string[];
     weight?: number;
     fullMark?: number;
     scaleId?: string;
@@ -1005,7 +1037,7 @@ export class MarkbookService implements OnModuleInit {
     studentVisible?: string;
     parentVisible?: string;
     completeDate?: string;
-  }): Promise<{ id: string }> {
+  }): Promise<{ id: string; ids: string[]; created: number }> {
     const sql = getSqlStore();
     if (!sql) throw new Error('未配置数据库');
     if (!payload.id && !normClass(payload.cls)) throw new Error('班级不能为空');
@@ -1021,11 +1053,37 @@ export class MarkbookService implements OnModuleInit {
     const fields = buildColumnFields(payload);
     if (!fields['列名称']) throw new Error('列名称不能为空');
     if (payload.id) {
+      // 编辑：只动传进来的字段（未传的不覆盖，见 buildColumnFields 的注释）
       await sql.update(TABLES.markbookColumn.tableId, payload.id, fields);
-      return { id: payload.id };
+      return { id: payload.id, ids: [payload.id], created: 0 };
     }
+
+    /**
+     * 新建：`subjects`（多科目）时**展开成 N 列**，每列一个科目。
+     *
+     * 🔴 为什么不是「一列挂多个科目」：期末总评的幂等键是「批次 + 学生 + 科目」，
+     * 一列挂两个科目 ⇒ 结转时拆不出科目、权重也没法按科目区分（而且不报错）。
+     * 展开规则（去重、≥2 才加 `名 · 科目` 后缀、排序连号保证相邻）全在
+     * `subjectColumnDrafts` 纯函数里，有单测。
+     *
+     * 串行 create：同一张表并发写容易出现读-改-写互相覆盖。
+     */
+    if (Array.isArray(payload.subjects) && payload.subjects.length) {
+      const drafts = subjectColumnDrafts({
+        name: payload.name,
+        subjects: payload.subjects,
+        sort: payload.sort,
+      });
+      const ids: string[] = [];
+      for (const d of drafts) {
+        const f = buildColumnFields({ ...payload, name: d.name, subject: d.subject, sort: d.sort });
+        ids.push(String(await sql.create(TABLES.markbookColumn.tableId, f)));
+      }
+      return { id: ids[0] ?? '', ids, created: ids.length };
+    }
+
     const id = await sql.create(TABLES.markbookColumn.tableId, fields);
-    return { id: String(id) };
+    return { id: String(id), ids: [String(id)], created: 1 };
   }
 
   /** 删除一列（连同该列的条目一起删，避免留孤儿数据） */

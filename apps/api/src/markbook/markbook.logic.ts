@@ -302,6 +302,24 @@ export interface ColumnSavePayload {
   name: string;
   type?: string;
   subject?: string;
+  /**
+   * 学年 / 学期（读字典「学年」「教学学期」）。
+   *
+   * 🔴 这两个字段决定**这一列属于哪个成绩册**：网格、期末结转的科目候选都按它们筛。
+   * 空 = 未归属（历史列），一律**照常显示、照常参与结转** —— 不能因为没归属就把它藏起来
+   * （那会让老师以为数据丢了，而且总评会静默少算）。
+   */
+  year?: string;
+  term?: string;
+  /**
+   * 多科目一次性建列：勾 N 个科目 = 建 N 列（每列一个科目）。
+   *
+   * 为什么不能一列挂多个科目：期末总评的幂等键是「批次 + 学生 + 科目」，
+   * 一列挂两个科目就拆不出科目、权重也没法按科目区分。
+   * 元素里的空串 `''` 表示「未指定科目」（走「未填科目」分组）。
+   * 只在**新建**时用；编辑单列仍走 `subject`。
+   */
+  subjects?: string[];
   weight?: number;
   fullMark?: number;
   scaleId?: string;
@@ -313,6 +331,20 @@ export interface ColumnSavePayload {
   parentVisible?: string;
   completeDate?: string;
 }
+
+/**
+ * 学年 / 学期 与多科目建列的口径 —— **实现在 `@acms/contracts`**（前后端共用一份，
+ * 因为前端要用同一份规则预览「将创建哪几列」，复制一遍必然漂移）。
+ * 这里只做再导出，让本模块的既有引用（service / 单测）不用改 import 路径。
+ */
+export {
+  TERM_WHOLE_YEAR,
+  columnInTerm,
+  isUnassignedTerm,
+  subjectColumnDrafts,
+  type SubjectColumnDraft,
+  type TermSelection,
+} from '@acms/contracts';
 
 export function buildColumnFields(payload: ColumnSavePayload): Record<string, unknown> {
   const fields: Record<string, unknown> = {
@@ -326,6 +358,8 @@ export function buildColumnFields(payload: ColumnSavePayload): Record<string, un
   // 科目：文本（与「班级」同一套口径）。期末总评按它拆科目，
   // 写法不一致（数学 / 数学课）会拆成两个科目 ⇒ 前端用已有值下拉，别手打。
   set('科目', payload.subject, (v) => String(v ?? '').trim());
+  set('学年', payload.year, (v) => String(v ?? '').trim());
+  set('学期', payload.term, (v) => String(v ?? '').trim());
   set('列权重', payload.weight, (v) => (Number(v) > 0 ? Number(v) : 1));
   set('满分', payload.fullMark, (v) => (Number(v) > 0 ? Number(v) : DEFAULT_FULL_MARK));
   // 等级体系是关联字段 ⇒ 存数组（与 markbookColumn 其他 link 字段同口径）

@@ -259,10 +259,33 @@ export class MarkbookService implements OnModuleInit {
    * ⚠️ 不过滤「状态 = 停用」的类型：停用的类型可能仍被历史列/历史权重引用，
    *   下拉里若没有它，编辑存量记录时那张 select 会显示成「未填写」（值还在、只是看着像丢了）。
    */
-  async listTypeOptions(): Promise<{ items: string[] }> {
+  async listTypeOptions(cls = ''): Promise<{
+    items: string[];
+    /**
+     * 富信息（成绩册「新建/修改考核列」的下拉用它）：
+     * label 里带上**该类型的权重**，这样老师选类型时就知道这一列会按多少权重算，
+     * 不必再跳去「成绩类型权重」页对着看。
+     */
+    detail: { value: string; label: string; weight: number | null; counted: boolean; color: string }[];
+  }> {
     try {
-      const rows = await this.readAll(TABLES.examType.tableId);
-      const items = rows
+      const c = normClass(cls);
+      const typeRows = await this.readAll(TABLES.examType.tableId);
+      // 传了班级才读权重表（不带 cls 的调用方——如「成绩类型权重」页——不需要）
+      const weightRows = c ? await this.readAll(TABLES.markbookWeight.tableId) : [];
+
+      /**
+       * 本班已配的「类型 → 权重」。匹配口径与 `configsOf` 完全一致（`normClass(班级) === cls`），
+       * 否则会出现「下拉说本班权重 20、实际算的时候按缺省 50」这种对不上。
+       */
+      const byClass = new Map<string, number>();
+      for (const w of weightRows) {
+        if (normClass(w.f['班级']) !== c) continue;
+        const name = String(w.f['类型'] ?? '').trim();
+        if (name) byClass.set(name, safeWeight(w.f['权重']));
+      }
+
+      const types = typeRows
         .map((r) => ({
           name: String(r.f['类型名称'] ?? '').trim(),
           // 排序：表上的「排序」字段优先（运营可在「考核类型」页调）；
@@ -271,14 +294,29 @@ export class MarkbookService implements OnModuleInit {
           // 最后按名称兜底，保证**顺序是确定的**（否则下拉顺序会随数据库返回顺序变）。
           sort: Number(r.f['排序']) || 0,
           weight: Number(r.f['缺省权重']) || 0,
+          counted: String(r.f['计入总评'] ?? '是') !== '否',
+          color: String(r.f['颜色'] ?? '').trim(),
         }))
         .filter((x) => x.name)
-        .sort((a, b) => a.sort - b.sort || a.weight - b.weight || a.name.localeCompare(b.name, 'zh-CN'))
-        .map((x) => x.name);
-      return { items };
+        .sort((a, b) => a.sort - b.sort || a.weight - b.weight || a.name.localeCompare(b.name, 'zh-CN'));
+
+      const detail = types.map((x) => {
+        const own = byClass.get(x.name);
+        const wPart = own !== undefined ? `本班权重 ${own}` : `缺省权重 ${x.weight || 1}`;
+        return {
+          value: x.name,
+          // 括号里那两件事正是「选了对不对」的判据：该类型的权重、以及算不算进期末
+          label: `${x.name}（${wPart}${x.counted ? '' : ' · 不计入总评'}）`,
+          weight: own ?? x.weight ?? null,
+          counted: x.counted,
+          color: x.color,
+        };
+      });
+
+      return { items: detail.map((d) => d.value), detail };
     } catch {
       // 表还没建 / 读失败 → 空候选（页面下拉为空，但不影响其它功能）
-      return { items: [] };
+      return { items: [], detail: [] };
     }
   }
 

@@ -49,18 +49,23 @@ export class MarkbookController {
   }
 
   /**
-   * 考核类型候选（读）—— 供「成绩类型权重」等页面的下拉。
+   * 考核类型候选（读）—— 供「成绩类型权重」与「成绩册 · 新建/修改考核列」的下拉。
    *
-   * 候选项来自「考核类型」表（不是字典），原因见 `MarkbookService.listTypeOptions` 的注释：
-   * 权重按类型名等值匹配，两份名单必然漂移。挂成绩册权限是因为配权重的老师通常
-   * 没有 `module:examTypes:read`，直连那张表的接口会 403、下拉空白。
+   * 候选项来自「考核类型」表（不是字典，也不是「成绩类型权重」表），原因：
+   *  · 权重是按类型名等值匹配的，两份名单必然漂移（见 `MarkbookService.listTypeOptions`）；
+   *  · 🔴 不能用「成绩类型权重」表当候选：那是**按班级配的**，某班没配过就会得到空下拉，
+   *    老师反而建不了列。权重表决定的是「每类占多少分」，不是「有哪些类」。
+   * 挂成绩册权限是因为配权重/建列的老师通常没有 `module:examTypes:read`，直连会 403。
+   *
+   * `?cls=<班级>` 时额外返回「本班权重」（detail.label 里带上），
+   * 这样建列时不必再跳到「成绩类型权重」页对照。
    *
    * ⚠️ 静态路由必须排在 `@Get(':id')` 之前（本控制器目前没有 `:id` 通配，但保持惯例）。
    */
   @Get('type-options')
-  typeOptions(@Req() req: { user: SessionUser }) {
+  typeOptions(@Req() req: { user: SessionUser }, @Query('cls') cls?: string) {
     requireModule(req.user, 'markbook', 'read');
-    return this.svc.listTypeOptions();
+    return this.svc.listTypeOptions(cls ?? '');
   }
 
   /** 批量保存单元格（写） */

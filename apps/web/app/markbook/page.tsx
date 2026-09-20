@@ -40,6 +40,38 @@ export default function MarkbookPage() {
   /** 列编辑：null=关闭，{col:null}=新建 */
   const [editing, setEditing] = useState<{ col: MarkbookColumn | null } | null>(null);
 
+  /**
+   * 「考核类型」候选（列编辑用）。
+   *
+   * 🔴 候选来自**「考核类型」表**，不是「成绩类型权重」表 —— 后者是**按班级配的**，
+   * 某个班没配过权重就会得到空下拉，老师反而建不了列。权重表管的是「每类占多少分」，
+   * 「有哪些类」由「考核类型」页管。两处的候选因此是同一份名单，不会出现
+   * 「成绩册里能选、权重页里没有」。
+   *
+   * 传当前班级给端点，返回的 label 里会带上**本班权重**（「期末考试（本班权重 55）」），
+   * 建列时一眼能看出这一列会按多少权重算。
+   */
+  const [typeOptions, setTypeOptions] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    if (!cls) {
+      setTypeOptions([]);
+      return;
+    }
+    let alive = true;
+    api
+      .markbookTypeOptions(cls)
+      .then((res) => {
+        if (!alive) return;
+        setTypeOptions((res?.detail ?? []).map((d) => ({ value: d.value, label: d.label })));
+      })
+      .catch(() => {
+        if (alive) setTypeOptions([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [cls]);
+
   const loadClasses = useCallback(async () => {
     const list = await api.markbookClasses();
     setClasses(list);
@@ -345,6 +377,8 @@ export default function MarkbookPage() {
             scales={grid?.scales ?? []}
             // 该班用过的科目（去重）—— 给「科目」下拉当候选，保证写法一致
             subjects={[...new Set((grid?.columns ?? []).map((c) => c.subject).filter(Boolean))]}
+            // 考核类型候选（带本班权重标注）—— 见页面顶部 typeOptions 的注释
+            types={typeOptions}
             onClose={() => setEditing(null)}
             onSaved={async () => {
               setEditing(null);
@@ -383,6 +417,7 @@ function ColumnEditor({
   col,
   scales,
   subjects,
+  types,
   onClose,
   onSaved,
 }: {
@@ -391,6 +426,12 @@ function ColumnEditor({
   scales: { id: string; name: string; isDefault: boolean }[];
   /** 该班已用过的科目（来自网格现有列）—— 给下拉用，避免手打出「数学 / 数学课」两种科目 */
   subjects: string[];
+  /**
+   * 考核类型候选（value=类型名，label 里带本班权重）。
+   * 必须从候选里选：类型名是**与权重/颜色/计入总评逐字匹配**的键，
+   * 手打错一个字，那一列的权重与「是否计入期末」就双双静默失效。
+   */
+  types: { value: string; label: string }[];
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
@@ -469,12 +510,32 @@ function ColumnEditor({
         </label>
         <label className="mb-field">
           <span>{t('fType')}</span>
-          <input
-            className="form-input"
-            placeholder={t('fTypeHint')}
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-          />
+          {/* 🔴 必须是下拉：类型名与「成绩类型权重」「考核类型」表逐字匹配，
+              手打错一个字 ⇒ 该列的权重与「是否计入期末」双双静默失效（不报错）。 */}
+          <select className="form-input" value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="">{t('fTypeNone')}</option>
+            {/* 编辑既有列时，若该类型已被停用/删除而不在候选里，补一项，避免显示成「未指定」 */}
+            {type && !types.some((o) => o.value === type) ? (
+              <option value={type}>{`${type}（${t('fTypeMissing')}）`}</option>
+            ) : null}
+            {types.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {types.length === 0 ? (
+            <span className="mb-meta">{t('fTypeEmpty')}</span>
+          ) : (
+            <span className="mb-meta">{t('fTypeHint')}</span>
+          )}
+          {/*
+            类型留空不阻断保存，但必须把后果说清：结转时该列将按**权重 1** 计入期末总评，
+            老师会看到「总评怎么被这一列影响了」却找不到原因 —— 这类不报错的后果一律显式提示。
+          */}
+          {type === '' && types.length > 0 && !col ? (
+            <span style={{ color: 'var(--warning)', fontSize: 'var(--font-xs)' }}>{t('fTypeWarn')}</span>
+          ) : null}
         </label>
         <label className="mb-field">
           <span>{t('fWeight')}</span>

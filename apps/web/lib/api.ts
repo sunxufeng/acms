@@ -1510,13 +1510,20 @@ export const api = {
   /** 可选班级（学生档案「当前班级」聚合） */
   markbookClasses: () => request<MarkbookClassOption[]>('/markbook/classes'),
   /**
-   * 考核类型候选（「成绩类型权重」页的下拉数据源）。
+   * 考核类型候选（「成绩类型权重」页与「成绩册 · 新建/修改考核列」的下拉数据源）。
    *
-   * 数据来自**「考核类型」表**（即 /exam-types 里已建的记录），不是字典 ——
-   * 权重是按类型名等值匹配的，两份名单必然漂移。
+   * 数据来自**「考核类型」表**（即 /exam-types 里已建的记录），不是字典，也不是权重表 ——
+   * 权重按类型名等值匹配，两份名单必然漂移；而权重表是按班级配的，某班没配过就会是空下拉。
    * 走成绩册自己的端点是因为配权重的老师通常没有「考核类型」模块的读权限。
+   *
+   * 传 `cls` 时 `detail[].label` 会带上**该班的权重**（如「期末考试（本班权重 55）」），
+   * 建列时一眼能看出这一列会按多少权重算，不用再跳去权重页对照。
    */
-  markbookTypeOptions: () => request<{ items: string[] }>('/markbook/type-options'),
+  markbookTypeOptions: (cls?: string) =>
+    request<{
+      items: string[];
+      detail: { value: string; label: string; weight: number | null; counted: boolean; color: string }[];
+    }>(`/markbook/type-options${cls ? `?cls=${encodeURIComponent(cls)}` : ''}`),
   /** 整个班级的成绩册网格（列 × 学生 + 单元格 + 加权总评） */
   markbookGrid: (cls: string) => request<MarkbookGrid>(`/markbook/grid?cls=${encodeURIComponent(cls)}`),
   /** 批量保存单元格（score 传空 = 删除该条目） */

@@ -1234,6 +1234,14 @@ export const api = {
     const q = qs.toString();
     return request<ActivityPayload>(`/reports/activity${q ? `?${q}` : ''}`);
   },
+  // ── 使用统计（跨模块用量汇总，需 module:reportUsage:read） ─────
+  usageStats: (params: { from?: string; to?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    const q = qs.toString();
+    return request<UsagePayload>(`/reports/usage${q ? `?${q}` : ''}`);
+  },
   createRole: (data: { key: string; label?: string; permissions: string[]; maxDataLevel: string; menus?: string[]; dataScope?: unknown }) =>
     request<RoleManagementPayload>('/role-management', { method: 'POST', body: JSON.stringify(data) }),
   updateRole: (key: string, data: { label?: string; permissions?: string[]; maxDataLevel?: string; menus?: string[]; dataScope?: unknown }) =>
@@ -2548,6 +2556,39 @@ export interface NoteStatsPayload {
    * `type` 来自上游标签类型（system / ai / 自定义），`owners` 是涉及的人（去重前的名字列表）。
    */
   byTag: { tag: string; type: string; count: number; owners: string[] }[];
+}
+
+/**
+ * 使用统计（2026-09-21 新增）：跨 5 个模块看「谁在用、用了多少」。
+ *
+ * 矩阵结构（行 × 列）：`rows[i].cells[j]` 对应 `cols[j]`，`row.total` = 该行合计，
+ * `colTotals[j]` = 该列合计。**行合计之和 = 列合计之和 = total**（后端已保证，界面直接显示）。
+ */
+export interface UsageMatrix {
+  cols: string[];
+  rows: { label: string; cells: number[]; total: number; detail?: string }[];
+  colTotals: number[];
+  total: number;
+}
+
+export interface UsagePayload {
+  from: string;
+  to: string;
+  studentRecords: { total: number; byType: UsageMatrix; byChannel: UsageMatrix; undated: number };
+  sourceFollowups: { total: number; byActivityType: UsageMatrix; byChannel: UsageMatrix; undated: number };
+  notes: {
+    total: number;
+    byOwner: { label: string; count: number; sources: number; lastAt: number; share: number }[];
+    undated: number;
+  };
+  audit: { total: number; byModule: UsageMatrix; byAction: UsageMatrix; skipped: number };
+  meetings: {
+    total: number;
+    byHost: { label: string; count: number; lastAt: number; avgMinutes: number | null; mainType: string }[];
+    undated: number;
+  };
+  /** 数据源读取失败 / 有记录缺时间字段时的说明 —— 区分「读不到」与「真的没人用」 */
+  warnings: string[];
 }
 
 /** 活跃时段统计：登录 = 登录日志，操作 = 审计日志里的写操作（创建/更新/删除） */

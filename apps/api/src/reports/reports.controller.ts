@@ -36,6 +36,18 @@ export class ReportsController {
   }
 
   /**
+   * 使用统计：跨 5 个模块看「谁在用、用了多少」（学生记录 / 招生跟进 / 我的笔记 /
+   * 审计日志 / 会议纪要）。只返回**聚合计数**，不含任何记录正文。
+   *
+   * 权限点 `module:reportUsage:read` —— 与其它报表一致按报表授权（不传 from/to 时
+   * 默认最近 30 天）。
+   */
+  @Get('usage')
+  usage(@Req() req: Request, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.usage(userOf(req), { from, to });
+  }
+
+  /**
    * 联系人去重：疑似同一个人的多条联系人记录。
    * level=strong 只要强证据 / level=likely（默认）强+较可信 / level=all 全部；
    * channel、owner 按「组内任一成员命中」筛选；refresh=1 强制重算（对应页面「重新计算」）。

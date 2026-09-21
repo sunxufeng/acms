@@ -19,6 +19,7 @@ import {
 } from '../../components/reports/panels';
 import { ActivityPanel } from '../../components/reports/activity';
 import { NotesPanel } from '../../components/reports/notes';
+import { UsagePanel } from '../../components/reports/usage';
 import { WeilingPanel } from '../../components/reports/weiling';
 import { DedupPanel } from '../../components/reports/dedup';
 import { AttendancePanel } from '../../components/reports/attendance';
@@ -80,6 +81,14 @@ const REPORTS: ReportDef[] = [
     ready: true,
   },
   { key: 'notes', perm: R('notes'), label: '笔记统计', desc: '按人统计某段时间新增多少笔记、转了多少次', dims: '按人 · 来源 · 模块 · 趋势', ready: true, group: 'time' },
+  {
+    key: 'usage', perm: R('usage'),
+    label: '使用统计',
+    desc: '谁在用、用了多少：学生记录 / 招生跟进 / 我的笔记 / 系统操作 / 会议纪要 五个模块的用量汇总',
+    dims: '按人 × 维度矩阵 · 跨 5 个模块',
+    ready: true,
+    group: 'time',
+  },
 { key: 'activity', perm: R('activity'), label: '活跃时段', desc: '按人统计什么时间登录、什么时间有操作', dims: '人 × 小时热力 · 趋势', ready: true, group: 'time' },
   {
     // 不设 group：本报表自带筛选栏（起止日期 / 班级 / 年级），
@@ -283,6 +292,7 @@ export default function ReportsPage() {
           {active === 'weiling' ? <WeilingPanel /> : null}
           {active === 'dedup' ? <DedupPanel /> : null}
           {active === 'notes' ? <NotesPanel from={from} to={to} /> : null}
+          {active === 'usage' ? <UsagePanel from={from} to={to} /> : null}
           {active === 'activity' ? <ActivityPanel from={from} to={to} /> : null}
           {active === 'examDist' ? <ExamDistPanel /> : null}
           {active === 'examGpa' ? <ExamGpaPanel /> : null}

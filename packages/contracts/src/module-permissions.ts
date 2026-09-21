@@ -54,6 +54,12 @@ export const REPORT_MODULE_KEYS = {
   attendance: 'reportAttendance',
   examDist: 'reportExamDist',
   examGpa: 'reportExamGpa',
+  // 2026-09-21 新增：跨模块的「谁在用、用了多少」汇总（学生记录 / 招生跟进 / 我的笔记 /
+  // 审计日志 / 会议纪要）。**不抬 `ROLE_PERMISSION_VERSION`** —— 峰哥定的可见性是
+  // 「只给系统管理员 + 院级管理，其他角色要手动勾」。若抬版本走 legacyRead 继承，
+  // 会把这张卡自动发给所有持有 `module:reports:read` 的 12 个角色，与这个口径相反。
+  // 系统管理员不受影响：`healLockedRoles()` 用代码里的全量权限覆盖锁定角色，自动获得。
+  usage: 'reportUsage',
 } as const;
 
 export type ReportKey = keyof typeof REPORT_MODULE_KEYS;
@@ -71,6 +77,7 @@ export const REPORT_LABELS: Record<ReportKey, string> = {
   attendance: '考勤分析',
   examDist: '考试成绩分布',
   examGpa: 'GPA 与班级排名',
+  usage: '使用统计',
 };
 
 export interface ModuleResource {

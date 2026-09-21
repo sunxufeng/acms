@@ -5,6 +5,7 @@ import { BaseClient } from '@acms/base-adapter';
 import {
   TABLES,
   USER_TABLE,
+  MODULE_RESOURCES,
   NOTE_SOURCE_TYPES,
   modulePermission,
   REPORT_MODULE_KEYS,
@@ -13,6 +14,13 @@ import {
 import { BASE_CLIENT, getSqlStore } from '../base.provider.js';
 import { LoginLogService } from '../login-log/login-log.service.js';
 import { buildDedupGroups, toDedupRow, type DedupResult, type DedupRow } from './contact-dedup.js';
+import {
+  SYSTEM_ACTOR,
+  buildActorDetail,
+  buildActorNormalizer,
+  buildMatrix,
+  buildModuleLabelResolver,
+} from './usage-agg.js';
 import {
   buildCodeTable,
   computeAttendanceReport,
@@ -678,6 +686,253 @@ export class ReportsService {
       byModule: [...byModuleMap.values()].sort((a, b) => b.count - a.count),
       byConverter: [...byConverterMap.values()].sort((a, b) => b.count - a.count),
       byDay: [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    };
+  }
+
+  // ── 使用统计（口径见 usage-agg.ts 顶部说明）────────────────────────────
+
+  /**
+   * 「使用统计」：跨 5 个模块看「谁在用、用了多少」。
+   *
+   * 五个区块的数据源与维度（峰哥 2026-09-21 确认）：
+   *   ① 学生记录  → 按记录人（字段「沟通人」）× 记录类型 / 沟通方式
+   *   ② 招生跟进  → 按跟进负责人 × 活动类型 / 跟进方式
+   *   ③ 我的笔记  → 按归属人（= 笔记配置的归属人，不是笔记作者）
+   *   ④ 系统操作  → 按操作人（**归一后**）× 业务模块 / 操作类型
+   *   ⑤ 会议纪要  → 按主持人（会议数 / 最近一场 / 平均时长）
+   *
+   * 🔴 三条实现约束：
+   *   1. **读不到 ≠ 0**：任一数据源读失败时把原因推进 `warnings`，
+   *      否则「表读挂了」和「这段时间真的没人用」在界面上长得一模一样。
+   *   2. **操作人必须归一**（`buildActorNormalizer`）：生产里同一个人有 3 种写法
+   *      （`孙旭峰` / `孙旭峰｜Richard` / `Richard`，合计占 73%），不归一就会出现三个"人"。
+   *   3. **没有时间字段的记录单独计数**（`undated`）：它们不参与时间筛选，
+   *      但如果不说，用户拿报表数字跟列表条数一比就会认为数字错了。
+   *
+   * 只返回**聚合计数**，不带任何记录正文（主题/总结/正文一律不出现）——
+   * 这张卡的用途是看用量，不是看内容。
+   */
+  async usage(user: SessionUser, query: { from?: string; to?: string } = {}) {
+    requireReport(user, ['usage']);
+
+    const dayMs = 86_400_000;
+    const startOf = (d: string): number | null => {
+      const t = new Date(`${d}T00:00:00`).getTime();
+      return Number.isNaN(t) ? null : t;
+    };
+    const endOf = (d: string): number | null => {
+      const t = new Date(`${d}T23:59:59.999`).getTime();
+      return Number.isNaN(t) ? null : t;
+    };
+    const now = Date.now();
+    const fromMs = (query.from ? startOf(query.from) : null) ?? now - 29 * dayMs;
+    const toMs = (query.to ? endOf(query.to) : null) ?? now;
+    const inRange = (at: number): boolean => at >= fromMs && at <= toMs;
+
+    const warnings: string[] = [];
+
+    /** 全量分页读一张表（返回扁平字段对象）。失败只记 warning，不抛 —— 一张表读不到不该让整张卡打不开 */
+    const readTable = async (tableId: string, label: string): Promise<Record<string, unknown>[]> => {
+      const out: Record<string, unknown>[] = [];
+      try {
+        // 生产 `SQL_TABLES=*`：优先直连 PG，避免经飞书路由导致静默空结果
+        const store = (getSqlStore() ?? this.base) as Pick<BaseClient, 'search'>;
+        let token: string | undefined;
+        for (let i = 0; i < 20; i += 1) {
+          const page = await store.search(tableId, {
+            pageSize: 500,
+            ...(token ? { pageToken: token } : {}),
+          });
+          for (const r of page.items ?? []) {
+            out.push((((r as { fields?: Record<string, unknown> }).fields ?? r) ?? {}) as Record<string, unknown>);
+          }
+          if (!page.hasMore || !page.pageToken) break;
+          token = page.pageToken;
+        }
+      } catch (e) {
+        const msg = `${label}读取失败：${(e as Error).message.slice(0, 100)}`;
+        this.logger.warn(msg);
+        warnings.push(msg);
+      }
+      return out;
+    };
+
+    // 归一真源 = 系统用户表的姓名（复用 5 分钟缓存的 open_id→姓名映射，不额外打接口）
+    const names = [...(await this.personNameMap()).values()];
+    const normalizeActor = buildActorNormalizer(names);
+    const txt = (f: Record<string, unknown>, k: string): string => String(f[k] ?? '').trim();
+    const num = (f: Record<string, unknown>, k: string): number => toEpochMs(f[k]);
+    const moduleLabel = buildModuleLabelResolver(MODULE_RESOURCES);
+
+    // ① 学生记录（三合一表）
+    const srRows = await readTable(TABLES.dailyFollowup.tableId, '学生记录');
+    const srTypeItems: { row: string; col: string }[] = [];
+    const srChannelItems: { row: string; col: string }[] = [];
+    let srUndated = 0;
+    for (const f of srRows) {
+      const at = num(f, '沟通时间');
+      if (!at) {
+        srUndated += 1;
+        continue;
+      }
+      if (!inRange(at)) continue;
+      const who = normalizeActor(txt(f, '沟通人'));
+      srTypeItems.push({ row: who, col: txt(f, '记录类型') });
+      srChannelItems.push({ row: who, col: txt(f, '沟通方式') });
+    }
+
+    // ② 招生跟进
+    const sfRows = await readTable(TABLES.sourceFollowup.tableId, '招生跟进');
+    const sfActivityItems: { row: string; col: string }[] = [];
+    const sfChannelItems: { row: string; col: string }[] = [];
+    let sfUndated = 0;
+    for (const f of sfRows) {
+      const at = num(f, '跟进时间');
+      if (!at) {
+        sfUndated += 1;
+        continue;
+      }
+      if (!inRange(at)) continue;
+      const who = normalizeActor(txt(f, '跟进负责人'));
+      sfActivityItems.push({ row: who, col: txt(f, '活动类型') });
+      sfChannelItems.push({ row: who, col: txt(f, '跟进方式') });
+    }
+
+    // ③ 我的笔记（快照表；归属人 = 笔记配置的归属人）
+    const noteRows = await readTable(TABLES.noteSnapshot.tableId, '笔记快照');
+    const noteByOwner = new Map<string, { count: number; sources: Set<string>; lastAt: number }>();
+    let noteUndated = 0;
+    for (const f of noteRows) {
+      const at = num(f, '笔记创建时间');
+      if (!at) {
+        noteUndated += 1;
+        continue;
+      }
+      if (!inRange(at)) continue;
+      const who = normalizeActor(txt(f, '归属人'));
+      const cur = noteByOwner.get(who) ?? { count: 0, sources: new Set<string>(), lastAt: 0 };
+      cur.count += 1;
+      const src = txt(f, '来源配置');
+      if (src) cur.sources.add(src);
+      cur.lastAt = Math.max(cur.lastAt, at);
+      noteByOwner.set(who, cur);
+    }
+
+    // ④ 审计日志（操作人归一 + 业务模块翻中文 + 系统任务单独归组）
+    const auditRows = await readTable(TABLES.auditLog.tableId, '审计日志');
+    const auModuleItems: { row: string; col: string }[] = [];
+    const auActionItems: { row: string; col: string }[] = [];
+    /** 归一行 → 该行由哪些原始写法合成（挂在 title 上，排查用） */
+    const auRawByActor = new Map<string, Map<string, number>>();
+    let auSkipped = 0;
+    for (const f of auditRows) {
+      const at = Number(f['操作时间'] ?? 0);
+      if (!at) {
+        auSkipped += 1;
+        continue;
+      }
+      if (!inRange(at)) continue;
+      const rawActor = String(f['操作人'] ?? '').trim();
+      const who = normalizeActor(rawActor);
+      const rawMap = auRawByActor.get(who) ?? new Map<string, number>();
+      rawMap.set(rawActor, (rawMap.get(rawActor) ?? 0) + 1);
+      auRawByActor.set(who, rawMap);
+      const mod = moduleLabel(txt(f, '业务模块'));
+      auModuleItems.push({ row: who, col: mod });
+      auActionItems.push({ row: who, col: txt(f, '操作类型') });
+    }
+
+    // ⑤ 会议纪要（主持人 / 场次 / 平均时长）
+    const mtRows = await readTable(TABLES.meetingMinutes.tableId, '会议纪要');
+    const mtByHost = new Map<
+      string,
+      { count: number; lastAt: number; minutes: number[]; types: Map<string, number> }
+    >();
+    let mtUndated = 0;
+    for (const f of mtRows) {
+      const start = num(f, '开始时间');
+      const at = start || num(f, '会议时间');
+      if (!at) {
+        mtUndated += 1;
+        continue;
+      }
+      if (!inRange(at)) continue;
+      const who = normalizeActor(txt(f, '主持人'));
+      const cur = mtByHost.get(who) ?? { count: 0, lastAt: 0, minutes: [], types: new Map<string, number>() };
+      cur.count += 1;
+      cur.lastAt = Math.max(cur.lastAt, at);
+      const end = num(f, '结束时间');
+      if (start && end && end > start) cur.minutes.push(Math.round((end - start) / 60_000));
+      const ty = txt(f, '会议类型') || '（未填写）';
+      cur.types.set(ty, (cur.types.get(ty) ?? 0) + 1);
+      mtByHost.set(who, cur);
+    }
+
+    const warnOf = (rows: Record<string, unknown>[], tableLabel: string, undated: number, field: string): void => {
+      // 「表里总共多少条 / 其中多少条没时间」都写清楚：数字对不上时这就是解释
+      if (rows.length && undated) {
+        warnings.push(`${tableLabel}有 ${undated} 条记录没有「${field}」，已排除在时间范围之外（表内共 ${rows.length} 条）`);
+      }
+    };
+    warnOf(srRows, '学生记录', srUndated, '沟通时间');
+    warnOf(sfRows, '招生跟进', sfUndated, '跟进时间');
+    warnOf(noteRows, '笔记快照', noteUndated, '笔记创建时间');
+    warnOf(mtRows, '会议纪要', mtUndated, '会议时间');
+    if (auSkipped) warnings.push(`审计日志有 ${auSkipped} 条记录没有「操作时间」，已忽略`);
+
+    /** 给矩阵里的合并行补明细（只有系统任务/测试那一行需要） */
+    const withDetail = (m: ReturnType<typeof buildMatrix>, key: string) => ({
+      ...m,
+      rows: m.rows.map((r) =>
+        r.label === key ? { ...r, detail: buildActorDetail(auRawByActor.get(key) ?? new Map()) } : r,
+      ),
+    });
+    const auModule = withDetail(buildMatrix(auModuleItems), SYSTEM_ACTOR);
+    const auAction = withDetail(buildMatrix(auActionItems), SYSTEM_ACTOR);
+
+    const noteTotal = [...noteByOwner.values()].reduce((s, v) => s + v.count, 0);
+    const noteList = [...noteByOwner.entries()]
+      .map(([label, v]) => ({
+        label,
+        count: v.count,
+        sources: v.sources.size,
+        lastAt: v.lastAt,
+        share: noteTotal ? Math.round((v.count / noteTotal) * 100) : 0,
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'zh-Hans-CN'));
+
+    const mtList = [...mtByHost.entries()]
+      .map(([label, v]) => ({
+        label,
+        count: v.count,
+        lastAt: v.lastAt,
+        avgMinutes: v.minutes.length
+          ? Math.round(v.minutes.reduce((s, m) => s + m, 0) / v.minutes.length)
+          : null,
+        mainType: [...v.types.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '',
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'zh-Hans-CN'));
+
+    return {
+      from: new Date(fromMs).toISOString().slice(0, 10),
+      to: new Date(toMs).toISOString().slice(0, 10),
+      studentRecords: {
+        total: srTypeItems.length,
+        byType: buildMatrix(srTypeItems),
+        byChannel: buildMatrix(srChannelItems),
+        undated: srUndated,
+      },
+      sourceFollowups: {
+        total: sfActivityItems.length,
+        byActivityType: buildMatrix(sfActivityItems),
+        byChannel: buildMatrix(sfChannelItems),
+        undated: sfUndated,
+      },
+      notes: { total: noteTotal, byOwner: noteList, undated: noteUndated },
+      audit: { total: auModuleItems.length, byModule: auModule, byAction: auAction, skipped: auSkipped },
+      meetings: { total: mtList.reduce((s, m) => s + m.count, 0), byHost: mtList, undated: mtUndated },
+      /** 口径说明里要展示的：这块数据可能不完整（读失败 / 缺时间字段） */
+      warnings,
     };
   }
 

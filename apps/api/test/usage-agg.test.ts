@@ -91,7 +91,7 @@ describe('人员归一（「同一个人三种写法」是这张报表最容易�
 });
 
 describe('系统任务 / 测试账号的识别', () => {
-  it.each(['系统 · 行为告警重算', '系统任务', '验证探针', '探针', '测试账号', 'forge', 'adm', 'admin', 'cron 同步'])(
+  it.each(['系统 · 行为告警重算', '系统任务', '验证探针', '探针', '验证', '验证会话', '测试账号', 'forge', 'adm', 'admin', 'cron 同步'])(
     '%s → 系统组',
     (raw) => expect(isSystemActor(raw)).toBe(true),
   );
@@ -170,6 +170,24 @@ describe('矩阵构建', () => {
     const b = buildMatrix([...items].reverse());
     expect(a.rows.map((r) => r.label)).toEqual(b.rows.map((r) => r.label));
     expect(a.cols).toEqual(b.cols);
+  });
+
+  it('🔴 维度值是业务文本，**中间的空格必须保留**（去空格只针对人名）', () => {
+    // 2026-09-21 上线探针抓到的：`buildMatrix` 误用人员归一函数 ⇒
+    // 「系统任务 · 测试」被显示成「系统任务·测试」，「学生记录 · 家校沟通」同理。
+    const m = buildMatrix([
+      { row: '系统任务 · 测试', col: '学生记录 · 家校沟通' },
+      { row: '甲', col: '日常跟进' },
+    ]);
+    expect(m.rows.some((r) => r.label === '系统任务 · 测试')).toBe(true);
+    expect(m.cols).toContain('学生记录 · 家校沟通');
+  });
+
+  it('行名/列名首尾空白仍然去掉（只带空格的与干净的归到同一行）', () => {
+    const m = buildMatrix([{ row: '甲', col: 'X' }, { row: ' 甲 ', col: ' X ' }]);
+    expect(m.rows).toHaveLength(1);
+    expect(m.rows[0].total).toBe(2);
+    expect(m.cols).toHaveLength(1);
   });
 });
 

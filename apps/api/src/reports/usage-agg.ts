@@ -31,12 +31,26 @@ const SYSTEM_PATTERNS: readonly RegExp[] = [
   /^系统/, // 系统 · 行为告警重算
   /^system\b/i,
   /探针/, // 验证探针 / 探针
+  /^验证/, // 「验证」/「验证会话」—— 自动化验证脚本留下的名字（2026-09-21 实测有）
   /测试/, // 测试账号
   /^forge$/i,
   /^adm(in(istrator)?)?$/i,
   /^cron\b/i,
   /^bot\b/i,
 ];
+
+/**
+ * 维度值（行名/列名）的清洗：**只去首尾空白**。
+ *
+ * ⚠️ 与 `normalizeActorName` 的区别很重要：那个还会去中间的空格（人名里
+ * `刘佳音 ｜ Joy` 要并成 `刘佳音｜Joy`），但**列名是业务文本**（如「系统任务 · 测试」
+ * 「学生记录 · 家校沟通」），把中间空格删掉会变成「系统任务·测试」——
+ * 2026-09-21 上线探针就抓到过这个（断言用带空格的文案比对不上）。
+ * 所以行名在调用方先归一，`buildMatrix` 只做 trim。
+ */
+function cleanLabel(raw: unknown): string {
+  return String(raw ?? '').trim() || UNFILLED;
+}
 
 /**
  * 归一用的清洗：去空白（含全角）、统一分隔符。
@@ -147,8 +161,8 @@ export function buildMatrix(
   const key = (r: string, c: string) => `${r}\u0000${c}`;
 
   for (const it of items) {
-    const r = normalizeActorName(it.row) || UNFILLED;
-    const c = normalizeActorName(it.col) || UNFILLED;
+    const r = cleanLabel(it.row);
+    const c = cleanLabel(it.col);
     const w = Number.isFinite(it.weight) ? Number(it.weight) : 1;
     rowSet.add(r);
     colSet.add(c);

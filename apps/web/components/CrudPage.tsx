@@ -25,11 +25,28 @@ import { currentUserName } from '../lib/noteAutoFill';
 // 音频判定下沉到 lib/rowAudio（2026-09-19）：列表「操作」列的行内播放也要用同一判据，
 // 两处各写一份必然漂移（会出现「表单认它是音频、列表不认」）
 import { isAudioFile } from '../lib/rowAudio';
+// 卫瓴联系人的「学生姓名」在自定义字段（整包 JSON）里，解析器与联系人列表共用一份
+import { studentNameOfContact } from '../lib/weilingCustomFields';
 // 仅用于转换场景的留痕回填（把新建出的业务记录 id 写回「笔记转换记录」）。
 // 注意组件内已有名为 api 的 prop，所以全局 api 必须起别名，否则会遮蔽。
 import { api as globalApi } from '../lib/api';
 
 export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags' | 'password' | 'color' | 'weilingContact' | 'link';
+
+/**
+ * `onChangePatch` 的运行上下文：提供**组件内才拿得到**的查询能力。
+ *
+ * 为什么需要：列定义是纯对象（在页面模块顶层声明），拿不到组件里拉来的数据集。
+ * 典型场景是「选了卫瓴联系人 → 带出该联系人报名表里填的『学生姓名』（自定义字段 xsxm）」——
+ * 那份数据在 CrudPage 内部（懒加载 + 全站缓存），列定义里无从获取。
+ */
+export interface FieldChangeContext {
+  /**
+   * 卫瓴联系人 id → 该联系人的「学生姓名」（上游自定义字段 `xsxm`）。
+   * 联系人表还没加载完 / 该联系人没填时返回**空串**（调用方据此决定要不要覆盖）。
+   */
+  contactStudentName: (contactId: string) => string;
+}
 
 export interface CrudColumn {
   key: string;
@@ -146,8 +163,17 @@ export interface CrudColumn {
    * 可见范围/可见部门跟随」就走这里。
    *
    * ⚠️ patch 只合并、不做删除语义；且**别在里面再次改回触发字段自身**（会自激）。
+   *
+   * 第三参 `ctx` 提供**组件内才拿得到的查询能力**（2026-09-21 加）：
+   * 「选了卫瓴联系人 → 带出该联系人的学生姓名」需要联系人 dataset，
+   * 而列定义是纯对象、拿不到组件状态。走 ctx 而不是让列自己去 fetch，
+   * 是为了不把「联系人表拉一遍」变成每个用到的页面各写一遍。
    */
-  onChangePatch?: (value: unknown, form: Record<string, unknown>) => Record<string, unknown>;
+  onChangePatch?: (
+    value: unknown,
+    form: Record<string, unknown>,
+    ctx: FieldChangeContext,
+  ) => Record<string, unknown>;
   /**
    * 编辑该字段所需的权限点：**没有该权限时字段渲染为只读**（可看不可改）。
    *
@@ -613,6 +639,13 @@ const rowActions: React.CSSProperties = { display: 'flex', gap: 6, alignItems: '
  * 与翻页都复用同一份，避免每次打开表单都打十几秒的请求。
  */
 let weilingContactCache: { value: string; label: string }[] | null = null;
+/**
+ * 与 `weilingContactCache` **同一次拉取**产出的「联系人 id → 学生姓名」（自定义字段 xsxm）。
+ *
+ * ⚠️ 两者必须同时命中/同时失效：只复用选项而漏了它，会出现「选项在、但选了带不出学生姓名」
+ * （不报错、只是空着，最难查的一类问题）。
+ */
+let weilingContactStudentNameCache: Record<string, string> | null = null;
 
 export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, createDefaults, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, studentNameKeys, sidebar, extraParams, rowActionSlot }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
@@ -1146,12 +1179,26 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
    * （patch 往往要读同批变化的其它字段）。patch 只做合并，不表达删除。
    * ⚠️ 抛错时只吞掉 patch，字段本身照常写入 —— 联动不该拖垮录入。
    */
+  /**
+   * 卫瓴联系人 id → 「学生姓名」（上游自定义字段 xsxm）。
+   *
+   * 用 ref 而不是 state：`applyFieldChange` 是空依赖的 useCallback（被渲染路径直接引用），
+   * 加依赖会重建它；而这份数据只在「用户点了联系人」的那一刻被读一次，
+   * 不需要触发重渲染（列表/表单里显示的是本表字段，不是它）。
+   */
+  const contactStudentNameRef = useRef<Record<string, string>>({});
+
   const applyFieldChange = useCallback((c: CrudColumn, value: unknown) => {
     setForm((f) => {
       const merged = { ...f, [c.key]: value };
       if (!c.onChangePatch) return merged;
       try {
-        return { ...merged, ...c.onChangePatch(value, merged) };
+        return {
+          ...merged,
+          ...c.onChangePatch(value, merged, {
+            contactStudentName: (id: string) => contactStudentNameRef.current[id] ?? '',
+          }),
+        };
       } catch {
         return merged;
       }
@@ -1286,12 +1333,16 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   );
   useEffect(() => {
     if (!columns.some((c) => c.type === 'weilingContact')) return;
-    if (weilingContactCache) {
+    // ⚠️ 两份缓存必须**一起用**：选项与学生姓名映射是同一次拉取产出的。
+    //    只复用选项的话，用户点了联系人却带不出学生姓名（且不会报错，只是空着）。
+    if (weilingContactCache && weilingContactStudentNameCache) {
       setWeilingContactOptions(weilingContactCache);
+      contactStudentNameRef.current = weilingContactStudentNameCache;
       return;
     }
     let alive = true;
     const collected: { value: string; label: string }[] = [];
+    const studentNameById: Record<string, string> = {};
     const fetchPage = async (token?: string): Promise<void> => {
       const p = await apiClient.listWeilingContacts({ pageSize: '500', pageToken: token });
       for (const r of p.items ?? []) {
@@ -1300,6 +1351,10 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         if (!id || !name) continue;
         const phone = String(r['手机号'] ?? '');
         collected.push({ value: id, label: phone ? `${name}｜${phone}` : name });
+        // 顺手把「学生姓名」收下来（同一批数据、不多打一次接口）：
+        // 招生跟进的「关联联系人」选中后要把它带进本表的「学生姓名」字段。
+        const sn = studentNameOfContact(r as Record<string, unknown>);
+        if (sn) studentNameById[id] = sn;
       }
       if (p.hasMore && p.pageToken) await fetchPage(p.pageToken);
     };
@@ -1308,6 +1363,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         if (!alive) return;
         collected.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
         weilingContactCache = collected;
+        weilingContactStudentNameCache = studentNameById;
+        contactStudentNameRef.current = studentNameById;
         setWeilingContactOptions(collected);
       })
       .catch(() => {});
@@ -1942,7 +1999,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
           ) : c.type === 'studentLink' ? (
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => applyStudentDerived({ ...f, [c.key]: v }, v))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" fallbackLabel={formLabels[c.key]} />
           ) : c.type === 'weilingContact' ? (
-            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={weilingContactOptions} placeholder="输入联系人姓名或手机号筛选…" fallbackLabel={formLabels[c.key]} />
+            // 走 applyFieldChange（而不是直接 setForm）：选了联系人要**顺带带出**
+            // 该联系人报名表里的「学生姓名」（见 CrudColumn.onChangePatch 的第三参 ctx）。
+            <Combobox value={str(form[c.key])} onChange={(v) => applyFieldChange(c, v)} options={weilingContactOptions} placeholder="输入联系人姓名或手机号筛选…" fallbackLabel={formLabels[c.key]} />
           ) : c.type === 'link' && fieldReadonly(c) ? (
             // 只读关联字段：显示已选名称（后端已解析成姓名串）而不是把 id 露出来，
             // 且不挂 onChange —— 服务端同样会拒绝，这里只是不给出「以为能改」的假象。

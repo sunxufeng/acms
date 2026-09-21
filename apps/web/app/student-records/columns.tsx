@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { CrudColumn } from '../../components/CrudPage';
 import { COMM_SPEC, enrichFromNotes } from '../../lib/noteAutoFill';
-import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
+import { STUDENT_ENGLISH_KEY, STUDENT_REF_KEY, studentLabel } from '../../components/CrudPage';
 import { STUDENT_RECORD_TYPES, STUDENT_RECORD_TYPE_FIELD, defaultFollowupOwner } from '@acms/contracts';
 
 /**
@@ -128,9 +128,12 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
         const name = studentName(row);
         if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
         const label = studentLabel(name, row[STUDENT_ENGLISH_KEY]);
+        // 两个来源，前者精确、后者兜底：
+        //  1. `关联学生编号__link` —— 关联字段解析出的学生档案 id（只有 2 条老数据有）
+        //  2. `STUDENT_REF_KEY` —— CrudPage 按**姓名**反查注入（页面传了 studentNameKeys 才有）
+        // 两个都没有（学生在档案里查不到）就退化成纯文本，不做成死链。
         const ids = row['关联学生编号__link'] as string[] | undefined;
-        const sid = Array.isArray(ids) ? ids[0] : '';
-        // 没关联到档案就不给链接 —— 点了跳到空列表比不给链接更让人困惑
+        const sid = (Array.isArray(ids) ? ids[0] : '') || String(row[STUDENT_REF_KEY] ?? '');
         if (!sid) return <span style={{ fontWeight: 700 }}>{label}</span>;
         return (
           <Link href={`/students/${sid}`} style={{ color: 'var(--accent)', fontWeight: 700 }}>
@@ -140,7 +143,12 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
       },
     },
     {
-      // 观察类不用「沟通方式」，用「观察类型」这个分类维度（沿用学生观察模块的既有做法）
+      // 2026-09-21 峰哥要求：**学生观察也要有「沟通方式」**，与日常跟进 / IDP沟通 完全一样。
+      //
+      // 原先按类型把它藏起来（观察类只留「观察类型」），理由是「观察不用沟通方式」；
+      // 但观察记录同样需要记「是怎么观察到的」（面谈 / 电话 / 微信…），
+      // 缺这一维就只能写进正文里，统计不到。
+      // 现在两类字段在观察下**并存**：观察类型 = 观察的视角，沟通方式 = 接触方式。
       key: '沟通方式',
       label: '沟通方式',
       width: '110px',
@@ -149,9 +157,7 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
       form: true,
       type: 'select',
       dictKey: '沟通方式',
-      list: !onlyObservation,
       listOrder: 4,
-      showIf: (f) => !isObservation(f),
       section: SECTION_BASE,
     },
     {

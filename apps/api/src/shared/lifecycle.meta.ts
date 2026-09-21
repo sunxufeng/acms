@@ -84,6 +84,18 @@ const STUDENT_RECORD_BASE: Omit<RecordMeta, 'path'> = {
     { field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
     { field: '关联监护人', table: TABLES.guardian.tableId, nameField: '监护人姓名' },
   ],
+  /**
+   * 保存时按「关联学生」（姓名）反查学生档案，把 record id 写进「关联学生编号」。
+   *
+   * 🔴 为什么必须有（2026-09-21 峰哥报「学生列大部分没有超链接」时查出来的）：
+   *    `关联学生编号` 在 `readonly` 里 ⇒ 前端不提交、写入侧还会被过滤掉，
+   *    于是新建的记录**永远没有关联 id**（生产 17 条里只有 2 条是合并前写进去的）。
+   *    影响不止列表链接：**家长/学生门户是按这个字段过滤记录的**（`portal-queries.ts`），
+   *    那 15 条记录在门户里根本看不到。
+   */
+  linkBackfill: [
+    { from: '关联学生', to: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
+  ],
   statusField: '闭环状态',
   defaultStatus: '无需跟进',
   searchField: '关联学生',

@@ -562,10 +562,21 @@ export class ReportsService {
       this.logger?.warn(`笔记转换记录读取失败（转换统计会为空）：${(e as Error).message.slice(0, 160)}`);
     }
 
-    // ── 名称真源：把「写入当时的名字」换成「当前的名字」 ───────────────────
+    // 名称真源：把「写入当时的名字」换成「当前的名字」 ───────────────────
     // 配置表：来源配置ID → 当前配置名称；同时按名称反查 ID（给没有 ID 的老行兜底）
     const configNameById = new Map<string, string>();
     const configIdByName = new Map<string, string>();
+    /**
+     * 配置 → 账号所有人（关联用户的**用户记录 id**）。
+     *
+     * 🔴 为什么需要（2026-09-21 峰哥报障：「按人（新增笔记）看不到 Michael」）：
+     *    快照的「归属人」写的是**配置的归属人**——`Michael Get Note` 这条配置由孙旭峰代建，
+     *    归属人就是孙旭峰，于是 Michael 的 10 篇笔记全算在孙旭峰名下。
+     *    而「关联用户」才是这个 Get 笔记账号**实际属于谁**。
+     * ⚠️ 只在关联用户**恰好一个**时才重定向：多个关联用户（共用账号）时无法判断具体归属，
+     *    仍按配置归属人算 —— 宁可少算给某个人，也不要把多人混算成一个人。
+     */
+    const configLinkedUserId = new Map<string, string>();
     try {
       const page = await this.base.search(TABLES.getnoteSource.tableId, { pageSize: 500 });
       for (const r of page.items ?? []) {
@@ -575,6 +586,13 @@ export class ReportsService {
         const name = String(f['配置名称'] ?? '').trim();
         if (id && name) configNameById.set(id, name);
         if (id && name) configIdByName.set(name, id);
+        const linked = Array.isArray(f['关联用户'])
+          ? (f['关联用户'] as unknown[]).filter(Boolean)
+          : [];
+        if (id && linked.length === 1) {
+          const recId = String(linked[0] ?? '').trim();
+          if (recId) configLinkedUserId.set(id, recId);
+        }
       }
     } catch {
       /* 配置表读不到时退化为按名字分组 */
@@ -584,6 +602,8 @@ export class ReportsService {
     // 归属人字段历史上出现过「孙旭峰」「孙旭峰｜Richard」「Richard」三种写法，都是同一个人。
     const userNameById = new Map<string, string>();
     const userIdByName = new Map<string, string>();
+    /** 用户表 record id → 身份：配置的「关联用户」字段存的就是这个 record id */
+    const userByRecordId = new Map<string, { openId: string; name: string }>();
     try {
       const page = await this.base.search(USER_TABLE.tableId, { pageSize: 500 });
       for (const r of page.items ?? []) {
@@ -593,6 +613,8 @@ export class ReportsService {
         const name = String(f['姓名'] ?? '').trim();
         if (!openId || !name) continue;
         userNameById.set(openId, name);
+        const recId = String(rr.recordId ?? rr.id ?? '').trim();
+        if (recId) userByRecordId.set(recId, { openId, name });
         for (const alias of [name, ...name.split(/[｜|]/)]) {
           const k = alias.trim();
           if (k) userIdByName.set(k, openId);
@@ -600,6 +622,16 @@ export class ReportsService {
       }
     } catch {
       /* 用户表读不到时按名字分组 */
+    }
+
+    /**
+     * 归属人重定向：配置有**唯一**关联用户时，笔记归该用户（账号实际所有人）。
+     * 见 `configLinkedUserId` 的说明 —— 这是修「按人看不到 Michael」的那一处。
+     */
+    const ownerRedirectByConfig = new Map<string, { id: string; name: string }>();
+    for (const [cfgId, recId] of configLinkedUserId) {
+      const u = userByRecordId.get(recId);
+      if (u) ownerRedirectByConfig.set(cfgId, { id: u.openId, name: u.name });
     }
 
     /** 归属人归并键：优先 ID，其次用别名反查出来的 ID，最后才用名字本身 */
@@ -628,7 +660,11 @@ export class ReportsService {
     const byConverterMap = new Map<string, { converter: string; count: number }>();
 
     for (const s of snapshots) {
-      const ok = ownerKey(s);
+      // 归属人重定向：配置有唯一关联用户时按**账号所有人**算，而不是配置的归属人。
+      // 覆盖「管理员代建的配置」（如 Michael Get Note 由孙旭峰创建）——
+      // 别名写法（孙旭峰 / 孙旭峰｜Richard）已由 ownerKey 归并，这里解决的是「归错人」而不是「归错写法」。
+      const redirect = s.sourceId ? ownerRedirectByConfig.get(s.sourceId) : undefined;
+      const ok = redirect ? redirect.id : ownerKey(s);
       const o = byOwnerMap.get(ok) ?? { owner: ownerLabel(ok), newNotes: 0 };
       o.newNotes += 1;
       byOwnerMap.set(ok, o);

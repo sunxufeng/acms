@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { WEILING_STATUS_LABELS } from '@acms/contracts';
 import type { CrudColumn } from '../../components/CrudPage';
 import { STUDENT_ENGLISH_KEY, STUDENT_REF_KEY, studentHref, studentLabel } from '../../components/CrudPage';
+// 「学生姓名」来自上游自定义字段（整包 JSON），解析逻辑与招生跟进共用一份
+import { studentNameOfContact } from '../../lib/weilingCustomFields';
 
 /**
  * 时间字段 → 毫秒。
@@ -76,6 +78,20 @@ export const COLUMNS: CrudColumn[] = [
   // 筛选区不再放「联系人」（自由文本逐字筛命中率低、把筛选区撑长）；
   // 列本身保留，点姓名进详情页；要按姓名搜用顶部搜索框（q → 后端 searchFields）。
   { key: '联系人姓名', label: '联系人', width: '180px', openRecord: true },
+  {
+    // 「学生姓名」不是一个真实列，而是**上游自定义字段 `xsxm`**（95 个自定义字段整包存在
+    // 「自定义字段」列里，值是 JSON 文本）。所以 render 从 row['自定义字段'] 取。
+    // ⚠️ 为什么不在后端拆成独立字段：上游字段是**按线索表单动态增删**的，
+    //    拆列等于把上游 schema 变化变成我们的迁移负担；报表下钻已有 `dim/dimval` 机制按需取。
+    key: '学生姓名',
+    label: '学生姓名',
+    width: '110px',
+    render: (_v, row) => {
+      const name = studentNameOfContact(row);
+      if (!name) return <span style={{ color: 'var(--fg-tertiary)' }} title="该联系人的报名表没有填「学生姓名」">—</span>;
+      return <span style={{ fontWeight: 600 }}>{name}</span>;
+    },
+  },
   { key: '手机号', label: '手机号', width: '140px' },
   { key: '归属人', label: '归属人', width: '160px', filter: true },
   // label 用简称「阶段」而 key 仍是数据字段名「客户阶段」——

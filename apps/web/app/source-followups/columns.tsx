@@ -32,8 +32,32 @@ export const COLUMNS: CrudColumn[] = [
     },
   },
   {
+    // 「学生姓名」不是一个本表的业务字段，而是**联系人报名表里填的子女姓名**
+    // （卫瓴自定义字段 `xsxm`，整包存在联系人的「自定义字段」列里）。
+    //
+    // 三条设计决定：
+    //  ① 选了联系人**自动带出**：走 `onChangePatch` 的第三参 ctx（列定义拿不到联系人数据集，
+    //     那份数据在 CrudPage 内部懒加载 + 全站缓存）。
+    //  ② 带出后**存进本表**（key = `学生姓名`）：列表、导出、筛选都能直接用，
+    //     不必每次回查联系人；也避免「联系人后来改了报名表，历史跟进记录跟着变」。
+    //  ③ 联系人**没填** xsxm 时**不覆盖**已有值（返回空 patch）——
+    //     否则会把用户手填的学生姓名清掉；代价是换联系人后旧值会留着，需人工确认。
+    key: '学生姓名',
+    label: '学生姓名',
+    width: '110px',
+    form: true,
+    listOrder: 2,
+    onChangePatch: (v, _form, ctx) => {
+      const name = ctx.contactStudentName(String(v ?? ''));
+      return name ? { 学生姓名: name } : {};
+    },
+  },
+  {
     key: '关联学生',
-    label: '学生',
+    // 2026-09-21 峰哥要求：label 由「学生」改为「关联学生」——
+    // 它存的是**学生档案里的正式姓名**（`studentMatch.by: 'name'` 的判据），
+    // 与上面那个「从报名表带出来的学生姓名」是两件事，措辞必须区分开。
+    label: '关联学生',
     width: '180px',
     form: true,
     type: 'student',
@@ -45,16 +69,16 @@ export const COLUMNS: CrudColumn[] = [
       return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{studentLabel(name, row[STUDENT_ENGLISH_KEY])}</span>;
     },
   },
-  { key: '跟进时间', label: '跟进时间', width: '150px', form: true, type: 'datetime', listOrder: 3 },
-  { key: '跟进状态', label: '跟进状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '跟进状态', listOrder: 4 },
-  { key: '活动类型', label: '活动类型', width: '110px', filter: true, form: true, type: 'select', dictKey: '活动类型', listOrder: 5 },
+  { key: '跟进时间', label: '跟进时间', width: '150px', form: true, type: 'datetime', listOrder: 4 },
+  { key: '跟进状态', label: '跟进状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '跟进状态', listOrder: 5 },
+  { key: '活动类型', label: '活动类型', width: '110px', filter: true, form: true, type: 'select', dictKey: '活动类型', listOrder: 6 },
   // ⚠️ 2026-09-19 峰哥要求：负责人要能在**新建/修改表单里看到并修改** ——
   //    原先只配了 listOrder（列表可见）而没开 form，表单里根本找不到这个字段。
   // ⚠️ 2026-09-21：改成 **person 下拉**（候选 = 系统用户姓名）。
   //    为什么不让手填：这个字段是「学生全景」等处的归属判据（`owner: '跟进负责人'`），
   //    手填错一个字就会**静默**归错人。下拉同时保证「新建默认登录用户」这个默认值
   //    一定是个合法姓名。
-  { key: '跟进负责人', label: '负责人', width: '110px', form: true, type: 'person', listOrder: 6 },
+  { key: '跟进负责人', label: '负责人', width: '110px', form: true, type: 'person', listOrder: 7 },
   { key: '付款状态', label: '付款状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '付款状态', list: false },
   // ── 参考家校沟通编辑页面新增的字段 ──
   // ⚠️ 非必填（2026-09-14 用户反馈）：招生阶段常常还没确认学生，「家长」跟着「关联学生」
@@ -63,7 +87,7 @@ export const COLUMNS: CrudColumn[] = [
   { key: '家长', label: '家长', width: '110px', list: false, form: true, type: 'parent', dependsOn: '关联学生', required: false },
   { key: '家长反馈态度', label: '家长反馈态度', width: '130px', list: false, filter: true, form: true, type: 'select', dictKey: '家长反馈态度' },
   // openRecord：首列已让给联系人（跳联系人详情），这里点击主题进入本条跟进的只读详情页
-  { key: '沟通主题', label: '沟通主题', width: '120px', form: true, listOrder: 2, openRecord: true },
+  { key: '沟通主题', label: '沟通主题', width: '120px', form: true, listOrder: 3, openRecord: true },
   { key: '沟通总结', label: '沟通总结（报告）', list: false, form: true, type: 'markdown' },
   { key: '沟通明细', label: '沟通明细（MD 对话记录）', list: false, form: true, type: 'markdown',
     // 原始记录属正式留痕，用专项权限控制：无 md:edit 只能浏览，无 md:import 不显示导入按钮

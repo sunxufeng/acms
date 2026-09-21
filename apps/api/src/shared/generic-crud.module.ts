@@ -171,6 +171,19 @@ export interface RecordMeta {
   /** 关联字段（type=18/21/22）：需跨表解析为可读名。field=本表字段名，table=目标表 tableId，nameField=目标表用于展示的字段名 */
   linkFields?: { field: string; table: string; nameField: string }[];
   /**
+   * 保存时**按姓名反查并回填关联字段**（2026-09-21 加）。
+   *
+   * 为什么需要：`关联学生编号` 这类关联字段被登记在 `readonly` 里（写入侧硬过滤），
+   * 而前端表单也不会提交它 ⇒ 新建的记录**永远没有关联 id**。后果不只是「列表里学生名
+   * 没有链接」：家长/学生门户是按 `关联学生编号` 过滤记录的（`portal-queries.ts`），
+   * 这些记录在门户里**根本看不到**（生产实测：17 条学生记录只有 2 条有该字段）。
+   *
+   * 生效时机：`writeFields` **之后**（与 `defaults` 同理）—— 要写的目标字段可能正是
+   * readonly 的系统字段，早于 writeFields 会被过滤掉。
+   * 反查失败（姓名查不到、目标表读不到）**不阻断保存**，只是这次不带关联 id。
+   */
+  linkBackfill?: { from: string; to: string; table: string; nameField: string }[];
+  /**
    * 凭证字段（如开放平台的 App Secret）：
    *  - 写入时 AES 加密落库
    *  - 读取时一律回显掩码 `******`，前端原样回传表示「不修改」
@@ -1081,9 +1094,64 @@ export class BaseRecordService {
     for (const [k, v] of Object.entries(defs)) {
       if (!(k in fields)) fields[k] = v;
     }
+    await this.applyLinkBackfill(fields);
     const recordId = await this.base.create(this.tableId, fields);
     this.emitAudit(user, '创建', recordId, Object.keys(fields).join(','));
     return this.detail(user, recordId);
+  }
+
+  /**
+   * 按「姓名」反查目标表 record id 并写进关联字段（见 `RecordMeta.linkBackfill`）。
+   *
+   * 走 `this.base`（与列表同一数据源）而不是直连 PG：SQL/飞书两条链路都要能跑。
+   * 姓名 → id 的映射带 5 分钟缓存：学生档案是配置型数据，保存一次记录不该全量拉一遍表。
+   */
+  private async applyLinkBackfill(fields: Record<string, unknown>): Promise<void> {
+    const rules = this.meta.linkBackfill ?? [];
+    if (!rules.length) return;
+    for (const r of rules) {
+      // 本次**没提交**这个字段 ⇒ 一律不动关联（编辑别的字段时不该重算/清掉它）
+      if (!(r.from in fields)) continue;
+      const name = String(fields[r.from] ?? '').trim();
+      // 显式清空姓名 ⇒ 关联也清掉，否则会留下指向旧学生的「僵尸关联」
+      // （门户按关联 id 过滤 ⇒ 记录会挂在已经改掉的学生名下）
+      if (!name) {
+        fields[r.to] = [];
+        continue;
+      }
+      try {
+        const id = await this.nameToId(r.table, r.nameField, name);
+        if (id) fields[r.to] = [id];
+      } catch (e) {
+        // 反查失败只记日志：关联不上不该让用户保存不了记录
+        console.warn(`[link-backfill] ${this.meta.path} 反查 ${r.table}.${r.nameField} 失败：${(e as Error).message.slice(0, 120)}`);
+      }
+    }
+  }
+
+  /** 目标表「姓名 → record id」（5 分钟缓存；同名取第一条） */
+  private async nameToId(tableId: string, nameField: string, name: string): Promise<string> {
+    const hit = nameIdCache.get(tableId);
+    let map: Map<string, string>;
+    if (hit && Date.now() - hit.at < NAME_ID_TTL_MS) {
+      map = hit.map;
+    } else {
+      map = new Map<string, string>();
+      let token: string | undefined;
+      for (let i = 0; i < 20; i += 1) {
+        const page = await this.base.search(tableId, { pageSize: 500, ...(token ? { pageToken: token } : {}) });
+        for (const it of page.items ?? []) {
+          const f = (((it as { fields?: Record<string, unknown> }).fields ?? it) ?? {}) as Record<string, unknown>;
+          const recId = String((it as { recordId?: string }).recordId ?? '');
+          const nm = String(f[nameField] ?? '').trim();
+          if (recId && nm && !map.has(nm)) map.set(nm, recId);
+        }
+        if (!page.hasMore || !page.pageToken) break;
+        token = page.pageToken;
+      }
+      nameIdCache.set(tableId, { at: Date.now(), map });
+    }
+    return map.get(name.trim()) ?? '';
   }
 
   async update(user: SessionUser, id: string, dto: Record<string, unknown>) {
@@ -1100,6 +1168,7 @@ export class BaseRecordService {
     const fields = this.writeFields(stripped);
     this.validateTimeRange({ ...current, ...fields });
     if (Object.keys(fields).length === 0) throw new BadRequestException('VALIDATION:无可更新字段');
+    await this.applyLinkBackfill(fields);
     await this.base.update(this.tableId, id, fields);
     this.emitAudit(user, '更新', id, Object.keys(fields).join(','));
     return this.detail(user, id);
@@ -1229,6 +1298,16 @@ function makeController(meta: RecordMeta, SvcClass: Type<BaseRecordService>) {
   }
   return GController;
 }
+
+/**
+ * 「姓名 → record id」映射缓存（键 = 目标表 tableId）。
+ *
+ * 供 `linkBackfill` 用：学生档案只有几十条且变动极少，而保存业务记录是高频操作，
+ * 每次全量拉一遍太浪费。5 分钟足够 —— 新加的学生最迟 5 分钟后能被关联上，
+ * 期间关联不上只是这条记录暂时没有关联 id（不影响保存）。
+ */
+const nameIdCache = new Map<string, { at: number; map: Map<string, string> }>();
+const NAME_ID_TTL_MS = 5 * 60 * 1000;
 
 @Module({})
 export class GenericCrudModule {

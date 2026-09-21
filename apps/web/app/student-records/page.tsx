@@ -183,6 +183,12 @@ export default function StudentRecordsPage() {
         search={{ placeholder: '搜索学生…' }}
         columns={columns}
         extraParams={extraParams}
+        // 学生列要能点进学生档案：绝大多数记录的「关联学生编号」（关联字段）是空的
+        // （生产 17 条里只有 2 条有值，且该字段在 meta.readonly 里、写入侧会被过滤掉），
+        // 只靠 `__link` 会导致大部分学生名没有链接。
+        // 声明 studentNameKeys 后 CrudPage 会按**姓名**反查学生档案 id 注入 `__studentRefId`，
+        // 列表渲染优先用它 —— 存量记录不必回填也能点。
+        studentNameKeys={['关联学生']}
         createDefaults={createDefaults}
         enrichPrefill={parseStudentRecordFromSummary}
         statusField="闭环状态"

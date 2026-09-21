@@ -7,6 +7,20 @@
 >
 > 由 AI 助手在每次工作后同步；`[x]` = 已完成，`[ ]` = 待处理。
 
+## 2026-09-21 下午（4）（2 条，完成 2）
+
+- [x] 修「**已被关联到知识库配置，却仍被要求自己配凭证**」（赵光宇｜Michael 报障）：
+  根因是**两套判据不一致** —— 列表认 `sourceVisibleTo`（关联用户含我 **或** 归属人是我），
+  而凭证状态与 `credFor` 只认「归属人是我」。`Michael Get Note` 的归属人是孙旭峰、
+  只把 Michael 列在关联用户里 ⇒ 列表本来读得到、却在凭证检查被拦。
+  新增 `myVisibleSourceCreds()`（与列表同源）替换旧判据；`credentialStatus` 回传
+  `viaSource`，页面显示「当前通过知识库配置「X」接入」；非管理员 `detail()` 改用
+  **该笔记所属可见配置**的凭证（多份时按笔记配置映射挑，不打上游）
+- [x] 线上 **11 项探针全绿**：Michael `configured=true` + `viaSource` 正确 + 读到 9 条笔记 +
+  能打开详情 · **负面对照**（既无个人凭证也没被关联的用户）仍 `configured=false` 且列表 412
+  （证明没静默放开）· 管理员回归正常 · 探针 0 残留 · 312 项测试全绿 ·
+  BUILD_ID `dAmVjmkzQj6sD5NCNRfjl`（槽 3002/3102）
+
 ## 2026-09-21 下午（3）（4 条，完成 4）
 
 - [x] 峰哥确认后**把「负责人」口径收口到一处**：`packages/contracts/src/followup-owner.ts`

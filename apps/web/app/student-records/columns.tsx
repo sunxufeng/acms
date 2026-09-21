@@ -38,9 +38,27 @@ interface TypeWords {
   note: string;
 }
 
+/**
+ * 沟通类记录的词表（日常跟进 / IDP沟通 / 家校沟通 三者完全相同）。
+ *
+ * 抽成一个常量而不是抄三遍：IDP沟通 的要求就是「与日常跟进完全相同」，
+ * 共享同一份对象才能保证「改了日常跟进的措辞，IDP沟通 跟着变」——
+ * 抄三份的话，下次只改一处就会出现同义词不一致（不报错，但看起来像两个东西）。
+ */
+const COMM_WORDS: TypeWords = {
+  person: '沟通人',
+  theme: '沟通主题',
+  time: '沟通时间',
+  summary: '沟通总结（报告）',
+  detail: '沟通明细（MD 对话记录）',
+  note: '沟通人备注',
+};
+
 const WORDS: Record<string, TypeWords> = {
-  日常跟进: { person: '沟通人', theme: '沟通主题', time: '沟通时间', summary: '沟通总结（报告）', detail: '沟通明细（MD 对话记录）', note: '沟通人备注' },
-  家校沟通: { person: '沟通人', theme: '沟通主题', time: '沟通时间', summary: '沟通总结（报告）', detail: '沟通明细（MD 对话记录）', note: '沟通人备注' },
+  日常跟进: COMM_WORDS,
+  // IDP沟通（2026-09-21 新增）：与日常跟进完全相同
+  IDP沟通: COMM_WORDS,
+  家校沟通: COMM_WORDS,
   学生观察: { person: '观察人', theme: '主题', time: '观察时间', summary: '观察总结（MD）', detail: '观察明细（MD）', note: '观察人备注' },
 };
 

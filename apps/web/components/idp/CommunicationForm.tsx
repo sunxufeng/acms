@@ -1,5 +1,17 @@
 'use client';
 
+/**
+ * ⚠️ 2026-09-21 起**本组件不再被任何页面挂载** —— IDP 沟通已并入「学生记录」
+ * （记录类型 = IDP沟通，内容与日常跟进完全相同）。
+ *
+ * 保留而不删除的理由：万一要把它挪回 IDP 方案下（例如"只有方案内的正式沟通才需要
+ * 按方案归档"），改回来的成本是"把页面里那两行恢复 + 挂回入口"，而不是重写表单。
+ * 但**别在别处引用它**：那会重新造出"两处都能记同一件事"的分裂。
+ *
+ * 相关：`app/idp-plans/page.tsx` 顶部注释（收起原因与恢复方式）、
+ *      旧路由 `app/idp-plans/[id]/communications/**`（已改为重定向到学生记录）。
+ */
+
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';

@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
-import { STUDENT_RECORD_TYPE_FIELD, STUDENT_RECORD_TYPES } from '@acms/contracts';
+import { STUDENT_RECORD_TYPE_FIELD, STUDENT_RECORD_TYPES, STUDENT_RECORD_TYPE_VALUES } from '@acms/contracts';
 import { buildStudentRecordColumns, parseStudentRecordFromSummary, studentName } from './columns';
 import { audioAttachmentsOf, attachmentAudioSrc, useRowAudio } from '../../lib/rowAudio';
 
@@ -19,6 +19,7 @@ function str(v: unknown): string {
 
 /**
  * 学生记录（2026-09-18）：日常跟进 / 家校沟通 / 学生观察 三合一后的唯一入口。
+ * 2026-09-21 起「记录类型」新增一项「IDP沟通」（内容与日常跟进完全相同）。
  *
  * 为什么用「顶部类型 Tab」而不是 CrudPage 自带的列筛选：
  *   ① 表头措辞要随类型切换（沟通人 ↔ 观察人），而 columns 是按类型重新生成的，
@@ -28,6 +29,16 @@ function str(v: unknown): string {
  * ⚠️ `extraParams` 必须用 useMemo 稳定住：CrudPage 把它放进了拉数据的依赖里，
  *    每次 render 新建一个对象字面量会导致**渲染死循环**（页面持续闪烁 + 每圈打一次接口）。
  */
+/**
+ * 类型清单文案 —— **从类型定义生成**，不手写。
+ *
+ * 🔴 手写过一次就踩了：页面副标题与 AI 提示语里都写死了「日常跟进 / 家校沟通 / 学生观察」，
+ *    这次加「IDP沟通」时就得记得改两处文案（漏了不报错，只是页面写着三类、Tab 上有四类）。
+ *    现在两处都读这个常量 ⇒ 以后再加类型只需改类型定义。
+ */
+const TYPE_LIST_TEXT = STUDENT_RECORD_TYPE_VALUES.join(' / ');
+const TYPE_COUNT = STUDENT_RECORD_TYPE_VALUES.length;
+
 /**
  * 沟通类记录的录音存在**附件字段**里（「我的笔记」转出时把音频 token 直接写进这个字段）。
  * 一条记录可能挂多个音频 —— 操作列的按钮播第 1 个，全部音频可在详情页逐个播放。
@@ -112,7 +123,7 @@ export default function StudentRecordsPage() {
     }
     const lines: string[] = [];
     lines.push(
-      '你是 ACMS 学生记录智能分析助手。用户从学生记录列表（含日常跟进 / 家校沟通 / 学生观察三类）勾选了若干条记录，' +
+      `你是 ACMS 学生记录智能分析助手。用户从学生记录列表（含 ${TYPE_LIST_TEXT} 共 ${TYPE_COUNT} 类）勾选了若干条记录，` +
         '请基于以下聚合信息回答关于学生日常表现、家校反馈、待办闭环、风险与下一步建议等问题。若信息不足请明确说明。',
     );
     lines.push('');
@@ -168,7 +179,7 @@ export default function StudentRecordsPage() {
       <CrudPage
         moduleKey="studentRecords"
         title="学生记录"
-        subtitle="日常跟进 / 家校沟通 / 学生观察（按「记录类型」区分）"
+        subtitle={`${TYPE_LIST_TEXT}（按「记录类型」区分）`}
         search={{ placeholder: '搜索学生…' }}
         columns={columns}
         extraParams={extraParams}
@@ -190,7 +201,7 @@ export default function StudentRecordsPage() {
         }}
       />
 
-      {/* 右侧悬浮「AI」：按勾选的一条或多条记录做分析（三类记录可混选） */}
+      {/* 右侧悬浮「AI」：按勾选的一条或多条记录做分析（各类型记录可混选） */}
       <FloatingAIPanel
         context={context}
         resetKey={resetKey}

@@ -94,6 +94,11 @@ const ENTITY_TAG: Record<string, string> = {
   家校沟通: 'homeSchoolComm',
   招生跟进: 'sourceFollowup',
   日常跟进: 'dailyFollowup',
+  // IDP沟通（2026-09-21 新增的学生记录类型）—— 它是**独立的一个实体类型**（不是「日常跟进」），
+  // 因为详情页传的 entityType 就是记录自身的类型值，笔记绑定按「实体类型 + 记录 id」存。
+  // 有这条映射，打在笔记上的标签才是 `acms:idpComm:recXXX` 这种可读形式；
+  // 缺了它也不会报错（`linkTag` 会退化成 `acms:IDP沟通:recXXX`），但外部看标签会比较别扭。
+  IDP沟通: 'idpComm',
   IDP计划: 'idp',
   学业成绩: 'grade',
   学生考勤: 'attendance',

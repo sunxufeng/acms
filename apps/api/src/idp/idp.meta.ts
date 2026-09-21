@@ -26,6 +26,20 @@ export const IDP_PLAN_META: RecordMeta = {
   sortField: '制定日期',
 };
 
+/**
+ * ⚠️ 2026-09-21：**界面入口已收起** —— IDP 沟通并入「学生记录」
+ * （记录类型 = IDP沟通，内容与日常跟进完全相同）。
+ *
+ * 收起的只是**入口**，这张表与这个 meta 都保留：
+ *   · 表当时 **0 行** ⇒ 收起入口没有丢数据；
+ *   · 保留接口的代价是「理论上仍可调 API 写入」，但界面上已无任何入口
+ *     （IDP管理页的行级按钮、方案详情页内嵌列表、`/idp-plans/[id]/communications/**`
+ *     三个路由都已改掉或改为重定向），实际不会有人用到；
+ *   · 将来若要挪回方案下（按方案归档），恢复成本是"把前端入口与页面改回来"，
+ *     不需要动这里的注册。
+ *
+ * 🔴 别在别处新增引用：那会重新造出「同一件事两处都能记、而学生全景 / 搜索 / AI 各读一处」。
+ */
 export const IDP_COMM_META: RecordMeta = {
   path: 'idp-communications',
   tableId: TABLES.idpCommunication.tableId,

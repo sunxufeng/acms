@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '../../../lib/api';
 import BalanceWheel, { type WheelDim } from '../../../components/idp/BalanceWheel';
-import CommunicationManager from '../../../components/idp/CommunicationManager';
+// 不再引入 CommunicationManager（2026-09-21：IDP 沟通并入「学生记录」，见文件下方注释）
 import { useTl } from '../../../lib/useTl';
 import { NotePanel } from '../../../components/NotePanel';
 import { useTranslations } from 'next-intl';
@@ -165,9 +165,12 @@ export default function IdpPlanDetailPage() {
         )}
       </section>
 
-      <section id="communications" style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', borderRadius: 12, padding: 18 }}>
-        <CommunicationManager planId={params.id} />
-      </section>
+      {/*
+        2026-09-21：**移除了内嵌的沟通记录列表**（原 `<CommunicationManager planId={params.id} />`）。
+        IDP 沟通已并入「学生记录」（记录类型 = IDP沟通），这里不再是入口 ——
+        它是原来两个入口之一（另一个是 IDP管理页行级的两个按钮），留着就还是"两处能记"。
+        要恢复：见 `app/idp-plans/page.tsx` 顶部注释（组件仍在 components/idp/ 下，未被删除）。
+      */}
 
       {/* ── 关联笔记（得到大脑） ─────────── */}
       <NotePanel entityType="IDP计划" entityId={String(params.id)} entityName={str(plan['关联学生'])} />

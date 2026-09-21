@@ -9,7 +9,16 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { loadRolePermissionConfig } from '@acms/domain';
-import { modulePermission, type SessionUser } from '@acms/contracts';
+import {
+  MODULE_RESOURCES,
+  STUDENT_RECORD_TYPES,
+  STUDENT_RECORD_TYPE_TO_MODULE,
+  STUDENT_RECORD_TYPE_VALUES,
+  moduleKeyOfRecordType,
+  modulePermission,
+  type SessionUser,
+} from '@acms/contracts';
+import { DICTIONARIES_RAW } from '../src/dictionary/dict.data.js';
 import {
   buildTypeScopeFilter,
   matchFilter,
@@ -183,5 +192,62 @@ describe('isempty / isnotempty 算子（顺序写反会变成「谁都能看」�
     expect(matchFilter({ [FIELD]: '日常跟进' }, { field: FIELD, op: 'is', value: ['日常跟进'] })).toBe(true);
     expect(matchFilter({ [FIELD]: '家校沟通' }, { field: FIELD, op: 'is', value: ['日常跟进'] })).toBe(false);
     expect(matchFilter({ [FIELD]: '家校沟通' }, { field: FIELD, op: 'contains', value: ['家校'] })).toBe(true);
+  });
+});
+
+/**
+ * 真实类型定义 ↔ 字典取值 ↔ 权限点（2026-09-21 新增「IDP沟通」时补上）。
+ *
+ * 上面几组测的是**机制**（自建了一份 TYPE_SCOPE），这一组测**真实数据**：
+ * 类型定义（contracts）与字典取值是**两份手抄同步**的东西，谁漏改一边都不会报错，
+ * 只会表现为「Tab 里有、下拉里没有」这种静默不一致。这里把它变成会变红的断言。
+ */
+describe('真实类型定义（contracts）与字典 / 权限点的三方一致', () => {
+  it('字典「记录类型」与类型定义**逐项且同序**一致', () => {
+    // 顺序也要一致：顶部 Tab 与下拉的展示顺序都取自这两份
+    expect(DICTIONARIES_RAW['记录类型'] ?? []).toEqual([...STUDENT_RECORD_TYPE_VALUES]);
+  });
+
+  it('类型取值不重复（重复会让下拉出现两个同样的选项、权限映射互相覆盖）', () => {
+    expect(new Set(STUDENT_RECORD_TYPE_VALUES).size).toBe(STUDENT_RECORD_TYPE_VALUES.length);
+  });
+
+  it('🔴 每个类型的 moduleKey 都是**真实存在的模块**（否则该类型谁都看不见）', () => {
+    for (const t of STUDENT_RECORD_TYPES) {
+      const found = MODULE_RESOURCES.some((m) => m.key === t.moduleKey);
+      // 失败信息里带上类型与 key，便于直接定位是哪一条
+      expect(found, `类型「${t.value}」的 moduleKey「${t.moduleKey}」不在 MODULE_RESOURCES 里`).toBe(true);
+    }
+  });
+
+  it('IDP沟通 复用「日常跟进」的权限点（回归：改成新模块会让上线后没人看得见）', () => {
+    expect(moduleKeyOfRecordType('IDP沟通')).toBe('dailyFollowups');
+  });
+
+  it('未知类型返回 undefined（写入校验据此报「未知的记录类型」，不会造出谁都看不见的脏记录）', () => {
+    expect(moduleKeyOfRecordType('并不存在的类型')).toBeUndefined();
+    expect(moduleKeyOfRecordType('')).toBeUndefined();
+  });
+
+  it('🔴 持有「日常跟进」读权限 ⇒ 同时拿到「日常跟进」与「IDP沟通」两个类型', () => {
+    // 这条是「复用 moduleKey」的技术依据：typeAllowedValues 遍历「类型 → moduleKey」再判权限，
+    // 所以多个类型指向同一个模块时会被一起放行。
+    const scope: NonNullable<RecordMeta['typeScope']> = {
+      field: FIELD,
+      typeModules: STUDENT_RECORD_TYPE_TO_MODULE,
+      defaultType: '日常跟进',
+    };
+    loadRolePermissionConfig([
+      { key: '有日常', permissions: [READ('dailyFollowups')] as never, maxDataLevel: 'L4' as const },
+      { key: '只观察', permissions: [READ('studentObservations')] as never, maxDataLevel: 'L4' as const },
+    ]);
+
+    const dailyUser = typeAllowedValues({ typeScope: scope }, user(['有日常']), 'read');
+    expect(dailyUser).toEqual(['日常跟进', 'IDP沟通']);
+
+    // 反向：只持学生观察权限的人，拿不到 IDP沟通（新类型没有把权限放大）
+    const obsUser = typeAllowedValues({ typeScope: scope }, user(['只观察']), 'read');
+    expect(obsUser).toEqual(['学生观察']);
+    expect(obsUser ?? []).not.toContain('IDP沟通');
   });
 });

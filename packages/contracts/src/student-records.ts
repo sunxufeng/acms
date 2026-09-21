@@ -36,7 +36,9 @@ export interface StudentRecordTypeDef {
 }
 
 /**
- * 三类记录的定义。顺序即「记录类型」下拉的展示顺序（日常跟进在最前，与主表原义一致）。
+ * 记录类型的定义。**顺序即「记录类型」下拉与顶部 Tab 的展示顺序**。
+ *
+ * 当前 4 个类型：日常跟进 · IDP沟通 · 家校沟通 · 学生观察（IDP沟通 于 2026-09-21 新增）。
  *
  * `ownFields` 只列**该类型独有**的字段 —— 公共字段（沟通人/沟通主题/沟通时间/沟通总结/
  * 沟通明细/沟通人备注/待办事项/责任人/跟进截止日期/闭环状态/闭环日期/信息敏感级别/
@@ -47,6 +49,30 @@ export const STUDENT_RECORD_TYPES: readonly StudentRecordTypeDef[] = [
     value: '日常跟进',
     moduleKey: 'dailyFollowups',
     legacyPath: '/daily-followups',
+    ownFields: [],
+  },
+  {
+    /**
+     * IDP沟通（2026-09-21 新增）。峰哥要的：「内容与日常跟进完全相同」。
+     *
+     * 🔴 `moduleKey` **故意复用 `dailyFollowups`**（不新造 `idpComms` 权限点）：
+     *    内容与敏感度都与日常跟进一致 ⇒ 没必要多造一个权限点。新造权限点的代价是
+     *    **上线后除管理员外没有任何角色持有它** ⇒ 所有人都看不到这个类型（功能等于不可用），
+     *    而且还要额外做：加权限行 + 用 `subOf` 挂到菜单下（不挂的话权限矩阵里**没有这一行可勾**）
+     *    + `ROLE_PERMISSION_VERSION + 1` 迁移。
+     *    技术依据：`typeAllowedValues()` 是「遍历 `typeModules` 的
+     *    `[value, key]` 再判该 key 的权限」⇒ **多个类型值共用同一个 moduleKey 是被支持的**，
+     *    持有日常跟进权限的人会同时拿到这两个类型。
+     *    将来若真要单独授权（如「IDP 导师能看 IDP沟通、但看不到日常跟进」），再单独加权限点也不迟。
+     *
+     * `ownFields: []` —— 与日常跟进完全相同，不加专属字段。
+     * ⚠️ 注意 `ownFields` 目前**没有任何消费点**（字段显隐由前端 `columns.tsx` 的 `showIf` 决定），
+     *    所以这里留空是对的；若哪天 IDP沟通 要加专属字段，改的是前端 `showIf`，不是这里。
+     */
+    value: 'IDP沟通',
+    moduleKey: 'dailyFollowups',
+    // 没有独立旧页面（新类型），置空；`legacyPath` 目前也没有消费点（保留 301 重定向用的是各页硬编码的 redirect）
+    legacyPath: '',
     ownFields: [],
   },
   {
@@ -67,6 +93,16 @@ export const STUDENT_RECORD_TYPES: readonly StudentRecordTypeDef[] = [
 export const STUDENT_RECORD_TYPE_TO_MODULE: Record<string, string> = Object.fromEntries(
   STUDENT_RECORD_TYPES.map((t) => [t.value, t.moduleKey]),
 );
+
+/**
+ * 类型取值数组（顺序同 `STUDENT_RECORD_TYPES`）。
+ *
+ * 用途有两个，都是为了避免「手抄第二份」：
+ *  - 前端文案（页面副标题、AI 上下文提示语）由它生成 ⇒ 以后再加类型不必改文案；
+ *  - 单测断言它与**字典取值**逐项相等（那两份是手抄同步的，漏改一处就会出现
+ *    「Tab 里有、下拉里没有」这类静默不一致）。
+ */
+export const STUDENT_RECORD_TYPE_VALUES: readonly string[] = STUDENT_RECORD_TYPES.map((t) => t.value);
 
 /** 三个类型的模块 key（供白名单/遍历用） */
 export const STUDENT_RECORD_MODULE_KEYS: readonly string[] = STUDENT_RECORD_TYPES.map((t) => t.moduleKey);

@@ -1,5 +1,6 @@
 import type { CrudColumn } from '../../components/CrudPage';
 import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
+import { defaultFollowupOwner } from '@acms/contracts';
 
 const 跟进方式_OPTS = ['电话', '微信', '邮件', '活动', '问卷', '其他'];
 const 校友阶段_OPTS = ['毕业当年', '升学阶段', '就业阶段', '长期校友'];
@@ -13,7 +14,9 @@ export const COLUMNS: CrudColumn[] = [
   { key: '跟进备注', label: '跟进备注', form: true, type: 'textarea', list: false },
   { key: '跟进方式', label: '跟进方式', width: '100px', filter: true, filterOptions: 跟进方式_OPTS, form: true, type: 'select', options: 跟进方式_OPTS, listOrder: 5 },
   { key: '校友阶段', label: '校友阶段', width: '110px', filter: true, filterOptions: 校友阶段_OPTS, form: true, type: 'select', options: 校友阶段_OPTS, list: false },
-  { key: '跟进负责人', label: '跟进人', width: '110px', listOrder: 4 },
+  // 2026-09-21：加进表单 + 开 person 下拉（原先只在列表里显示，且 meta.readonly 会吞掉写入
+  // ⇒ 笔记转换预填「跟进人」等于没写进去）。默认值口径见文件末尾的 parseAlumniFromSummary。
+  { key: '跟进负责人', label: '跟进人', width: '110px', form: true, type: 'person', listOrder: 4 },
   { key: '当前去向类型', label: '当前去向', width: '100px', filter: true, filterOptions: 当前去向类型_OPTS, form: true, type: 'select', options: 当前去向类型_OPTS, list: false },
   { key: '当前学校或单位', label: '学校/单位', width: '130px', form: true, type: 'text', list: false },
   { key: '专业或岗位', label: '专业/岗位', width: '120px', form: true, type: 'text', list: false },
@@ -38,7 +41,8 @@ export function parseAlumniFromSummary(
   values: Record<string, unknown>,
   ctx?: { userName?: string; noteOwner?: string },
 ): Record<string, unknown> {
-  // 「跟进负责人」默认取**源笔记归属人**（笔记是谁的，跟进人就该是谁），拿不到才回退登录用户
-  // —— 管理员或同事代转别人的笔记时，用登录用户会把负责人写成自己
-  return enrichFromNotes(values, SPEC, { 跟进负责人: ctx?.noteOwner || ctx?.userName || '' });
+  // 「跟进负责人」口径（2026-09-21 峰哥确认）：**代转别人的笔记 ⇒ 记笔记归属人；
+  // 其余（自己录的笔记 / 归属人取不到）⇒ 记当前登录用户**。
+  // 判据收敛在 `@acms/contracts` 的 `defaultFollowupOwner()`（招生跟进/实践活动共用同一份）。
+  return enrichFromNotes(values, SPEC, { 跟进负责人: defaultFollowupOwner(ctx ?? {}) });
 }

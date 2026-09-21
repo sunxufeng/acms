@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { CrudColumn } from '../../components/CrudPage';
 import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
+import { defaultFollowupOwner } from '@acms/contracts';
 import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
 
 // 列表列顺序（listOrder）：联系人 → 沟通主题 → 跟进时间 → 跟进状态 → 活动类型 → 负责人，
@@ -114,10 +115,9 @@ export function studentName(row: Record<string, unknown>): string {
  * 解析实现统一在 `lib/noteAutoFill.ts`（全站共用一套），这里只声明本模块的字段规则。
  * ⚠️ 只填当前为空的字段，笔记映射已写入或用户已改的值不覆盖。
  *
- * 「负责人」（2026-09-21 改，按峰哥明确要求）：**一律默认取当前登录用户** ——
- * 从我的笔记转过来时也不再用「笔记归属人」。原先（2026-09-19）优先用笔记归属人，
- * 是为了管理员代转别人笔记时不被写成自己；峰哥现在的口径是「谁建的记录就归谁」，
- * 故改为登录用户优先，笔记归属人仅作兜底（取不到登录用户信息时）。
+ * 「负责人」口径（2026-09-21 峰哥确认）：**代转别人的笔记时记笔记归属人，其余记当前登录用户**
+ * —— 判据收敛在 `@acms/contracts` 的 `defaultFollowupOwner()`，与校友跟进/实践活动共用一份，
+ * 各写一份必然漂移（同一动作在两个模块归到不同人）。
  */
 const SPEC: NoteAutoFillSpec = {
   sourceKeys: ['沟通总结', '沟通明细'],
@@ -139,7 +139,7 @@ const SPEC: NoteAutoFillSpec = {
  * 笔记转换预填：主题 / 时间 / 负责人 的默认值。
  *
  *  - **沟通主题 ← 笔记标题**、**跟进时间 ← 笔记创建时间**（2026-09-19 峰哥要求）
- *  - **负责人 ← 当前登录用户**（2026-09-21 峰哥要求；笔记归属人只在拿不到登录用户时兜底）
+ *  - **负责人 ← 代转记笔记归属人 / 否则当前登录用户**（`defaultFollowupOwner`）
  *
  * 主题 / 时间**先塞进 values 再走 `enrichFromNotes`**，而不是当 `defaults` 传 ——
  * `defaults` 是最低优先级（只在正文什么都没抽到时才填），而峰哥要的是「笔记标题就是主题」。
@@ -156,7 +156,7 @@ export function parseSourceFollowupFromSummary(
     const dt = msToLocalDateTime(ctx?.noteCreatedAt);
     if (dt) seeded['跟进时间'] = dt;
   }
-  return enrichFromNotes(seeded, SPEC, { 跟进负责人: ctx?.userName || ctx?.noteOwner || '' });
+  return enrichFromNotes(seeded, SPEC, { 跟进负责人: defaultFollowupOwner(ctx ?? {}) });
 }
 
 /**

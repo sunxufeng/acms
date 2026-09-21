@@ -1,4 +1,5 @@
 import type { CrudColumn } from '../../components/CrudPage';
+import { defaultFollowupOwner } from '@acms/contracts';
 import { enrichFromNotes, type NoteAutoFillSpec } from '../../lib/noteAutoFill';
 
 const 参与情况_OPTS = ['已参与', '未参与'];
@@ -17,7 +18,9 @@ export function buildPracticeColumns(t: (key: string) => string): CrudColumn[] {
     { key: '活动类型', label: t('colActivityType'), width: '110px', filter: true, filterOptions: 活动类型_OPTS, form: true, type: 'select', options: 活动类型_OPTS, listOrder: 2 },
     { key: '活动结束日期', label: t('colActivityEndDate'), width: '120px', form: true, type: 'date', list: false },
     { key: '活动地点', label: t('colActivityLocation'), width: '120px', form: true, type: 'text', list: false },
-    { key: '活动负责人', label: t('colActivityOwner'), width: '110px', list: false },
+    // 2026-09-21：加进表单 + 开 person 下拉（原先只在详情里显示；meta.readonly 还会吞掉写入
+    // ⇒ 笔记转换预填「活动负责人」等于没写进去）。默认值 = 当前登录用户。
+    { key: '活动负责人', label: t('colActivityOwner'), width: '110px', form: true, type: 'person', list: false },
     { key: '学生角色', label: t('colStudentRole'), width: '100px', form: true, type: 'text', list: false },
     { key: '服务或参与时长', label: t('colDuration'), width: '110px', form: true, type: 'number', listOrder: 7 },
     { key: '安全确认状态', label: t('colSafetyConfirm'), width: '110px', filter: true, filterOptions: 安全确认状态_OPTS, form: true, type: 'select', options: 安全确认状态_OPTS, list: false },
@@ -45,7 +48,8 @@ export function parsePracticeFromSummary(
   values: Record<string, unknown>,
   ctx?: { userName?: string; noteOwner?: string },
 ): Record<string, unknown> {
-  // 「活动负责人」默认取**源笔记归属人**（笔记是谁的，负责人就该是谁），拿不到才回退登录用户
+  // 「活动负责人」口径（2026-09-21 峰哥确认）：代转别人的笔记 ⇒ 记笔记归属人；其余 ⇒ 当前登录用户
+  // 判据与招生跟进/校友跟进共用 `defaultFollowupOwner()`（contracts）
   // —— 管理员或同事代转别人的笔记时，用登录用户会把负责人写成自己
-  return enrichFromNotes(values, SPEC, { 活动负责人: ctx?.noteOwner || ctx?.userName || '' });
+  return enrichFromNotes(values, SPEC, { 活动负责人: defaultFollowupOwner(ctx ?? {}) });
 }

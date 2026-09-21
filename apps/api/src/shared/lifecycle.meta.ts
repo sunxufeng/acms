@@ -190,7 +190,14 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     writePerm: PERM_W,
     numbers: ['服务或参与时长'],
     dateFields: ['活动开始日期', '活动结束日期'],
-    readonly: ['活动负责人', '活动证明', '关联授权'],
+    /**
+     * ⚠️ 「活动负责人」**已从 readonly 移出**（2026-09-21）：`readonly` 在写入侧是硬过滤
+     * （`buildWriteFields` 丢字段）—— 它一直只在详情里显示，笔记转换想把负责人写进去
+     * 其实从未生效（前端连表单都没渲染这个字段，值到不了提交）。
+     * 现在：表单可改 + 新建默认 = 当前登录用户（与招生跟进/校友跟进同一口径）。
+     */
+    readonly: ['活动证明', '关联授权'],
+    defaults: (_fields, user) => ({ 活动负责人: user?.name ?? '' }),
     linkFields: [
       { field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
       { field: '关联授权', table: TABLES.authorization.tableId, nameField: '授权事项' },
@@ -262,7 +269,9 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     readPerm: PERM_R,
     writePerm: PERM_W,
     dateFields: ['跟进时间', '下次跟进日期'],
-    readonly: ['跟进负责人', '校友参与意愿', '跟进附件'],
+    /** ⚠️ 「跟进负责人」已从 readonly 移出（2026-09-21），理由同招生跟进/实践活动 */
+    readonly: ['校友参与意愿', '跟进附件'],
+    defaults: (_fields, user) => ({ 跟进负责人: user?.name ?? '' }),
     linkFields: [{ field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' }],
     statusField: '跟进状态',
     defaultStatus: '待跟进',

@@ -1,12 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
 import { COLUMNS, contactName, parseSourceFollowupFromSummary } from './columns';
-import { currentUserName } from '../../lib/noteAutoFill';
+import { useCurrentUserName } from '../../lib/useCurrentUserName';
 // 操作列的录音播放（与学生记录共用同一套；逻辑见 lib/rowAudio）
 import { audioAttachmentsOf, attachmentAudioSrc, useRowAudio } from '../../lib/rowAudio';
 
@@ -33,14 +33,10 @@ export default function SourceFollowupsPage() {
    *
    * 服务端 meta 的 `defaults` 也会给同一个默认（接口直连/导入都覆盖到），
    * 这里再预填一次是为了**打开表单就能看见**，而不是保存后才出现。
-   * 从「我的笔记」转过来的那条路走的是 `enrichPrefill`（见 columns.tsx），口径一致。
+   * 从「我的笔记」转过来的那条路走的是 `enrichPrefill`（见 columns.tsx）：代转别人的
+   * 笔记时记笔记归属人，其余记登录用户 —— 口径统一在 contracts 的 `defaultFollowupOwner`。
    */
-  const [me, setMe] = useState('');
-  useEffect(() => {
-    currentUserName()
-      .then((n) => setMe(n || ''))
-      .catch(() => setMe(''));
-  }, []);
+  const me = useCurrentUserName();
 
   /**
    * 操作列的行内播放（有录音才出现）—— 与学生记录页同一套交互：

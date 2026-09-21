@@ -7,11 +7,14 @@ import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
 import { buildPracticeColumns, parsePracticeFromSummary } from './columns';
 import { buildSelectionContext, studentName } from '../../lib/aiContext';
+import { useCurrentUserName } from '../../lib/useCurrentUserName';
 
 export default function PracticeActivitiesPage() {
   const t = useTranslations('academic');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
   const COLUMNS = buildPracticeColumns(t);
+  /** 新建时「活动负责人」默认 = 当前登录用户（服务端 meta.defaults 兜底，见 lifecycle.meta.ts） */
+  const me = useCurrentUserName();
 
   const context = useMemo(
     () =>
@@ -47,6 +50,7 @@ export default function PracticeActivitiesPage() {
         search={{ placeholder: t('searchPractice') }}
         columns={COLUMNS}
         enrichPrefill={parsePracticeFromSummary}
+        createDefaults={me ? { 活动负责人: me } : undefined}
         statusField="安全确认状态"
         inlineEdit
         standaloneForm

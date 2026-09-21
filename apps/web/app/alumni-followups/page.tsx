@@ -7,10 +7,13 @@ import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
 import { COLUMNS, parseAlumniFromSummary } from './columns';
 import { buildSelectionContext, studentName } from '../../lib/aiContext';
+import { useCurrentUserName } from '../../lib/useCurrentUserName';
 
 export default function AlumniFollowupsPage() {
   const ta = useTranslations('alumni');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
+  /** 新建时「跟进人」默认 = 当前登录用户（服务端 meta.defaults 兜底，见 lifecycle.meta.ts） */
+  const me = useCurrentUserName();
 
   const context = useMemo(
     () =>
@@ -46,6 +49,7 @@ export default function AlumniFollowupsPage() {
         search={{ placeholder: '搜索学生姓名…' }}
         columns={COLUMNS}
         enrichPrefill={parseAlumniFromSummary}
+        createDefaults={me ? { 跟进负责人: me } : undefined}
         statusField="跟进状态"
         inlineEdit
         standaloneForm

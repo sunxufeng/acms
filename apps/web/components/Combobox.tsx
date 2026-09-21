@@ -27,12 +27,22 @@ export default function Combobox({
   options,
   placeholder,
   allowFreeText,
+  fallbackLabel,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: ComboboxOption[];
   placeholder?: string;
   allowFreeText?: boolean;
+  /**
+   * 当前值**不在 options 里**时用来显示的兜底文案（如编辑表单里关联字段已存的名称）。
+   *
+   * 为什么需要（2026-09-21 修）：选项是**异步加载**的（联系人要翻 8 页 3679 条、
+   * 学生要拉全量），加载完成前 `options` 是空数组 —— 此时显示逻辑会落到
+   * 「找不到 ⇒ 显示空」，用户打开编辑表单看到「联系人 / 学生」是空白，以为没带出，
+   * 甚至重新选一个把原值覆盖掉。有了兜底文案，值在、显示也在。
+   */
+  fallbackLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [display, setDisplay] = useState('');
@@ -45,17 +55,22 @@ export default function Combobox({
   // 注意只影响显示，onChange 始终回传原始 value，绝不把译文写回飞书。
   const showText = (o: ComboboxOption) => tl(o.label || o.value);
 
-  // 根据外部 value 同步显示文本（优先 label，找不到则回退 value）
+  // 根据外部 value 同步显示文本（优先 label，找不到则回退 value / 兜底名）
   useEffect(() => {
     const opt = options.find((o) => o.value === value);
     if (opt) {
       setDisplay(showText(opt));
+    } else if (!value) {
+      setDisplay('');
+    } else if (fallbackLabel) {
+      // 选项还没加载完（或这个值不在候选里）：显示已存名称，而不是空 —— 见上方 fallbackLabel 说明
+      setDisplay(fallbackLabel);
     } else if (allowFreeText) {
       setDisplay(value);
     } else {
       setDisplay('');
     }
-  }, [value, options, allowFreeText]);
+  }, [value, options, allowFreeText, fallbackLabel]);
 
   const filtered = useMemo(() => {
     if (!display.trim()) return options;

@@ -113,7 +113,21 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
     readPerm: PERM_R,
     writePerm: PERM_W,
     dateFields: ['活动参与日期', '跟进时间', '下次跟进日期'],
-    readonly: ['跟进负责人', '跟进附件', '关联学生编号'],
+    /**
+     * ⚠️ 「跟进负责人」**已从 readonly 移出**（2026-09-21）。
+     * `readonly` 在写入侧是**硬过滤**（`buildWriteFields` 直接丢掉）——
+     * 2026-09-19 把负责人加进表单后，表单里改的值其实一直被静默丢弃：
+     * 实测「新建时传 孙旭峰 → 落库 null」「修改成 王春霞 → 落库仍是空」。
+     * 保留 readonly 的只有真正由系统维护的两项。
+     */
+    readonly: ['跟进附件', '关联学生编号'],
+    /**
+     * 新建默认值：**负责人 = 当前登录用户**（2026-09-21 峰哥要求）。
+     *
+     * 为什么放服务端而不是只靠前端预填：接口直连、批量导入、笔记转换等路径都要拿到
+     * 同一个默认；`defaults` 在 `writeFields` 之后套用，**用户显式传了就不覆盖**。
+     */
+    defaults: (_fields, user) => ({ 跟进负责人: user?.name ?? '' }),
     studentMatch: { field: '关联学生', by: 'name' },
     linkFields: [
       { field: '关联学生编号', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },

@@ -49,7 +49,11 @@ export const COLUMNS: CrudColumn[] = [
   { key: '活动类型', label: '活动类型', width: '110px', filter: true, form: true, type: 'select', dictKey: '活动类型', listOrder: 5 },
   // ⚠️ 2026-09-19 峰哥要求：负责人要能在**新建/修改表单里看到并修改** ——
   //    原先只配了 listOrder（列表可见）而没开 form，表单里根本找不到这个字段。
-  { key: '跟进负责人', label: '负责人', width: '110px', form: true, listOrder: 6 },
+  // ⚠️ 2026-09-21：改成 **person 下拉**（候选 = 系统用户姓名）。
+  //    为什么不让手填：这个字段是「学生全景」等处的归属判据（`owner: '跟进负责人'`），
+  //    手填错一个字就会**静默**归错人。下拉同时保证「新建默认登录用户」这个默认值
+  //    一定是个合法姓名。
+  { key: '跟进负责人', label: '负责人', width: '110px', form: true, type: 'person', listOrder: 6 },
   { key: '付款状态', label: '付款状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '付款状态', list: false },
   // ── 参考家校沟通编辑页面新增的字段 ──
   // ⚠️ 非必填（2026-09-14 用户反馈）：招生阶段常常还没确认学生，「家长」跟着「关联学生」
@@ -110,8 +114,10 @@ export function studentName(row: Record<string, unknown>): string {
  * 解析实现统一在 `lib/noteAutoFill.ts`（全站共用一套），这里只声明本模块的字段规则。
  * ⚠️ 只填当前为空的字段，笔记映射已写入或用户已改的值不覆盖。
  *
- * 「负责人」默认取**笔记归属人**（笔记是谁的，跟进人就该是谁），拿不到才回退当前登录用户
- * （2026-09-19）—— 管理员代转别人的笔记时，用登录用户会把负责人写成自己。
+ * 「负责人」（2026-09-21 改，按峰哥明确要求）：**一律默认取当前登录用户** ——
+ * 从我的笔记转过来时也不再用「笔记归属人」。原先（2026-09-19）优先用笔记归属人，
+ * 是为了管理员代转别人笔记时不被写成自己；峰哥现在的口径是「谁建的记录就归谁」，
+ * 故改为登录用户优先，笔记归属人仅作兜底（取不到登录用户信息时）。
  */
 const SPEC: NoteAutoFillSpec = {
   sourceKeys: ['沟通总结', '沟通明细'],
@@ -133,7 +139,7 @@ const SPEC: NoteAutoFillSpec = {
  * 笔记转换预填：主题 / 时间 / 负责人 的默认值。
  *
  *  - **沟通主题 ← 笔记标题**、**跟进时间 ← 笔记创建时间**（2026-09-19 峰哥要求）
- *  - **负责人 ← 笔记归属人**（笔记是谁的，跟进人就该是谁），拿不到才回退登录用户
+ *  - **负责人 ← 当前登录用户**（2026-09-21 峰哥要求；笔记归属人只在拿不到登录用户时兜底）
  *
  * 主题 / 时间**先塞进 values 再走 `enrichFromNotes`**，而不是当 `defaults` 传 ——
  * `defaults` 是最低优先级（只在正文什么都没抽到时才填），而峰哥要的是「笔记标题就是主题」。
@@ -150,7 +156,7 @@ export function parseSourceFollowupFromSummary(
     const dt = msToLocalDateTime(ctx?.noteCreatedAt);
     if (dt) seeded['跟进时间'] = dt;
   }
-  return enrichFromNotes(seeded, SPEC, { 跟进负责人: ctx?.noteOwner || ctx?.userName || '' });
+  return enrichFromNotes(seeded, SPEC, { 跟进负责人: ctx?.userName || ctx?.noteOwner || '' });
 }
 
 /**

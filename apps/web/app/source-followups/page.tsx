@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import CrudPage from '../../components/CrudPage';
 import FloatingAIPanel from '../../components/FloatingAIPanel';
 import { api } from '../../lib/api';
 import { COLUMNS, contactName, parseSourceFollowupFromSummary } from './columns';
+import { currentUserName } from '../../lib/noteAutoFill';
 // 操作列的录音播放（与学生记录共用同一套；逻辑见 lib/rowAudio）
 import { audioAttachmentsOf, attachmentAudioSrc, useRowAudio } from '../../lib/rowAudio';
 
@@ -26,6 +27,20 @@ function str(v: unknown): string {
 export default function SourceFollowupsPage() {
   const ts = useTranslations('students');
   const [selected, setSelected] = useState<Record<string, unknown>[]>([]);
+
+  /**
+   * 新建表单的「负责人」默认值 = **当前登录用户**（2026-09-21 峰哥要求）。
+   *
+   * 服务端 meta 的 `defaults` 也会给同一个默认（接口直连/导入都覆盖到），
+   * 这里再预填一次是为了**打开表单就能看见**，而不是保存后才出现。
+   * 从「我的笔记」转过来的那条路走的是 `enrichPrefill`（见 columns.tsx），口径一致。
+   */
+  const [me, setMe] = useState('');
+  useEffect(() => {
+    currentUserName()
+      .then((n) => setMe(n || ''))
+      .catch(() => setMe(''));
+  }, []);
 
   /**
    * 操作列的行内播放（有录音才出现）—— 与学生记录页同一套交互：
@@ -108,6 +123,8 @@ export default function SourceFollowupsPage() {
         search={{ placeholder: '搜索学生姓名 / 沟通主题…' }}
         columns={COLUMNS}
         enrichPrefill={parseSourceFollowupFromSummary}
+        // 新建时负责人默认就是当前登录用户（见上方 me）
+        createDefaults={me ? { 跟进负责人: me } : undefined}
         statusField="跟进状态"
         inlineEdit
         standaloneForm

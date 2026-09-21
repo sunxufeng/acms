@@ -652,6 +652,12 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   }, []);
   const [editing, setEditing] = useState<null | { mode: 'create' | 'edit'; row?: Record<string, unknown> }>(null);
   const [form, setForm] = useState<Record<string, unknown>>({});
+  /**
+   * 关联类字段的**兜底显示名**（列 key → 已存名称）。只在编辑态由 `openEdit` 从行里取，
+   * 供选择器在「候选还没加载完 / 值不在候选里」时显示，避免表单看起来是空的。
+   * 注意：**不放进 `form`** —— 那会被当成字段提交给后端（脏字段）。
+   */
+  const [formLabels, setFormLabels] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txMenu, setTxMenu] = useState<string | null>(null);
@@ -1328,6 +1334,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       }
     }
     setForm(init);
+    setFormLabels({});
     setEditing({ mode: 'create' });
     setError(null);
     setFormActionMsg(null);
@@ -1398,6 +1405,14 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
 
   function openEdit(row: Record<string, unknown>) {
     const init: Record<string, unknown> = {};
+    /**
+     * 关联类字段的**已存显示名**：表单里存的是 id（选择器要用的 value），
+     * 而显示要有人话 —— 候选列表是异步加载的（联系人 3679 条要翻 8 页），
+     * 加载完成前如果不给兜底文案，选择器会显示成**空白**，
+     * 用户会以为「保存后点修改，联系人和学生没带出来」，甚至重选一个把原值覆盖掉。
+     * （2026-09-21 峰哥报「招生跟进修改时联系人不带出」即此因。）
+     */
+    const labels: Record<string, string> = {};
     for (const c of formCols) {
       if (c.type === 'map') {
         if (c.latKey) init[c.latKey] = row[c.latKey] ?? '';
@@ -1424,9 +1439,20 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         // 否则编辑时把「姓名」当 id 提交，保存后关联就断了。
         const linkIds = row[c.key + '__link'];
         init[c.key] = (Array.isArray(linkIds) && linkIds[0]) || '';
-      } else init[c.key] = row[c.key] ?? '';
+        // 兜底显示名（见 labels 的说明）：只用于显示，不参与提交
+        const shown = str(row[c.key]);
+        if (shown) labels[c.key] = shown;
+      } else {
+        init[c.key] = row[c.key] ?? '';
+        // 值是姓名的关联字段（type: 'student'）同样给一份兜底显示名
+        if (c.type === 'student') {
+          const shown = str(row[c.key]);
+          if (shown) labels[c.key] = shown;
+        }
+      }
     }
     setForm(init);
+    setFormLabels(labels);
     setEditing({ mode: 'edit', row });
     setError(null);
     setFormActionMsg(null);
@@ -1864,16 +1890,28 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               );
             })()
           ) : c.type === 'person' ? (
-            <select className="form-input" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
-              <option value="">{t('common.notFilled')}</option>
-              {userNames.map((o) => <option key={o} value={o}>{tl(o)}</option>)}
-            </select>
+            (() => {
+              const cur = str(form[c.key]);
+              /**
+               * 已存的值可能**不在候选里**（历史数据、离职人员、上游写法不同的名字，
+               * 如「吴洁｜Joyce」）—— 这时必须把它作为一项补进去：
+               * 否则 `select` 的值匹配不到任何 option，界面显示成**空**，
+               * 用户会以为「编辑时负责人没带出来」（2026-09-21 与关联字段同批修）。
+               */
+              const opts = cur && !userNames.includes(cur) ? [cur, ...userNames] : userNames;
+              return (
+                <select className="form-input" value={cur} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}>
+                  <option value="">{t('common.notFilled')}</option>
+                  {opts.map((o) => <option key={o} value={o}>{tl(o)}</option>)}
+                </select>
+              );
+            })()
           ) : c.type === 'student' ? (
-            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => applyStudentDerived({ ...f, [c.key]: v }, v))} options={studentOptions} placeholder="输入学生姓名筛选…" />
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => applyStudentDerived({ ...f, [c.key]: v }, v))} options={studentOptions} placeholder="输入学生姓名筛选…" fallbackLabel={formLabels[c.key]} />
           ) : c.type === 'studentLink' ? (
-            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => applyStudentDerived({ ...f, [c.key]: v }, v))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" />
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => applyStudentDerived({ ...f, [c.key]: v }, v))} options={studentLinkOptions} placeholder="输入学生姓名筛选…" fallbackLabel={formLabels[c.key]} />
           ) : c.type === 'weilingContact' ? (
-            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={weilingContactOptions} placeholder="输入联系人姓名或手机号筛选…" />
+            <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={weilingContactOptions} placeholder="输入联系人姓名或手机号筛选…" fallbackLabel={formLabels[c.key]} />
           ) : c.type === 'link' && fieldReadonly(c) ? (
             // 只读关联字段：显示已选名称（后端已解析成姓名串）而不是把 id 露出来，
             // 且不挂 onChange —— 服务端同样会拒绝，这里只是不给出「以为能改」的假象。
@@ -1890,6 +1928,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))}
               options={linkOptionsOf(c)}
               placeholder={`输入${c.label}筛选…`}
+              fallbackLabel={formLabels[c.key]}
             />
           ) : c.type === 'department' ? (
             <Combobox value={str(form[c.key])} onChange={(v) => setForm((f) => ({ ...f, [c.key]: v }))} options={departmentOptions} placeholder="输入部门名称筛选…" />

@@ -2076,6 +2076,25 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
               value={str(form[c.key])}
               onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))}
             />
+          ) : fieldReadonly(c) ? (
+            /**
+             * 只读的单行文本字段：**不做成输入框**，直白地展示值。
+             *
+             * 之前这条分支不存在 —— 列上写了 `readonly: true` 的普通文本字段在表单里
+             * **照样可编辑**（textarea / link 两个分支各自处理了，只有这里漏了），
+             * 用户改完保存才发现值没变，或以为是自己权限不够。
+             * 已踩过的：招生跟进「学生姓名」（系统从联系人报名表带出）、
+             * 考勤「审核状态 / 审核人」（系统写入）、上游账号「最近失败信息」。
+             *
+             * ⚠️ 只读只影响**渲染**：提交时照常带上已存值（payload 从表单状态收集，
+             *    不是从 DOM 读），所以「系统带出的派生字段」不会被这一改动写空。
+             */
+            <div
+              className="form-input"
+              style={{ background: 'var(--bg-subtle)', color: 'var(--fg-secondary)' }}
+            >
+              {str(form[c.key]) || t('common.notFilled')}
+            </div>
           ) : (
             <input className="form-input" type="text" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
           )}

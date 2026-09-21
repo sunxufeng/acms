@@ -18,6 +18,19 @@ export const COLUMNS: CrudColumn[] = [
     type: 'weilingContact',
     required: true,
     listOrder: 1,
+    /**
+     * 选了联系人 → 自动带出该联系人报名表里的「学生姓名」（卫瓴自定义字段 `xsxm`）。
+     *
+     * ⚠️ 联动 patch 必须挂在**触发变化的这一列**上：`applyFieldChange` 取的永远是
+     * *当前这一列* 自己的 `onChangePatch`。上一版（a75fb9a）把它写在了「学生姓名」列上，
+     * 于是「选完联系人自动带出」**一次都没生效过** —— 只有用户手改「学生姓名」时才跑，
+     * 还拿输入框里的姓名当联系人 id 去查，永远查不到。
+     * 函数本身没写错、只是挂错了列 ⇒ 类型检查、接口、构建全都不会报错（典型静默失效）。
+     */
+    onChangePatch: (v, _form, ctx) => {
+      const name = ctx.contactStudentName(String(v ?? ''));
+      return name ? { 学生姓名: name } : {};
+    },
     render: (v, row) => {
       const name = String(v ?? '');
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
@@ -36,21 +49,25 @@ export const COLUMNS: CrudColumn[] = [
     // （卫瓴自定义字段 `xsxm`，整包存在联系人的「自定义字段」列里）。
     //
     // 三条设计决定：
-    //  ① 选了联系人**自动带出**：走 `onChangePatch` 的第三参 ctx（列定义拿不到联系人数据集，
-    //     那份数据在 CrudPage 内部懒加载 + 全站缓存）。
+    //  ① 选了联系人**自动带出**：联动 patch 挂在上面「联系人」列上（那里有说明，
+    //     为什么不能挂在本列 —— 挂错列会静默失效）。
     //  ② 带出后**存进本表**（key = `学生姓名`）：列表、导出、筛选都能直接用，
     //     不必每次回查联系人；也避免「联系人后来改了报名表，历史跟进记录跟着变」。
     //  ③ 联系人**没填** xsxm 时**不覆盖**已有值（返回空 patch）——
-    //     否则会把用户手填的学生姓名清掉；代价是换联系人后旧值会留着，需人工确认。
+    //     否则会把已有内容清掉；代价是换联系人后旧值会留着，需人工确认。
+    //
+    // ⚠️ 本列**只读**（2026-09-22 峰哥要求）：它只是「联系人报名表的投影」，
+    //    手改会跟来源脱节（改完看着对、下次换联系人又被覆盖，用户以为数据丢了）。
+    //    只读只影响渲染 —— 提交时照常带上带出的值（payload 取自表单状态），值仍会落库。
+    //    ⚠️ 别顺手把「学生姓名」加进服务端 meta 的 `readonly`：那是**写入侧硬过滤**
+    //    （`buildWriteFields` 直接丢字段），加进去反而一个字都存不下。
     key: '学生姓名',
     label: '学生姓名',
     width: '110px',
     form: true,
+    readonly: true,
     listOrder: 2,
-    onChangePatch: (v, _form, ctx) => {
-      const name = ctx.contactStudentName(String(v ?? ''));
-      return name ? { 学生姓名: name } : {};
-    },
+    hint: '自动取自联系人报名表里填的学生姓名，不可编辑',
   },
   {
     key: '关联学生',

@@ -217,12 +217,19 @@ export class GetnoteController {
     @Query('配置名称') configName?: string,
     @Query('归属人') owner?: string,
     @Query('标签') tag?: string,
+    /**
+     * 状态（有效 / 归档 / 全部）—— 2026-09-21 新增。
+     * 与上面四个同规则：**裸中文参数名**（自建 controller 不认 `__contains` 之类的后缀，
+     * 加了后缀会被当未知参数静默忽略）。值来自 contracts 的 `NOTE_STATUS_*`，
+     * 「全部」/空 = 不限制；缺行（历史笔记）永远算「有效」。
+     */
+    @Query('状态') status?: string,
   ) {
     const user = (req as Request & { user: SessionUser }).user;
     this.assert(user, 'module:getnote:read');
     const size = Math.min(Math.max(Number(pageSize) || 20, 1), 100);
     // size 要传进 service：管理员走的是服务端快照分页，得知道每页切多少
-    const r = await this.svc.list(user, pageToken, q, size, { source, configName, owner, tag });
+    const r = await this.svc.list(user, pageToken, q, size, { source, configName, owner, tag, status });
     const items = r.notes ?? [];
     const hasMore = Boolean(r.has_more);
     return {
@@ -230,6 +237,9 @@ export class GetnoteController {
       hasMore,
       pageToken: r.cursor,
       total: r.total ?? (hasMore ? items.length + size : items.length),
+      // 被「状态」筛选挡掉的条数（列表顶部提示「已隐藏 N 条已归档笔记」用）：
+      // 前端拿到的已是筛过的结果，靠减法算不出来，只能服务端给。
+      archivedHidden: r.archivedHidden ?? 0,
     };
   }
 
@@ -323,6 +333,34 @@ export class GetnoteController {
     const user = (req as Request & { user: SessionUser }).user;
     this.assert(user, 'module:getnote:read');
     return this.svc.detail(user, id);
+  }
+
+  /**
+   * 归档 / 激活一条笔记（2026-09-21 峰哥要求）。
+   *
+   * 语义：**只改 ACMS 自己的状态表**，不动 Get笔记 里的笔记 —— 上游 note 对象没有可写的
+   * 自定义字段，而且那是别人的数据（用户在手机 App 里看到的跟原来一样）。所以「归档」
+   * 是「在本系统里把它收起来」，**不是删除**；真要删是 `DELETE /getnote/notes/:id`（进上游回收站）。
+   * 历史笔记没有状态行 = 有效，所以「激活」只对归档过的笔记有意义（幂等，重复点不出错）。
+   *
+   * 权限：复用 `module:getnote:update`（矩阵里的「编辑」列）。
+   * 为什么不为它单开权限点：动作目录是固定 9 个（enter/read/create/update/delete/import/
+   * export/refresh/transition），新增 `transition` 要抬 `ROLE_PERMISSION_VERSION` 并迁移存量角色
+   * （生产角色矩阵是持久化配置，不迁移的话**连系统管理员都不持有新点**，上线即「点了 403」）。
+   * 归档在语义上就是「编辑这条笔记的状态」，归到「编辑」不牵强，且零迁移、零风险。
+   *
+   * ⚠️ 声明在 `@Put('notes/:id')` 之前：与既有子路由保持同一惯例（顺序本身不冲突，
+   *    路径段数不同，但排前面将来加 `notes/:id/*` 时不会被 :id 吃掉）。
+   */
+  @Put('notes/:id/status')
+  setStatus(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { status?: string; title?: string },
+  ) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'module:getnote:update');
+    return this.svc.setNoteStatus(user, id, String(body?.status ?? ''), body?.title);
   }
 
   @Put('notes/:id')

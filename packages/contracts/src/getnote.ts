@@ -63,4 +63,48 @@ export interface NoteListFilters {
   owner?: string;
   /** 标签 —— **模糊包含**（一条笔记有多个标签，用等值会全筛空） */
   tag?: string;
+  /** 状态（有效 / 归档 / 全部）—— 缺省或「全部」= 不限制，见 `noteStatusMatches` */
+  status?: string;
+}
+
+/**
+ * ── 笔记状态（2026-09-21 新增）──────────────────────────────────────────────
+ *
+ * 为什么状态不放在 Get笔记 上游：上游 note 对象里**没有**可写的自定义字段
+ * （「来源」当初就是被迫复用 `tags` 承载的），归档这类纯 ACMS 侧的业务标记
+ * 只能落在本地 —— 即 ACMS 自建的「笔记状态表」（`TABLES.noteStatus`）。
+ *
+ * ⚠️ **只有「归档」是需要判定的值，其余（空串 / 缺失 / 未知值）一律算「有效」**：
+ *   历史笔记（状态功能上线之前）根本没有状态行，若把判据写成「等于有效」，
+ *   历史笔记会被全部筛掉 —— 界面症状是「筛了『有效』之后一条笔记都没有」。
+ *   所以筛选实现必须调 `noteStatusMatches()`，**不许在页面里手写 `=== '有效'`**。
+ */
+export const NOTE_STATUS_ACTIVE = '有效';
+export const NOTE_STATUS_ARCHIVED = '归档';
+/** 筛选项里的「全部」：只出现在筛选控件与 query 参数里，**不会写进数据** */
+export const NOTE_STATUS_ALL = '全部';
+export const NOTE_STATUSES = [NOTE_STATUS_ACTIVE, NOTE_STATUS_ARCHIVED] as const;
+/** 状态筛选下拉的候选（含「全部」） */
+export const NOTE_STATUS_FILTER_OPTIONS = [NOTE_STATUS_ALL, NOTE_STATUS_ACTIVE, NOTE_STATUS_ARCHIVED] as const;
+
+/** 归一：明确等于「归档」才是归档，其余一切（含 undefined / '' / 未知值）算「有效」 */
+export function normalizeNoteStatus(v: unknown): string {
+  return String(v ?? '').trim() === NOTE_STATUS_ARCHIVED ? NOTE_STATUS_ARCHIVED : NOTE_STATUS_ACTIVE;
+}
+
+/** 这条笔记是不是已归档（前端渲染「已归档」标记、后端拦转换都用它） */
+export function isArchivedNote(v: unknown): boolean {
+  return normalizeNoteStatus(v) === NOTE_STATUS_ARCHIVED;
+}
+
+/**
+ * 状态筛选判据：want 为空 / 「全部」⇒ 不限制；否则与归一后的状态比较。
+ *
+ * 前后端共用（前端在「来源 / 配置名称」那条**客户端内存筛选**分支里也要判，
+ * 页面上另写一份必然漂移 —— 会出现「筛了来源之后状态筛选失灵」）。
+ */
+export function noteStatusMatches(status: unknown, want?: unknown): boolean {
+  const w = String(want ?? '').trim();
+  if (!w || w === NOTE_STATUS_ALL) return true;
+  return normalizeNoteStatus(status) === normalizeNoteStatus(w);
 }

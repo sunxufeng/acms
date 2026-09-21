@@ -53,6 +53,17 @@ export interface CrudColumn {
   filterParam?: string;
   filterOptions?: string[];
   /**
+   * 筛选控件的**默认值**（挂载时写进筛选状态，用户仍可改）。
+   *
+   * 为什么需要：有些列表的「默认视图」本事就是一次筛选 —— 例如「我的笔记」默认只看
+   * **有效**笔记（归档的收起来，页面上再用一句话提示「已隐藏 N 条」）。没有本字段时
+   * 只能让 backend 把「没传参数」解释成「只看有效」，但那样下拉里会显示成「全部」
+   * 而实际只出有效 —— 界面与行为对不上，比不做默认还糟。
+   *
+   * ⚠️ 只作用于**初始值**：URL 上带的同名筛选（报表下钻）依然会覆盖它。
+   */
+  filterDefault?: string;
+  /**
    * 筛选项的**显示文案**（`值 → 显示名`）。用于「库里存码值、界面要出中文」的枚举：
    * 下拉里显示中文、提交给后端的仍是 `filterOptions` 里的原始值。
    *
@@ -337,8 +348,14 @@ export interface CrudPageProps {
    *
    * 返回 null / undefined 即该行不渲染任何东西（例如「这行没有音频」）。
    * 与 rowExtraActions 一样**只在非只读模式**渲染 —— 只读列表的操作列不该出现可交互控件。
+   *
+   * 第二个参数 `reload`（2026-09-21 补）：槽内动作改完数据后要刷新列表。
+   * 此前槽函数只拿到 row —— 「归档 / 激活」这类**就地改状态**的按钮点完只能自己乐观更新，
+   * 或者逼着页面绕一圈（`extraParams` 抖动）才能刷新。而 `rowExtraActions` 虽然能拿到
+   * reload，却不支持「按行显隐 / 换文案」（归档与激活是互斥的两个按钮，同一行只该出一个）。
+   * 所以这里按需补上第二个参数：既有调用方签名不变（少传参数 JS 不会报错）。
    */
-  rowActionSlot?: (row: Record<string, unknown>) => React.ReactNode;
+  rowActionSlot?: (row: Record<string, unknown>, reload: () => void) => React.ReactNode;
   /** 表单（standalone / inline 弹窗）底部自定义操作按钮：run(values, close) 执行，
    *  需要当前表单字段值时用（如「测试连接」）。run 返回 { ok, text } 时 CrudPage 会在表单内展示结果 banner。 */
   formExtraActions?: {
@@ -597,7 +614,21 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const tokenStack = useRef<(string | undefined)[]>([]); // tokenStack[i] = 拉取第 i+1 页所需的 pageToken
   const fallbackRef = useRef<Record<string, unknown>[] | null>(null); // 后端一次性返回全部时的前端切片兜底
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [filters, setFilters] = useState<Record<string, string>>(() => {
+    /**
+     * 列上声明的筛选默认值（`filterDefault`）在挂载时写入筛选状态。
+     *
+     * 取值口径与 `buildParams` / 下拉控件一致：`filterParam ?? key`，
+     * 三处用同一个键，否则会出现「下拉显示着有效、实际没往后端传」。
+     * 下面的 URL 初始化 effect 会在其后合并（URL 优先），所以报表下钻仍能覆盖默认值。
+     */
+    const init: Record<string, string> = {};
+    for (const c of columns) {
+      if (!c.filter || !c.filterDefault) continue;
+      init[c.filterParam ?? c.key] = c.filterDefault;
+    }
+    return init;
+  });
   /**
    * 报表下钻：URL 上带的筛选条件在挂载时写入筛选状态。
    * 只认四类参数 —— 列筛选键、时间区间参数、关键字 q、以及调用方声明的透传参数，
@@ -2233,8 +2264,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   {showActions && (
                   <td>
                     <div style={rowActions}>
-                      {/* 自定义插槽（如笔记行的「播放 / 停止」）—— 放最前，操作列一眼可见 */}
-                      {!readonly && rowActionSlot?.(row)}
+                      {/* 自定义插槽（如笔记行的「播放 / 停止」「归档 / 激活」）—— 放最前，操作列一眼可见 */}
+                      {!readonly && rowActionSlot?.(row, () => reload())}
                       {canUpdate && editHref ? (
                         <Link href={editHref(String(row.id))} className="btn btn-ghost btn-sm">{t('crud.edit')}</Link>
                       ) : canUpdate && (

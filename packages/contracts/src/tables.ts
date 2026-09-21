@@ -109,6 +109,20 @@ export const TABLES = {
    * ⚠️ 字段元数据必须传给 `ensureTable`，否则日期读出来是毫秒、数字读出来是字符串。
    */
   noteBody: { tableId: 'tblnotebody000001', name: '笔记正文表' },
+  /**
+   * 笔记状态表（2026-09-21 新增）：承载「有效 / 归档」这个**纯 ACMS 侧**的业务标记。
+   *
+   * 为什么单独一张表，而不是给「笔记快照表」加一列：
+   *   1. 快照表是**同步任务**（`persistNoteSnapshot`，fire-and-forget）按上游数据 upsert 的，
+   *      业务标记混在里面迟早被同步逻辑写脏；快照也只覆盖**管理员聚合到的**笔记，
+   *      普通用户的笔记根本不在表里；
+   *   2. 快照表被「笔记统计」报表按天分桶读，往里塞状态行（只有状态、没有创建时间）
+   *      会直接污染报表口径。
+   *
+   * 记录 id = 笔记 ID（上游 note_id，天然唯一，可幂等 upsert）。
+   * ⚠️ **没有行 = 有效**：历史笔记不需要任何回填（这正是「历史数据都是有效」的实现方式）。
+   */
+  noteStatus: { tableId: 'tblnotestatus0001', name: '笔记状态表' },
   /** 开放平台：外接系统的应用凭证（App ID / App Secret）。自建 SQL 表，启动期幂等建表。 */
   openPlatformApp: { tableId: 'tblopenapp000001', name: '开放平台应用表' },
   /** 卫瓴SCRM 联系人（从开放平台同步过来的只读副本） */

@@ -1334,9 +1334,25 @@ export const api = {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
     const q = qs.toString();
-    return request<Page<Record<string, unknown>>>(`/getnote/notes${q ? `?${q}` : ''}`);
+    // `archivedHidden` 是「被状态筛选挡掉的条数」，服务端随列表一起返回（前端算不出来）。
+    return request<Page<Record<string, unknown>> & { archivedHidden?: number }>(
+      `/getnote/notes${q ? `?${q}` : ''}`,
+    );
   },
   getGetnote: (id: string) => request<Record<string, unknown>>(`/getnote/notes/${id}`),
+  /**
+   * 归档 / 激活一条笔记（2026-09-21）。
+   *
+   * ⚠️ 只改 ACMS 自己的状态表（`笔记状态表`），**不动 Get笔记 里的笔记** ——
+   * 上游 note 对象没有可写的自定义字段，且那是别人的数据。所以「归档」= 在本系统里收起，
+   * 不是删除（真要删是 `deleteGetnote`，进上游回收站）。
+   * 幂等：重复归档同一篇不会报错，也不会刷新归档时间。
+   */
+  setGetnoteStatus: (id: string, status: string, title?: string) =>
+    request<{ noteId: string; status: string; changed: boolean; archivedAt?: number; archivedBy?: string }>(
+      `/getnote/notes/${encodeURIComponent(id)}/status`,
+      { method: 'PUT', body: JSON.stringify({ status, title }) },
+    ),
   createGetnote: (data: Record<string, unknown>) =>
     request<Record<string, unknown>>('/getnote/notes', { method: 'POST', body: JSON.stringify(data) }),
   updateGetnote: (id: string, data: Record<string, unknown>) =>

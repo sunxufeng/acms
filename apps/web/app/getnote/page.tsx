@@ -8,9 +8,23 @@ import { api, type GetnoteCredential, type GetnoteOAuthStart, type ApiRequestErr
 import type { NoteConvertTarget, NoteConvertLogItem, NoteConfigMapItem } from '@acms/contracts';
 // 「来源 / 标签」的拆分规则与来源候选值都来自 contracts：后端做服务端筛选用的是同一份实现，
 // 前端各写一份会出现「列里显示来源=得到大脑、按它筛却筛不到」这类对不上的问题。
-import { NOTE_SOURCE_TYPES, noteTagNames, splitNoteTags } from '@acms/contracts';
+// 状态（有效 / 归档）同理：**判据必须共用 contracts 的 `noteStatusMatches`** ——
+// 本页在「来源 / 配置名称」那条客户端内存筛选分支里也要判状态，
+// 各写一份必然漂移（症状：筛了来源之后状态筛选失灵）。
+import {
+  NOTE_SOURCE_TYPES,
+  NOTE_STATUS_ACTIVE,
+  NOTE_STATUS_ARCHIVED,
+  NOTE_STATUS_FILTER_OPTIONS,
+  isArchivedNote,
+  noteStatusMatches,
+  noteTagNames,
+  splitNoteTags,
+} from '@acms/contracts';
 import { putConvertPayload, formatConvertLogs, totalConvertCount, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../../lib/noteConvert';
 import { useTl } from '../../lib/useTl';
+// 按钮级门控：归档 / 激活与后端同一个权限点（module:getnote:update）
+import { usePermissions } from '../../lib/permissions';
 // 行内播放（操作列 ▶/⏸）已抽成通用 hook，学生记录等附件字段的列表共用同一份逻辑
 import { useRowAudio } from '../../lib/rowAudio';
 import { useTranslations } from 'next-intl';
@@ -96,6 +110,9 @@ function toRow(n: Record<string, unknown>): Record<string, unknown> {
     id: String(n.note_id ?? n.id ?? ''),
     来源: src,
     标签: plainTags.join('、'),
+    // 状态来自后端的 `_status`（ACMS 自建表，见 GetnoteService.attachNoteStatus）。
+    // 没有状态行（历史笔记）= 有效，所以这里必须走归一函数、不能只认 `=== '归档'` 的反面。
+    状态: isArchivedNote(n._status) ? NOTE_STATUS_ARCHIVED : NOTE_STATUS_ACTIVE,
   };
 }
 
@@ -153,29 +170,72 @@ function makeColumns(
       width: '280px',
       listOrder: 1,
       // 标题可点击：点开笔记详情弹窗（不触发行上的「点击编辑」）
+      // 已归档的笔记在标题后挂一个灰色标记 —— 不新增「状态」列（列表已经很密），
+      // 但归档与否必须一眼看得出，否则「都在列表里、为什么这条转不了」没法解释。
       render: (v, row) => (
-        <button
-          type="button"
-          title="查看笔记详情"
-          onClick={(e) => {
-            e.stopPropagation();
-            onTitleClick(String(row.id));
-          }}
-          style={{
-            padding: 0,
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            textAlign: 'left',
-            fontWeight: 600,
-            color: 'var(--accent)',
-            textDecoration: 'underline',
-            fontSize: 'inherit',
-          }}
-        >
-          {String(v ?? '') || '（无标题）'}
-        </button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+          <button
+            type="button"
+            title="查看笔记详情"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTitleClick(String(row.id));
+            }}
+            style={{
+              padding: 0,
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              textAlign: 'left',
+              fontWeight: 600,
+              color: isArchivedNote(row['状态']) ? 'var(--fg-secondary)' : 'var(--accent)',
+              textDecoration: 'underline',
+              fontSize: 'inherit',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {String(v ?? '') || '（无标题）'}
+          </button>
+          {isArchivedNote(row['状态']) && (
+            <span
+              title={String(row['_archivedBy'] ?? '') ? `由 ${String(row['_archivedBy'])} 归档` : '已归档'}
+              style={{
+                flex: '0 0 auto',
+                padding: '1px 8px',
+                fontSize: 11,
+                lineHeight: 1.7,
+                borderRadius: 999,
+                background: 'var(--bg-subtle)',
+                border: '1px solid var(--border)',
+                color: 'var(--fg-tertiary)',
+                cursor: 'default',
+              }}
+            >
+              已归档
+            </span>
+          )}
+        </span>
       ),
+    },
+    /**
+     * 状态（2026-09-21 峰哥要求）：**只做筛选、不占列**。
+     * 与「来源」列同款做法 —— `list: false` 让它在列表里不渲染，`filter: true` 保留筛选能力。
+     * `filterDefault: 有效` ⇒ 一进页面默认只看有效（归档的笔记被收起，顶部会提示隐藏了多少条）；
+     * 想看归档的把下拉切到「全部」或「归档」。
+     */
+    {
+      key: '状态',
+      label: '状态',
+      list: false,
+      filter: true,
+      filterType: 'select',
+      filterOptions: [...NOTE_STATUS_FILTER_OPTIONS],
+      filterDefault: NOTE_STATUS_ACTIVE,
+      width: '96px',
+      listOrder: 1.5,
+      hint: '「归档」只是在本系统里把笔记收起来，不会删除 Get笔记 里的笔记',
     },
     { key: 'note_type', label: '类型', width: '100px', listOrder: 2 },
     {
@@ -520,6 +580,49 @@ export default function GetnotePage() {
   const [convertErr, setConvertErr] = useState('');
   /** 留痕写不进去时的黄色提示（不阻断转换，只是让用户知情） */
   const [convertWarn, setConvertWarn] = useState('');
+
+  // ── 笔记状态（归档 / 激活，2026-09-21）───────────────────────────────
+  /**
+   * 被「状态」筛选挡掉的条数（服务端随列表返回）。默认视图只看有效，
+   * 没有这个提示的话，管理员归档完会以为笔记丢了 —— 列表顶部据此显示
+   * 「已隐藏 N 条已归档笔记（筛选「状态」选「全部」可查看）」。
+   */
+  const [archivedHidden, setArchivedHidden] = useState(0);
+  /** 正在归档/激活的笔记 id（按钮转圈 + 防连点） */
+  const [statusBusyId, setStatusBusyId] = useState('');
+  /** 归档/激活失败提示（成功不提示 —— 行上的标记与按钮本身就是反馈） */
+  const [statusErr, setStatusErr] = useState('');
+  /**
+   * 按钮权限：归档 / 激活走 `module:getnote:update`（矩阵里的「编辑」列）。
+   *
+   * 与后端同一个权限点；前端只负责「不显示点了会 403 的按钮」，真正拦得住的是接口。
+   * ⚠️ 权限缓存是登录后拉一次（`lib/permissions.ts`）—— 管理员改了角色配置后，
+   *    用户需要刷新/重登才会看到按钮变化，这与全站其它按钮的行为一致。
+   */
+  const perms = usePermissions();
+  const canSetStatus = perms.includes('module:getnote:update');
+
+  /**
+   * 归档 / 激活。**不做二次确认**：归档是可逆的（旁边就是「激活」），
+   * 而误点成本只是再点一下 —— 加弹窗反而拖慢批量整理笔记这个高频动作。
+   */
+  const setNoteStatus = useCallback(
+    async (row: Record<string, unknown>, status: string, reload: () => void) => {
+      const id = String(row.id ?? '');
+      if (!id || statusBusyId) return;
+      setStatusErr('');
+      setStatusBusyId(id);
+      try {
+        await api.setGetnoteStatus(id, status, String(row.title ?? ''));
+        reload();
+      } catch (e) {
+        setStatusErr(errorText(e, t));
+      } finally {
+        setStatusBusyId('');
+      }
+    },
+    [statusBusyId, t],
+  );
   /**
    * 当前页笔记的转换留痕：noteId → 留痕列表。
    * 留痕存在 ACMS 自己的表（不写 Get笔记 标签，因为上游单篇笔记最多 5 个标签），
@@ -689,6 +792,12 @@ export default function GetnotePage() {
     async (row: Record<string, unknown>) => {
       setConvertErr('');
       setConvertWarn('');
+      // 归档的笔记不能转换（2026-09-21）。这里挡一道是为了不让人白点一次再到后端吃 409；
+      // 真正的闸门在后端留痕接口 —— 列表数据可能是旧的（别人刚把它归档）。
+      if (isArchivedNote(row['状态'])) {
+        setConvertErr(t('convertArchived'));
+        return;
+      }
       setConvertRow(row);
       setConvertTargets([]);
       try {
@@ -774,8 +883,18 @@ export default function GetnotePage() {
             }));
           }
         } catch (e) {
-          // 留痕失败不阻断转换，但要让用户看见（之前静默吞掉，用户以为成功了）
-          setConvertWarn(t('convertLogFailed', { msg: errorText(e, t) }));
+          /**
+           * ⚠️ 归档笔记被后端拦下（409 `NOTE_ARCHIVED`）必须**中断**转换，
+           *    不能像普通留痕失败那样只出黄条继续 —— 那样「不可转换」就成了空话。
+           *    留痕是转换的必经点，这里中断等于整条转换流程没发生（还没跳转、没写预填）。
+           */
+          const msg = errorText(e, t);
+          if (msg.includes('NOTE_ARCHIVED')) {
+            setConvertErr(t('convertArchived'));
+            return;
+          }
+          // 其它留痕失败不阻断转换，但要让用户看见（之前静默吞掉，用户以为成功了）
+          setConvertWarn(t('convertLogFailed', { msg }));
         }
 
         putConvertPayload({
@@ -1271,6 +1390,27 @@ export default function GetnotePage() {
         </div>
       )}
 
+      {/*
+        归档提示条（2026-09-21）：默认视图只看「有效」，归档的笔记被收起来了。
+        没有这条提示的话，管理员归档完会以为笔记丢了 —— 必须让他知道「少了多少、去哪儿看」。
+        右侧顺带显示归档/激活的失败原因（成功不加提示：行上的标记与按钮本身就是反馈）。
+      */}
+      {(archivedHidden > 0 || statusErr) && (
+        <div
+          className="card"
+          style={{ padding: '8px 16px', margin: '16px 24px 0', display: 'flex', alignItems: 'center', gap: 10 }}
+        >
+          {archivedHidden > 0 && (
+            <span className="muted" style={{ fontSize: 13 }}>
+              {t('archivedHidden', { n: archivedHidden })}
+            </span>
+          )}
+          {statusErr && (
+            <span style={{ fontSize: 13, color: 'var(--danger)' }}>{statusErr}</span>
+          )}
+        </div>
+      )}
+
       <CrudPage
         moduleKey="getnote"
         // 「保存原始音频」：把笔记的原始录音下载并落进 ACMS（异步任务，label 兼作进度显示）。
@@ -1313,33 +1453,73 @@ export default function GetnotePage() {
          * 而这是**行级动作**，语义上就属于操作列。
          * 音频元信息来自列表接口的 `_audio`（后端批量补，不打上游）。
          */
-        rowActionSlot={(row) => {
+        rowActionSlot={(row, reload) => {
           const id = String(row.id ?? '');
           const meta = audioOf(row);
-          if (!meta) {
+          const archived = isArchivedNote(row['状态']);
+          /**
+           * 归档 / 激活（2026-09-21）。
+           *
+           * 为什么放在**插槽**而不是 `rowExtraActions`：那两个按钮是**互斥**的
+           * （同一行只能出现一个），而 rowExtraActions 只支持「静态标签 + 一个动作」、
+           * 不能按行换文案/显隐。插槽拿得到行、能自管状态，还能顺带拿到 reload。
+           * 权限不足时**整个不渲染** —— 后端同样会拦（接口可直连），前端只是不给死按钮。
+           */
+          const statusBtn = canSetStatus ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={Boolean(statusBusyId)}
+              title={archived ? t('activateTip') : t('archiveTip')}
+              // 行上挂着「点击编辑」，不拦住冒泡会顺手打开编辑表单
+              onClick={(e) => {
+                e.stopPropagation();
+                void setNoteStatus(row, archived ? NOTE_STATUS_ACTIVE : NOTE_STATUS_ARCHIVED, reload);
+              }}
+            >
+              {statusBusyId === id
+                ? `${archived ? t('activate') : t('archive')}…`
+                : archived
+                  ? t('activate')
+                  : t('archive')}
+            </button>
+          ) : null;
+
+          // 音频按钮 + 归档/激活：两个都可能为空，都没内容时返回 null（该行操作列不占位）
+          const audioBtn = !meta ? (
             // 录音类笔记但音频还没落库：给一个**禁用**的按钮并说明原因。
             // 直接不渲染会让人以为「功能没上线」；灰按钮 + title 能直接指向解法。
-            return String(row.note_type ?? '') === 'recorder_audio' ? (
+            String(row.note_type ?? '') === 'recorder_audio' ? (
               <button type="button" className="btn btn-ghost btn-sm" disabled title={t('noAudioYet')}>
                 ▶ {t('play')}
               </button>
-            ) : null;
-          }
-          const playing = playingId === id;
-          const dur = fmtDuration(meta.durationMs);
+            ) : null
+          ) : (
+            (() => {
+              const playing = playingId === id;
+              const dur = fmtDuration(meta.durationMs);
+              return (
+                <button
+                  type="button"
+                  className={playing ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+                  title={playing ? t('stopAudio') : `${t('playAudio')}${dur ? ` ${dur}` : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleRowAudio(row);
+                  }}
+                >
+                  {playing ? `⏸ ${t('stop')}` : `▶ ${t('play')}`}
+                </button>
+              );
+            })()
+          );
+
+          if (!audioBtn && !statusBtn) return null;
           return (
-            <button
-              type="button"
-              className={playing ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
-              title={playing ? t('stopAudio') : `${t('playAudio')}${dur ? ` ${dur}` : ''}`}
-              // 行上还挂着「点击编辑」，不拦住冒泡会顺手打开编辑表单
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleRowAudio(row);
-              }}
-            >
-              {playing ? `⏸ ${t('stop')}` : `▶ ${t('play')}`}
-            </button>
+            <>
+              {audioBtn}
+              {statusBtn}
+            </>
           );
         }}
         api={{
@@ -1347,12 +1527,18 @@ export default function GetnotePage() {
             const src = String(p['来源'] ?? '').trim();
             const cfg = String(p['配置名称'] ?? '').trim();
             const q = tagQuery || p.q;
+            // 状态筛选（默认「有效」，见列定义 filterDefault）。判据一律走 contracts 的
+            // noteStatusMatches —— 别在这里手写 `=== '有效'`：历史笔记没有状态行，
+            // 写等值会把它们全部筛掉（症状是「筛了有效一条都不剩」）。
+            const status = String(p['状态'] ?? '').trim();
             /**
              * 来源 / 配置名称 筛选：上游接口没有对应的过滤参数，只能翻页收集后在内存里筛。
              * 所以筛选后一次性返回全部命中项（hasMore=false），不再走游标分页 ——
              * 与语义搜索（q）的返回形态一致，CrudPage 都能正常渲染。
              *
              * ⚠️ 配置名称不在笔记对象里（Get笔记 没有这个字段），要先拿归属映射才能筛。
+             * ⚠️ 状态筛选也必须在**这条分支里**再判一次：本分支的数据根本不经过后端筛选
+             *    （是前端自己翻页收集的），漏了就会出现「筛了来源之后状态筛选失灵」。
              */
             if (src || cfg) {
               // 命中缓存就直接用，不再翻页收集（切换配置名称时省掉整轮往返）
@@ -1364,6 +1550,8 @@ export default function GetnotePage() {
                 let cursor = '';
                 const all: Record<string, unknown>[] = [];
                 for (let i = 0; i < SOURCE_FILTER_MAX_PAGES; i++) {
+                  // 这里刻意**不带任何筛选**：要的是全量原始行（状态行字段 `_status` 也在其中），
+                  // 来源 / 配置名称 / 状态都在下面用内存筛，口径与后端 applyNoteFilters 对齐。
                   const r = await api.listGetnote(cursor ? { pageToken: cursor } : {});
                   all.push(...(r.items ?? []));
                   if (!r.hasMore || !r.pageToken) break;
@@ -1383,16 +1571,20 @@ export default function GetnotePage() {
                   setConfigMap(map);
                 }
               }
-              const items = rows.filter((r) => {
+              const matched = rows.filter((r) => {
                 if (src && r['来源'] !== src) return false;
                 if (cfg && configDisplayName(map[String(r.id ?? '')], configNameById) !== cfg) {
                   return false;
                 }
                 return true;
               });
+              const items = matched.filter((r) => noteStatusMatches(r['状态'], status));
+              // 「已隐藏 N 条」在这条分支里自己算（服务端没参与筛选，给不了这个数）
+              setArchivedHidden(matched.length - items.length);
               return { items, total: items.length, hasMore: false };
             }
             const res = await api.listGetnote({ ...p, ...(q ? { q } : {}) });
+            setArchivedHidden(Number(res.archivedHidden ?? 0) || 0);
             // ?? [] 是防御：上游偶发不返回数组时，CrudPage 内部 res.items.length 也会崩
             return { ...res, items: (res.items ?? []).map(toRow) };
           },

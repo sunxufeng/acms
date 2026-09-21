@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import type { BaseClient } from '@acms/base-adapter';
-import { TABLES, USER_TABLE, splitNoteTags } from '@acms/contracts';
+import { TABLES, USER_TABLE, splitNoteTags, NOTE_STATUS_ACTIVE, NOTE_STATUS_ALL, NOTE_STATUS_ARCHIVED, isArchivedNote, normalizeNoteStatus, noteStatusMatches } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { toText } from '@acms/base-adapter';
 import type {
@@ -34,6 +34,8 @@ import { FileUploadService } from '../file-upload/file-upload.service.js';
 import { sniffAudioFormat } from '../file-storage/audio-format.js';
 // 落正文时的字段合并（保住已抓好的音频 —— 走 createWithId 是整体替换，见该文件注释）
 import { mergeNoteBodyPayload } from './note-body-merge.js';
+// 「笔记状态表」的建表定义（与启动期那份共用同一份字段元数据）
+import { ensureNoteStatusTable } from './note-status.schema.js';
 
 /** 得到大脑（Get笔记）开放平台。所有凭证只发往此地址，不接受任何其他 API 地址。 */
 const BASE = 'https://openapi.biji.com';
@@ -201,6 +203,17 @@ export interface GetnoteNote {
    */
   _sourceRecordId?: string;
   /**
+   * 笔记状态（`有效` / `归档`）—— **ACMS 侧的业务标记，不来自上游**。
+   *
+   * 列表接口逐行补（`attachNoteStatus`）；没有状态行（历史笔记）或值未知时补 `有效`。
+   * 前端据它渲染标题旁的「已归档」标记、决定「归档 / 激活」按钮显示哪一个，
+   * 并在「来源 / 配置名称」那条客户端内存筛选分支里做状态过滤。
+   */
+  _status?: string;
+  /** 归档时间（毫秒）／归档人 —— 只有归档过的笔记才有，行上悬停可看是谁在什么时候归档的 */
+  _archivedAt?: number;
+  _archivedBy?: string;
+  /**
    * 已落库的原始音频元信息。**详情与列表都返回**（列表由 `attachAudioMeta` 批量补）。
    *
    * 列表也要的原因：列表页「操作」列要直接给一个播放 / 停止按钮，
@@ -221,6 +234,14 @@ export interface GetnoteListResult {
   has_more?: boolean;
   cursor?: string;
   total?: number;
+  /**
+   * 被当前「状态」筛选挡掉的条数（筛选=有效 时即「已归档」的条数）。
+   *
+   * 用途：列表顶部那条「已隐藏 N 条已归档笔记」的提示 —— 没有它，管理员归档完
+   * 会以为笔记丢了（默认视图只看有效）。**只有服务端知道这个数**：前端拿到的
+   * 已经是筛过的结果，靠减法永远算不出来。
+   */
+  archivedHidden?: number;
 }
 
 /** 笔记的归属方（谁的知识库配置拉到的它）—— 详情落库与凭证解析共用。 */
@@ -951,6 +972,8 @@ export class GetnoteService {
     q: string,
     size: number,
     filters: NoteListFilters = {},
+    /** 状态映射（noteId → 状态），由 `list()` 读一次贯穿整条链路 —— 别在这里再读一次库 */
+    statusMap: Map<string, { status: string; archivedAt: number; archivedBy: string }> = new Map(),
   ): Promise<GetnoteListResult> {
     const key = user.openId;
     const now = Date.now();
@@ -1008,7 +1031,7 @@ export class GetnoteService {
     //    前端会显示「共 509 条」却只有几条能翻出来（分页条与内容对不上）。
     //    管理员路径本来就是「内存快照 + 内存分页」，加筛选不需要动数据、也不需要打上游。
     const filteredPool = this.applyNoteFilters(snapshot.items, filters);
-    const pool = keyword
+    const poolByOthers = keyword
       ? filteredPool.filter(
           (n) =>
             String(n.title ?? '').toLowerCase().includes(keyword) ||
@@ -1016,23 +1039,11 @@ export class GetnoteService {
         )
       : filteredPool;
 
-    // ⚠️ 快照过期后翻页的处理：
-    // 上面那段在过期时会**重新拉取**一次，重建出来的列表可能已经变了（有人新增/删除笔记）。
-    // 这时还拿着上一次的 snap:<offset> 去切片，offset 可能越过新列表末尾 → 返回空数组。
-    // 用户会看到「明明有数据却是空的」，且不知道该刷新，体验上等同于系统坏了。
-    // 所以越界（且列表非空）时回退到第一页，宁可让他觉得「跳回开头」也好过白屏。
-    const requested = parseSnapOffset(cursor);
-    const offset = requested > 0 && requested >= pool.length ? 0 : requested;
-    const slice = pool.slice(offset, offset + size);
-    const nextOffset = offset + slice.length;
-    const hasMore = nextOffset < pool.length;
+    // 状态筛选单独一步（`splitByStatus`）：前缀筛选都过完之后再按状态切一刀，
+    // 顺带算出「被状态挡掉多少条」给列表顶部的提示用。
+    const { kept: pool, hidden } = this.splitByStatus(poolByOthers, filters.status, statusMap);
 
-    return {
-      notes: slice,
-      has_more: hasMore,
-      cursor: hasMore ? `snap:${nextOffset}` : undefined,
-      total: pool.length,
-    };
+    return this.slicePool(pool, cursor, size, hidden);
   }
 
   /** 快照在 Redis 中的 key。按 openId 隔离，与内存快照一一对应。 */
@@ -1188,10 +1199,75 @@ export class GetnoteService {
     size = 20,
     filters: NoteListFilters = {},
   ): Promise<GetnoteListResult> {
-    const res = await this.listNotes(user, cursor, q, size, filters);
+    /**
+     * 状态映射**先读一次**，然后贯穿「筛选 → 统计被挡掉几条 → 切片 → 逐行标注」。
+     *
+     * 为什么必须在最前面读：状态筛选要在切片之前做（否则 total / hasMore 都按未筛选的池子算），
+     * 而筛选时要判的是整个池子 —— 所以只能在这里读一次全表（表很小，见 loadNoteStatusMap）。
+     */
+    const statusMap = await this.loadNoteStatusMap();
+    const res = await this.listNotes(user, cursor, q, size, filters, statusMap);
     // 列表行补 `_audio`：列表页操作列要直接给「播放 / 停止」按钮。
     // 放这里统一做，三条返回路径（管理员快照 / 按可见配置收窄 / 上游直查）都能覆盖到。
-    return { ...res, notes: await this.attachAudioMeta(res.notes ?? []) };
+    // 同时补 `_status`：前端据此画「已归档」标记、决定「归档 / 激活」按钮显示哪一个。
+    const withAudio = await this.attachAudioMeta(res.notes ?? []);
+    return { ...res, notes: await this.attachNoteStatus(withAudio, statusMap) };
+  }
+
+  /** 笔记状态（没有状态行 ⇒ 有效）。筛选与标注共用同一份判据，避免两处口径漂移。 */
+  private statusOfNote(
+    n: GetnoteNote,
+    map: Map<string, { status: string; archivedAt: number; archivedBy: string }>,
+  ): string {
+    return map.get(String(n.note_id ?? n.id ?? '').trim())?.status ?? NOTE_STATUS_ACTIVE;
+  }
+
+  /**
+   * 按状态切一刀，并**成对返回**「留下的」与「被挡掉的条数」。
+   *
+   * 成对返回的理由：列表顶部要显示「已隐藏 N 条已归档笔记」，而这个 N 只能在
+   * 「其它筛选都过完、状态这一刀还没切」的那一刻算出来；拆成两次调用就必然有人写歪。
+   *
+   * ⚠️ 判据用 contracts 的 `noteStatusMatches`：**历史笔记没有状态行，也必须是「有效」**。
+   *    这里若写成 `status === NOTE_STATUS_ACTIVE`，历史笔记会被全部挡掉
+   *    —— 界面症状是「筛了『有效』一条都不剩」。
+   */
+  private splitByStatus(
+    items: GetnoteNote[],
+    want: string | undefined,
+    map: Map<string, { status: string; archivedAt: number; archivedBy: string }>,
+  ): { kept: GetnoteNote[]; hidden: number } {
+    if (!want || want === NOTE_STATUS_ALL) return { kept: items, hidden: 0 };
+    const kept = items.filter((n) => noteStatusMatches(this.statusOfNote(n, map), want));
+    return { kept, hidden: items.length - kept.length };
+  }
+
+  /**
+   * 内存分页（管理员快照与「按可见配置收窄」两条路径共用）。
+   *
+   * ⚠️ 快照过期后翻页的处理：快照过期时会**重新拉取**一次，重建出来的列表可能已经变了
+   * （有人新增/删除笔记）。这时还拿着上一次的 `snap:<offset>` 去切片，offset 可能越过
+   * 新列表末尾 → 返回空数组，用户看到「明明有数据却是空的」且不知道该刷新。
+   * 所以越界（且列表非空）时回退到第一页，宁可让他觉得「跳回开头」也好过白屏。
+   */
+  private slicePool(
+    pool: GetnoteNote[],
+    cursor: string,
+    size: number,
+    archivedHidden = 0,
+  ): GetnoteListResult {
+    const requested = parseSnapOffset(cursor);
+    const offset = requested > 0 && requested >= pool.length ? 0 : requested;
+    const slice = pool.slice(offset, offset + size);
+    const nextOffset = offset + slice.length;
+    const hasMore = nextOffset < pool.length;
+    return {
+      notes: slice,
+      has_more: hasMore,
+      cursor: hasMore ? `snap:${nextOffset}` : undefined,
+      total: pool.length,
+      ...(archivedHidden > 0 ? { archivedHidden } : {}),
+    };
   }
 
   /**
@@ -1223,35 +1299,65 @@ export class GetnoteService {
     q?: string,
     size = 20,
     filters: NoteListFilters = {},
+    statusMap: Map<string, { status: string; archivedAt: number; archivedBy: string }> = new Map(),
   ): Promise<GetnoteListResult> {
     // 管理员：跨所有启用配置聚合（走快照分页，不用上游 cursor）
     if (this.isAdmin(user))
-      return this.listAllForAdmin(user, cursor ?? '', q ?? '', size, filters);
+      return this.listAllForAdmin(user, cursor ?? '', q ?? '', size, filters, statusMap);
 
     // 非管理员：**被关联到知识库配置时**，只看到这些配置的笔记 —— 与管理员同一条
     // 数据来源（每条配置用自己的凭证去拉），只是配置集合被收窄到「我能看到的那几条」。
     // 一条都没被关联的，回落到「只用自己的凭证」的旧行为。
     const scoped = await this.linkedSourceIds(user);
     if (scoped.length)
-      return this.listScopedBySources(user, scoped, cursor ?? '', q ?? '', size, filters);
+      return this.listScopedBySources(user, scoped, cursor ?? '', q ?? '', size, filters, statusMap);
+
+    /**
+     * 只剩「个人凭证」这一路（既不是管理员、也没被关联任何配置）。
+     *
+     * ⚠️ 2026-09-21 修：带着结构化筛选时**改走内存聚合分页**。
+     *    原先这条路是直接翻上游游标（`/resource/note/list`），而**上游不认这些筛选参数**
+     *    —— 于是四个筛选（来源/配置名称/归属人/标签）在这条路上是**静默失效**的
+     *    （页面上点了没反应，还不报错）。状态是新加的第五个筛选，不能一上线就继承这个毛病：
+     *    「默认只看有效」在这种账号上会变成「什么都不筛」，归档的笔记照样列出来。
+     *
+     *    不带任何筛选时仍然走上游游标（省一次全量拉取）—— 这条路的账号笔记量通常很小，
+     *    而带上筛选本来就得先有全量数据才筛得了。
+     */
+    const key = q?.trim();
+    const hasFilter = Boolean(
+      filters.source || filters.configName || filters.owner || filters.tag || filters.status,
+    );
+    if (hasFilter && !key) {
+      // `collectAllNotes(user, [])`：白名单为空数组 ⇒ 只聚合「本人凭证」那一路
+      // （空数组是**真值**，所以配置源全被跳过；本人凭证那一路不受白名单影响）
+      const mine = await this.collectAllNotes(user, []);
+      const poolByOthers = this.applyNoteFilters(mine, filters);
+      const { kept: pool, hidden } = this.splitByStatus(poolByOthers, filters.status, statusMap);
+      return this.slicePool(pool, cursor ?? '', size, hidden);
+    }
 
     // 非管理员只用自己的 Key 直接翻上游游标，size 由上游决定（这里用不到）
     void size;
     const cred = await this.credFor(user);
-    const key = q?.trim();
     if (key) {
       const items = await this.recall(user, key, 10);
+      const mapped = items.map((r) => ({
+        note_id: r.note_id,
+        title: r.title,
+        content: r.content,
+        note_type: r.note_type,
+        created_at: r.created_at,
+      }));
+      // 语义检索结果同样按状态切一刀：默认视图只看有效，检索不该成为「归档笔记的后门」
+      //（管理员那条路的关键字检索已经过同一刀，这里对齐）
+      const { kept, hidden } = this.splitByStatus(mapped, filters.status, statusMap);
       return {
-        notes: items.map((r) => ({
-          note_id: r.note_id,
-          title: r.title,
-          content: r.content,
-          note_type: r.note_type,
-          created_at: r.created_at,
-        })),
+        notes: kept,
         has_more: false,
         cursor: undefined,
-        total: items.length,
+        total: kept.length,
+        ...(hidden > 0 ? { archivedHidden: hidden } : {}),
       };
     }
     return this.request<GetnoteListResult>(cred, '/open/api/v1/resource/note/list', {
@@ -1323,6 +1429,7 @@ export class GetnoteService {
     q: string,
     size: number,
     filters: NoteListFilters = {},
+    statusMap: Map<string, { status: string; archivedAt: number; archivedBy: string }> = new Map(),
   ): Promise<GetnoteListResult> {
     // 只拉「我可见的那些源」——不限定的话要把全部启用源都打一遍（12 个源约 24 秒，
     // 还会消耗所有同事的上游额度）。
@@ -1336,7 +1443,7 @@ export class GetnoteService {
     const keyword = q.trim().toLowerCase();
     // 结构化筛选（来源 / 配置名称 / 归属人 / 标签）先过一遍，关键字检索再叠加
     const scopedPool = this.applyNoteFilters(mine, filters);
-    const pool = keyword
+    const poolByOthers = keyword
       ? scopedPool.filter(
           (n) =>
             String(n.title ?? '').toLowerCase().includes(keyword) ||
@@ -1344,17 +1451,9 @@ export class GetnoteService {
         )
       : scopedPool;
 
-    const requested = parseSnapOffset(cursor);
-    const offset = requested > 0 && requested >= pool.length ? 0 : requested;
-    const slice = pool.slice(offset, offset + size);
-    const nextOffset = offset + slice.length;
-    const hasMore = nextOffset < pool.length;
-    return {
-      notes: slice,
-      has_more: hasMore,
-      cursor: hasMore ? `snap:${nextOffset}` : undefined,
-      total: pool.length,
-    };
+    // 状态最后一刀（与管理员路径同一套函数，口径不许分叉）
+    const { kept: pool, hidden } = this.splitByStatus(poolByOthers, filters.status, statusMap);
+    return this.slicePool(pool, cursor, size, hidden);
   }
 
   /**
@@ -1587,6 +1686,156 @@ export class GetnoteService {
     ]);
     this.noteSnapshotReady = true;
     this.logger.log('笔记快照表字段元数据已就绪');
+  }
+
+  // ── 笔记状态（有效 / 归档）────────────────────────────────────────────
+  //
+  // ACMS 侧的业务标记：上游 note 对象没有可写的自定义字段，所以状态落在自建表
+  // 「笔记状态表」（记录 id = 笔记 ID）。
+  //
+  // 🔴 三条口径（都在 `packages/contracts/src/getnote.ts`，前后端共用同一份）：
+  //   1. **没有行 = 有效** ⇒ 历史笔记零回填；
+  //   2. 只有明确「归档」才算归档，其余（空 / 未知）一律算有效；
+  //   3. 状态筛选必须走 `noteStatusMatches()`，别在别处手写 `=== '有效'`。
+
+  /**
+   * 建「笔记状态表」：定义与字段元数据在 `note-status.schema.ts`（与启动期那份**同一份**，
+   * 两处各写一套必然漂移）。这里只是懒建兜底 —— 启动建表失败 / 进程未重启时照样能用。
+   */
+  private async ensureNoteStatusTable(): Promise<void> {
+    await ensureNoteStatusTable();
+  }
+
+  /**
+   * 一次性读回**全部**状态行（笔记 ID → 状态）。
+   *
+   * 为什么整表读而不是按 id 逐个查：状态筛选必须在**切片之前**做（否则 total / hasMore
+   * 都按未筛选的池子算，会出现「共 509 条却只翻得出几条」），而筛选时要判的是**整个池子**
+   * （管理员池子 500+ 条）—— 逐 id 查就是 500 次往返。
+   *
+   * 代价可以接受：这张表**只会为「被归档过」的笔记生长**（没归档过的笔记没有行），
+   * 现实量级是几条到几十条，一页（500）就拉完了。出错一律按「全部有效」处理，
+   * 绝不能因为状态表出问题就把整个列表打空。
+   */
+  private async loadNoteStatusMap(): Promise<Map<string, { status: string; archivedAt: number; archivedBy: string }>> {
+    const out = new Map<string, { status: string; archivedAt: number; archivedBy: string }>();
+    const sql = getSqlStore();
+    if (!sql) return out;
+    try {
+      await this.ensureNoteStatusTable();
+      const tableId = TABLES.noteStatus.tableId;
+      let token: string | undefined;
+      for (let i = 0; i < 10; i += 1) {
+        const page = await sql.search(tableId, { pageSize: 500, ...(token ? { pageToken: token } : {}) });
+        for (const r of page.items ?? []) {
+          // ⚠️ search 返回的 id 字段是 recordId（不是 id）；两者都取，避免恒空
+          const rr = r as unknown as { recordId?: string; id?: string };
+          const id = String(rr.recordId ?? rr.id ?? '').trim();
+          if (!id) continue;
+          out.set(id, {
+            status: normalizeNoteStatus(r.fields?.['状态']),
+            archivedAt: Number(r.fields?.['归档时间'] ?? 0) || 0,
+            archivedBy: String(toText(r.fields?.['归档人']) ?? '').trim(),
+          });
+        }
+        if (!page.hasMore || !page.pageToken) break;
+        token = page.pageToken;
+      }
+    } catch (e) {
+      this.logger.warn(`读取笔记状态失败（按「全部有效」继续）：${(e as Error).message.slice(0, 120)}`);
+      return new Map();
+    }
+    return out;
+  }
+
+  /**
+   * 给列表行批量补 `_status`（以及归档人/时间）。
+   *
+   * 放在 `list()` 里统一做，三条取数路径（管理员快照 / 按可见配置收窄 / 上游直查）都覆盖到
+   * —— 与 `attachAudioMeta` 同一处收口。**不能只让详情接口返回状态**：那样列表既筛不了、
+   * 也画不出「已归档」标记。
+   */
+  private async attachNoteStatus(
+    notes: GetnoteNote[],
+    statusMap?: Map<string, { status: string; archivedAt: number; archivedBy: string }>,
+  ): Promise<GetnoteNote[]> {
+    if (!notes.length) return notes;
+    const map = statusMap ?? (await this.loadNoteStatusMap());
+    return notes.map((n) => {
+      const hit = map.get(String(n.note_id ?? n.id ?? '').trim());
+      return {
+        ...n,
+        // 没有行 ⇒ 有效（历史笔记的兜底就在这里）
+        _status: hit?.status ?? NOTE_STATUS_ACTIVE,
+        ...(hit?.archivedAt ? { _archivedAt: hit.archivedAt } : {}),
+        ...(hit?.archivedBy ? { _archivedBy: hit.archivedBy } : {}),
+      };
+    });
+  }
+
+  /**
+   * 归档 / 激活一条笔记（**幂等**：重复点不出错，已是目标状态就原样返回）。
+   *
+   * 归档只写 ACMS 这张表 —— 不会动 Get笔记 里的笔记（上游是别人的数据，
+   * 用户在手机 App 里看它跟原来一样）。所以「归档」的语义是**本系统内收起**，不是删除；
+   * 真要删是 `DELETE /getnote/notes/:id`（进上游回收站），两者互不影响。
+   */
+  async setNoteStatus(
+    user: SessionUser,
+    noteId: string,
+    status: string,
+    title?: string,
+  ): Promise<{ noteId: string; status: string; changed: boolean; archivedAt?: number; archivedBy?: string }> {
+    const id = String(noteId ?? '').trim();
+    if (!id) throw new HttpException('BAD_REQUEST:noteId required', HttpStatus.BAD_REQUEST);
+    const want = normalizeNoteStatus(status);
+    const sql = getSqlStore();
+    if (!sql) throw new HttpException('DB_UNAVAILABLE', HttpStatus.SERVICE_UNAVAILABLE);
+    await this.ensureNoteStatusTable();
+    const tableId = TABLES.noteStatus.tableId;
+
+    const readOne = async (): Promise<{ exists: boolean; status: string }> => {
+      try {
+        // 记录 id 就是笔记 ID ⇒ 直接主键取，不走 filter（关联/文本字段的等值 filter 不可靠）
+        const rec = await sql.get(tableId, id);
+        if (!rec) return { exists: false, status: NOTE_STATUS_ACTIVE };
+        return { exists: true, status: normalizeNoteStatus((rec.fields ?? {})['状态']) };
+      } catch {
+        // 读失败按「没有状态行」处理（= 有效）：宁可多写一次，也不要因为读失败把状态判反
+        return { exists: false, status: NOTE_STATUS_ACTIVE };
+      }
+    };
+
+    const before = await readOne();
+    // 幂等：已经是目标状态 ⇒ 不写库、不改时间戳（否则「归档时间」会被反复刷新）。
+    // ⚠️ 「激活一条从没归档过的笔记」也走这里：**没有状态行 = 有效** ——
+    //    这时若照样写一行，就会给每篇被误点的笔记留一条只有状态=有效的垃圾行。
+    if ((!before.exists && want === NOTE_STATUS_ACTIVE) || (before.exists && before.status === want)) {
+      const map = await this.loadNoteStatusMap();
+      const hit = map.get(id);
+      return { noteId: id, status: want, changed: false, archivedAt: hit?.archivedAt, archivedBy: hit?.archivedBy };
+    }
+
+    const now = Date.now();
+    const fields: Record<string, unknown> = {
+      笔记ID: id,
+      标题: String(title ?? '').trim(),
+      状态: want,
+      ...(want === NOTE_STATUS_ARCHIVED
+        ? { 归档时间: now, 归档人: user?.name ?? '', 归档人ID: user?.openId ?? '' }
+        : { 激活时间: now, 激活人: user?.name ?? '' }),
+    };
+    // ⚠️ 写库必须分「首次 createWithId / 已有 update」：`createWithId` 是**整体替换**，
+    //    对已存在的行用它会把上次的归档时间冲掉（激活后再归档，历史就没了）。
+    if (before.exists) await sql.update(tableId, id, fields);
+    else await sql.createWithId(tableId, id, fields);
+
+    return {
+      noteId: id,
+      status: want,
+      changed: true,
+      ...(want === NOTE_STATUS_ARCHIVED ? { archivedAt: now, archivedBy: user?.name ?? '' } : {}),
+    };
   }
 
   /**
@@ -2299,6 +2548,28 @@ export class GetnoteService {
     const moduleKey = String(input?.moduleKey ?? '');
     if (!noteId || !moduleKey)
       throw new HttpException('BAD_REQUEST:noteId/moduleKey required', HttpStatus.BAD_REQUEST);
+
+    /**
+     * 🔴 归档的笔记不许再转换（2026-09-21 峰哥要求）。
+     *
+     * ⚠️ 这是**服务端闸门**，但要说清它的边界：转换的预填走浏览器本地存储
+     *    （`putConvertPayload`），用户完全可以在别处手工把内容抄进业务表单 ——
+     *    拦不住。它挡住的是「还在用归档笔记当数据源」这个业务动作本身。
+     *
+     * 为什么放在**留痕**这一层而不是转换按钮那一层：前端按钮只是给正常人省的，
+     *    接口可直连；留痕是所有转换路径的必经点（改过前端也绕不过）。
+     * 抛 409 而不是 403：这不是权限不足，是**状态不允许**；且前端要能把它与
+     *    「留痕写失败」区分开（后者只出黄条、不阻断），所以给一个专门的错误码前缀。
+     */
+    {
+      const map = await this.loadNoteStatusMap();
+      if (isArchivedNote(map.get(noteId)?.status)) {
+        throw new HttpException(
+          'NOTE_ARCHIVED:该笔记已归档，不能转换；如需转换请先「激活」',
+          HttpStatus.CONFLICT,
+        );
+      }
+    }
 
     const res = await this.base.search(tableId, {
       pageSize: 20,

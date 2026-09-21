@@ -266,7 +266,7 @@ export async function freebusyBatch(
   roomIds: readonly string[],
   startMs: number,
   endMs: number,
-): Promise<FeishuResult<{ spans: SpansByRoom }>> {
+): Promise<FeishuResult<{ spans: SpansByRoom; errorRoomIds?: string[] }>> {
   const token = await getTenantToken(creds);
   if (!token) return { ok: false, error: '未配置飞书应用凭据' };
   const ids = roomIds.slice(0, 20);
@@ -279,17 +279,40 @@ export async function freebusyBatch(
   const r = await getJson(url, token);
   if (!r.ok) return r as FeishuResult<{ spans: SpansByRoom }>;
 
-  const d = r.data as { data?: { free_busy?: Record<string, unknown>[] } };
+  /**
+   * 🔴 真实响应形状（2026-09-21 实测）与**文档不一致**，这里是踩过的坑：
+   *
+   * 文档写的是 `data.free_busy = [{ room_id, start_time, end_time }]`（数组），
+   * 实际返回的是**对象** `data.free_busy = { "<room_id>": [ { start_time, end_time,
+   * organizer_info, uid }, ... ] }`，时间是 **RFC3339**（`2026-09-21T09:45:00+08:00`）。
+   *
+   * 按文档当数组迭代 ⇒ `object is not iterable` ⇒ 接口 500。
+   * 之前没暴露是因为应用**没有** freebusy 权限（一直返回 denied，走不到这里）；
+   * 权限一开通，所有日期都开始 500。两种形状现在都吃，且**任何非数组一律跳过**
+   * （结构变了宁可少画占用、也不能把接口打成 500）。
+   */
+  const d = r.data as { data?: { free_busy?: unknown; error_room_ids?: unknown } };
+  const raw = d.data?.free_busy;
+  const pairs: [string, unknown][] = Array.isArray(raw)
+    ? (raw as Record<string, unknown>[]).map((it) => [String(it.room_id ?? ''), [it]])
+    : raw && typeof raw === 'object'
+      ? Object.entries(raw as Record<string, unknown>)
+      : [];
+
   const spans: SpansByRoom = {};
-  for (const it of d.data?.free_busy ?? []) {
-    const roomId = String(it.room_id ?? '').trim();
-    if (!roomId) continue;
-    const s = anyToMs(it.start_time);
-    const e = anyToMs(it.end_time);
-    if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) continue;
-    (spans[roomId] ??= []).push({ startMs: s, endMs: e });
+  for (const [roomId, events] of pairs) {
+    if (!roomId || !Array.isArray(events)) continue;
+    for (const ev of events as Record<string, unknown>[]) {
+      const s = parseFeishuDateTime(ev.start_time ?? ev.startTime);
+      const e = parseFeishuDateTime(ev.end_time ?? ev.endTime);
+      if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) continue;
+      (spans[roomId] ??= []).push({ startMs: s, endMs: e });
+    }
   }
-  return { ok: true, data: { spans } };
+  const errIds = Array.isArray(d.data?.error_room_ids)
+    ? (d.data?.error_room_ids as unknown[]).map(String).filter(Boolean)
+    : [];
+  return { ok: true, data: { spans, errorRoomIds: errIds } };
 }
 
 /**

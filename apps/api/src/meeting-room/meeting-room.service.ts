@@ -348,6 +348,10 @@ export class MeetingRoomService {
           for (const [roomId, list] of Object.entries(r.data.spans)) {
             (collected[roomId] ??= []).push(...list);
           }
+          // 飞书会明确告诉我们哪些房间没查到（error_room_ids）—— 不能静默丢掉：
+          // 那些房间会被画成"空闲"，而它们的状态其实是"未知"
+          const errIds = r.data.errorRoomIds ?? [];
+          if (errIds.length) warnings.push(`有 ${errIds.length} 个会议室的占用没能从飞书取到`);
         }
         if (allOk) {
           if (!roomIds.length) warnings.push('没有可查询的会议室（请先同步）');

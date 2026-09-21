@@ -275,22 +275,12 @@ export default function MeetingRoomsPage() {
             ‹
           </button>
           <span style={{ fontWeight: 600, minWidth: 148, textAlign: 'center' }}>{dateLabel(date)}</span>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => setDate(shiftDateKey(date, 1))}
-            // 飞书的预订单接口不接受未来日期（start_time 不能大于当前时间），
-            // 所以干脆不让往前翻 —— 否则用户翻过去只会看到一句"看不到"
-            disabled={date >= todayKey()}
-            title={date >= todayKey() ? t('noFuture') : undefined}
-          >
+          <button className="btn btn-ghost btn-sm" onClick={() => setDate(shiftDateKey(date, 1))}>
             ›
           </button>
           <button className="btn btn-outline btn-sm" onClick={() => setDate(todayKey())}>
             {t('today')}
           </button>
-          {date >= todayKey() ? (
-            <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{t('onlyPast')}</span>
-          ) : null}
         </div>
 
         <span

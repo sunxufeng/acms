@@ -235,18 +235,44 @@ export function hhmm(ms: number): string {
 }
 
 /**
- * 解析飞书预订单里的时间字符串 → 毫秒。
+ * 解析飞书返回的时间 → 毫秒。
  *
- * 🔴 飞书 `resource_reservation_list` 给的是**带时区后缀的墙钟字符串**：
- *    `"2026.09.21 09:00:00 (GMT+08:00)"` —— 不是时间戳、分隔符是点、还带 GMT 尾巴。
- *    （2026-09-21 实测：把 9 条真实预定全解析失败 ⇒ 页面会显示"全空闲"，
- *     这是这套功能里最危险的假象，所以这里单列成函数并配单测。）
+ * 飞书**两套接口给两种格式**，都是 2026-09-21 用生产数据实测确认的（不是猜）：
+ *   ① `meeting_room/freebusy/batch_get`（忙闲）：`"2026-09-21T09:45:00+08:00"` —— RFC3339；
+ *   ② `vc/v1/resource_reservation_list`（预订单）：`"2026.09.21 09:00:00 (GMT+08:00)"` ——
+ *      点号分隔的墙钟 + GMT 尾巴。
  *
- * 带偏移 ⇒ 按该偏移换算成绝对时刻；不带偏移 ⇒ 按**本地时区**解释（飞书给的是本地墙钟时间）。
- * 解析不了返回 NaN（调用方跳过这条预定，而不是当成 0 点）。
+ * 🔴 这两种格式必须都认：只认一种的后果是「有预定却被当成空闲」
+ *    （早期按文档假设的"数组 + start_time"解析，导致当天 9 条预定全丢，
+ *     页面画成一片空闲 —— 这是这套功能里最危险的假象）。
+ *
+ * 带偏移 ⇒ 按该偏移换算成绝对时刻；不带偏移（含裸墙钟）⇒ 按**本地时区**解释
+ * （飞书给的是本地墙钟时间）。解析不了返回 NaN（调用方跳过该条，而不是当成 0 点）。
  */
 export function parseFeishuDateTime(v: unknown): number {
   const s = String(v ?? '').trim();
+  if (!s) return NaN;
+
+  // ① RFC3339 / ISO8601（freebusy）
+  const iso = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/.exec(s);
+  if (iso) {
+    const Y = Number(iso[1]);
+    const Mo = Number(iso[2]);
+    const D = Number(iso[3]);
+    const H = Number(iso[4]);
+    const Mi = Number(iso[5]);
+    const Se = Number(iso[6] ?? 0);
+    const tz = iso[7];
+    if (Mo < 1 || Mo > 12 || D < 1 || D > 31 || H > 23 || Mi > 59) return NaN;
+    if (!tz) return new Date(Y, Mo - 1, D, H, Mi, Se, 0).getTime();
+    const base = Date.UTC(Y, Mo - 1, D, H, Mi, Se);
+    if (tz === 'Z') return base;
+    const sign = tz.startsWith('-') ? -1 : 1;
+    const offMin = Number(tz.slice(1, 3)) * 60 + Number(tz.slice(4).replace(':', ''));
+    return base - sign * offMin * 60_000;
+  }
+
+  // ② 点号墙钟 + (GMT±HH:MM)（预订单）
   const m = /^(\d{4})[./-](\d{1,2})[./-](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?\s*(?:\(GMT([+-])(\d{1,2}):?(\d{2})\))?$/.exec(s);
   if (!m) return NaN;
   const Y = Number(m[1]);
@@ -260,8 +286,7 @@ export function parseFeishuDateTime(v: unknown): number {
   const sign = m[7];
   if (!sign) return new Date(Y, Mo - 1, D, H, Mi, Se, 0).getTime();
   const offMin = (Number(m[8]) || 0) * 60 + (Number(m[9]) || 0);
-  const signedOff = sign === '-' ? -offMin : offMin;
-  return Date.UTC(Y, Mo - 1, D, H, Mi, Se) - signedOff * 60_000;
+  return Date.UTC(Y, Mo - 1, D, H, Mi, Se) - (sign === '-' ? -offMin : offMin) * 60_000;
 }
 
 /**

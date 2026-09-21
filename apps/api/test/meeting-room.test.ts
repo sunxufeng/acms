@@ -248,9 +248,13 @@ describe('飞书预订单时间解析（上线当天 9 条真实预定全靠它�
   it('🔴 解析不了就返回 NaN（调用方跳过这条，而不是当成 0 点）', () => {
     expect(Number.isNaN(parseFeishuDateTime(''))).toBe(true);
     expect(Number.isNaN(parseFeishuDateTime(null))).toBe(true);
-    // RFC3339（`2026-09-21T09:00:00+08:00`）是 freebusy **入参**的格式，不是预订单返回值的格式；
-    // 两种格式不能混用 —— 拿错格式返回 NaN 才对，否则等于"猜着解析"（那正是当初 9 条预定全丢的原因）
-    expect(Number.isNaN(parseFeishuDateTime('2026-09-21T09:00:00+08:00'))).toBe(true);
+    // RFC3339 是 **freebusy（忙闲）** 返回值的格式 —— 两套接口给两种格式，都必须认
+    expect(Number.isNaN(parseFeishuDateTime('2026-09-21T09:00:00+08:00'))).toBe(false);
+    expect(parseFeishuDateTime('2026-09-21T01:45:00Z')).toBe(Date.UTC(2026, 8, 21, 1, 45, 0));
+    // 🔴 关键：同一天的同一时刻，两种格式解出来必须是同一个值（否则两套接口的占用会对不上）
+    expect(parseFeishuDateTime('2026.09.21 09:00:00 (GMT+08:00)')).toBe(
+      parseFeishuDateTime('2026-09-21T09:00:00+08:00'),
+    );
     expect(Number.isNaN(parseFeishuDateTime('2026.13.21 09:00:00 (GMT+08:00)'))).toBe(true);
     expect(Number.isNaN(parseFeishuDateTime('2026.09.21 25:00:00 (GMT+08:00)'))).toBe(true);
   });

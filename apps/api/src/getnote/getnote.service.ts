@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import type { BaseClient } from '@acms/base-adapter';
-import { TABLES, USER_TABLE, splitNoteTags, NOTE_STATUS_ACTIVE, NOTE_STATUS_ALL, NOTE_STATUS_ARCHIVED, isArchivedNote, normalizeNoteStatus, noteStatusMatches } from '@acms/contracts';
+import { TABLES, USER_TABLE, splitNoteTags, NOTE_STATUS_ACTIVE, NOTE_STATUS_ALL, NOTE_STATUS_ARCHIVED, hiddenArchivedCount, isArchivedNote, normalizeNoteStatus, noteStatusMatches } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { toText } from '@acms/base-adapter';
 import type {
@@ -1292,7 +1292,10 @@ export class GetnoteService {
   ): { kept: GetnoteNote[]; hidden: number } {
     if (!want || want === NOTE_STATUS_ALL) return { kept: items, hidden: 0 };
     const kept = items.filter((n) => noteStatusMatches(this.statusOfNote(n, map), want));
-    return { kept, hidden: items.length - kept.length };
+    // hidden 只数**归档**的（`hiddenArchivedCount`，与前端同一份）——
+    // 「挡掉的条数」在「归档」视图下是**有效**笔记的条数，拿它去填
+    // 「已隐藏 N 条已归档笔记」就是数字对、话错（2026-09-21 自查发现）。
+    return { kept, hidden: hiddenArchivedCount(items.map((n) => this.statusOfNote(n, map)), want) };
   }
 
   /**

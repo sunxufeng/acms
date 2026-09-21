@@ -119,3 +119,18 @@ export function noteStatusMatches(status: unknown, want?: unknown): boolean {
   if (!w || w === NOTE_STATUS_ALL) return true;
   return normalizeNoteStatus(status) === normalizeNoteStatus(w);
 }
+
+/**
+ * 「已隐藏 N 条已归档笔记」里的 **N** —— 被当前状态筛选挡掉、**且确实是归档**的条数。
+ *
+ * 🔴 为什么不能直接用「挡掉的条数」（2026-09-21 自查发现）：
+ *    被挡掉的不一定是归档的 —— 切到「归档」视图时，被挡掉的是**有效**笔记，
+ *    直接用总数会让提示变成「已隐藏 664 条已归档笔记」（数字对、话完全错）。
+ *    提示条只在默认视图（有效）下有意义，所以这里把口径钉成「挡掉 ∧ 归档」：
+ *    筛「有效」⇒ 归档条数；筛「归档」/「全部」⇒ 0（不显示提示）。
+ *
+ * 前端（页面内存筛选那条分支）与后端（`splitByStatus`）共用这一份，别再各算各的。
+ */
+export function hiddenArchivedCount(statuses: readonly unknown[], want?: unknown): number {
+  return statuses.filter((s) => !noteStatusMatches(s, want) && isArchivedNote(s)).length;
+}

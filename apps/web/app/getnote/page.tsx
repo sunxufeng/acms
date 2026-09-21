@@ -16,6 +16,7 @@ import {
   NOTE_STATUS_ACTIVE,
   NOTE_STATUS_ARCHIVED,
   NOTE_STATUS_FILTER_OPTIONS,
+  hiddenArchivedCount,
   isArchivedNote,
   noteStatusMatches,
   noteTagNames,
@@ -1588,8 +1589,10 @@ export default function GetnotePage() {
                 return true;
               });
               const items = matched.filter((r) => noteStatusMatches(r['状态'], status));
-              // 「已隐藏 N 条」在这条分支里自己算（服务端没参与筛选，给不了这个数）
-              setArchivedHidden(matched.length - items.length);
+              // 「已隐藏 N 条**已归档**」在这条分支里自己算（服务端没参与筛选，给不了这个数）。
+              // 口径与后端 splitByStatus 共用 `hiddenArchivedCount`：只数「挡掉 ∧ 归档」的，
+              // 不能拿 matched.length - items.length（切到「归档」视图时那个差是**有效**笔记的条数）。
+              setArchivedHidden(hiddenArchivedCount(matched.map((r) => r['状态']), status));
               return { items, total: items.length, hasMore: false };
             }
             const res = await api.listGetnote({ ...p, ...(q ? { q } : {}) });

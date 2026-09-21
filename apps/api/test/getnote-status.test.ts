@@ -4,6 +4,7 @@ import {
   NOTE_STATUS_ALL,
   NOTE_STATUS_ARCHIVED,
   NOTE_STATUS_FILTER_OPTIONS,
+  hiddenArchivedCount,
   isArchivedNote,
   normalizeNoteStatus,
   noteStatusMatches,
@@ -68,6 +69,33 @@ describe('noteStatusMatches（筛选：不传 = 不限制）', () => {
     expect(noteStatusMatches(NOTE_STATUS_ARCHIVED, NOTE_STATUS_ARCHIVED)).toBe(true);
     expect(noteStatusMatches(NOTE_STATUS_ACTIVE, NOTE_STATUS_ARCHIVED)).toBe(false);
     expect(noteStatusMatches(undefined, NOTE_STATUS_ARCHIVED)).toBe(false);
+  });
+});
+
+/**
+ * 2026-09-21 自查发现：提示条「已隐藏 N 条**已归档**笔记」里的 N，
+ * 原先拿的是「被挡掉的条数」—— 切到「归档」视图时被挡掉的是**有效**笔记，
+ * 提示就变成「已隐藏 664 条已归档笔记」（数字对、话错）。口径钉成「挡掉 ∧ 归档」。
+ */
+describe('hiddenArchivedCount（提示条的 N）', () => {
+  const mixed = [NOTE_STATUS_ARCHIVED, NOTE_STATUS_ACTIVE, undefined, '作废'];
+
+  it('筛「有效」⇒ 只数归档的（历史笔记不算）', () => {
+    expect(hiddenArchivedCount(mixed, NOTE_STATUS_ACTIVE)).toBe(1);
+  });
+
+  it('筛「归档」⇒ 0（被挡掉的是有效笔记，不该报成「已隐藏 N 条已归档」）', () => {
+    expect(hiddenArchivedCount(mixed, NOTE_STATUS_ARCHIVED)).toBe(0);
+  });
+
+  it('「全部」/ 空 ⇒ 0（没挡任何东西，不显示提示）', () => {
+    expect(hiddenArchivedCount(mixed, NOTE_STATUS_ALL)).toBe(0);
+    expect(hiddenArchivedCount(mixed, '')).toBe(0);
+    expect(hiddenArchivedCount(mixed, undefined)).toBe(0);
+  });
+
+  it('全是归档时，筛有效把每一条都算上', () => {
+    expect(hiddenArchivedCount([NOTE_STATUS_ARCHIVED, NOTE_STATUS_ARCHIVED], NOTE_STATUS_ACTIVE)).toBe(2);
   });
 });
 

@@ -325,7 +325,10 @@ export class ReportsService {
         });
         for (const r of page.items ?? []) {
           const f = (r as unknown as { fields?: Record<string, unknown> }).fields ?? {};
-          const at = Number(f['操作时间'] ?? 0);
+          // ⚠️ 与 usage() 同一个坑：审计的「操作时间」读出来是 `YYYY-MM-DD` 字符串，
+          //    用 `Number()` 会得到 NaN ⇒ 本报表的「操作」部分恒为 0（原先就是这个状态，
+          //    2026-09-21 修）。登录部分不受影响（登录日志表存的是毫秒）。
+          const at = toEpochMs(f['操作时间']);
           if (at >= fromMs && at <= toMs) {
             actions.push({
               at,
@@ -826,7 +829,13 @@ export class ReportsService {
     const auRawByActor = new Map<string, Map<string, number>>();
     let auSkipped = 0;
     for (const f of auditRows) {
-      const at = Number(f['操作时间'] ?? 0);
+      // 🔴 必须用 `num()`（toEpochMs）而不是 `Number()`：
+      //    审计的「操作时间」在库里是**毫秒数字**，但**经 store 读出来会被格式化成
+      //    `YYYY-MM-DD` 字符串**（实测 `{'操作时间': '2026-09-21'}`）——
+      //    `Number('2026-09-21')` = NaN ⇒ 1271 条记录全被当成「没有时间」跳过，
+      //    报表显示 0 条而库里明明有数据（2026-09-21 上线当天实测）。
+      //    代价是精度降到「天」：本卡按天看用量足够，跨时区边界最多差 1 天。
+      const at = num(f, '操作时间');
       if (!at) {
         auSkipped += 1;
         continue;
@@ -862,7 +871,10 @@ export class ReportsService {
       cur.count += 1;
       cur.lastAt = Math.max(cur.lastAt, at);
       const end = num(f, '结束时间');
-      if (start && end && end > start) cur.minutes.push(Math.round((end - start) / 60_000));
+      // ⚠️ 生产里有 `结束时间 = 30190860000000`（≈ 2926 年）这类脏值 ⇒ 必须夹一个合理上限，
+      //    否则「平均时长」会算出几百万分钟，整块看起来像坏的。超过 24 小时的一律不参与平均。
+      const mins = start && end > start ? Math.round((end - start) / 60_000) : 0;
+      if (mins > 0 && mins <= 24 * 60) cur.minutes.push(mins);
       const ty = txt(f, '会议类型') || '（未填写）';
       cur.types.set(ty, (cur.types.get(ty) ?? 0) + 1);
       mtByHost.set(who, cur);

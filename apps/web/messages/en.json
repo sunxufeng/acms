@@ -2771,6 +2771,7 @@
     "hide": "Hide",
     "testAndSave": "Test connection and save",
     "saveHint": "A real request is sent to verify before anything is saved",
+    "viaSourceHint": "Connected via knowledge-base source “{name}” (an admin linked you to it) — no personal credential needed. Fill the fields below only if you want to use your own Get Note account instead.",
     "memberNote": "The API is only available to Dedao Brain PRO members. A free account's key can be saved but returns no data.",
     "memberLink": "Upgrade to PRO",
     "connected": "Connected",

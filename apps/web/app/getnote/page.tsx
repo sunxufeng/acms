@@ -1072,6 +1072,15 @@ export default function GetnotePage() {
   /** 手动填入表单。未配置引导页与已配置展开区共用。 */
   const manualForm = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+      {/*
+        借道知识库配置时的说明（2026-09-21）：被管理员关联到某条配置的人不需要自己填凭证，
+        但必须**告诉他为什么已经能用**，否则他会以为「没配也能用」是巧合、或者去找凭证。
+      */}
+      {cred?.viaSource && (
+        <p style={{ fontSize: 12, color: 'var(--fg-tertiary)', margin: 0, lineHeight: 1.6 }}>
+          {t('viaSourceHint', { name: cred.viaSource })}
+        </p>
+      )}
       <div>
         <p style={{ fontSize: 12, color: 'var(--fg-tertiary)', margin: '0 0 4px' }}>
           {t('clientIdLabel')}　<span style={{ color: 'var(--fg-tertiary)' }}>{t('clientIdHint')}</span>

@@ -2484,6 +2484,13 @@ export interface GetnoteCredential {
   source: 'manual' | 'oauth' | '';
   /** 服务器是否开启了一键授权；false 时前端隐藏该入口，不误导用户点了报错 */
   oauthEnabled: boolean;
+  /**
+   * 凭证不是自己填的，而是**借道某条知识库配置**（我被列在它的「关联用户」里）时的配置名。
+   * 页面据此显示「已通过知识库配置接入」而不是向导页。
+   */
+  viaSource?: string;
+  /** 借道的可见配置条数（>1 时说明这条笔记挑过归属） */
+  viaSourceCount?: number;
 }
 
 /** OAuth 第 1 步结果。qrcode 是 data URI 形态的 PNG，可直接塞进 <img src>。 */

@@ -76,6 +76,16 @@ export interface CredentialStatus {
   updatedAt: string;
   verifiedAt: string;
   source: 'manual' | 'oauth' | '';
+  /**
+   * 凭证不是自己填的、而是**借道某条知识库配置**时的配置名称（2026-09-21 新增）。
+   *
+   * 存在理由：能被关联到别人建的配置（关联用户含我）时，页面不该再要求用户去填凭证；
+   * 同时要把「用的是哪条配置」讲清楚 —— 否则用户看到「已连接」却找不到自己填过的东西，
+   * 只会更困惑。
+   */
+  viaSource?: string;
+  /** 借道的可见配置条数（>1 时说明挑过归属，见 `visibleCredForNote`） */
+  viaSourceCount?: number;
 }
 
 function read(enc: unknown): string {

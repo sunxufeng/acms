@@ -27,6 +27,7 @@ import {
   pickSourceEntry,
   resolveUserIdByOpenId,
   sourceVisibleTo,
+  type SourceCredEntry,
 } from './source-cred.js';
 // 音频落库要把字节流存进全站附件目录（`loc_*` token），复用统一的附件基建
 import { FileUploadService } from '../file-upload/file-upload.service.js';
@@ -420,8 +421,9 @@ export class GetnoteService {
     const own = getCredentialPair(user.openId);
     if (own?.key && own.clientId) return own;
 
-    const fromSource = await this.userSourceCred(user.openId);
-    if (fromSource) return fromSource;
+    // 可见的知识库配置（关联用户含我 或 归属人是我）——与列表同一判据，见 myVisibleSourceCreds
+    const visible = await this.myVisibleSourceCreds(user);
+    if (visible[0]?.cred) return visible[0].cred;
 
     throw new HttpException(
       { code: 'GETNOTE_CREDENTIAL_MISSING', message: '尚未连接得到大脑账号' },
@@ -429,13 +431,54 @@ export class GetnoteService {
     );
   }
 
-  /** 在「知识库配置」表里找「归属人ID = openId」且带有效凭证的启用来源 */
-  private async userSourceCred(openId: string): Promise<{ key: string; clientId: string } | null> {
+  /**
+   * 我**可见**、且带有效凭证的启用配置。
+   *
+   * 🔴 判据必须与列表同源（`sourceVisibleTo` = 「关联用户含我」**或**「归属人ID === 我」）。
+   *    2026-09-21 踩到：凭证状态与 `credFor` 原先只认 `ownerOpenId === 我`
+   *    （`userSourceCred`），而列表认两样 ⇒ 出现「**能被关联到配置、列表本来读得到，
+   *    却在向导页被要求自己去配凭证**」——赵光宇｜Michael 的「Michael Get Note」配置
+   *    归属人是孙旭峰、只把他列在「关联用户」里，于是他一进「我的笔记」就卡住。
+   *    两条判据不一致，症状必然是「有人能看、有人被拦」。
+   */
+  private async myVisibleSourceCreds(
+    user: SessionUser,
+  ): Promise<Array<SourceCredEntry & { cred: { key: string; clientId: string } }>> {
     const entries = await listEnabledSourceCreds(this.base, TABLES.getnoteSource.tableId, {
       maxPages: 5,
     });
-    const hit = entries.find((e) => e.ownerOpenId === openId && e.cred);
-    return hit?.cred ?? null;
+    const myId = await resolveUserIdByOpenId(this.base, USER_TABLE.tableId, user.openId ?? '');
+    // 类型收窄写在断言里：只留下「可见且凭证解得出」的条目，调用方不必再判 null
+    return entries.filter(
+      (e): e is SourceCredEntry & { cred: { key: string; clientId: string } } =>
+        Boolean(e.cred) && sourceVisibleTo(e, user, myId),
+    );
+  }
+
+  /**
+   * 这篇笔记该用哪套可见配置的凭证（非管理员）。
+   *
+   * 只有一份可见配置时直接用（绝大多数情况）；有多份才去查「笔记归属映射」
+   * （记录 id = 笔记 ID，主键直取，不打上游）。
+   */
+  private async visibleCredForNote(
+    user: SessionUser,
+    noteId: string,
+  ): Promise<{ key: string; clientId: string } | null> {
+    const visible = await this.myVisibleSourceCreds(user);
+    const first = visible[0];
+    if (!first) return null;
+    if (visible.length === 1) return first.cred;
+    try {
+      const sql = getSqlStore();
+      const rec = sql ? await sql.get(TABLES.noteConfigMap.tableId, String(noteId)) : null;
+      const cfgId = String((rec?.fields as Record<string, unknown> | undefined)?.['配置ID'] ?? '').trim();
+      const hit = cfgId ? visible.find((e) => e.recordId === cfgId) : undefined;
+      return hit?.cred ?? first.cred;
+    } catch (e) {
+      this.logger.warn(`查笔记归属失败（回退第一份可见配置）：${(e as Error).message.slice(0, 80)}`);
+      return first.cred;
+    }
   }
 
   private headers(cred: { key: string; clientId: string }): Record<string, string> {
@@ -457,16 +500,26 @@ export class GetnoteService {
     if (base.configured) {
       return { ...base, oauthEnabled: Boolean(OAUTH_CLIENT_ID()) };
     }
-    // 回退：用户在「知识库配置」自建的来源也视为已连接，避免卡在向导页
-    const hit = await this.userSourceCred(user.openId);
+    /**
+     * 回退：**能被关联到某条知识库配置**时也算已连接。
+     *
+     * 🔴 判据必须与「我的笔记」列表同源（`sourceVisibleTo`），不能只认「归属人是我」：
+     *    2026-09-21 赵光宇｜Michael 报「配置好了 Michael Get Note，登录后还是让我配」——
+     *    那条配置的**归属人是孙旭峰**、只把他列在「关联用户」里；列表路径本来读得到，
+     *    却因为这里判据更严而卡在向导页。两条判据不一致 = 必然有人被拦。
+     */
+    const visible = await this.myVisibleSourceCreds(user);
+    const hit = visible[0];
     return {
-      configured: Boolean(hit),
-      masked: hit ? mask(hit.key) : '',
-      clientIdMasked: hit ? mask(hit.clientId) : '',
+      configured: Boolean(hit?.cred),
+      masked: hit?.cred ? mask(hit.cred.key) : '',
+      clientIdMasked: hit?.cred ? mask(hit.cred.clientId) : '',
       updatedAt: '',
       verifiedAt: '',
       source: '',
       oauthEnabled: Boolean(OAUTH_CLIENT_ID()),
+      // 让前端能说清「用哪条配置接入的」，而不是让人以为「没配也能用」是巧合
+      ...(hit ? { viaSource: hit.sourceName, viaSourceCount: visible.length } : {}),
     };
   }
 
@@ -1477,6 +1530,16 @@ export class GetnoteService {
           recordId: found.recordId,
         };
       }
+    } else {
+      /**
+       * 非管理员：优先用**这篇笔记所属的那条可见配置**的凭证。
+       *
+       * 为什么不能一律用 `credFor`（= 自己那份凭证 / 第一份可见配置）：
+       * 被关联到别人建的配置时（2026-09-21 赵光宇｜Michael 的「Michael Get Note」
+       * 归属人是孙旭峰），笔记是用**那条配置的 Key** 拉来的，用别的 Key 拉详情必然查不到。
+       */
+      const src = await this.visibleCredForNote(user, id);
+      if (src) cred = src;
     }
 
     const full = await this.fetchNoteDetail(cred, id, imageQuality, owner);

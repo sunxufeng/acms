@@ -99,6 +99,8 @@ const ENTITY_TAG: Record<string, string> = {
   // 有这条映射，打在笔记上的标签才是 `acms:idpComm:recXXX` 这种可读形式；
   // 缺了它也不会报错（`linkTag` 会退化成 `acms:IDP沟通:recXXX`），但外部看标签会比较别扭。
   IDP沟通: 'idpComm',
+  // 学生沟通（2026-09-21）：与学生**本人**的沟通，区别于「家校沟通」（与家长）
+  学生沟通: 'studentComm',
   IDP计划: 'idp',
   学业成绩: 'grade',
   学生考勤: 'attendance',

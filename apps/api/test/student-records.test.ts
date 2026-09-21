@@ -220,8 +220,11 @@ describe('真实类型定义（contracts）与字典 / 权限点的三方一致'
     }
   });
 
-  it('IDP沟通 复用「日常跟进」的权限点（回归：改成新模块会让上线后没人看得见）', () => {
-    expect(moduleKeyOfRecordType('IDP沟通')).toBe('dailyFollowups');
+  it('共用「日常跟进」权限点的类型：IDP沟通 / 学生沟通（回归：改成新模块会让上线后没人看得见）', () => {
+    // 以后再加"与日常跟进同类"的类型时，把值加进这个数组即可
+    for (const v of ['IDP沟通', '学生沟通']) {
+      expect(moduleKeyOfRecordType(v), `「${v}」应当复用 dailyFollowups`).toBe('dailyFollowups');
+    }
   });
 
   it('未知类型返回 undefined（写入校验据此报「未知的记录类型」，不会造出谁都看不见的脏记录）', () => {
@@ -229,9 +232,11 @@ describe('真实类型定义（contracts）与字典 / 权限点的三方一致'
     expect(moduleKeyOfRecordType('')).toBeUndefined();
   });
 
-  it('🔴 持有「日常跟进」读权限 ⇒ 同时拿到「日常跟进」与「IDP沟通」两个类型', () => {
+  it('🔴 持有「日常跟进」读权限 ⇒ 该权限点下的**全部**类型一起放行', () => {
     // 这条是「复用 moduleKey」的技术依据：typeAllowedValues 遍历「类型 → moduleKey」再判权限，
     // 所以多个类型指向同一个模块时会被一起放行。
+    // ⚠️ 期望值**按类型定义动态推导**（而不是写死清单）：否则每加一个同类类型都要改这条测试 ——
+    //    上一版就写死了两个类型，加「学生沟通」时它变红了（红是对的，但改起来是纯噪音）。
     const scope: NonNullable<RecordMeta['typeScope']> = {
       field: FIELD,
       typeModules: STUDENT_RECORD_TYPE_TO_MODULE,
@@ -242,12 +247,16 @@ describe('真实类型定义（contracts）与字典 / 权限点的三方一致'
       { key: '只观察', permissions: [READ('studentObservations')] as never, maxDataLevel: 'L4' as const },
     ]);
 
+    const dailyTypes = STUDENT_RECORD_TYPES.filter((t) => t.moduleKey === 'dailyFollowups').map((t) => t.value);
     const dailyUser = typeAllowedValues({ typeScope: scope }, user(['有日常']), 'read');
-    expect(dailyUser).toEqual(['日常跟进', 'IDP沟通']);
+    expect(dailyUser).toEqual(dailyTypes);                     // 全放行，且顺序同定义
+    expect(dailyUser ?? []).not.toContain('家校沟通');           // 别的权限点的类型不许混进来
+    expect(dailyUser ?? []).not.toContain('学生观察');
+    expect(dailyUser?.length, '至少应包含日常跟进本身').toBeGreaterThan(0);
 
-    // 反向：只持学生观察权限的人，拿不到 IDP沟通（新类型没有把权限放大）
+    // 反向：只持学生观察权限的人，拿不到日常跟进族里的任何一个（新类型没有把权限放大）
     const obsUser = typeAllowedValues({ typeScope: scope }, user(['只观察']), 'read');
     expect(obsUser).toEqual(['学生观察']);
-    expect(obsUser ?? []).not.toContain('IDP沟通');
+    for (const v of dailyTypes) expect(obsUser ?? []).not.toContain(v);
   });
 });

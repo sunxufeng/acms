@@ -38,7 +38,8 @@ export interface StudentRecordTypeDef {
 /**
  * 记录类型的定义。**顺序即「记录类型」下拉与顶部 Tab 的展示顺序**。
  *
- * 当前 4 个类型：日常跟进 · IDP沟通 · 家校沟通 · 学生观察（IDP沟通 于 2026-09-21 新增）。
+ * 当前 5 个类型：日常跟进 · IDP沟通 · 学生沟通 · 家校沟通 · 学生观察
+ * （IDP沟通 / 学生沟通 于 2026-09-21 新增，前三个共用「日常跟进」的权限点）。
  *
  * `ownFields` 只列**该类型独有**的字段 —— 公共字段（沟通人/沟通主题/沟通时间/沟通总结/
  * 沟通明细/沟通人备注/待办事项/责任人/跟进截止日期/闭环状态/闭环日期/信息敏感级别/
@@ -72,6 +73,26 @@ export const STUDENT_RECORD_TYPES: readonly StudentRecordTypeDef[] = [
     value: 'IDP沟通',
     moduleKey: 'dailyFollowups',
     // 没有独立旧页面（新类型），置空；`legacyPath` 目前也没有消费点（保留 301 重定向用的是各页硬编码的 redirect）
+    legacyPath: '',
+    ownFields: [],
+  },
+  {
+    /**
+     * 学生沟通（2026-09-21 新增，与 IDP沟通 同批）。峰哥要的：「与刚开发的 IDP沟通 一致」。
+     *
+     * 语义：与学生**本人**的沟通（区别于「家校沟通」= 与家长的沟通）。
+     * 字段与日常跟进 / IDP沟通 完全相同（`ownFields: []`），表头词表也共用同一份。
+     *
+     * 🔴 `moduleKey` 同样**复用 `dailyFollowups`**（理由见上面 IDP沟通 的注释）：
+     *    内容与敏感度都与日常跟进一致 ⇒ 不新造权限点。现在 日常跟进 / IDP沟通 / 学生沟通
+     *    三个类型共用一个权限点 —— `typeAllowedValues()` 遍历「类型 → moduleKey」判权限，
+     *    这三个会一起被放行，这正是我们要的（持有日常跟进权限的人三个都能用）。
+     *
+     * ⚠️ 与「家校沟通」的区别要清楚：家校沟通 = 家长（`moduleKey: homeSchoolComms`，且是
+     *    **家长端/学生端门户唯一会读到**的类型）；学生沟通**不外流**到门户。
+     */
+    value: '学生沟通',
+    moduleKey: 'dailyFollowups',
     legacyPath: '',
     ownFields: [],
   },

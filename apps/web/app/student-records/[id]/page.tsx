@@ -31,6 +31,8 @@ const KIND_BY_TYPE: Record<string, AiSummarizeKind> = {
   // 下面的 `?? 'daily-followups'` 虽然也能兜住，但显式写出来更清楚 ——
   // 免得以后有人改了兜底值，IDP沟通 就悄悄换了一套提示词（不报错、结果变差）。
   IDP沟通: 'daily-followups',
+  // 学生沟通（2026-09-21）：同用日常跟进那套 AI 摘要配置（字段与口径完全相同）
+  学生沟通: 'daily-followups',
   家校沟通: 'home-school-comms',
   学生观察: 'student-observations',
 };

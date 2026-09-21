@@ -76,7 +76,9 @@
     "exporting": "Exporting…",
     "exportCsv": "Export CSV",
     "drillFromReport": "Drill-down filters from report:",
-    "clear": "Clear"
+    "clear": "Clear",
+    "noPermission": "You do not have permission to do this. Please ask an administrator.",
+    "noPermissionAction": "You do not have permission for this action ({module} · {action}). Ask an administrator to enable it for your role in Role Management."
   },
   "auth": {
     "loginTitle": "Sign in to ACMS",

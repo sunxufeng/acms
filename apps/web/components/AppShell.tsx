@@ -7,7 +7,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { api } from '../lib/api';
 import LocaleSwitcher from './LocaleSwitcher';
 import { useRoleLabels } from './RoleLabels';
-import { modulePermission, moduleByMenuKey, STUDENT_RECORD_MODULE_KEYS } from '@acms/contracts';
+import { modulePermission, moduleByMenuKey, studentRecordMenuVisible } from '@acms/contracts';
 import { loadPermissions, resetPermissions } from '../lib/permissions';
 import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuGroup, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
 
@@ -404,21 +404,16 @@ export default function AppShell({
     // `module:weiling-contacts:enter` 这种**不存在的权限点**，该菜单对所有人永久隐藏，
     // 而且不报错、不 403，只是"菜单不见了"（2026-09-14 踩过：系统管理员都少 4 个菜单）。
     const modRes = moduleByMenuKey(item.key);
-    // 「学生记录」（2026-09-18 三合一）：可见性按**任一类型权限**判定，不走单一模块权限点。
-    //
-    // 原因：日常跟进 / 家校沟通 / 学生观察 合并成一个菜单后，若只看
-    // `module:studentRecords:enter`，则**没有任何角色持有它**（它是新登记的权限点），
-    // 菜单会对所有人隐藏 —— 包括合并前本来能看日常跟进、学生观察的人。
-    // 生产实测：24 人的主力角色 Phase1 只持有 module:studentObservations:*，
-    // 系统管理员/院级管理持有三个模块的全套。
+    // 「学生记录」（2026-09-18 三合一）：可见性**不**走单一模块权限点，判据收口在
+    // contracts 的 `studentRecordMenuVisible`（别在这里再写一遍，两处必然漂移）：
+    //   ① 权限 = 任一**类型**模块的 read **或** 合并入口 `module:studentRecords:read`
+    //      —— 只认前者会让「矩阵里勾了学生记录」的角色看不到菜单（2026-09-21 实测
+    //      Phase3~Phase8 六个班主任角色）；只认后者会让合并前的主力角色看不到（Phase1）。
+    //   ② 角色菜单白名单**兼容合并前的旧 key**（老白名单里存的是 studentObservations 等，
+    //      而菜单里已经没有它们了 ⇒ 严格按新 key 判等于把老角色挡在门外）。
     // ⚠️ 这里只决定「菜单显不显示」；进去后**能看哪些类型**仍由后端逐类型过滤。
     if (item.key === 'studentRecords') {
-      const canSeeAnyType = STUDENT_RECORD_MODULE_KEYS.some((k) =>
-        (myPerms || []).includes(modulePermission(k, 'read')),
-      );
-      if (!canSeeAnyType) return false;
-      if (myMenus && !myMenus.includes(item.key)) return false;
-      return true;
+      return studentRecordMenuVisible({ perms: myPerms, menus: myMenus });
     }
     const enterPerm = modRes ? modulePermission(modRes.key, 'enter') : item.perm;
     if (enterPerm && !(myPerms || []).includes(enterPerm)) return false;

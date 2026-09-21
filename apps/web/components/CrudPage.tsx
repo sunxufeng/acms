@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useTl } from '../lib/useTl';
 import { MODULE_RESOURCES } from '@acms/contracts';
+// 403 机器码 → 人话（统一出口，见 lib/apiError.ts）
+import { forbiddenInfo } from '../lib/apiError';
 import { api as apiClient, type Page, type DictMeta } from '../lib/api';
 import MarkdownField from './MarkdownField';
 // 音频附件播放器：编辑表单与只读详情共用同一个组件
@@ -751,6 +753,26 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   // 中文环境 fallback 回原文，英文环境返回 labels 命名空间映射的英文。
   const tl = useTl();
 
+  /**
+   * 接口错误 → 展示文案（**统一出口**，别再各处直接 `e.message`）。
+   *
+   * 403 的 message 是后端为了可断言用的机器码（`FORBIDDEN:module:<key>:<action>`），
+   * 直接弹给用户等于没说 —— 用户既不知道是哪个功能，也不知道该找谁开通。
+   * 这里把它翻成「没有权限（学生记录 · 新增），请联系管理员在角色管理里勾选」。
+   */
+  const errText = useCallback(
+    (e: unknown, fallbackKey: string): string => {
+      const info = forbiddenInfo(e);
+      if (info) {
+        return info.moduleLabel
+          ? t('common.noPermissionAction', { module: info.moduleLabel, action: info.actionLabel })
+          : t('common.noPermission');
+      }
+      return e instanceof Error ? e.message : t(fallbackKey);
+    },
+    [t],
+  );
+
   // 模块级按钮门控：module:<key>:<action>。提供 moduleKey 时按权限点控制；
   // 未提供则沿用 readonly/hideCreate 的旧行为（向后兼容）。
   const perms = usePermissions();
@@ -903,13 +925,13 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         setPage(target);
       } catch (e: unknown) {
         if (seq !== reqSeqRef.current) return;
-        setError(e instanceof Error ? e.message : t('common.loadFailed'));
+        setError(errText(e, 'common.loadFailed'));
       } finally {
         // 只有最新那次请求可以关掉 loading —— 否则旧请求结束时会把新请求的转圈提前熄灭
         if (seq === reqSeqRef.current) setLoading(false);
       }
     },
-    [buildParams],
+    [buildParams, errText],
   );
 
   /** 跳转到目标页：若游标未知则向前逐页补全（不渲染中间页），再拉取目标页 */
@@ -1548,7 +1570,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       setEditing(null);
       await reload();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t('common.saveFailed'));
+      setError(errText(e, 'common.saveFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -1561,7 +1583,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       await api.archive(String(row.id));
       await reload();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t('crud.deleteFailed'));
+      setError(errText(e, 'crud.deleteFailed'));
     }
   }
 
@@ -1572,7 +1594,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       setTxMenu(null);
       await reload();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t('common.statusChangeFailed'));
+      setError(errText(e, 'common.statusChangeFailed'));
     }
   }
 
@@ -1584,7 +1606,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     try {
       await action.run(row, () => reload());
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t('common.operationFailed'));
+      setError(errText(e, 'common.operationFailed'));
     } finally {
       setRowActionBusy(null);
     }
@@ -1676,7 +1698,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       setError(t('crud.importDone', { ok: res.ok, failed: res.failed }));
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('crud.importFailed'));
+      setError(errText(err, 'crud.importFailed'));
     } finally {
       setImporting(false);
       e.target.value = '';

@@ -216,6 +216,17 @@ export interface RecordMeta {
     defaultType?: string;
     /** 绕过类型过滤的角色（缺省 `['系统管理员']`） */
     bypassRoles?: string[];
+    /**
+     * 合并入口自己的模块 key（矩阵里那一行，如 `studentRecords`）。
+     *
+     * 🔴 为什么必须有（2026-09-21 修，赵光宇/郝瑞玲 报障的同一类问题）：
+     *    权限矩阵给合并入口**画了可勾的格子**，管理员勾了它就算授权；但类型判据原先
+     *    只看 `typeModules` 里的三个**类型**模块点 ⇒ 被这样授权的角色「勾了等于没勾」，
+     *    列表/新建全 403、菜单也不显示，且不报错（生产实测 Phase3~Phase8 六个班主任角色）。
+     *    配置了它之后：持有 `module:<allTypesModuleKey>:<action>` ⇒ 当成「**全部类型**」放行。
+     *    与老配置（逐类型的点）是「或」的关系，所以**存量角色一个都不用改**。
+     */
+    allTypesModuleKey?: string;
   };
   /**
    * 自定义深度筛选钩子：返回 false 表示剔除该行，其它值（含 undefined）表示保留。
@@ -276,6 +287,14 @@ export function typeAllowedValues(
   const bypass = ts.bypassRoles ?? ['系统管理员'];
   if ((user.roles ?? []).some((r) => bypass.includes(r))) return null;
   const principal = toPrincipal(user);
+  // 合并入口的「全类型」授权优先：矩阵里勾了「学生记录」这一行 ⇒ 所有类型都算放行。
+  // ⚠️ 与下面逐类型判定是**或**关系（存量角色只勾了类型行，不能反过来把它们的权限收窄）。
+  if (
+    ts.allTypesModuleKey &&
+    authorize(principal, modulePermission(ts.allTypesModuleKey, action) as Permission).allowed
+  ) {
+    return Object.keys(ts.typeModules);
+  }
   return Object.entries(ts.typeModules)
     .filter(([, key]) => authorize(principal, modulePermission(key, action) as Permission).allowed)
     .map(([value]) => value);

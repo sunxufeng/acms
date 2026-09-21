@@ -11,14 +11,17 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { loadRolePermissionConfig } from '@acms/domain';
 import {
   MODULE_RESOURCES,
+  STUDENT_RECORD_ENTRY_KEY,
   STUDENT_RECORD_TYPES,
   STUDENT_RECORD_TYPE_TO_MODULE,
   STUDENT_RECORD_TYPE_VALUES,
   moduleKeyOfRecordType,
   modulePermission,
+  studentRecordMenuVisible,
   type SessionUser,
 } from '@acms/contracts';
 import { DICTIONARIES_RAW } from '../src/dictionary/dict.data.js';
+import { LIFECYCLE_METAS } from '../src/shared/lifecycle.meta.js';
 import {
   buildTypeScopeFilter,
   matchFilter,
@@ -36,6 +39,12 @@ const TYPE_SCOPE: NonNullable<RecordMeta['typeScope']> = {
     学生观察: 'studentObservations',
   },
   defaultType: '日常跟进',
+};
+
+/** 与生命周期元数据同构（含 2026-09-21 新增的合并入口 key） */
+const TYPE_SCOPE_WITH_ENTRY: NonNullable<RecordMeta['typeScope']> = {
+  ...TYPE_SCOPE,
+  allTypesModuleKey: STUDENT_RECORD_ENTRY_KEY,
 };
 
 const META = { typeScope: TYPE_SCOPE } as Pick<RecordMeta, 'typeScope'>;
@@ -81,6 +90,84 @@ describe('typeAllowedValues：类型域权限的三态', () => {
 
   it('一个类型权限都没有 ⇒ 空数组（不等于「不限制」）', () => {
     expect(typeAllowedValues(META, user(['无类型']), 'read')).toEqual([]);
+  });
+});
+
+/**
+ * 2026-09-21（峰哥报障）：矩阵里「学生记录」这一行是可勾的，勾了写入
+ * `module:studentRecords:<action>`，而运行时原先**完全忽略**它 ——
+ * 被这样授权的角色（生产实测 Phase3~Phase8 六个班主任角色）列表/新建全 403。
+ */
+describe('typeAllowedValues：合并入口的「全类型」授权', () => {
+  beforeEach(() => {
+    seedRoles({
+      系统管理员: [],
+      只有合并入口: [READ(STUDENT_RECORD_ENTRY_KEY)],
+      只有类型行: [READ('studentObservations')],
+      都没有: ['student:read'],
+    });
+  });
+
+  it('只勾了「学生记录」这一行 ⇒ 全部类型放行（就是本次修的 bug）', () => {
+    expect(typeAllowedValues({ typeScope: TYPE_SCOPE_WITH_ENTRY }, user(['只有合并入口']), 'read')).toEqual(
+      Object.keys(TYPE_SCOPE.typeModules),
+    );
+  });
+
+  it('只勾了类型行 ⇒ 仍然只放行该类型（不得被合并入口的判定放大）', () => {
+    expect(typeAllowedValues({ typeScope: TYPE_SCOPE_WITH_ENTRY }, user(['只有类型行']), 'read')).toEqual(['学生观察']);
+  });
+
+  it('两者都没有 ⇒ 空数组（不是「不限制」）', () => {
+    expect(typeAllowedValues({ typeScope: TYPE_SCOPE_WITH_ENTRY }, user(['都没有']), 'read')).toEqual([]);
+  });
+
+  it('meta 没配 allTypesModuleKey ⇒ 合并入口的点不生效（老 meta 行为不变）', () => {
+    expect(typeAllowedValues(META, user(['只有合并入口']), 'read')).toEqual([]);
+  });
+
+  it('动作是逐动作判的：只勾了 read ⇒ create 仍然空', () => {
+    expect(typeAllowedValues({ typeScope: TYPE_SCOPE_WITH_ENTRY }, user(['只有合并入口']), 'create')).toEqual([]);
+  });
+});
+
+/**
+ * 菜单可见性：三层判据（权限 → 白名单 → 白名单兼容合并前的旧 key）。
+ * 少了任何一层都有一类人看不到入口，而且**不报错**，只是「功能没了」。
+ */
+describe('studentRecordMenuVisible', () => {
+  it('持有任一类型 read 且无白名单 ⇒ 可见', () => {
+    expect(studentRecordMenuVisible({ perms: [READ('studentObservations')], menus: null })).toBe(true);
+  });
+
+  it('只勾了「学生记录」这一行 ⇒ 也可见（Phase3~Phase8 的班主任角色）', () => {
+    expect(studentRecordMenuVisible({ perms: [READ(STUDENT_RECORD_ENTRY_KEY)], menus: null })).toBe(true);
+  });
+
+  it('白名单里是合并前的旧 key（studentObservations）⇒ 仍可见（Phase1 14 人实测）', () => {
+    expect(
+      studentRecordMenuVisible({
+        perms: [READ('studentObservations')],
+        menus: ['dashboard', 'studentObservations', 'reports'],
+      }),
+    ).toBe(true);
+  });
+
+  it('白名单里没它、也没旧 key ⇒ 不可见（白名单仍然只收敛、不放大）', () => {
+    expect(
+      studentRecordMenuVisible({ perms: [READ('dailyFollowups')], menus: ['dashboard', 'reports'] }),
+    ).toBe(false);
+  });
+
+  it('没有任何记录权限 ⇒ 不可见（白名单再全也不放行）', () => {
+    expect(studentRecordMenuVisible({ perms: ['student:read'], menus: null })).toBe(false);
+    expect(studentRecordMenuVisible({ perms: ['student:read'], menus: ['studentRecords'] })).toBe(false);
+  });
+
+  it('白名单里明确有 studentRecords ⇒ 可见', () => {
+    expect(
+      studentRecordMenuVisible({ perms: [READ(STUDENT_RECORD_ENTRY_KEY)], menus: ['studentRecords'] }),
+    ).toBe(true);
   });
 });
 
@@ -258,5 +345,42 @@ describe('真实类型定义（contracts）与字典 / 权限点的三方一致'
     const obsUser = typeAllowedValues({ typeScope: scope }, user(['只观察']), 'read');
     expect(obsUser).toEqual(['学生观察']);
     for (const v of dailyTypes) expect(obsUser ?? []).not.toContain(v);
+  });
+});
+
+/**
+ * 接线断言：判据再对，**元数据没接上**也等于没改。
+ *
+ * 2026-09-21 的两个线上 bug 都属于这一类（判据写好了但少配一处）：
+ *   ① `typeScope.allTypesModuleKey` 不配 ⇒ 矩阵里勾「学生记录」的角色依旧 403；
+ *   ② 四个记录入口的 `defaults` 不返回「责任人」⇒ 新建（含笔记转换）责任人永远是空。
+ * 这里直接读**真实的元数据**，防止以后重构时静默丢掉。
+ */
+describe('生命周期元数据接线（学生记录）', () => {
+  const paths = ['student-records', 'daily-followups', 'home-school-comms', 'student-observations'];
+  const metas = LIFECYCLE_METAS.filter((m) => paths.includes(m.path));
+
+  it('四个入口都登记了（少一个就有入口失效）', () => {
+    expect(metas.map((m) => m.path).sort()).toEqual([...paths].sort());
+  });
+
+  it('typeScope 配了合并入口 key（否则矩阵里那一行勾了没用）', () => {
+    for (const m of metas) {
+      expect(m.typeScope?.allTypesModuleKey).toBe(STUDENT_RECORD_ENTRY_KEY);
+    }
+  });
+
+  it('新建默认值给出「记录类型 + 责任人 = 当前登录用户」', async () => {
+    for (const m of metas) {
+      const d = m.defaults;
+      expect(typeof d).toBe('function');
+      const fields = await (d as Exclude<typeof d, Record<string, unknown>>)?.({}, user([]));
+      expect(fields?.责任人).toBe('测试');                       // 取登录用户，不是空
+      expect(String(fields?.[FIELD] ?? '')).not.toBe('');        // 记录类型也要给（否则落到 defaultType）
+    }
+  });
+
+  it('「责任人」不在 readonly 里（readonly 是写入侧硬过滤，会把值静默丢掉）', () => {
+    for (const m of metas) expect(m.readonly ?? []).not.toContain('责任人');
   });
 });

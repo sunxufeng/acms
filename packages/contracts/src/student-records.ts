@@ -8,7 +8,7 @@
  *
  *   一张表（沿用「日常跟进表」）+ 一个「记录类型」单选字段区分三类记录。
  *
- * 🔴 为什么权限要「任一类型权限即可」而不是新造一个 `module:studentRecords:read`：
+ * 🔴 为什么权限要「任一类型权限即可」：
  *    合并前每个模块各有自己的权限点，角色配置里存的就是那三个。
  *    若主入口只认新权限点，则合并后**没有任何角色能进入**（生产实测：24 人的主力角色
  *    Phase1 只有 `module:studentObservations:*`，没有 dailyFollowups/homeSchoolComms），
@@ -17,6 +17,13 @@
  *      - 菜单侧：同理由 `anyStudentRecordPerm` 判定；
  *      - 内容侧：具体能看到哪些**类型**，仍由各自的 module 权限逐类型过滤（不放大范围）。
  *    这样**一个角色的配置都不用改**，权限语义也不降级。
+ *
+ * 🔴 反向的一半（2026-09-21 修）：矩阵里「学生记录」这一行是**可真勾的**，
+ *    角色管理里勾它会写入 `module:studentRecords:<action>`。而运行时原先完全忽略它 ——
+ *    被这样授权的角色（生产实测 Phase3~Phase8 六个班主任角色，对应 3 位老师）
+ *    列表 403 / 新建 403 / 菜单也不显示，**勾了等于没勾，还不报错**。
+ *    现在两个来源都认：三个类型模块的点（老配置）**或**合并入口的点（矩阵里勾的那一行，
+ *    语义 = 全部类型）。这也是「容器行 → 明细行」两级配置的既有做法。
  */
 
 import { modulePermission, type ModuleAction } from './module-permissions.js';
@@ -129,17 +136,66 @@ export const STUDENT_RECORD_TYPE_VALUES: readonly string[] = STUDENT_RECORD_TYPE
 export const STUDENT_RECORD_MODULE_KEYS: readonly string[] = STUDENT_RECORD_TYPES.map((t) => t.moduleKey);
 
 /**
+ * 合并入口本身的模块 key —— 权限矩阵里「学生记录」那一行、菜单 key 也是它。
+ *
+ * 🔴 它的动作权限**必须是有效的**（2026-09-21 修）：矩阵给这一行画了可勾的格子，
+ *    管理员勾了它才算授权；但运行时判据原先只看三个**类型**模块的点，
+ *    于是「勾了学生记录、没勾三个类型」的角色（生产实测 Phase3~Phase8 六个班主任角色）
+ *    列表 403、新建 403、菜单也不显示 —— 授权是空的，而且不报错。
+ *    现在 `typeAllowedValues()` 把它当「全类型」授权处理（见 `allTypesModuleKey`）。
+ */
+export const STUDENT_RECORD_ENTRY_KEY = 'studentRecords';
+
+/**
+ * 合并**前**的三个菜单 key（与三个类型模块同名）。
+ *
+ * 用途：角色「菜单白名单」里存的是合并前的老 key，而菜单配置里已经没有它们了
+ * （`studentObservations` 等），若严格按新 key 判，合并前能看到这些记录的角色的主入口
+ * 会**永久消失**（2026-09-21 实测 Phase1 招生老师 14 人）。见 `studentRecordMenuVisible`。
+ */
+export const STUDENT_RECORD_LEGACY_MENU_KEYS: readonly string[] = [...new Set(STUDENT_RECORD_MODULE_KEYS)];
+
+/**
  * 是否持有「任一类型」的指定动作权限。
  *
  * 用途：合并后的主入口（菜单 / 接口）需要一个「能进吗」的判据，而它不应对应
  * 任何单一模块 —— 见文件头关于「为什么要任一即可」的说明。
+ *
+ * 两个来源，命中任一即算：
+ *   ① 三个**类型**模块的点（合并前的老配置，如 `module:studentObservations:read`）；
+ *   ② 合并入口自己的点（矩阵里「学生记录」那一行的格子）。
  */
 export function anyStudentRecordPerm(perms: readonly string[] | undefined | null, action: ModuleAction): boolean {
   const list = perms ?? [];
+  if (list.includes(modulePermission(STUDENT_RECORD_ENTRY_KEY, action))) return true;
   return STUDENT_RECORD_MODULE_KEYS.some((k) => list.includes(modulePermission(k, action)));
 }
 
 /** 取某类型值对应的模块 key；未知类型返回 undefined */
 export function moduleKeyOfRecordType(value: unknown): string | undefined {
   return STUDENT_RECORD_TYPE_TO_MODULE[String(value ?? '')];
+}
+
+/**
+ * 「学生记录」菜单项是否对当前用户可见 —— **唯一判据**（AppShell 调它，别在页面里再写一份）。
+ *
+ * 三层，缺一层就有一类人看不到菜单：
+ *   ① 权限：任一类型 read **或** 合并入口 read（`anyStudentRecordPerm`）；
+ *   ② 角色菜单白名单（仅收敛，不放大权限）；
+ *   ③ 白名单**兼容合并前的旧 key** —— 老白名单里存的是 `studentObservations` /
+ *      `dailyFollowups` / `homeSchoolComms`，菜单里已经没这几项了；严格按新 key 判
+ *      等于「合并前看得到这三个菜单的角色，合并后主入口永久隐藏」。
+ *      这不是猜测：2026-09-21 实测 Phase1（招生老师-基础，14 人）白名单里正是
+ *      `studentObservations`，而权限齐全 —— 他们能看到记录却找不到入口。
+ */
+export function studentRecordMenuVisible(input: {
+  perms?: readonly string[] | null;
+  /** 角色菜单白名单；空 / 缺省 = 不额外限制 */
+  menus?: readonly string[] | null;
+}): boolean {
+  if (!anyStudentRecordPerm(input?.perms, 'read')) return false;
+  const menus = input?.menus;
+  if (!menus?.length) return true;
+  if (menus.includes(STUDENT_RECORD_ENTRY_KEY)) return true;
+  return STUDENT_RECORD_LEGACY_MENU_KEYS.some((k) => menus.includes(k));
 }

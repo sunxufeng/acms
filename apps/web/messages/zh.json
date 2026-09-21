@@ -76,7 +76,9 @@
     "exporting": "导出中…",
     "exportCsv": "导出 CSV",
     "drillFromReport": "来自报表的下钻条件：",
-    "clear": "清除"
+    "clear": "清除",
+    "noPermission": "没有权限执行这个操作，请联系管理员开通。",
+    "noPermissionAction": "没有权限执行这个操作（{module} · {action}）。请联系管理员在「角色管理」里为你的角色勾选该权限。"
   },
   "auth": {
     "loginTitle": "登录 ACMS",

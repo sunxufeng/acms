@@ -5,6 +5,14 @@ import CrudPage from '../../components/CrudPage';
 import type { CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 import { COLUMNS } from './columns';
+// 403 机器码 → 人话：这四个同步/维护接口判的是 module:weilingContacts:update，
+// 没有该权限的人点按钮原来只会看到 `FORBIDDEN:module:weilingContacts:update`。
+import { forbiddenText } from '../../lib/apiError';
+
+/** 接口错误 → 提示文案（权限类错误翻成「没有权限（联系人管理 · 编辑）…」） */
+function errMsg(e: unknown): string {
+  return forbiddenText(e) ?? ((e as Error)?.message || '未知原因');
+}
 
 export default function WeilingContactsPage() {
   const [syncing, setSyncing] = useState(false);
@@ -115,7 +123,7 @@ export default function WeilingContactsPage() {
         window.location.reload();
       }
     } catch (e) {
-      setSyncMsg(`同步失败：${(e as Error).message}`);
+      setSyncMsg(`同步失败：${errMsg(e)}`);
     } finally {
       setSyncing(false);
     }
@@ -128,7 +136,7 @@ export default function WeilingContactsPage() {
       const r = await api.syncWeilingProgress(true);
       if (!r.ok) setPgMsg(`启动失败：${r.message ?? ''}`);
     } catch (e) {
-      setPgMsg(`启动失败：${(e as Error).message}`);
+      setPgMsg(`启动失败：${errMsg(e)}`);
     } finally {
       setPgRunning(false);
     }
@@ -148,7 +156,7 @@ export default function WeilingContactsPage() {
       const r = await api.recountWeilingFollows();
       setRcMsg(`已重算：扫描 ${r.scanned} 条，修正 ${r.fixed} 条`);
     } catch (e) {
-      setRcMsg(`重算失败：${(e as Error).message}`);
+      setRcMsg(`重算失败：${errMsg(e)}`);
     } finally {
       setRcRunning(false);
     }
@@ -187,7 +195,7 @@ export default function WeilingContactsPage() {
       setLostRunning(false);
       setLostProgress(null);
     } catch (e) {
-      setLostMsg(`启动失败：${(e as Error).message}`);
+      setLostMsg(`启动失败：${errMsg(e)}`);
       setLostRunning(false);
       setLostProgress(null);
     }

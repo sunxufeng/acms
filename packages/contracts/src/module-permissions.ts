@@ -153,7 +153,15 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'stageEvaluations', label: '阶段评价', path: '/stage-evaluations', aliases: ['/export/stageEvaluation'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'evaluation:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'alumniFollowups', label: '校友跟进', path: '/alumni-followups', aliases: ['/export/alumniFollowup'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'alumni:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'openPlatformApps', label: '开放平台', path: '/open-platform', legacyRead: 'openplatform:read', legacyWrite: 'openplatform:write', menuPermission: 'openplatform:read', actions: RECORD, genericCrud: true },
-  { key: 'weilingContacts', label: '联系人管理', path: '/weiling-contacts', legacyRead: 'weiling:read', legacyWrite: 'weiling:write', menuPermission: 'weiling:read', actions: READ, genericCrud: true },
+  // 🔴 `update` 必须声明（2026-09-21 修）：卫瓴联系人**记录**本身是只读的
+  //  （不提供 create/update/delete 三个动作的写记录语义），但「同步 / 重算 / 重匹配」
+  //  这类**维护动作**（weiling.controller 的 sync / sync-progress / sync-lost / match /
+  //  recount-follows）判的正是 `module:weilingContacts:update`。
+  //  原先 `actions: READ` 不含 update ⇒ 矩阵里**没有这一格可勾** ⇒ 这个权限点
+  //  连 `PERMISSIONS` 目录都不在 ⇒ **谁都不持有（系统管理员也不持有）** ⇒
+  //  联系人管理页的四个同步按钮点了必然 403（报 FORBIDDEN:module:weilingContacts:update）。
+  //  声明之后：系统管理员由代码目录自愈获得，其他角色按需在矩阵里勾。
+  { key: 'weilingContacts', label: '联系人管理', path: '/weiling-contacts', legacyRead: 'weiling:read', legacyWrite: 'weiling:write', menuPermission: 'weiling:read', actions: [...READ, 'update'], genericCrud: true },
   { key: 'reports', label: '报表管理', path: '/reports', legacyRead: 'report:read', legacyWrite: null, menuPermission: 'report:read', actions: READ },
   // ── 报表级权限（v3，2026-09-19）：每个报表一个权限点 ──
   //

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import type { CrudColumn } from '../../components/CrudPage';
 import { COMM_SPEC, enrichFromNotes } from '../../lib/noteAutoFill';
 import { STUDENT_ENGLISH_KEY, studentLabel } from '../../components/CrudPage';
-import { STUDENT_RECORD_TYPES, STUDENT_RECORD_TYPE_FIELD } from '@acms/contracts';
+import { STUDENT_RECORD_TYPES, STUDENT_RECORD_TYPE_FIELD, defaultFollowupOwner } from '@acms/contracts';
 
 /**
  * 「学生记录」列定义（2026-09-19 三合一的第二轮改版）。
@@ -290,8 +290,10 @@ export function msToLocalDateTime(ms?: number): string {
 
 /**
  * 笔记转换落地时补默认值：
- *   - **主题 ← 笔记标题**、**时间 ← 笔记创建时间**（2026-09-19 峰哥要求）
- *   - **记录人 ← 笔记归属人**（笔记是谁的，记录人就该是谁），拿不到才回退登录用户
+ *   - **沟通主题 ← 笔记标题**、**沟通时间 ← 笔记创建时间**（2026-09-19 峰哥要求）
+ *   - **沟通人 ← 笔记归属人**（笔记是谁的，沟通人就该是谁），拿不到才回退登录用户
+ *   - **责任人 ← 笔记归属人**（2026-09-21 峰哥要求：责任人要带上「笔记的创建人」），
+ *     判据与招生跟进 / 校友跟进 / 实践活动共用 `defaultFollowupOwner()`
  *
  * 主题 / 时间**先塞进去再走 `enrichFromNotes`**，而不是当 `defaults` 传：
  * `defaults` 是最低优先级（只在正文什么都没抽到时才填），而峰哥要的是「笔记标题就是主题」——
@@ -309,5 +311,10 @@ export function parseStudentRecordFromSummary(
     const dt = msToLocalDateTime(ctx?.noteCreatedAt);
     if (dt) seeded['沟通时间'] = dt;
   }
-  return enrichFromNotes(seeded, COMM_SPEC, { 沟通人: ctx?.noteOwner || ctx?.userName || '' });
+  return enrichFromNotes(seeded, COMM_SPEC, {
+    沟通人: ctx?.noteOwner || ctx?.userName || '',
+    // 🔴 责任人要单独给（2026-09-21 峰哥报障：转过来的记录责任人是空的）——
+    //    沟通人 ≠ 责任人，只填前者不会顺手把后者带上。
+    责任人: defaultFollowupOwner(ctx ?? {}),
+  });
 }

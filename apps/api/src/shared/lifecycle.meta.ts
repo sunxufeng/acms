@@ -9,7 +9,12 @@
 import { TABLES, USER_TABLE } from '@acms/contracts';
 // 「学生记录」三合一（2026-09-18）：类型字段名与「类型值 → 模块 key」映射都取自契约，
 // 与前端 / 权限判定共用同一份，避免两边各写一套枚举导致漂移。
-import { STUDENT_RECORD_TYPE_FIELD, STUDENT_RECORD_TYPE_TO_MODULE } from '@acms/contracts';
+import {
+  STUDENT_RECORD_ENTRY_KEY,
+  STUDENT_RECORD_TYPE_FIELD,
+  STUDENT_RECORD_TYPE_TO_MODULE,
+  type SessionUser,
+} from '@acms/contracts';
 import { scheduleStateOf } from '../ai-route/schedule-state.js';
 import type { RecordMeta } from './generic-crud.module.js';
 import { getSqlStore } from '../base.provider.js';
@@ -28,6 +33,11 @@ const PERM_W = 'student:write';
  *
  * 用户能看/能写哪些**类型**，由各类型模块的 `module:<key>:<read|write>` 权限决定；
  * 一个角色的配置都不用改（合并前它们就持有各自的模块权限）。
+ *
+ * 🔴 `allTypesModuleKey`（2026-09-21 加）：权限矩阵里「学生记录」这一行是**可勾的**，
+ *    勾了它写入的就是 `module:studentRecords:<action>`。在它被当成判据之前，
+ *    这样授权的角色（生产实测 Phase3~Phase8 六个班主任角色）列表/新建全 403、
+ *    菜单也不显示 —— 勾了等于没勾。现在它是「**全部类型**」的授权，与逐类型的点取「或」。
  */
 const STUDENT_RECORD_TYPE_SCOPE: NonNullable<RecordMeta['typeScope']> = {
   field: STUDENT_RECORD_TYPE_FIELD,
@@ -35,7 +45,22 @@ const STUDENT_RECORD_TYPE_SCOPE: NonNullable<RecordMeta['typeScope']> = {
   // 缺省类型 = 主表（日常跟进表）的原义。用于给「未打类型的历史记录」兜底 ——
   // 没有它，任何漏打类型的记录会对所有人静默消失。
   defaultType: '日常跟进',
+  allTypesModuleKey: STUDENT_RECORD_ENTRY_KEY,
 };
+
+/**
+ * 四个记录入口共用的新建默认值：**记录类型**（按入口不同）+ **责任人**。
+ *
+ * 责任人 = **当前登录用户**（2026-09-21 峰哥口径，与招生跟进 / 校友跟进 / 实践活动一致）：
+ * 录这条记录的人就是跟进责任人；用户显式选了别人则不覆盖（`defaults` 优先级最低）。
+ * 🔴 别把它写进 `readonly` —— 那是写入侧硬过滤，会静默丢弃用户改的值。
+ */
+const recordDefaults =
+  (type: string) =>
+  (_fields: Record<string, unknown>, user?: SessionUser): Record<string, unknown> => ({
+    [STUDENT_RECORD_TYPE_FIELD]: type,
+    责任人: user?.name ?? '',
+  });
 
 /**
  * 「学生记录」四个入口共用的表定义（表 = 日常跟进表，三合一后的唯一物理表）。
@@ -226,22 +251,22 @@ export const LIFECYCLE_METAS: RecordMeta[] = [
   //   「用户有权持有的类型」过滤，不会出现「用家校沟通的权限看到日常跟进的记录」。
   {
     path: 'student-records',
-    defaults: { [STUDENT_RECORD_TYPE_FIELD]: '日常跟进' },
+    defaults: recordDefaults('日常跟进'),
     ...STUDENT_RECORD_BASE,
   },
   {
     path: 'daily-followups',
-    defaults: { [STUDENT_RECORD_TYPE_FIELD]: '日常跟进' },
+    defaults: recordDefaults('日常跟进'),
     ...STUDENT_RECORD_BASE,
   },
   {
     path: 'home-school-comms',
-    defaults: { [STUDENT_RECORD_TYPE_FIELD]: '家校沟通' },
+    defaults: recordDefaults('家校沟通'),
     ...STUDENT_RECORD_BASE,
   },
   {
     path: 'student-observations',
-    defaults: { [STUDENT_RECORD_TYPE_FIELD]: '学生观察' },
+    defaults: recordDefaults('学生观察'),
     ...STUDENT_RECORD_BASE,
   },
   {

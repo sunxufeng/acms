@@ -275,12 +275,22 @@ export default function MeetingRoomsPage() {
             ‹
           </button>
           <span style={{ fontWeight: 600, minWidth: 148, textAlign: 'center' }}>{dateLabel(date)}</span>
-          <button className="btn btn-ghost btn-sm" onClick={() => setDate(shiftDateKey(date, 1))}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setDate(shiftDateKey(date, 1))}
+            // 飞书的预订单接口不接受未来日期（start_time 不能大于当前时间），
+            // 所以干脆不让往前翻 —— 否则用户翻过去只会看到一句"看不到"
+            disabled={date >= todayKey()}
+            title={date >= todayKey() ? t('noFuture') : undefined}
+          >
             ›
           </button>
           <button className="btn btn-outline btn-sm" onClick={() => setDate(todayKey())}>
             {t('today')}
           </button>
+          {date >= todayKey() ? (
+            <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{t('onlyPast')}</span>
+          ) : null}
         </div>
 
         <span
@@ -530,6 +540,9 @@ function RoomRow({
   const cells = bucketize(room.busy, win.startMs, win.endMs);
   return (
     <div
+      // 完整层级路径放 tooltip：光看「合一楼」不知道在哪，路径是
+      // 「中国学区 / 上海学区 / 申昆路总部 / 合一楼」
+      title={room.levelPath.length > 1 ? room.levelPath.join(' / ') : undefined}
       style={{
         display: 'grid',
         gridTemplateColumns: '150px 1fr',
@@ -556,9 +569,7 @@ function RoomRow({
           ) : null}
         </div>
         <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-secondary)', marginTop: 2 }}>
-          {[room.levelName, room.floor, room.capacity ? `${room.capacity}人` : '']
-            .filter(Boolean)
-            .join(' · ')}
+          {[room.levelName, room.capacity ? `${room.capacity}人` : ''].filter(Boolean).join(' · ')}
         </div>
         {room.devices.length ? (
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>

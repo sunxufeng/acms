@@ -26,6 +26,8 @@ import {
   meetingRoomAuthUrl,
   mergeBusySpans,
   nowProgress,
+  parseFeishuDateTime,
+  reservationWindowAllowed,
   resolveLevelNames,
   resourceKeysIntroducedAfter,
   shiftDateKey,
@@ -186,32 +188,85 @@ describe('时间与日期工具', () => {
   });
 });
 
-describe('层级树 → 楼栋 / 楼层', () => {
+describe('层级树 → 位置名（按生产真实结构校正）', () => {
+  // 生产真实层级（2026-09-21 实测）：中国学区 → 上海学区 → 申昆路总部 → 合一楼 / 19号楼 / 行知楼，
+  // 会议室挂在**最细一级**（room_level_id = 合一楼）。
   const levels: MeetingRoomLevel[] = [
-    { levelId: 'L1', name: '教学楼', parentId: '', path: ['L1'] },
-    { levelId: 'L1F2', name: '2F', parentId: 'L1', path: ['L1', 'L1F2'] },
-    { levelId: 'L2', name: '行政楼', parentId: '', path: ['L2'] },
-    // 父级缺失：飞书只返回有权限看到的层级 ⇒ 必须当成根，否则楼栋名为空
-    { levelId: 'L9F1', name: '1F', parentId: 'MISSING', path: ['L9F1'] },
+    { levelId: 'cn', name: '中国学区', parentId: 'acme', path: ['acme', 'cn'] },
+    { levelId: 'sh', name: '上海学区', parentId: 'cn', path: ['acme', 'cn', 'sh'] },
+    { levelId: 'hq', name: '申昆路总部', parentId: 'sh', path: ['acme', 'cn', 'sh', 'hq'] },
+    { levelId: 'hy', name: '合一楼', parentId: 'hq', path: ['acme', 'cn', 'sh', 'hq', 'hy'] },
+    { levelId: 'b19', name: '19号楼', parentId: 'hq', path: ['acme', 'cn', 'sh', 'hq', 'b19'] },
   ];
 
-  it('两级：楼层上溯到楼栋', () => {
-    const m = resolveLevelNames(levels);
-    expect(m.get('L1F2')).toEqual({ rootName: '教学楼', floorName: '2F' });
+  it('界面上的「楼栋」= 房间直接挂的那一级', () => {
+    expect(resolveLevelNames(levels).get('hy')?.levelName).toBe('合一楼');
   });
 
-  it('房间直接挂在一级层级上时，楼层为空（不显示「教学楼 · 教学楼」）', () => {
+  it('🔴 不能取根层级名 —— 否则四栋楼会在筛选里挤成同一个「中国学区」', () => {
     const m = resolveLevelNames(levels);
-    expect(m.get('L1')).toEqual({ rootName: '教学楼', floorName: '' });
+    expect(m.get('hy')?.levelName).not.toBe('中国学区');
+    expect(m.get('b19')?.levelName).toBe('19号楼');
   });
 
-  it('🔴 父级缺失的层级视为根（否则它的房间没有楼栋）', () => {
-    const m = resolveLevelNames(levels);
-    expect(m.get('L9F1')).toEqual({ rootName: '1F', floorName: '' });
+  it('rootName / ancestors 给出完整路径（界面 tooltip 用）', () => {
+    const info = resolveLevelNames(levels).get('hy');
+    expect(info?.rootName).toBe('中国学区');
+    expect(info?.ancestors).toEqual(['中国学区', '上海学区', '申昆路总部', '合一楼']);
   });
 
-  it('未知层级 id 返回 undefined（调用方退回「未归属楼栋」）', () => {
+  it('父级缺失的层级视为根，名字仍是本级名（不崩、不变成空）', () => {
+    const m = resolveLevelNames([{ levelId: 'x', name: '独立楼', parentId: 'MISSING', path: [] }]);
+    expect(m.get('x')).toEqual({ levelName: '独立楼', rootName: '独立楼', ancestors: ['独立楼'] });
+  });
+
+  it('未知层级 id 返回 undefined（调用方退回「未分组」）', () => {
     expect(resolveLevelNames(levels).get('NOPE')).toBeUndefined();
+  });
+});
+
+describe('飞书预订单时间解析（上线当天 9 条真实预定全靠它）', () => {
+  it('带 GMT 偏移的墙钟字符串 → 正确的绝对时刻', () => {
+    // 2026-09-21 09:00 (GMT+08:00) = UTC 01:00
+    expect(parseFeishuDateTime('2026.09.21 09:00:00 (GMT+08:00)')).toBe(Date.UTC(2026, 8, 21, 1, 0, 0));
+  });
+
+  it('真实样例（学而时习 09:00–12:00，一条 3 小时的预定）', () => {
+    const s0 = parseFeishuDateTime('2026.09.21 09:00:00 (GMT+08:00)');
+    const e0 = parseFeishuDateTime('2026.09.21 12:00:00 (GMT+08:00)');
+    expect(e0 - s0).toBe(3 * 3600_000);
+  });
+
+  it('不带偏移时按本地时区解释', () => {
+    expect(parseFeishuDateTime('2026.09.21 09:00:00')).toBe(new Date(2026, 8, 21, 9, 0, 0).getTime());
+  });
+
+  it('秒可省略', () => {
+    expect(parseFeishuDateTime('2026.09.21 09:00')).toBe(Date.UTC(2026, 8, 21, 1, 0, 0));
+  });
+
+  it('🔴 解析不了就返回 NaN（调用方跳过这条，而不是当成 0 点）', () => {
+    expect(Number.isNaN(parseFeishuDateTime(''))).toBe(true);
+    expect(Number.isNaN(parseFeishuDateTime(null))).toBe(true);
+    // RFC3339（`2026-09-21T09:00:00+08:00`）是 freebusy **入参**的格式，不是预订单返回值的格式；
+    // 两种格式不能混用 —— 拿错格式返回 NaN 才对，否则等于"猜着解析"（那正是当初 9 条预定全丢的原因）
+    expect(Number.isNaN(parseFeishuDateTime('2026-09-21T09:00:00+08:00'))).toBe(true);
+    expect(Number.isNaN(parseFeishuDateTime('2026.13.21 09:00:00 (GMT+08:00)'))).toBe(true);
+    expect(Number.isNaN(parseFeishuDateTime('2026.09.21 25:00:00 (GMT+08:00)'))).toBe(true);
+  });
+});
+
+describe('预订单接口的窗口限制（只能查当天及以前）', () => {
+  it('今天可查', () => {
+    expect(reservationWindowAllowed('2026-09-21', at('2026-09-21', 15))).toBe(true);
+  });
+
+  it('昨天可查（窗口起点早于现在）', () => {
+    expect(reservationWindowAllowed('2026-09-20', at('2026-09-21', 15))).toBe(true);
+  });
+
+  it('🔴 明天不可查 —— 必须提前拦下；否则它返回空占用，界面会画成"全空闲"', () => {
+    expect(reservationWindowAllowed('2026-09-22', at('2026-09-21', 15))).toBe(false);
   });
 });
 

@@ -14,6 +14,7 @@
  *    **绝不能**把读不到当成「没有会议室」或「全空闲」（后者会让人照着空表去开会）。
  */
 
+import { parseFeishuDateTime } from '@acms/contracts';
 import { getTenantToken } from './client.js';
 
 const FEISHU_HOST = 'https://open.feishu.cn';
@@ -128,7 +129,14 @@ export function deviceLabels(device: unknown): string[] {
   return [...new Set(out)];
 }
 
-/** 递归收集「同时带起止时间」的对象（`resource_reservation_list` 的响应结构未公开） */
+/**
+ * 递归收集「同时带起止时间」的对象。
+ *
+ * ⚠️ **已不再用于预订单解析**（那条路已按实测结构写成精确解析：键名
+ * `room_reservation_list` + 字段 `event_start_time`，见 `reservationList`）。
+ * 保留它只为排查时打印未预期的响应结构 —— 不要再拿它当解析器：
+ * 「按任意 key 猜」正是当初 9 条真实预定全解析失败的原因。
+ */
 export function collectTimeRanges(node: unknown, out: Record<string, unknown>[] = [], depth = 0): Record<string, unknown>[] {
   if (depth > 6 || node == null || typeof node !== 'object') return out;
   if (Array.isArray(node)) {
@@ -145,33 +153,65 @@ export function collectTimeRanges(node: unknown, out: Record<string, unknown>[] 
   return out;
 }
 
-/** 会议室层级列表（楼栋 / 楼层）。飞书的「固定层级」与「灵活层级」都走这个接口。 */
+/**
+ * 会议室层级列表（楼栋 / 楼层）。
+ *
+ * 🔴 两个实测校正（2026-09-21，靠生产真实数据才发现）：
+ *   ① 返回项里层级 id 的字段名是 **`room_level_id`**（不是 `level_id`）——
+ *      用错字段名会让 `levels` 恒为空数组，症状是「同步报『未返回任何层级』」；
+ *   ② **不传 `room_level_id` 只返回部分层级**，要拿全树必须按 `has_child` **递归展开**
+ *      （真实结构：中国学区 → 上海学区 → 申昆路总部 → 合一楼/19号楼/行知楼，共 6 个）。
+ *
+ * 顶层请求失败 ⇒ 整体失败（返回 error/denied）；子层级失败只跳过该分支，
+ * 已拿到的层级照常返回（不因为一个分支坏了就整件事做不成）。
+ */
 export async function listRoomLevels(creds?: FeishuCreds): Promise<FeishuResult<{ levels: FeishuRoomLevel[] }>> {
   const token = await getTenantToken(creds);
   if (!token) return { ok: false, error: '未配置飞书应用凭据' };
 
   const levels: FeishuRoomLevel[] = [];
-  let pageToken = '';
-  for (let i = 0; i < 20; i += 1) {
-    let url = `${FEISHU_HOST}/open-apis/vc/v1/room_levels?page_size=100`;
-    if (pageToken) url += `&page_token=${encodeURIComponent(pageToken)}`;
-    const r = await getJson(url, token);
-    if (!r.ok) return r as FeishuResult<{ levels: FeishuRoomLevel[] }>;
-    const d = r.data as { data?: { items?: Record<string, unknown>[]; page_token?: string } };
-    const items = d.data?.items ?? [];
-    for (const it of items) {
-      const id = String(it.level_id ?? '').trim();
-      if (!id) continue;
-      levels.push({
-        level_id: id,
-        name: String(it.name ?? '').trim(),
-        parent_id: String(it.parent_id ?? '').trim(),
-        path: Array.isArray(it.path) ? (it.path as unknown[]).map(String) : [],
-      });
+  const seen = new Set<string>();
+  let topError: FeishuResult<{ levels: FeishuRoomLevel[] }> | null = null;
+
+  const walk = async (parentId: string, depth: number): Promise<void> => {
+    if (depth > 6) return;
+    let pageToken = '';
+    for (let i = 0; i < 20; i += 1) {
+      let url = `${FEISHU_HOST}/open-apis/vc/v1/room_levels?page_size=100`;
+      if (parentId) url += `&room_level_id=${encodeURIComponent(parentId)}`;
+      if (pageToken) url += `&page_token=${encodeURIComponent(pageToken)}`;
+      const r = await getJson(url, token);
+      if (!r.ok) {
+        // 顶层的失败就是整件事失败；子层级失败只是这条分支没拿到
+        if (!parentId) topError = r as unknown as FeishuResult<{ levels: FeishuRoomLevel[] }>;
+        return;
+      }
+      const d = r.data as { data?: { items?: Record<string, unknown>[]; page_token?: string } };
+      const items = d.data?.items ?? [];
+      for (const it of items) {
+        const id = String(it.room_level_id ?? it.level_id ?? '').trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        levels.push({
+          level_id: id,
+          name: String(it.name ?? '').trim(),
+          parent_id: String(it.parent_id ?? '').trim(),
+          path: Array.isArray(it.path) ? (it.path as unknown[]).map(String) : [],
+        });
+      }
+      // 递归展开子层级（不递归就只能拿到"中国学区"一个）
+      for (const it of items) {
+        const id = String(it.room_level_id ?? '').trim();
+        if (it.has_child && id) await walk(id, depth + 1);
+      }
+      // ⚠️ 分页：同一层级的 page_token 翻页（与子层级递归不是一回事）
+      pageToken = String(d.data?.page_token ?? '');
+      if (!pageToken) break;
     }
-    pageToken = String(d.data?.page_token ?? '');
-    if (!pageToken || !items.length) break;
-  }
+  };
+
+  await walk('', 0);
+  if (topError) return topError;
   if (!levels.length) return { ok: false, error: '飞书未返回任何会议室层级（可能还没在飞书里建楼栋/会议室）' };
   return { ok: true, data: { levels } };
 }
@@ -253,12 +293,20 @@ export async function freebusyBatch(
 }
 
 /**
- * 会议室预订单（`vc/v1/resource_reservation_list`）—— freebusy 的备选。
+ * 会议室预订单（`vc/v1/resource_reservation_list`）—— freebusy 的兜底。
  *
- * ⚠️ 文档没展开响应体结构 ⇒ 用 `collectTimeRanges` 容错解析：宁可多试几种键名，
- *    也不要因为字段名不同就「读不到占用」（读不到会被渲染成"全空闲"，那是最糟的结果）。
+ * 🔴 真实响应结构（2026-09-21 实测，**文档里没写全**）：
+ *    `data.room_reservation_list = [{ room_id, event_start_time, event_end_time,
+ *      event_duration, reserver, department_of_reserver, reservation_status, ... }]`
+ *    时间是**带时区后缀的墙钟字符串**：`"2026.09.21 09:00:00 (GMT+08:00)"`。
+ *    （早期实现按"任意带 start_time/end_time 的对象"容错解析 ⇒ 一条都匹配不到 ⇒
+ *     当天 9 条真实预定全被当成空闲。这条就是靠"先拿真实数据试一次"才发现的。）
+ *
+ * 🔴 只能查**当天**：`start_time` 不能大于当前时间（未来日期报 `126005`），
+ *    窗口最长 24 小时。调用方必须用 `reservationWindowAllowed()` 提前拦住未来日期。
+ *
  * ⚠️ `room_level_id` 必填；传非 `omb_` 前缀的值时飞书按**租户层级**处理（文档原文），
- *    所以传 'tenant' —— 不必先知道具体层级 id。
+ *    所以传 'tenant' —— 实测有效且能一次拿到全部房间的预定。
  */
 export async function reservationList(
   creds: FeishuCreds | undefined,
@@ -282,12 +330,16 @@ export async function reservationList(
     if (pageToken) url += `&page_token=${encodeURIComponent(pageToken)}`;
     const r = await getJson(url, token);
     if (!r.ok) return r as FeishuResult<{ spans: SpansByRoom }>;
-    const d = r.data as { data?: Record<string, unknown> };
-    for (const it of collectTimeRanges(d.data ?? {})) {
-      const roomId = String(it.room_id ?? it.roomId ?? '').trim();
+    const d = r.data as { data?: { room_reservation_list?: Record<string, unknown>[]; page_token?: string } };
+    const list = d.data?.room_reservation_list ?? [];
+    for (const it of list) {
+      const roomId = String(it.room_id ?? '').trim();
       if (!roomId) continue;
-      const s = anyToMs(it.start_time ?? it.startTime ?? it.start);
-      const e = anyToMs(it.end_time ?? it.endTime ?? it.end);
+      // 只算「真占着」的：已取消/被拒的预定不该把房间画成占用
+      const status = String(it.reservation_status ?? '').trim();
+      if (status && !/预定成功|已通过|成功/.test(status)) continue;
+      const s = parseFeishuDateTime(it.event_start_time);
+      const e = parseFeishuDateTime(it.event_end_time);
       if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) continue;
       (spans[roomId] ??= []).push({ startMs: s, endMs: e });
     }

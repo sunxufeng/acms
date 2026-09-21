@@ -2904,7 +2904,9 @@
     "emptyHint": "Ask an administrator to click “Sync from Feishu” so the rooms configured in Feishu are imported.",
     "loading": "Loading…",
     "people": "",
-    "footerNote": "Each day {from}:00–{to}:00, one cell per {bucket} hour; red = busy, pale = free. Occupancy refreshes every 2 minutes. Only “busy” is shown — meeting titles are not exposed."
+    "footerNote": "Each day {from}:00–{to}:00, one cell per {bucket} hour; red = busy, pale = free. Occupancy refreshes every 2 minutes and covers today and earlier only (Feishu API limit). Only “busy” is shown — meeting titles are not exposed.",
+    "noFuture": "Feishu only provides meeting-room reservations up to today, so future dates cannot be shown",
+    "onlyPast": "(Feishu provides reservations up to today only)"
   },
   "noteConvert": {
     "subtitle": "Select which modules may receive note content, and map which field the Summary / Raw Record / Recording goes into. Enabled modules appear in the Convert button on the My Notes list. Newly developed modules show up here automatically.",

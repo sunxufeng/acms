@@ -22,6 +22,7 @@ import {
   isSlotFree,
   meetingRoomAuthUrl,
   mergeBusySpans,
+  reservationWindowAllowed,
   resolveLevelNames,
   todayKey,
   type FindFreeParams,
@@ -45,6 +46,13 @@ import {
 
 /** 占用缓存时长：2 分钟（界面上回显抓取时间，用户知道自己在看什么时候的数据） */
 const BUSY_TTL_MS = 2 * 60 * 1000;
+/**
+ * 忙闲接口（`freebusy`）「不可用」的复查间隔：10 分钟。
+ *
+ * 它当前缺权限（每次都必然失败），不记状态的话每次刷新页面都会多打一轮无效请求。
+ * 但**不能永久缓存**：哪天权限开通了，最多 10 分钟就自动切回能力更强的这条路径。
+ */
+const FREEBUSY_RETRY_MS = 10 * 60 * 1000;
 /** 飞书 freebusy 一次最多 20 个房间 */
 const ROOM_BATCH = 20;
 
@@ -87,6 +95,9 @@ export class MeetingRoomService {
   /** 并发去重：同一时刻多个人打开页面，只打一次飞书 */
   private readonly busyInFlight = new Map<string, Promise<BusyResult>>();
 
+  /** freebusy 上次探测到不可用的时间（0 = 还没试过）—— 见 FREEBUSY_RETRY_MS */
+  private freebusyCheckedAt = 0;
+
   // ─────────────────────────── 建表 ───────────────────────────
 
   async ensureTables(): Promise<void> {
@@ -107,7 +118,7 @@ export class MeetingRoomService {
       { name: '名称', type: FT.TEXT },
       { name: '层级ID', type: FT.TEXT },
       { name: '楼栋', type: FT.TEXT },
-      { name: '楼层', type: FT.TEXT },
+      { name: '层级路径', type: FT.TEXT },
       { name: '容纳人数', type: FT.NUMBER },
       { name: '设备', type: FT.TEXT },
       { name: '描述', type: FT.TEXT },
@@ -193,10 +204,11 @@ export class MeetingRoomService {
         const fields = {
           名称: r.name,
           层级ID: r.room_level_id,
-          // 楼栋名从层级树解析（房间里只有 level_id）；解析不到就留空，
-          // 界面会退回显示「未归属楼栋」而不是显示一个假楼栋
-          楼栋: names?.rootName ?? '',
-          楼层: names?.floorName ?? '',
+          // 🔴「楼栋」= 房间**直接挂的那一级**（真实数据里是「合一楼 / 19号楼 / 行知楼」），
+          // 不是根层级「中国学区」—— 取根的话四栋楼会挤成同一个筛选项。
+          // 解析不到就留空（界面显示「未分组」比显示一个假楼栋好）。
+          楼栋: names?.levelName ?? '',
+          层级路径: joinList(names?.ancestors ?? []),
           容纳人数: r.capacity,
           设备: joinList(r.devices),
           描述: r.description,
@@ -276,7 +288,7 @@ export class MeetingRoomService {
         name: String(f['名称'] ?? ''),
         levelId: String(f['层级ID'] ?? ''),
         levelName: String(f['楼栋'] ?? ''),
-        floor: String(f['楼层'] ?? ''),
+        levelPath: splitList(f['层级路径']),
         capacity: Number(f['容纳人数'] ?? 0) || 0,
         devices: splitList(f['设备']),
         description: String(f['描述'] ?? ''),
@@ -305,27 +317,66 @@ export class MeetingRoomService {
     if (inflight) return inflight;
 
     const task = (async (): Promise<BusyResult> => {
-      const { startMs, endMs } = dayWindow(dateKey);
+      const { startMs } = dayWindow(dateKey);
       const dayStart = startMs - 8 * 3600_000;
       const dayEnd = dayStart + 24 * 3600_000;
       const spans: SpansByRoom = {};
       const warnings: string[] = [];
-      let used = '';
+
+      // 🔴 两条路的能力不同，必须先选对（2026-09-21 用生产数据实测出来）：
+      //    `freebusy`          —— 能查**任意日期**，但当前应用**缺权限**（实测 denied）；
+      //    `resource_reservation_list` —— 有权限，但**只能查当天**
+      //        （start_time 不能大于当前时间，查未来报 126005），且窗口 ≤ 24h。
+      //    所以：先试 freebusy（开着就一路通吃）；不可用时回退预订单，
+      //    而**预订单只允许查今天** —— 未来日期宁可报「看不到」，也不能返回空
+      //    （空占用会被画成"全空闲"，是这个功能里最危险的假象）。
+      const freebusyUsable = this.freebusyCheckedAt === 0 || Date.now() - this.freebusyCheckedAt > FREEBUSY_RETRY_MS;
+
+      if (freebusyUsable) {
+        let allOk = true;
+        const collected: SpansByRoom = {};
+        for (let i = 0; i < roomIds.length; i += ROOM_BATCH) {
+          const batch = roomIds.slice(i, i + ROOM_BATCH);
+          const r = await freebusyBatch(feishuCreds(), batch, dayStart, dayEnd);
+          if (!r.ok || !r.data) {
+            allOk = false;
+            // 记下"忙闲不可用"，10 分钟内不再重试（否则每次刷新都要多打一轮必然失败的请求）
+            this.freebusyCheckedAt = Date.now();
+            if (!r.denied) warnings.push(`忙闲接口不可用：${r.error ?? '未知原因'}`);
+            break;
+          }
+          for (const [roomId, list] of Object.entries(r.data.spans)) {
+            (collected[roomId] ??= []).push(...list);
+          }
+        }
+        if (allOk) {
+          if (!roomIds.length) warnings.push('没有可查询的会议室（请先同步）');
+          this.logger.log(`占用已更新（freebusy，房间 ${roomIds.length} 个，日期 ${dateKey}）`);
+          return { at: Date.now(), spans: collected, warnings };
+        }
+      } else {
+        this.freebusyCheckedAt = Date.now();
+      }
+
+      // ── 回退：预订单接口（只能当天）─────────────────────────────
+      if (!reservationWindowAllowed(dateKey)) {
+        return {
+          at: Date.now(),
+          spans: {},
+          degraded:
+            `飞书目前只提供「当天」的会议室预定数据（预订单接口不接受未来日期），` +
+            `所以 ${dateKey} 的占用情况看不到。`,
+          warnings,
+        };
+      }
+      if (!roomIds.length) {
+        warnings.push('没有可查询的会议室（请先同步）');
+        return { at: Date.now(), spans: {}, warnings };
+      }
 
       for (let i = 0; i < roomIds.length; i += ROOM_BATCH) {
         const batch = roomIds.slice(i, i + ROOM_BATCH);
-        let r = await freebusyBatch(feishuCreds(), batch, dayStart, dayEnd);
-        used = 'freebusy';
-        if (!r.ok && !r.denied) {
-          // 忙闲接口失败（结构/限制问题）⇒ 回退预订单接口，别让用户看到"全空闲"
-          const alt = await reservationList(feishuCreds(), batch, dayStart, dayEnd);
-          if (alt.ok) {
-            r = alt;
-            used = 'reservation_list';
-          } else {
-            r = alt.denied ? alt : r;
-          }
-        }
+        const r = await reservationList(feishuCreds(), batch, dayStart, dayEnd);
         if (!r.ok || !r.data) {
           return {
             at: Date.now(),
@@ -340,9 +391,7 @@ export class MeetingRoomService {
           (spans[roomId] ??= []).push(...list);
         }
       }
-
-      if (!roomIds.length) warnings.push('没有可查询的会议室（请先同步）');
-      this.logger.log(`占用数据已更新（${used}，房间 ${roomIds.length} 个，日期 ${dateKey}）`);
+      this.logger.log(`占用已更新（预订单，房间 ${roomIds.length} 个，日期 ${dateKey}）`);
       return { at: Date.now(), spans, warnings };
     })();
 
@@ -391,7 +440,9 @@ export class MeetingRoomService {
     if (!local.length) {
       return {
         ...base,
-        degraded: '还没有会议室数据。请在飞书里配好会议室后，点右上角「同步飞书会议室」。',
+        degraded:
+          '还没有会议室数据 —— 请点右上角「同步飞书会议室」，把飞书里配置的会议室同步过来。' +
+          '（如果同步报权限不足，说明飞书应用还没开通会议室只读权限，同步失败的提示里会给出申请链接。）',
       };
     }
 
@@ -422,7 +473,7 @@ export class MeetingRoomService {
         name: String(f['名称'] ?? ''),
         levelId: String(f['层级ID'] ?? ''),
         levelName: String(f['楼栋'] ?? ''),
-        floor: String(f['楼层'] ?? ''),
+        levelPath: splitList(f['层级路径']),
         capacity: Number(f['容纳人数'] ?? 0) || 0,
         devices: splitList(f['设备']),
         description: String(f['描述'] ?? ''),

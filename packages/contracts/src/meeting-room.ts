@@ -38,14 +38,19 @@ export interface MeetingRoomLevel {
 export interface MeetingRoomInfo {
   roomId: string;
   name: string;
-  /** 所属层级 id（一级 = 楼栋） */
+  /** 所属层级 id（= 最细一级，通常就是楼栋） */
   levelId: string;
-  /** 展示用的楼栋名（一级层级名；拿不到时退回本级名） */
+  /**
+   * 展示用的位置名 = **房间直接挂的那一级**（真实数据里是「合一楼 / 19号楼 / 行知楼」）。
+   *
+   * ⚠️ 不是根层级名：根是「中国学区」，四栋楼都归它，筛选会失去意义。
+   *    见 `resolveLevelNames` 的说明。
+   */
   levelName: string;
-  /** 楼层（飞书灵活层级下才能精确到层，可能是空串） */
-  floor: string;
+  /** 从根到本级的名字路径（如 `[中国学区, 上海学区, 申昆路总部, 合一楼]`），界面放 tooltip */
+  levelPath: string[];
   capacity: number;
-  /** 设备标签（飞书 `device[]`；为空时由管理员在本地补） */
+  /** 设备标签（飞书 `device[]`：电视 / 视频会议设备 / 白板 / 签到板 / 投影仪…） */
   devices: string[];
   description: string;
   /** 维护中/停用（飞书 `room_status.status === false`）—— 不该出现在「找空闲」结果里 */
@@ -123,36 +128,53 @@ export function meetingRoomAuthUrl(appId: string): string {
 }
 
 /**
- * 层级树 → 每个层级对应的「楼栋 / 楼层」。
+ * 层级树 → 每个层级的名字信息。
  *
- * 飞书会议室挂在**某个层级**上，而界面上的副标题是「教学楼 · 60 人」（楼栋）+
- * 筛选按钮也是楼栋 —— 层级可能是两层（楼栋 → 楼层）也可能只有一层，
- * 而房间的 `room_level_id` 指向的是**最细的那一级**。所以必须上溯到根才能拿到楼栋名。
+ * 🔴 语义（2026-09-21 按**生产真实层级**校正过）：
+ *    飞书里的层级是四层 —— `中国学区 → 上海学区 → 申昆路总部 → 合一楼 / 19号楼 / 行知楼`，
+ *    而会议室挂在**最细一级**（`room_level_id` = 合一楼）。界面上那个「楼栋」筛选，
+ *    指的就是这一级（`levelName`），**不是根**（根是"中国学区"，四栋楼都会归到它名下，
+ *    筛选就失去意义了）。
+ *    早期实现取的是根名（假设"层级=楼栋一层"），在真实数据下会把所有房间归成同一个楼栋。
+ *
+ * `rootName` / `ancestors` 留给界面做 tooltip（「申昆路总部 / 合一楼」比光看"合一楼"更有方向感）。
  *
  * 判定「根」的规则（两条都要，缺一个就会漏）：`parent_id` 为空，**或** `parent_id`
  * 指向一个不在列表里的层级（飞书只返回有权限看到的层级，父级可能缺失）。
- *
- * 返回 `{ rootName, floorName }`：`floorName` 仅当该层级不是根时才有值
- * （房间直接挂在一级层级上时，副标题不该显示「教学楼 · 教学楼」）。
  */
-export function resolveLevelNames(
-  levels: readonly MeetingRoomLevel[],
-): Map<string, { rootName: string; floorName: string }> {
+export interface LevelNameInfo {
+  /** 该层级自身的名字（界面上的「楼栋」） */
+  levelName: string;
+  /** 最顶层名字（学区） */
+  rootName: string;
+  /** 从根到本级的名字路径（含自身） */
+  ancestors: string[];
+}
+
+export function resolveLevelNames(levels: readonly MeetingRoomLevel[]): Map<string, LevelNameInfo> {
   const byId = new Map(levels.map((l) => [l.levelId, l]));
   const isRoot = (l: MeetingRoomLevel) => !l.parentId || !byId.has(l.parentId);
-  const rootCache = new Map<string, string>();
-  const rootOf = (levelId: string, guard = 0): string => {
-    if (rootCache.has(levelId)) return rootCache.get(levelId) as string;
-    const l = byId.get(levelId);
-    if (!l || guard > 20) return '';
-    const name = isRoot(l) ? l.name : rootOf(l.parentId, guard + 1);
-    rootCache.set(levelId, name);
-    return name;
+  /** 从本级向上收集名字（含自身、从根到本级）；带防环保护 */
+  const chainOf = (levelId: string): string[] => {
+    const names: string[] = [];
+    let cur = byId.get(levelId);
+    let guard = 0;
+    while (cur && guard < 20) {
+      names.unshift(cur.name);
+      if (isRoot(cur) || !cur.parentId) break;
+      cur = byId.get(cur.parentId);
+      guard += 1;
+    }
+    return names.filter(Boolean);
   };
-  const out = new Map<string, { rootName: string; floorName: string }>();
+  const out = new Map<string, LevelNameInfo>();
   for (const l of levels) {
-    const rootName = rootOf(l.levelId);
-    out.set(l.levelId, { rootName, floorName: isRoot(l) ? '' : l.name });
+    const ancestors = chainOf(l.levelId);
+    out.set(l.levelId, {
+      levelName: l.name,
+      rootName: ancestors[0] ?? l.name,
+      ancestors,
+    });
   }
   return out;
 }
@@ -210,6 +232,50 @@ export function dayWindow(dateKey: string): { startMs: number; endMs: number } {
 export function hhmm(ms: number): string {
   const d = new Date(ms);
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/**
+ * 解析飞书预订单里的时间字符串 → 毫秒。
+ *
+ * 🔴 飞书 `resource_reservation_list` 给的是**带时区后缀的墙钟字符串**：
+ *    `"2026.09.21 09:00:00 (GMT+08:00)"` —— 不是时间戳、分隔符是点、还带 GMT 尾巴。
+ *    （2026-09-21 实测：把 9 条真实预定全解析失败 ⇒ 页面会显示"全空闲"，
+ *     这是这套功能里最危险的假象，所以这里单列成函数并配单测。）
+ *
+ * 带偏移 ⇒ 按该偏移换算成绝对时刻；不带偏移 ⇒ 按**本地时区**解释（飞书给的是本地墙钟时间）。
+ * 解析不了返回 NaN（调用方跳过这条预定，而不是当成 0 点）。
+ */
+export function parseFeishuDateTime(v: unknown): number {
+  const s = String(v ?? '').trim();
+  const m = /^(\d{4})[./-](\d{1,2})[./-](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?\s*(?:\(GMT([+-])(\d{1,2}):?(\d{2})\))?$/.exec(s);
+  if (!m) return NaN;
+  const Y = Number(m[1]);
+  const Mo = Number(m[2]);
+  const D = Number(m[3]);
+  const H = Number(m[4]);
+  const Mi = Number(m[5]);
+  const Se = Number(m[6] ?? 0);
+  if (![Y, Mo, D, H, Mi, Se].every(Number.isFinite)) return NaN;
+  if (Mo < 1 || Mo > 12 || D < 1 || D > 31 || H > 23 || Mi > 59) return NaN;
+  const sign = m[7];
+  if (!sign) return new Date(Y, Mo - 1, D, H, Mi, Se, 0).getTime();
+  const offMin = (Number(m[8]) || 0) * 60 + (Number(m[9]) || 0);
+  const signedOff = sign === '-' ? -offMin : offMin;
+  return Date.UTC(Y, Mo - 1, D, H, Mi, Se) - signedOff * 60_000;
+}
+
+/**
+ * 预订单接口（`resource_reservation_list`）能不能用来查这一天。
+ *
+ * 🔴 飞书的硬限制（2026-09-21 实测）：`start_time` **不能大于当前时间**
+ *    （未来日期直接报 `126005 start time error`），且窗口最长 24 小时
+ *    ⇒ **这个接口只能看到「今天」**。
+ *    所以查未来日期时必须提前拦下并走降级（提示「只能查当天」），
+ *    **不能**让它返回空 —— 空占用会被渲染成"全空闲"，那是最糟的假象。
+ *    （能查任意日期的 `meeting_room/freebusy/batch_get` 需要额外权限，见 `busyFor`。）
+ */
+export function reservationWindowAllowed(dateKey: string, nowMs: number = Date.now()): boolean {
+  return dayWindow(dateKey).startMs <= nowMs;
 }
 
 /**

@@ -72,7 +72,13 @@ describe('noteStatusMatches（筛选：不传 = 不限制）', () => {
 });
 
 describe('筛选下拉候选', () => {
-  it('含「全部」，且与契约常量一致（页面下拉直接 spread 它，改了这里等于改界面）', () => {
-    expect([...NOTE_STATUS_FILTER_OPTIONS]).toEqual([NOTE_STATUS_ALL, NOTE_STATUS_ACTIVE, NOTE_STATUS_ARCHIVED]);
+  /**
+   * 🔴 候选里**不能有「全部」**（2026-09-21 峰哥报障：下拉里出现两个「全部」）：
+   * 通用筛选控件 `FilterSelect` 自己就会在最前面渲染一项「全部」（值是空串 = 不筛），
+   * 候选里再放一个同名的就成了两项。判据侧仍认「全部」（见上面的 noteStatusMatches 用例）。
+   */
+  it('只列真实状态值（「全部」由筛选控件自己提供）', () => {
+    expect([...NOTE_STATUS_FILTER_OPTIONS]).toEqual([NOTE_STATUS_ACTIVE, NOTE_STATUS_ARCHIVED]);
+    expect([...NOTE_STATUS_FILTER_OPTIONS]).not.toContain(NOTE_STATUS_ALL);
   });
 });

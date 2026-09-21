@@ -84,8 +84,19 @@ export const NOTE_STATUS_ARCHIVED = '归档';
 /** 筛选项里的「全部」：只出现在筛选控件与 query 参数里，**不会写进数据** */
 export const NOTE_STATUS_ALL = '全部';
 export const NOTE_STATUSES = [NOTE_STATUS_ACTIVE, NOTE_STATUS_ARCHIVED] as const;
-/** 状态筛选下拉的候选（含「全部」） */
-export const NOTE_STATUS_FILTER_OPTIONS = [NOTE_STATUS_ALL, NOTE_STATUS_ACTIVE, NOTE_STATUS_ARCHIVED] as const;
+/**
+ * 状态筛选下拉的候选 —— **故意不含「全部」**。
+ *
+ * 🔴 为什么（2026-09-21 峰哥报障：下拉里出现了**两个「全部」**）：
+ *    通用筛选控件 `FilterSelect` 自己会在最前面渲染一项「全部」（值是**空串**，
+ *    语义 = 不筛），再把这里的候选接在后面 —— 两者都放「全部」就是两个同名项，
+ *    用户不知道点哪个（行为其实一样：`noteStatusMatches` 把空串与「全部」都当"不筛"）。
+ *    所以「全部」由控件提供，候选里只列**真实状态值**。
+ *
+ * ⚠️ `NOTE_STATUS_ALL` 仍然要留着：判据侧（`noteStatusMatches` / 后端 `splitByStatus`）
+ *    和 URL 参数都认它 —— 老链接里可能带着 `?状态=全部`，不能当未知值处理。
+ */
+export const NOTE_STATUS_FILTER_OPTIONS = [NOTE_STATUS_ACTIVE, NOTE_STATUS_ARCHIVED] as const;
 
 /** 归一：明确等于「归档」才是归档，其余一切（含 undefined / '' / 未知值）算「有效」 */
 export function normalizeNoteStatus(v: unknown): string {

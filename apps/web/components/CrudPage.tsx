@@ -573,7 +573,16 @@ function FilterSelect({
   return (
     <div className="filter-select" ref={ref}>
       <button type="button" className="filter-select-trigger" onClick={() => setOpen(!open)}>
-        <span>{label}{value ? `：${tl(optionLabels?.[value] ?? value)}` : ''}</span>
+        {/**
+         * 触发器**统一**显示成 `标签：当前值`，没选时显示「标签：全部」。
+         *
+         * 🔴 为什么空值也要显示（2026-09-21 峰哥报障「状态下拉显示『状态：有效』不统一」）：
+         *    原先空值只显示标签（`来源`），而带默认值的筛选（`filterDefault`，如笔记状态
+         *    默认「有效」）显示 `状态：有效` ⇒ 同一排筛选框两种长相。
+         *    统一成「标签：值」后，触发器的文案本身就是「当前在按什么筛」——
+         *    也顺便让"没选 = 不筛（全部）"这件事显式可见。
+         */}
+        <span>{label}：{value ? tl(optionLabels?.[value] ?? value) : t('crud.all')}</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="m6 9 6 6 6-6" /></svg>
       </button>
       {open && (

@@ -2572,7 +2572,8 @@
     "人的个人密级高于此处上限。": "have a personal level above this cap.",
     "（当前无人覆盖，此处上限对全部成员生效）": "(Nobody overrides it — this cap applies to all members.)",
     "是否达标": "Attained",
-    "得分": "Score"
+    "得分": "Score",
+    "学生记录（日常跟进 / IDP沟通 / 学生沟通 / 家校沟通 / 学生观察）是同一张表，按「记录类型」分别导出；只能导出你本人有权查看的类型。": "Student records (Daily follow-up / IDP comms / Student comms / Home-school comms / Observations) live in one table — export them per Record Type. Only the types you may view can be exported."
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

@@ -4,8 +4,27 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { exportTable } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
+import {
+  STUDENT_RECORD_EXPORT_ALL,
+  STUDENT_RECORD_EXPORT_KEY,
+  STUDENT_RECORD_TYPES,
+} from '@acms/contracts';
 
-const TABLES: { key: string; label: string }[] = [
+/**
+ * 导出对象。`key` = `TABLES` 里的表键；`type` = 只导该「记录类型」（三合一记录表专用）。
+ *
+ * 🔴 学生记录（三合一）是**一张表 + 一个「记录类型」字段**，所以按类型分别列出来：
+ *    合并前的老写法是「日常跟进 → 整张表（5 类全在里面）」「家校沟通 / 学生观察 → 合并前的旧表
+ *    （生产实测 0 行，导出来只有表头）」，用户点哪个都拿不到想要的那一类。
+ *    现在：同一个表键 + 各自的类型，URL 形如 `/export/dailyFollowup?记录类型=家校沟通`。
+ */
+interface ExportItem {
+  key: string;
+  label: string;
+  type?: string;
+}
+
+const TABLES: ExportItem[] = [
   { key: 'studentProfile', label: '学生档案' },
   { key: 'teacherProfile', label: '教师档案' },
   { key: 'coursePlan', label: '课程方案' },
@@ -24,26 +43,44 @@ const TABLES: { key: string; label: string }[] = [
   { key: 'attendance', label: '学生考勤' },
   { key: 'academicGrade', label: '学业成绩' },
   { key: 'practiceActivity', label: '实践活动' },
-  { key: 'homeSchoolComm', label: '家校沟通' },
-  { key: 'dailyFollowup', label: '日常跟进' },
+  // 学生记录（日常跟进 / IDP沟通 / 学生沟通 / 家校沟通 / 学生观察）—— 一张表按类型分别导出，
+  // 清单从类型定义生成，将来再加类型不必改这里。
+  ...STUDENT_RECORD_TYPES.map((t) => ({
+    key: STUDENT_RECORD_EXPORT_KEY,
+    label: `学生记录 · ${t.value}`,
+    type: t.value,
+  })),
+  {
+    key: STUDENT_RECORD_EXPORT_KEY,
+    label: '学生记录 · 全部类型',
+    type: STUDENT_RECORD_EXPORT_ALL,
+  },
   { key: 'stageEvaluation', label: '阶段评价' },
   { key: 'alumniFollowup', label: '校友跟进' },
 ];
+
+/** 下拉的 value：带类型时用 `表键::类型`（表键本身不含 `::`） */
+const itemValue = (it: ExportItem) => (it.type ? `${it.key}::${it.type}` : it.key);
+
+const ITEM_BY_VALUE: Record<string, ExportItem> = Object.fromEntries(
+  TABLES.map((it) => [itemValue(it), it]),
+);
 
 export default function ExportPage() {
 
   const tl = useTl();
   const tc = useTranslations('common');
-  const [selected, setSelected] = useState('studentProfile');
+  const [selected, setSelected] = useState(itemValue(TABLES[0]!));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
   async function run() {
     setBusy(true);
     setMsg('');
+    const item = ITEM_BY_VALUE[selected];
     try {
-      await exportTable(selected);
-      setMsg(`已触发下载：${selected}.csv`);
+      const name = await exportTable(item?.key ?? selected, item?.type, item?.label ?? selected);
+      setMsg(`已触发下载：${name}`);
     } catch (e) {
       setMsg('导出失败：' + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -56,6 +93,9 @@ export default function ExportPage() {
       <div className="page-header">
         <h1 className="page-title">{tl('数据导出')}</h1>
         <p className="muted">{tl('将任一业务表全量导出为 CSV（含 BOM，Excel 可直接打开）。需「导出」权限（export:run）。')}</p>
+        <p className="muted">
+          {tl('学生记录（日常跟进 / IDP沟通 / 学生沟通 / 家校沟通 / 学生观察）是同一张表，按「记录类型」分别导出；只能导出你本人有权查看的类型。')}
+        </p>
       </div>
 
       <div className="form-fieldset" style={{ maxWidth: 520 }}>
@@ -65,8 +105,8 @@ export default function ExportPage() {
             <span className="form-label-text">{tl('业务表')}</span>
             <select className="form-input" value={selected} onChange={(e) => setSelected(e.target.value)}>
               {TABLES.map((t) => (
-                <option key={t.key} value={t.key}>
-                  {t.label}（{t.key}）
+                <option key={itemValue(t)} value={itemValue(t)}>
+                  {t.type ? t.label : `${t.label}（${t.key}）`}
                 </option>
               ))}
             </select>

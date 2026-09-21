@@ -2625,9 +2625,19 @@ export interface RoleManagementPayload {
   syncedRoleOptions?: string[];
 }
 
-/** 通用导出：任一已注册飞书表 → CSV 下载（需 export:run 权限） */
-export async function exportTable(table: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/export/${table}`, { credentials: 'include' });
+/**
+ * 通用导出：任一已注册飞书表 → CSV 下载（需 export:run 权限）。
+ *
+ * `recordType`（可选）：学生记录是**一张表 + 一个「记录类型」字段**，按类型分别导出；
+ * 后端对该类型再判一次类型权限（列表看不到的类型导不出来）。
+ * `label`（可选）：下载文件名用它（如「学生记录 · 家校沟通」），否则用表键。
+ * @returns 实际使用的文件名（页面提示要显示它）
+ */
+export async function exportTable(table: string, recordType?: string, label?: string): Promise<string> {
+  const qs = new URLSearchParams();
+  if (recordType) qs.set('记录类型', recordType);
+  const q = qs.toString();
+  const res = await fetch(`${API_BASE}/export/${table}${q ? `?${q}` : ''}`, { credentials: 'include' });
   if (res.status === 401) {
     // 未登录：与 request() 一致，按当前路径分流到飞书/学生登录页
     if (typeof window !== 'undefined') {
@@ -2640,16 +2650,24 @@ export async function exportTable(table: string): Promise<void> {
     }
     throw new Error('UNAUTHENTICATED');
   }
+  if (res.status === 403) {
+    // 与 CrudPage 同一套口径：403 说人话（这里只能拿到状态码，说明是哪类限制）
+    throw new Error('没有权限导出该对象（需 export:run 权限，且只能导出你有权查看的记录类型）');
+  }
   if (!res.ok) throw new Error(`导出失败 HTTP ${res.status}`);
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
+  // 文件名去掉路径分隔符等非法字符（中文保留：浏览器与 Excel 都能正确处理）
+  const safe = String(label ?? table).replace(/[\\/:*?"<>|]/g, '').trim() || table;
+  const filename = `${safe}_${new Date().toISOString().slice(0, 10)}.csv`;
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${table}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+  return filename;
 }
 
 /**

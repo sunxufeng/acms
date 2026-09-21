@@ -177,6 +177,20 @@ export function moduleKeyOfRecordType(value: unknown): string | undefined {
 }
 
 /**
+ * 三合一记录表的**导出键**（`TABLES` 的键，= 那张唯一物理表）。
+ *
+ * 为什么要有这个常量：导出页的「三合一」条目不再是「一个表键 = 一类记录」，
+ * 而是**同一个表键 + 一个「记录类型」参数**（`/export/dailyFollowup?记录类型=家校沟通`）。
+ * 前端拼 URL、后端解析都用这一份，别各写一个字面量。
+ * 兼容：`/export/homeSchoolComm`、`/export/studentObservation` 这两个**合并前的**键
+ * 仍被识别（后端映射到本表 + 各自的默认类型）——它们原先指向的旧表生产实测已 0 行。
+ */
+export const STUDENT_RECORD_EXPORT_KEY = 'dailyFollowup';
+
+/** 「记录类型」查询参数里表示「全部类型」的取值（仍受该用户的类型权限约束） */
+export const STUDENT_RECORD_EXPORT_ALL = '全部';
+
+/**
  * 「学生记录」菜单项是否对当前用户可见 —— **唯一判据**（AppShell 调它，别在页面里再写一份）。
  *
  * 三层，缺一层就有一类人看不到菜单：

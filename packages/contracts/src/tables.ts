@@ -85,6 +85,14 @@ export const TABLES = {
   // 与部门表同为该校自建 SQL 表（不走飞书 Base），由 SqlStore.ensureTable 幂等首建 t_tblmtg0000000001。
   // ⚠️ 合成 tableId，仅本地使用，无需 TABLE_ID_MAP 映射。
   meetingMinutes: { tableId: 'tblmtg0000000001', name: '会议纪要表' },
+  // 会议室表（组织管理 / 会议室助手，2026-09-21 新增）：飞书会议室（vc/v1/rooms）的本地快照，
+  // 含楼栋/楼层/容纳人数/设备标签。同名自建 SQL 表，`SqlStore.ensureTable` 幂等首建。
+  // 记录 id = 飞书 room_id（omm_xxx）—— 直接用上游主键，同步时天然幂等（upsert）。
+  // ⚠️ 合成 tableId，仅本地使用，无需 TABLE_ID_MAP 映射。
+  meetingRooms: { tableId: 'tblmtgroom000001', name: '会议室表' },
+  // 会议室层级表（同上）：飞书 room_levels 的本地快照。一级层级即界面上的「楼栋」，
+  // 筛选下拉与房间行副标题都从这里取名字（不依赖飞书实时可用）。
+  meetingRoomLevels: { tableId: 'tblmtglvl0000001', name: '会议室层级表' },
   // 登录日志表（2026-09-11 新增）：统计「谁在什么时间用了系统」。
   // 会话只在 Redis（1 小时过期、不落库），没有任何可回溯的登录记录，
   // 所以这里自建一张 SQL 表，由 SessionService.create 成功后 fire-and-forget 写入。

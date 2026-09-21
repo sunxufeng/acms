@@ -29,8 +29,44 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *      鉴权**自动从 meta 的旧点切到新点**。若迁移不给原持有者补上，升级瞬间：
  *      ①「考试与成绩」页的批次下拉 403；②成绩册的等级体系读取失败。
  *      而这两个点恰恰是「本来就该能配的人」持有的，所以继承它们 = 零行为变化。
+ *
+ * v5（2026-09-21）：新增**会议室助手**（组织管理下，只读查飞书会议室可用度）。
+ *   可见性口径是峰哥定的「**全员可见**」（会议室是公共资源），所以必须抬版本：
+ *   继承源选 `module:meetingMinutes:read`（同属组织管理的「会议纪要」）——
+ *   生产实测 10 个教职工角色（系统管理员 / 院级管理 / Phase1~8）都持有它，
+ *   抬版本后一次性继承，**零手工配置**；学生 / 家长角色不持有 ⇒ 不会拿到（符合预期）。
+ *   ⚠️ 「同步飞书会议室」是写动作，`legacyWrite: null` ⇒ 不继承给任何角色，
+ *      只有系统管理员（`healLockedRoles()` 用代码全量权限自愈）持有。
  */
-export const ROLE_PERMISSION_VERSION = 4;
+export const ROLE_PERMISSION_VERSION = 5;
+
+/**
+ * 资源「从哪个版本开始存在」。
+ *
+ * 🔴 每次抬 `ROLE_PERMISSION_VERSION` 且**新增了资源**时，必须在这里登记。
+ *    迁移只给存量角色补「本版本引入的资源」的权限（见 `resourceKeysIntroducedAfter`），
+ *    未登记的一律按 0 算（= 老资源，不进任何增量）。
+ *
+ * 为什么不做「全量重算」：2026-09-21 抬 v5 之前做过一次影响面核算，发现全量重算会
+ *   ① 把**刻意只给两个角色**的报表点（`reportUsage`，见文件头 v3/v4 的说明）按
+ *      `legacyRead = module:reports:read` 发给 12 个角色 —— **连 student / parent 都会拿到**；
+ *   ② 给 6 个角色补上 AI 路由各模块的 `enter`（菜单可见性被意外放大，进得去但可能点不动）。
+ *   而这两件事都不是本次交付的本意。改成增量之后，迁移的语义也变成准确的一句话：
+ *   **「给存量角色补上新功能的权限」**，不碰其余任何权限。
+ */
+export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
+  meetingRooms: 5,
+};
+
+/** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */
+export function resourceKeysIntroducedAfter(
+  fromVersion: number,
+  toVersion: number = ROLE_PERMISSION_VERSION,
+): string[] {
+  return Object.entries(MODULE_RESOURCE_INTRODUCED_VERSION)
+    .filter(([, v]) => v > fromVersion && v <= toVersion)
+    .map(([k]) => k);
+}
 
 /**
  * 报表 key → 模块 key（报表页内每张报表一个权限点）。
@@ -156,6 +192,11 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   // 而 student/parent 角色正是只有 student:read，那会把学生记录暴露给家长账号）。
   { key: 'studentRecords', label: '学生记录', path: '/student-records', legacyRead: null, legacyWrite: null, menuPermission: null, actions: RECORD_IMPORT, genericCrud: true },
   { key: 'meetingMinutes', label: '会议纪要', path: '/meeting-minutes', aliases: ['/export/meetingMinute'], legacyRead: 'department:read', legacyWrite: 'department:write', menuPermission: 'meeting:read', actions: RECORD_IMPORT, genericCrud: true },
+  // 会议室助手（组织管理，2026-09-21 新增）：只读查飞书会议室的可用度（不接预订）。
+  // 可见性「全员可见」（峰哥定）⇒ legacyRead/menuPermission 指向 `module:meetingMinutes:read`
+  // （同属组织管理，10 个教职工角色持有），抬 v5 后自动继承；`legacyWrite: null` ⇒ 同步只给管理员。
+  // 见文件头 v5 的说明。
+  { key: 'meetingRooms', label: '会议室助手', path: '/meeting-rooms', legacyRead: 'module:meetingMinutes:read', legacyWrite: null, menuPermission: 'module:meetingMinutes:read', actions: [...READ, 'update'], genericCrud: false },
   { key: 'idpPlans', label: 'IDP管理', path: '/idp-plans', aliases: ['/idp-communications', '/export/idpPlan', '/export/idpCommunication'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'idp:read', actions: RECORD },
   { key: 'stageEvaluations', label: '阶段评价', path: '/stage-evaluations', aliases: ['/export/stageEvaluation'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'evaluation:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'alumniFollowups', label: '校友跟进', path: '/alumni-followups', aliases: ['/export/alumniFollowup'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'alumni:read', actions: RECORD_IMPORT, genericCrud: true },

@@ -165,18 +165,41 @@ const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
  * 使用原始权限快照，菜单白名单只约束 enter，不能凭菜单权限推导数据读写。
  * 合并后的 transition 覆盖多种旧审批动作，必须同时具备全部旧权限，避免越权。
  */
-export function inheritModulePermissions(role: {
-  key: string;
-  permissions: readonly string[];
-  menus?: readonly string[];
-}): Permission[] {
+export function inheritModulePermissions(
+  role: {
+    key: string;
+    permissions: readonly string[];
+    menus?: readonly string[];
+  },
+  options?: {
+    /**
+     * 只派生这些模块资源的权限（其余保持角色已有权限不动）。
+     *
+     * 用途：**权限版本迁移** —— 抬版本时只给存量角色补「本次新增的资源」，
+     * 而不是全量重算。全量重算会把手工程序化之外的差异一并抹平/多发
+     * （2026-09-21 实测：会把刻意只给两个角色的 reportUsage 发给 12 个角色）。
+     */
+    onlyKeys?: readonly string[];
+  },
+): Permission[] {
   const legacy = new Set(role.permissions);
   const result = new Set(role.permissions);
+  const only = options?.onlyKeys ? new Set(options.onlyKeys) : null;
+  const inScope = (resourceKey: string) => !only || only.has(resourceKey);
   if (role.key === '系统管理员') {
-    for (const permission of PERMISSIONS) result.add(permission);
+    for (const permission of PERMISSIONS) {
+      if (only) {
+        // 增量模式下只补本次新增资源对应的权限点（`module:<key>:<action>`）
+        const hit = [...only].some((k) => permission.startsWith(`module:${k}:`));
+        if (hit) result.add(permission);
+      } else {
+        result.add(permission);
+      }
+    }
     return [...result] as Permission[];
   }
   for (const resource of MODULE_RESOURCES) {
+    if (!inScope(resource.key)) continue;
     for (const action of resource.actions) {
       let allowed = false;
       if (action === 'enter') {

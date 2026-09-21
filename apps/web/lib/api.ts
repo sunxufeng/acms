@@ -6,6 +6,10 @@ import type {
   NoteConvertLogItem,
   NoteConfigMapItem,
   RoleDef,
+  MeetingRoomInfo,
+  MeetingRoomLevel,
+  RoomAvailability,
+  FindFreeResult,
 } from '@acms/contracts';
 
 // 「作业 → 成绩册同步」的请求 / 返回形状由面板组件（apps/web/components/markbook/
@@ -1508,8 +1512,7 @@ export const api = {
       cross: { 当前年级: string; 当前状态: string; count: number }[];
       total: number;
     }>('/students/scope-options'),
-  listDepartments: () => request<DepartmentListResult>('/departments'),
-  /**
+  listDepartments: () => request<DepartmentListResult>('/departments'),  /**
    * 当前用户**所属**的部门（`{ ids, names }`，ids 是 `od-…` 形态）。
    * 新建会议纪要选「指定部门可见」时，用它预填「默认选中自己部门」。
    */
@@ -1529,6 +1532,32 @@ export const api = {
     request<DepartmentMemberResult>(
       `/departments/${encodeURIComponent(id)}/members${includeSub ? '' : '?includeSub=0'}`,
     ),
+
+  // ── 会议室助手（组织管理，2026-09-21）────────────────────────────────
+  /** 本地会议室 + 楼栋层级 + 最近同步时间 + 权限开通链接（读本地，不打飞书） */
+  listMeetingRooms: () => request<MeetingRoomLocalResult>('/meeting-rooms/rooms'),
+  /** 同步飞书会议室（管理员；会打飞书接口并改写本地表） */
+  syncMeetingRooms: () => request<SyncMeetingRoomsResult>('/meeting-rooms/sync', { method: 'POST' }),
+  /** 某天的会议室可用度（占用实时查飞书，服务端缓存 2 分钟） */
+  meetingRoomAvailability: (params: { date: string; levelId?: string; minCapacity?: number }) => {
+    const qs = new URLSearchParams({ date: params.date });
+    if (params.levelId) qs.set('levelId', params.levelId);
+    if (params.minCapacity) qs.set('minCapacity', String(params.minCapacity));
+    return request<RoomAvailability>(`/meeting-rooms/availability?${qs.toString()}`);
+  },
+  /** 找空闲会议室（判据在服务端，与时间轴同源） */
+  findFreeMeetingRooms: (params: {
+    date: string;
+    from: string;
+    to: string;
+    minCapacity?: number;
+    levelId?: string;
+  }) => {
+    const qs = new URLSearchParams({ date: params.date, from: params.from, to: params.to });
+    if (params.minCapacity) qs.set('minCapacity', String(params.minCapacity));
+    if (params.levelId) qs.set('levelId', params.levelId);
+    return request<FindFreeResult>(`/meeting-rooms/find?${qs.toString()}`);
+  },
 
   // ── 成绩册（Markbook，2026-09-13 参照 Gibbon 移植）────────────────────
   /** 可选班级（学生档案「当前班级」聚合） */
@@ -1971,6 +2000,30 @@ export interface DepartmentListResult {
   items: DepartmentNode[];
   total: number;
   lastSyncedAt: number;
+}
+
+/**
+ * 会议室助手：本地数据的返回形状（房间/层级/同步时间/权限开通链接）。
+ *
+ * `authUrl` 是后端按环境里的 FEISHU_APP_ID 拼出来的飞书开放平台申请链接 ——
+ * 权限没开通时页面直接给这个入口，不让用户自己去翻文档找要开哪几个 scope。
+ */
+export interface MeetingRoomLocalResult {
+  levels: MeetingRoomLevel[];
+  rooms: MeetingRoomInfo[];
+  syncedAt: number;
+  authUrl: string;
+}
+
+/** 同步飞书会议室的结果（失败时 `error` + `denied`/`authUrl`） */
+export interface SyncMeetingRoomsResult {
+  ok: boolean;
+  error?: string;
+  denied?: boolean;
+  authUrl?: string;
+  levels?: number;
+  rooms?: number;
+  syncedAt?: number;
 }
 
 /** 部门同步进度（轮询） */

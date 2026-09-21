@@ -12,3 +12,4 @@ export * from './getnote.js';
 export * from './followup-owner.js';
 export * from './weiling.js';
 export * from './meeting.js';
+export * from './meeting-room.js';

@@ -22,6 +22,21 @@ const MENU_CONFIG_KEY = 'nav_menu_config';
 const MENU_GROUPS_KEY = 'nav_menu_groups';
 const NOTE_CONVERT_KEY = 'note_convert_config';
 
+/**
+ * 不该出现在「我的笔记 → 转换目标」候选里的菜单。
+ *
+ * 背景：`getNoteConvert()` 有一段自愈 —— 把「菜单里有、配置里没有」的新功能自动补进候选
+ * （`enabled: false`）。对绝大多数业务模块这是对的（学生记录 / 招生跟进 / 实践活动…），
+ * 但**纯查询工具页**没有可承接笔记正文的目标表，出现在候选里只会让人困惑
+ * （"会议室助手也能转笔记？"）。
+ *
+ * ⚠️ 只影响**自愈新增**：已经存在于已存配置里的项不会被移除（不动用户数据）。
+ */
+const NOTE_CONVERT_EXCLUDED_MENUS = new Set<string>([
+  // 2026-09-21 新增：只读查询页，没有目标表
+  'meetingRooms',
+]);
+
 @Injectable()
 export class HomepageConfigService {
   constructor(@Inject(BASE_CLIENT) private readonly base: BaseClient) {}
@@ -238,7 +253,7 @@ export class HomepageConfigService {
 
     // 自愈补充：菜单里有、配置里没有的新功能（disabled 的「敬请期待」项跳过）
     const added: NoteConvertTarget[] = DEFAULT_NAV_MENU_CONFIG.items
-      .filter((m) => !storedKeys.has(m.key) && !m.disabled)
+      .filter((m) => !storedKeys.has(m.key) && !m.disabled && !NOTE_CONVERT_EXCLUDED_MENUS.has(m.key))
       .map((m, idx) => ({
         key: m.key,
         label: m.label,

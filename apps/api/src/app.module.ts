@@ -23,6 +23,7 @@ import { GenericCrudModule } from './shared/generic-crud.module.js';
 import { FieldMaskModule } from './shared/field-mask.module.js';
 import { StudentScopeModule } from './shared/student-scope.module.js';
 import { DepartmentModule } from './department/department.module.js';
+import { MeetingRoomModule } from './meeting-room/meeting-room.module.js';
 import { MeetingMinutesModule } from './meeting-minutes/meeting-minutes.module.js';
 import { SystemMonitorModule } from './system-monitor/system-monitor.module.js';
 import { AuditModule } from './audit/audit.module.js';
@@ -130,6 +131,7 @@ import { ImpersonateModule } from './impersonate/impersonate.module.js';
     FieldMaskModule,
     StudentScopeModule,
     DepartmentModule,
+    MeetingRoomModule,
     MeetingMinutesModule,
     SystemMonitorModule,
     // 教学域三块（专用逻辑 + 建表）

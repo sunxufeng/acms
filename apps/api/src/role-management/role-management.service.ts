@@ -20,6 +20,7 @@ import {
   type Permission,
   type Role,
   type RoleDef,
+  resourceKeysIntroducedAfter,
 } from '@acms/contracts';
 import {
   ROLE_MAX_LEVEL,
@@ -266,12 +267,32 @@ export class RoleManagementService implements OnModuleInit {
     }
   }
 
-  /** 只迁移旧角色；绝不补回已撤销的旧菜单权限，也不触碰 v2 的显式授权。 */
+  /**
+   * 只迁移旧角色；绝不补回已撤销的旧菜单权限，也不触碰 v2 的显式授权。
+   *
+   * 🔴 **增量迁移，不做全量重算**（2026-09-21 改为这样）。
+   *
+   * 全量重算（`inheritModulePermissions(role)` 不带参数）会把角色的权限集**按继承规则整个重建**，
+   * 于是凡是「不按 legacy 规则来的差异」都会被抹平。抬 v5 之前实测核算出来的两处后果：
+   *   ① 刻意「只给系统管理员 + 院级管理」的 `module:reportUsage:*`（使用统计报表卡）
+   *      按 `legacyRead = module:reports:read` 被发给 **12 个角色**，连 student / parent 都拿到；
+   *   ② 6 个角色被补上 AI 路由各模块的 `enter` ⇒ 侧边栏多出「AI 路由」整组菜单，
+   *      点进去还可能 403（enter 有、read 没有）。
+   * 这两件事都不是交付本意，而且在生产上**没有任何报错**，只是"有人多了权限/多了菜单"。
+   *
+   * 现在只补 `(旧版本, 当前版本]` 区间内**新引入的资源**（登记在 contracts 的
+   * `MODULE_RESOURCE_INTRODUCED_VERSION`）—— 语义就是一句话：给存量角色补上新功能的权限。
+   */
   private migratePermissions(roles: StoredRole[]): boolean {
     let changed = false;
     for (const role of roles) {
-      if ((role.permissionVersion ?? 0) >= ROLE_PERMISSION_VERSION) continue;
-      role.permissions = inheritModulePermissions(role);
+      const from = role.permissionVersion ?? 0;
+      if (from >= ROLE_PERMISSION_VERSION) continue;
+      const newKeys = resourceKeysIntroducedAfter(from);
+      if (newKeys.length) {
+        role.permissions = inheritModulePermissions(role, { onlyKeys: newKeys });
+      }
+      // 没有新资源时权限集**原样保留**，只把版本号推上去（避免每次抬版本都重算一遍）
       role.permissionVersion = ROLE_PERMISSION_VERSION;
       changed = true;
     }

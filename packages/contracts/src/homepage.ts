@@ -413,6 +413,10 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
   // ── 组织管理（2026-09-10 新增）：只读同步飞书通讯录部门树，全员可见 ──
   { key: 'department-management', label: '部门管理', enLabel: 'Departments', href: '/department-management', icon: 'compass', section: '组织管理', order: 10, perm: 'module:departmentManagement:read' },
   { key: 'meetingMinutes', label: '会议纪要', enLabel: 'Meeting Minutes', href: '/meeting-minutes', icon: 'notifications', section: '组织管理', order: 20, perm: 'meeting:read' },
+  // 会议室助手（2026-09-21）：只读查飞书会议室的可用度（不接预订）。
+  // perm 指向模块点，实际显隐由 AppShell 用 `module:meetingRooms:enter` 判定
+  // （菜单 key 与模块资源 key 同名，无需进 MENU_KEY_ALIASES）。
+  { key: 'meetingRooms', label: '会议室助手', enLabel: 'Meeting Rooms', href: '/meeting-rooms', icon: 'schedule', section: '组织管理', order: 30, perm: 'module:meetingRooms:read' },
 
     // ── AI 路由（acapi 网关移植，2026-09-12）────────────────────────
     // 一套自建的大模型调用网关：上游是各家厂商的真实账号，对外发我们自己的密钥。

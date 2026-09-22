@@ -36,7 +36,12 @@ if [ -f apps/api/vendor/pdfkit-deps.tgz ]; then
   tar xzf apps/api/vendor/pdfkit-deps.tgz -C "$VSTAGE"
   rm -rf apps/api/dist/node_modules
   mkdir -p apps/api/dist/node_modules
-  cp -R "$VSTAGE/node_modules/." apps/api/dist/node_modules/
+  # 🔴 必须 `-X`：闭包里 pdfkit/js/pdfkit.js 与 pdfkit.es.js 带 `com.apple.provenance`
+  #    扩展属性，macOS 会拒绝普通 `cp` 复制它们（报 `Operation not permitted`，
+  #    且只失败这 2 个文件、其余 77 个包照常复制 ⇒ 极易被误判成沙箱/守卫问题）。
+  #    `set -euo pipefail` 下这一步失败会**中断整个脚本**，tar 不重建，
+  #    随后 deploy 会拿上一轮的 tar 发版（比的是旧包 ⇒ 看着一切正常）。
+  cp -RX "$VSTAGE/node_modules/." apps/api/dist/node_modules/
   echo "[build] 已内联 pdfkit 依赖闭包 -> apps/api/dist/node_modules（$(ls apps/api/dist/node_modules | wc -l | tr -d ' ') 个包）"
 fi
 

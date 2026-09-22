@@ -2816,7 +2816,8 @@
     "playAudio": "播放录音",
     "stopAudio": "停止播放",
     "noAudioYet": "该笔记的录音还没保存到系统（管理员可在工具栏点「保存原始音频」补抓）",
-    "audioWithConvert": "会一并带上原始录音"
+    "audioWithConvert": "会一并带上原始录音",
+    "audioPending": "待抓取"
   },
   "getnoteSources": {
     "title": "知识库配置",

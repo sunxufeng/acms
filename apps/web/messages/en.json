@@ -2816,7 +2816,8 @@
     "playAudio": "Play recording",
     "stopAudio": "Stop playback",
     "noAudioYet": "This note's recording has not been saved to ACMS yet (admins can run “Save original audio” in the toolbar)",
-    "audioWithConvert": "Original recording will be carried over"
+    "audioWithConvert": "Original recording will be carried over",
+    "audioPending": "Pending"
   },
   "getnoteSources": {
     "title": "Knowledge Sources",

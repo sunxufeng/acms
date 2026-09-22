@@ -78,6 +78,20 @@ function audioOf(n: Record<string, unknown> | null): NoteAudioMeta | null {
   return a && a.token ? a : null;
 }
 
+/**
+ * 「这条笔记**有录音、但音频还没抓下来**」（未抓 / 上次失败）—— 后端 `_audioPending`。
+ *
+ * 🔴 判据必须在**后端**，不能靠前端猜 `note_type`（2026-09-22 修）：
+ *    原先操作列只看 `note_type === 'recorder_audio'`，而峰哥报障的那 8 条
+ *    **笔记类型并不是 recorder_audio**（正文字段由同步写回，各来源不一）
+ *    ⇒ 这些「有录音却没抓」的行在列表里**什么都不显示**，跟纯文本笔记长得一样，
+ *    只能靠人工全库体检才发现。
+ *    后端用的是正文表里更硬的证据：`附件数 > 0 或 录音卡SN 非空`，且音频未入库。
+ */
+function audioPendingOf(n: Record<string, unknown> | null): boolean {
+  return Boolean(n?._audioPending);
+}
+
 /** 音频播放地址（专用接口，带笔记级可见性校验） */
 function audioSrc(noteId: string): string {
   return `/api/v1/getnote/notes/${encodeURIComponent(noteId)}/audio`;
@@ -1466,6 +1480,7 @@ export default function GetnotePage() {
         rowActionSlot={(row, reload) => {
           const id = String(row.id ?? '');
           const meta = audioOf(row);
+          const pendingAudio = audioPendingOf(row);
           const archived = isArchivedNote(row['状态']);
           /**
            * 归档 / 激活（2026-09-21）。
@@ -1497,11 +1512,13 @@ export default function GetnotePage() {
 
           // 音频按钮 + 归档/激活：两个都可能为空，都没内容时返回 null（该行操作列不占位）
           const audioBtn = !meta ? (
-            // 录音类笔记但音频还没落库：给一个**禁用**的按钮并说明原因。
+            // 有录音但音频还没落库：给一个**禁用**的按钮并说明原因。
             // 直接不渲染会让人以为「功能没上线」；灰按钮 + title 能直接指向解法。
-            String(row.note_type ?? '') === 'recorder_audio' ? (
+            // 判据优先用后端的 `_audioPending`（以「附件数 / 录音卡SN」为准），
+            // `note_type` 只作老数据的兜底 —— 见 `audioPendingOf` 的说明。
+            pendingAudio || String(row.note_type ?? '') === 'recorder_audio' ? (
               <button type="button" className="btn btn-ghost btn-sm" disabled title={t('noAudioYet')}>
-                ▶ {t('play')}
+                {pendingAudio ? `⏳ ${t('audioPending')}` : `▶ ${t('play')}`}
               </button>
             ) : null
           ) : (
@@ -1662,7 +1679,7 @@ export default function GetnotePage() {
 
                 {/* 原始音频（2026-09-17 起可落库）。只在真下载过时出现；
                     播放走 /getnote/notes/:id/audio —— 该接口带笔记级可见性校验 */}
-                {audioOf(detailNote) && (
+                {audioOf(detailNote) ? (
                   <div
                     style={{
                       display: 'flex',
@@ -1687,7 +1704,28 @@ export default function GetnotePage() {
                       src={audioSrc(String(detailNote.id ?? detailId))}
                     />
                   </div>
-                )}
+                ) : audioPendingOf(detailNote) ? (
+                  /**
+                   * 有录音、但音频还没抓下来（2026-09-22 补）。
+                   * 原先这里**什么都不渲染** —— 详情页看起来就是一篇普通笔记，
+                   * 谁也不会想到「这篇的录音躺在上游没搬过来」。
+                   */
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      marginBottom: 12,
+                      padding: '8px 12px',
+                      border: '1px dashed var(--border)',
+                      borderRadius: 8,
+                      fontSize: 12,
+                      color: 'var(--fg-tertiary)',
+                    }}
+                  >
+                    ⏳ {t('noAudioYet')}
+                  </div>
+                ) : null}
 
                 {/* 总结 / 原始记录 两个 Tab */}
                 <div

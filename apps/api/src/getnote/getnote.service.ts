@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Inject, Injectable, Logger, HttpException, HttpStatus, type OnModuleInit } from '@nestjs/common';
 import type { BaseClient } from '@acms/base-adapter';
 import { TABLES, USER_TABLE, splitNoteTags, NOTE_STATUS_ACTIVE, NOTE_STATUS_ALL, NOTE_STATUS_ARCHIVED, hiddenArchivedCount, isArchivedNote, normalizeNoteStatus, noteStatusMatches } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
@@ -228,6 +228,15 @@ export interface GetnoteNote {
     type: string;
     durationMs: number;
   } | null;
+  /**
+   * 「这条笔记**有录音、但音频还没抓下来**」（未抓 / 上次失败）—— 2026-09-22 新增。
+   *
+   * 为什么要显式标出来：抓取原先只有界面上的按钮，**缺了没有任何提示** ——
+   * 这类笔记在列表里跟纯文本笔记长得一模一样（都没有播放按钮），
+   * 只能靠人工全库体检才发现（09-19 之后攒了 8 条，是峰哥报障才捞出来的）。
+   * 前端据此显示「待抓取」标记，缺口自己就看得见。
+   */
+  _audioPending?: boolean;
 }
 
 export interface GetnoteListResult {
@@ -290,6 +299,15 @@ export interface RefetchAudioProgress {
   skipped: number;
   /** 失败（下载 4xx、落盘失败等），下次可重试 */
   failed: number;
+  /**
+   * 选不到凭证 ⇒ 跳过（**不猜**）。
+   *
+   * 只在「该笔记没登记来源配置」时出现：手动触发时有兜底（触发者自己的凭证），
+   * 定时任务没有触发者 ⇒ 只能用登记好的来源配置，选不到就留痕跳过（2026-09-22）。
+   */
+  noCred?: number;
+  /** 谁触发的：手动按钮 / 每日定时任务 */
+  trigger?: 'manual' | 'cron';
   /** 已落盘的字节数（让人看得出进度与磁盘影响） */
   bytes: number;
   lastNoteId?: string;
@@ -385,7 +403,7 @@ interface PendingAuth {
 }
 
 @Injectable()
-export class GetnoteService {
+export class GetnoteService implements OnModuleInit {
   private readonly logger = new Logger(GetnoteService.name);
 
   /** openId → 设备授权进度 */
@@ -456,28 +474,35 @@ export class GetnoteService {
   }
 
   /**
-   * 这篇笔记该用哪套可见配置的凭证（非管理员）。
+   * 这篇笔记该用哪套可见配置（非管理员）。
    *
    * 只有一份可见配置时直接用（绝大多数情况）；有多份才去查「笔记归属映射」
    * （记录 id = 笔记 ID，主键直取，不打上游）。
+   *
+   * 🔴 返回**整条配置 entry**，而不只是 `cred`（2026-09-22 改）。
+   *    调用方 `detail()` 还要拿它把「来源配置 / 来源配置ID / 归属人 / 归属人ID」
+   *    写进正文表：原先只回 cred ⇒ 非管理员落正文时 `owner` 恒为 null ⇒
+   *    `fetchNoteDetail` 的 `_sourceName/_sourceRecordId` 一个都不写 ⇒
+   *    管理员代抓音频时 `pickSourceEntry` 匹配不上 ⇒ 回落成管理员自己的凭证 ⇒
+   *    上游一律 `10008 权限不足`（2026-09-22「我的笔记」8 条缺音频就是这个链条）。
    */
-  private async visibleCredForNote(
+  private async visibleEntryForNote(
     user: SessionUser,
     noteId: string,
-  ): Promise<{ key: string; clientId: string } | null> {
+  ): Promise<(SourceCredEntry & { cred: { key: string; clientId: string } }) | null> {
     const visible = await this.myVisibleSourceCreds(user);
     const first = visible[0];
     if (!first) return null;
-    if (visible.length === 1) return first.cred;
+    if (visible.length === 1) return first;
     try {
       const sql = getSqlStore();
       const rec = sql ? await sql.get(TABLES.noteConfigMap.tableId, String(noteId)) : null;
       const cfgId = String((rec?.fields as Record<string, unknown> | undefined)?.['配置ID'] ?? '').trim();
       const hit = cfgId ? visible.find((e) => e.recordId === cfgId) : undefined;
-      return hit?.cred ?? first.cred;
+      return hit ?? first;
     } catch (e) {
       this.logger.warn(`查笔记归属失败（回退第一份可见配置）：${(e as Error).message.slice(0, 80)}`);
-      return first.cred;
+      return first;
     }
   }
 
@@ -1339,14 +1364,25 @@ export class GetnoteService {
   private async attachAudioMeta(notes: GetnoteNote[]): Promise<GetnoteNote[]> {
     if (!notes.length) return notes;
     if (!getSqlStore()) return notes;
-    const metas = await Promise.all(
+    /**
+     * ⚠️ 用 `noteAudioFlags` 而不是 `noteAudioMeta`：一次查询同时拿「有没有音频」
+     * 和「是不是等着抓」。后者正是「列表里看不出缺了什么」的解药（2026-09-22）。
+     */
+    const flags = await Promise.all(
       notes.map((n) => {
         const id = String(n.note_id ?? '').trim();
         if (!id) return Promise.resolve(null);
-        return this.noteAudioMeta(id).catch(() => null);
+        return this.noteAudioFlags(id).catch(() => null);
       }),
     );
-    return notes.map((n, i) => (metas[i] ? Object.assign({}, n, { _audio: metas[i] }) : n));
+    return notes.map((n, i) => {
+      const f = flags[i];
+      if (!f || (!f.meta && !f.pending)) return n;
+      return Object.assign({}, n, {
+        ...(f.meta ? { _audio: f.meta } : {}),
+        ...(f.pending ? { _audioPending: true } : {}),
+      });
+    });
   }
 
   private async listNotes(
@@ -1540,9 +1576,24 @@ export class GetnoteService {
        * 为什么不能一律用 `credFor`（= 自己那份凭证 / 第一份可见配置）：
        * 被关联到别人建的配置时（2026-09-21 赵光宇｜Michael 的「Michael Get Note」
        * 归属人是孙旭峰），笔记是用**那条配置的 Key** 拉来的，用别的 Key 拉详情必然查不到。
+       *
+       * 🔴 命中的**整条配置**还要带下去当 owner（2026-09-22 修）：`fetchNoteDetail`
+       *    只在 owner 非空时才写 `_sourceName/_sourceRecordId/_owner/_ownerOpenId`，
+       *    而这两组字段正是后续「管理员代抓音频」选凭证的唯一依据
+       *    （`pickSourceEntry`）。原先这里只取 cred ⇒ 普通用户看过的笔记落库后
+       *    来源配置恒为空 ⇒ 代抓必失败 ⇒ 只能人工逐条补，且「我的笔记」里的
+       *    来源/配置名/归属人三个筛选对这批笔记静默失效。
        */
-      const src = await this.visibleCredForNote(user, id);
-      if (src) cred = src;
+      const hit = await this.visibleEntryForNote(user, id);
+      if (hit) {
+        cred = hit.cred;
+        owner = {
+          name: hit.ownerName,
+          sourceName: hit.sourceName,
+          ownerOpenId: hit.ownerOpenId,
+          recordId: hit.recordId,
+        };
+      }
     }
 
     const full = await this.fetchNoteDetail(cred, id, imageQuality, owner);
@@ -1554,8 +1605,12 @@ export class GetnoteService {
     // 附上「音频是否已落库」的标记：前端据此决定要不要渲染播放器。
     // 真正播放走 `/getnote/notes/:id/audio`，那个接口会再做一次笔记级可见性校验。
     // ⚠️ 变量名不能叫 `audio` —— 上面已有 `const audio = note.audio`（上游的逐字稿对象）。
-    const audioMeta = await this.noteAudioMeta(id).catch(() => null);
-    return Object.assign(full, { _audio: audioMeta });
+    // 同时给「有录音但还没抓下来」的行打标记（2026-09-22）：详情里也让人一眼看出缺没缺。
+    const audioFlags = await this.noteAudioFlags(id).catch(() => ({ meta: null, pending: false }));
+    return Object.assign(full, {
+      _audio: audioFlags.meta,
+      ...(audioFlags.pending ? { _audioPending: true } : {}),
+    });
   }
 
   /**
@@ -2029,6 +2084,7 @@ export class GetnoteService {
       skipped: 0,
       failed: 0,
       bytes: 0,
+      trigger: 'manual',
       startedAt: Date.now(),
     };
     this.audioJobs.set(key, job);
@@ -2037,6 +2093,110 @@ export class GetnoteService {
       job.error = (e as Error).message.slice(0, 200);
     });
     return job;
+  }
+
+  /**
+   * 每日定时抓取新笔记的原始音频（2026-09-22 新增，峰哥确认）。
+   *
+   * ── 为什么必须有它 ────────────────────────────────────────────────
+   * 音频抓取原先**只有界面上那个按钮**。2026-09-18 全量抓过一轮（564 条）之后连着
+   * 4 天没人再点，于是 09-19 之后同步进来的 8 条笔记一直没音频 ——
+   * 界面上连播放按钮都不出现，而**没有任何地方会告诉你缺了**，
+   * 最后是峰哥报「还是有记录没法播放」才被翻出来。
+   *
+   * 与手动入口共用同一套执行逻辑（`runRefetchAudio`），差别只有一个：
+   * 定时任务没有「触发者」⇒ 没有兜底凭证 ⇒ 选不到来源配置的笔记**跳过并留痕**，
+   * 绝不用别人的凭证去猜（猜错只会换来一串「权限不足」，还看不到真正缺的是什么）。
+   */
+  async runScheduledAudioRefetch(): Promise<RefetchAudioProgress> {
+    const key = 'audio:__cron__';
+    const cur = this.audioJobs.get(key);
+    if (cur?.running) return cur;
+    const job: RefetchAudioProgress = {
+      running: true,
+      total: 0,
+      done: 0,
+      stored: 0,
+      skipped: 0,
+      failed: 0,
+      bytes: 0,
+      noCred: 0,
+      trigger: 'cron',
+      startedAt: Date.now(),
+    };
+    this.audioJobs.set(key, job);
+    this.logger.log('每日音频抓取开始');
+    void this.runRefetchAudio(null, {}, job)
+      .then(() =>
+        this.logger.log(
+          `每日音频抓取完成：候选 ${job.total}，成功 ${job.stored}，无音频 ${job.skipped}，` +
+            `失败 ${job.failed}，选不到凭证 ${job.noCred ?? 0}，共 ${(job.bytes / 1048576).toFixed(1)} MB`,
+        ),
+      )
+      .catch((e) => {
+        job.running = false;
+        job.error = (e as Error).message.slice(0, 200);
+        this.logger.warn(`每日音频抓取异常：${job.error}`);
+      });
+    return job;
+  }
+
+  /**
+   * 北京时间的「今天是哪天 + 现在几点几分」。
+   *
+   * 显式指定 `Asia/Shanghai`，**不依赖服务器时区** —— 服务器若是 UTC，
+   * `new Date().getHours()` 算出来的「06:30」实际是北京时间 14:30。
+   */
+  private static beijingClock(): { day: string; minutes: number } {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date());
+    const pick = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+    return {
+      day: `${pick('year')}-${pick('month')}-${pick('day')}`,
+      minutes: Number(pick('hour')) * 60 + Number(pick('minute')),
+    };
+  }
+
+  /**
+   * 起「每日 06:30 抓音频」的定时器。
+   *
+   * 🔴 为什么不是 `setInterval(24h)` 一把梭（项目里 `weiling.service` 是那么写的）：
+   *    蓝绿部署**每次都会重启进程**，24 小时计时随之清零 —— 部署一勤，这个定时
+   *    可能**永远等不到那一刻**（09-18 之后攒出 8 条缺口的同期，正好每天在部署）。
+   *    ⇒ 改成「每小时醒一次，看今天到点没到点、跑没跑过」：
+   *      判据是**日期 + 时刻**，与进程活了多久无关。部署再频繁也不会漏。
+   *    进程重启只丢「今天跑过没」这个内存标记 ⇒ 最坏是多跑一次，
+   *    而任务本身按 `音频状态` 幂等（第二次全是「已保存 ⇒ 跳过」）。
+   */
+  private startAudioCron(): void {
+    if (String(process.env.GETNOTE_AUDIO_CRON ?? '').trim().toLowerCase() === 'off') {
+      this.logger.log('GETNOTE_AUDIO_CRON=off，跳过每日音频抓取定时器');
+      return;
+    }
+    const tick = () => {
+      const { day, minutes } = GetnoteService.beijingClock();
+      if (this.audioCronDay === day) return; // 今天已经跑过
+      if (minutes < 6 * 60 + 30) return; // 还没到 06:30
+      this.audioCronDay = day;
+      void this.runScheduledAudioRefetch();
+    };
+    // 启动后 3 分钟先查一次（让其它模块就绪；也覆盖「今天该跑但进程是刚起来的」），之后每小时一次
+    setTimeout(tick, 3 * 60 * 1000).unref?.();
+    setInterval(tick, 60 * 60 * 1000).unref?.();
+  }
+
+  /** 「今天已跑过」的日期（北京时间 `YYYY-MM-DD`），进程内即可 —— 见 `startAudioCron` 的说明 */
+  private audioCronDay = '';
+
+  async onModuleInit(): Promise<void> {
+    this.startAudioCron();
   }
 
   async refetchAudioStatus(user: SessionUser): Promise<RefetchAudioProgress> {
@@ -2054,7 +2214,11 @@ export class GetnoteService {
   }
 
   private async runRefetchAudio(
-    user: SessionUser,
+    /**
+     * 触发者。**允许为 null** —— 每日定时任务没有「某个人」在触发（2026-09-22 加）。
+     * 为 null 时没有兜底凭证：选不到来源配置的笔记**跳过并留痕**，绝不拿别人的凭证去猜。
+     */
+    user: SessionUser | null,
     opts: { limit?: number },
     job: RefetchAudioProgress,
   ): Promise<void> {
@@ -2103,12 +2267,25 @@ export class GetnoteService {
     const entries = await listEnabledSourceCreds(this.base, TABLES.getnoteSource.tableId, {
       maxPages: 5,
     });
-    const myOwnCred = await this.credFor(user);
+    // 兜底凭证 = 触发者自己的（手动按钮那条路）。定时任务没有触发者 ⇒ null。
+    const myOwnCred = user ? await this.credFor(user).catch(() => null) : null;
 
     // ③ 逐条：拉详情拿直链 → 当场下载 → 落附件 → 写回状态
     for (const item of pending) {
       const hit = pickSourceEntry(entries, { sourceRecordId: item.srcId, sourceName: item.srcName });
       const cred = hit?.cred ?? myOwnCred;
+      /**
+       * 选不到凭证 ⇒ **跳过**，不猜（2026-09-22）。
+       * 不猜的理由：拿错人的凭证打上游只会换来「权限不足」，而那条笔记的来源配置
+       * 依旧空着 —— 既没修好、还把失败样本刷满。留痕交给上层（`job.noCred` + 日志），
+       * 根因由「落正文时写全来源字段」解决（`detail()` 已修）。
+       */
+      if (!cred) {
+        job.noCred = (job.noCred ?? 0) + 1;
+        job.done += 1;
+        this.logger.warn(`跳过音频抓取（选不到凭证，来源配置为空）：${item.title || item.id}`);
+        continue;
+      }
       const owner: SourceOwner | null = hit
         ? {
             name: hit.ownerName,
@@ -2208,7 +2385,64 @@ export class GetnoteService {
   }
 
   /**
-   * 读某篇笔记已落库的音频元信息。
+   * 读某篇笔记的音频状态：**一次主键查询**同时给出「已落库的元信息」与「是不是等着抓」。
+   *
+   * 为什么合成一次：两者读的是正文表**同一行**，拆成两次查询就是双倍主键查询
+   * （列表一页 20 行 = 40 次，而正文表带整篇总结、单行不小）。
+   *
+   * ⚠️ **不做权限校验** —— 只给 `detail()` / `attachAudioMeta()` 打标记用
+   * （列表与详情本身已过鉴权）。对外播放必须走 `noteAudio()`，那里才有可见性校验。
+   */
+  private async noteAudioFlags(noteId: string): Promise<{
+    meta: {
+      token: string;
+      name: string;
+      size: number;
+      type: string;
+      durationMs: number;
+    } | null;
+    pending: boolean;
+  }> {
+    const sql = getSqlStore();
+    const none = { meta: null, pending: false };
+    if (!sql) return none;
+    const rec = await sql.get(TABLES.noteBody.tableId, noteId);
+    if (!rec) return none;
+    const f = (rec.fields ?? {}) as Record<string, unknown>;
+    const arr = (Array.isArray(f['音频附件']) ? f['音频附件'] : []) as Array<{
+      file_token?: string;
+      name?: string;
+      size?: number;
+      type?: string;
+    }>;
+    const token = String(arr[0]?.file_token ?? '').trim();
+    const state = String(f['音频状态'] ?? '').trim();
+    /** 「有录音迹象」：上游返回过附件，或这条本来就是录音卡录的 */
+    const looksRecorded =
+      Number(f['附件数'] ?? 0) > 0 || String(f['录音卡SN'] ?? '').trim() !== '';
+    /**
+     * 待抓 = 有录音迹象、但音频没入库，且**不是**「上游本来就没音频」。
+     * 后者再抓也是白跑（`音频状态='上游无音频'` 是已经确认过的结论）。
+     */
+    const pending = !token && looksRecorded && state !== AUDIO_STATE_NONE;
+    return {
+      meta: token
+        ? {
+            token,
+            name: String(arr[0]?.name ?? `${noteId}.ogg`),
+            // size / type 是「转出到业务记录」时构造附件对象要用的（附件字段的存储结构就是
+            // `[{file_token,name,size,type}]`），列表行不再多余回查一次。
+            size: Number(arr[0]?.size ?? 0) || 0,
+            type: String(arr[0]?.type ?? 'audio/ogg'),
+            durationMs: Number(f['音频时长'] ?? 0) || 0,
+          }
+        : null,
+      pending,
+    };
+  }
+
+  /**
+   * 读某篇笔记已落库的音频元信息（只要元信息时用它，等价于 `noteAudioFlags().meta`）。
    *
    * ⚠️ **不做权限校验** —— 只给 `detail()` 用来给前端打「有没有音频」的标记
    * （详情本身已经过鉴权）。对外播放必须走 `noteAudio()`，那里才有可见性校验。
@@ -2220,28 +2454,7 @@ export class GetnoteService {
     type: string;
     durationMs: number;
   } | null> {
-    const sql = getSqlStore();
-    if (!sql) return null;
-    const rec = await sql.get(TABLES.noteBody.tableId, noteId);
-    if (!rec) return null;
-    const f = (rec.fields ?? {}) as Record<string, unknown>;
-    const arr = (Array.isArray(f['音频附件']) ? f['音频附件'] : []) as Array<{
-      file_token?: string;
-      name?: string;
-      size?: number;
-      type?: string;
-    }>;
-    const token = String(arr[0]?.file_token ?? '').trim();
-    if (!token) return null;
-    return {
-      token,
-      name: String(arr[0]?.name ?? `${noteId}.ogg`),
-      // size / type 是「转出到业务记录」时构造附件对象要用的（附件字段的存储结构就是
-      // `[{file_token,name,size,type}]`），列表行不再多余回查一次。
-      size: Number(arr[0]?.size ?? 0) || 0,
-      type: String(arr[0]?.type ?? 'audio/ogg'),
-      durationMs: Number(f['音频时长'] ?? 0) || 0,
-    };
+    return (await this.noteAudioFlags(noteId)).meta;
   }
 
   /**

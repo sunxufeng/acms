@@ -84,7 +84,7 @@ export interface CredentialStatus {
    * 只会更困惑。
    */
   viaSource?: string;
-  /** 借道的可见配置条数（>1 时说明挑过归属，见 `visibleCredForNote`） */
+  /** 借道的可见配置条数（>1 时说明挑过归属，见 `visibleEntryForNote`） */
   viaSourceCount?: number;
 }
 

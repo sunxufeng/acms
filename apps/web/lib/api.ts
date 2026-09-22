@@ -1348,6 +1348,15 @@ export const api = {
   /** 列表页筛选下拉的动态候选项（发件人/收件人/归属账户/邮箱文件夹/关联学生的真实去重值） */
   listMailArchiveFilterOptions: () =>
     request<Record<string, string[]>>('/mail-archive/filter-options'),
+  /**
+   * 「邮箱」筛选下拉的候选 = 当前用户可见的邮件账户（账户名称 + 邮箱地址）。
+   *
+   * 为什么不复用 `listMailArchiveFilterOptions`：那边返回的是「归档记录里出现过的值」，
+   * 而这里要的是「邮件账户里**配置**的邮箱」—— 两者在「刚配好还没有邮件的账户」上正好相反，
+   * 而且这里需要「值（账户名）→ 显示名（邮箱）」的映射，纯字符串数组表达不了。
+   */
+  listMailArchiveAccountOptions: () =>
+    request<{ name: string; email: string }[]>('/mail-archive/account-options'),
   /** 手动关联/解除关联**学生**：studentIds 为完整列表，传 [] 即清空 */
   linkMailStudents: (id: string, studentIds: string[]) =>
     request<{ ok: boolean }>(`/mail-archive/${id}/link`, { method: 'PUT', body: JSON.stringify({ studentIds }) }),

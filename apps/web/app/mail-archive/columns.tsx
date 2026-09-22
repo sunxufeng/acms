@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { useTranslations } from 'next-intl';
 import type { CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
+import { humanizeError } from '../../lib/errMsg';
 
 type AttMeta = { name: string; size: number; type: string; file_token: string };
 
@@ -195,7 +196,7 @@ function LinkRelatedCell({ row }: { row: Record<string, unknown> }) {
       setQ('');
       setCands([]);
     } catch (e) {
-      alert(t('linkFailed', { msg: String((e as { message?: string })?.message ?? e) }));
+      alert(t('linkFailed', { msg: humanizeError(e) }));
     } finally {
       setSaving(false);
     }
@@ -214,7 +215,7 @@ function LinkRelatedCell({ row }: { row: Record<string, unknown> }) {
         setContacts(contacts.filter((l) => l.id !== id));
       }
     } catch (e) {
-      alert(t('unlinkFailed', { msg: String((e as { message?: string })?.message ?? e) }));
+      alert(t('unlinkFailed', { msg: humanizeError(e) }));
     } finally {
       setSaving(false);
     }
@@ -250,22 +251,20 @@ function LinkRelatedCell({ row }: { row: Record<string, unknown> }) {
         </a>
         <button
           type="button"
-          title={t('unlink')}
+          /**
+           * 「取消关联」入口（2026-09-23 明显化）：原来是内联的极小 ×，老师看不出能点。
+           * 现在换成 .mail-unlink —— 悬停时底色转红 + 高亮，title 写明「取消与 X 的关联」。
+           */
+          className="mail-unlink"
+          title={t('unlinkHint', { name: l.name })}
+          aria-label={t('unlinkHint', { name: l.name })}
           disabled={saving}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             removeLink(kind, l.id);
           }}
-          style={{
-            border: 'none',
-            background: 'transparent',
-            color: 'inherit',
-            cursor: saving ? 'progress' : 'pointer',
-            padding: 0,
-            lineHeight: 1,
-            fontSize: 'var(--font-sm)',
-          }}
+          style={{ cursor: saving ? 'progress' : 'pointer' }}
         >
           ×
         </button>
@@ -431,6 +430,22 @@ export const COLUMNS: CrudColumn[] = [
       }
       return <span>{names.join('、')}</span>;
     },
+  },
+  {
+    /**
+     * 「邮箱」= 该归档所属账户在「邮件账户」里配置的邮箱地址（后端按账户名实时注入，与「用户」列同源）。
+     *
+     * 🔴 筛选用 `filterParam: '归属账户'`：归档记录里存的是**账户名称**，
+     *    拿邮箱地址去等值匹配会一条都筛不出来。所以下拉里显示邮箱
+     *    （由 page.tsx 注入 `filterOptionLabels`），提交给后端的仍是账户名称 —— 后端筛选逻辑零改动。
+     *    候选只列「当前用户可见的账户」（后端 /mail-archive/account-options 已按行级范围过滤）。
+     */
+    key: '邮箱',
+    label: '邮箱',
+    width: '220px',
+    filter: true,
+    filterType: 'select',
+    filterParam: '归属账户',
   },
   { key: '邮箱文件夹', label: '文件夹', width: '140px', filter: true },
   {

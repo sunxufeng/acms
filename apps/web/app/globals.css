@@ -2213,6 +2213,16 @@ select.form-input:disabled { color: var(--fg); }
 .mb-sibbar-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .mb-sibbar-hint { font-size: var(--font-xs); color: var(--fg-secondary); }
 
+/* 邮件归档「取消关联」按钮（2026-09-23 明显化）：原来是个不显眼的 ×，看不出能点。
+   改成常态淡显、悬停转红并给红底 —— 列表页「关联」列与详情页共用。 */
+.mail-unlink {
+  border: none; background: transparent; color: inherit;
+  padding: 0 3px; line-height: 1; font-size: var(--font-sm);
+  border-radius: 4px; opacity: 0.55; cursor: pointer;
+}
+.mail-unlink:hover { background: #fde8e8; color: #c0392b; opacity: 1; }
+.mail-unlink:disabled { opacity: 0.3; cursor: progress; }
+
 /* 作业同步弹窗里的四步指示条 */
 .mb-steps {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;

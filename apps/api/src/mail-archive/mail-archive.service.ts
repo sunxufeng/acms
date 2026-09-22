@@ -563,6 +563,38 @@ export class MailArchiveService extends BaseRecordService {
   }
 
   /**
+   * 「账户名称 → 邮箱地址」映射（账户表只有几十条，一次拉全表）。
+   *
+   * 为什么需要这张对照表：归档记录里的「归属账户」存的是**账户名称**（写入时取 `acc.name`），
+   * 而老师在界面上是按**邮箱地址**认账户的。列表页要「显示邮箱」，筛选下拉也要「按邮箱认」，
+   * 两处都从这里换算 —— 只留一份对照关系，不各写各的。
+   */
+  private async accountEmailMap(): Promise<Map<string, string>> {
+    const accounts = await this.scopeContext().search(TABLES.mailAccount.tableId);
+    const out = new Map<string, string>();
+    for (const a of accounts) {
+      const name = String(a['账户名称'] ?? '').trim();
+      const email = String(a['邮箱地址'] ?? '').trim();
+      if (name && email) out.set(name, email);
+    }
+    return out;
+  }
+
+  /**
+   * 列表页「邮箱」筛选下拉的候选：当前用户**可见**的账户（含邮箱地址）。
+   *
+   * 🔴 可见性直接复用 `visibleAccounts()`，**不另写一份判据** —— 否则「下拉里能选的账户」
+   * 与「实际能看的邮件」一旦分叉，就会出现「下拉里有它、按它筛却一条不剩」的怪现象
+   *（这一条是行级隔离与筛选口径必须同源的通用教训）。
+   * 邮箱为空的老账户：下拉里退回显示账户名称（否则会出现一个选不出东西的空选项）。
+   */
+  async accountOptions(user: SessionUser): Promise<{ name: string; email: string }[]> {
+    const visible = await this.visibleAccounts(user);
+    const emails = await this.accountEmailMap();
+    return [...visible.keys()].map((name) => ({ name, email: emails.get(name) ?? '' }));
+  }
+
+  /**
    * 列表：给每行注入「归属用户」= 该账户的关联人姓名（多人用「、」并列）。
    *
    * 决策 10：**不把归属冗余进归档记录**，展示时实时按账户算 ——
@@ -573,8 +605,13 @@ export class MailArchiveService extends BaseRecordService {
     const res = await super.list(user, query);
     if (!res.items.length) return res;
     const map = await this.visibleAccounts(user);
+    const emails = await this.accountEmailMap();
     for (const it of res.items) {
-      it['归属用户'] = map.get(String(it['归属账户'] ?? '').trim()) ?? '';
+      const acc = String(it['归属账户'] ?? '').trim();
+      it['归属用户'] = map.get(acc) ?? '';
+      // 「邮箱」= 该账户在「邮件账户」里配置的邮箱地址；与「归属用户」同样是**实时算**的，
+      // 管理员改了账户邮箱，列表立刻跟着变，不用回填历史数据。
+      it['邮箱'] = emails.get(acc) ?? '';
     }
     return res;
   }

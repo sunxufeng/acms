@@ -96,6 +96,25 @@ export class MailArchiveController {
       throw new HttpException('FORBIDDEN:module:mailArchive:read', HttpStatus.FORBIDDEN);
     return this.svc.getFilterOptions(user);
   }
+  /**
+   * 列表页「邮箱」筛选的候选 = 当前用户**可见**的邮件账户（账户名称 + 邮箱地址）。
+   *
+   * 为什么要单独一个接口：列表页的下拉要「**显示邮箱地址、提交账户名称**」
+   * （归档记录里存的「归属账户」是账户名，直接拿邮箱去等值匹配会一条都筛不出来），
+   * 而 `filter-options` 返回的是 `Record<string, string[]>`，表达不了「值 → 显示名」的映射。
+   *
+   * ⚠️ 必须声明在 `@Get(':id')` **之前** —— Nest 按声明顺序匹配，否则被吃成
+   *    id='account-options' → 404（filter-options / export 都踩过这个坑）。
+   * 只回可见账户：否则非管理员的下拉里会列出全公司的邮箱账户（既是信息泄露，
+   * 选了也筛不出东西 —— 会被行级范围 AND 掉）。
+   */
+  @Get('account-options')
+  async accountOptions(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:mailArchive:read').allowed)
+      throw new HttpException('FORBIDDEN:module:mailArchive:read', HttpStatus.FORBIDDEN);
+    return this.svc.accountOptions(user);
+  }
   @Get(':id') detail(@Req() req: Request, @Param('id') id: string) {
     return this.svc.detail((req as Request & { user: SessionUser }).user, id);
   }
@@ -128,6 +147,23 @@ export class MailArchiveController {
   /**
    * 手动关联/解除关联：body `{ studentIds?: string[]; contactIds?: string[] }`，传 [] 即清空。
    * 只传其中一类时另一类保持不动（前端「+ 学生」/「+ 联系人」两个入口共用本接口）。
+   *
+   * 🔴 判据是 **read** 而不是 update（2026-09-23 峰哥确认）。
+   *
+   * 起因：招生老师（角色 Phase1，只有 `mail:read`）点「+ 加入」被
+   * `FORBIDDEN:module:mailArchive:update` 挡住 —— 而生产权限矩阵里 `update`
+   * **只有系统管理员与院级管理两个角色有**（Phase1–Phase8 全都没有）。
+   *
+   * 为什么降到 read 是安全的：
+   *  ① 本接口**自己过了行级数据范围**（`svc.link()` 里的 `rowVisible(user, recordId)`，
+   *     见 mail-archive.service.ts 的注释）—— 越界记录一律 404，拦得住。
+   *     所以实际效果是「**你看得见的邮件，你就能整理它的关联**」，不放大任何可见范围。
+   *  ② `update` 在别处还被 `sync-all`（立即同步全部账户）与 `:id/sync`（单账户同步）复用，
+   *     那两个动作会**取用 IMAP 凭证**，语义是「配置邮箱账户」；把 update 发给老师等于
+   *     顺带把同步权给出去。而「把这封邮件挂到某个学生名下」是整理归档的业务动作，
+   *     与「看归档」同一层级，不该要求账户配置权。
+   *
+   * ⚠️ 别"好心"改回 update：一改回去，招生/班主任等 11 个角色当天就不能用了。
    */
   @Put(':id/link')
   async link(
@@ -136,8 +172,8 @@ export class MailArchiveController {
     @Body() body: { studentIds?: string[]; contactIds?: string[] },
   ) {
     const user = (req as Request & { user: SessionUser }).user;
-    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:mailArchive:update').allowed)
-      throw new HttpException('FORBIDDEN:module:mailArchive:update', HttpStatus.FORBIDDEN);
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:mailArchive:read').allowed)
+      throw new HttpException('FORBIDDEN:module:mailArchive:read', HttpStatus.FORBIDDEN);
     await this.svc.link(user, id, { studentIds: body?.studentIds, contactIds: body?.contactIds });
     return { ok: true };
   }

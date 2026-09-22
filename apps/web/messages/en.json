@@ -2712,6 +2712,11 @@
     "linkStudent": "+ Student",
     "linkContact": "+ Contact",
     "searchContactPlaceholder": "Search contact name",
+    "relatedContact": "Linked contact",
+    "unlinkHint": "Unlink {name}",
+    "addStudent": "+ Student",
+    "addContact": "+ Contact",
+    "cancelEntry": "Cancel",
     "noMatchContact": "No matching contact",
     "chipStudent": "Student",
     "chipContact": "Contact"

@@ -45,7 +45,7 @@ export const COLUMNS: CrudColumn[] = [
     linkSource: 'users',
     // 字段级只读判据与后端同源：配置侧接口已收到 module:getnoteSources:*（2026-09-17）
     readonlyPerm: 'module:getnoteSources:update',
-    hint: '可关联多人，被关联的人能共同查看本配置对应的笔记。新建配置时自动归属本人。',
+    hint: '可关联多人，被关联的人能共同查看本配置对应的笔记。只填一人时，这条配置就归属那个人（管理员可替同事代建）。',
     /**
      * 按用户筛选：字段存的是 record id **数组**，等值匹配必然落空（而且选完之后
      * 内存路径里展示值已换成姓名）⇒ 必须用 `<字段>__has`（成员包含，后端同时认 id 与名称）。

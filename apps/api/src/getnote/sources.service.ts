@@ -127,6 +127,26 @@ export class GetnoteSourceService extends BaseRecordService {
   }
 
   /**
+   * 按用户 record id 反查「姓名 + openId」。
+   *
+   * 用途：`create()` 要把「归属人」写成**配置真正服务的人**，而「关联用户」存的是
+   * record id、归属人存的是 openId（见 `resolveUserIdByOpenId` 的说明，两者不能混用）。
+   *
+   * 查不到就返回空对象，让调用方回落 —— **不因为查不到人而阻断建配置**。
+   */
+  private async userByRecordId(recordId: string): Promise<{ name: string; openId: string }> {
+    const id = String(recordId ?? '').trim();
+    if (!id) return { name: '', openId: '' };
+    try {
+      const rec = await this.base.get(USER_TABLE.tableId, id);
+      const f = (rec?.fields ?? {}) as Record<string, unknown>;
+      return { name: plainText(f['姓名']), openId: plainText(f['飞书 Open ID']) };
+    } catch {
+      return { name: '', openId: '' };
+    }
+  }
+
+  /**
    * 列表用的行级过滤**已移除** —— 见 `list()` 的注释：
    * 过滤必须由引擎在 SQL 里做（`GETNOTE_SOURCE_META.rowScope`），
    * 在 list 里过滤只能收敛成单页、把分页搞坏（2026-09-17 的回归）。
@@ -159,12 +179,47 @@ export class GetnoteSourceService extends BaseRecordService {
     if (!next['启用状态']) next['启用状态'] = '启用';
     if (!next['收取频率']) next['收取频率'] = '每小时';
     this.encryptCredInPlace(next);
-    // 新建的配置永远归属创建者 —— 管理员也不能「替别人建」，建出来就是自己的。
-    // 双写：`归属人ID`（单人时代的字段，保留兼容）+ `关联用户`（多用户关联，新判据）。
-    // 传了 `关联用户` 就用传的（等于建完立刻把别人也拉进来），没传则默认只有自己。
-    next['归属人'] = user?.name ?? '';
-    next['归属人ID'] = user?.openId ?? '';
-    if (!idsOf(next['关联用户']).length) {
+    /**
+     * 归属人 = 这条配置**服务的账号主人**，**不是创建者**（2026-09-22 峰哥明确）。
+     *
+     * 原先这里写死「新建的配置永远归属创建者」，注释理由是「管理员也不能替别人建」
+     * —— 但真实业务里**管理员代建是常态**：`Michael Get Note` 就是孙旭峰（管理员）
+     * 替**赵光宇｜Michael** 建的（那条配置拉的是 Michael 的得到大脑账号）。
+     * 归属人写成创建者 ⇒ 派生出来的笔记归属、按归属人筛选与统计**全部归错人**
+     * （2026-09-22 实测：该配置名下 3 条笔记的归属人写成了孙旭峰）。
+     *
+     * 三级判据（越靠前越明确）：
+     *   ① 显式传了 `归属人ID` ⇒ 尊重调用方（导入/接口场景）；
+     *   ② 否则「关联用户」**恰好一人** ⇒ 就用那一位 ——「配置是给谁用的」这里最清楚，
+     *      管理员代建时前端会把被代建者填进「关联用户」；
+     *   ③ 都没有 ⇒ 创建者自己（单人自建场景与原来完全一致，行为不变）。
+     *
+     * 双写：`归属人ID`（单人时代的字段，保留兼容）+ `关联用户`（多用户关联，新判据）。
+     */
+    const linked = idsOf(next['关联用户']);
+    const explicitOwnerId = String(next['归属人ID'] ?? '').trim();
+    if (explicitOwnerId) {
+      if (!String(next['归属人'] ?? '').trim()) {
+        this.logger.warn(
+          `新建知识库配置只传了「归属人ID」却没传姓名（${explicitOwnerId}）—— 列表会显示空归属人名`,
+        );
+      }
+    } else if (linked.length === 1) {
+      const u = await this.userByRecordId(String(linked[0]));
+      if (u.openId) {
+        next['归属人'] = u.name;
+        next['归属人ID'] = u.openId;
+      } else {
+        // 反查不到（用户被删/字段缺失）⇒ 回落创建者，并留痕便于排查
+        this.logger.warn(`新建知识库配置：关联用户 ${linked[0]} 反查不到 openId，归属人回落为创建者`);
+        next['归属人'] = user?.name ?? '';
+        next['归属人ID'] = user?.openId ?? '';
+      }
+    } else {
+      next['归属人'] = user?.name ?? '';
+      next['归属人ID'] = user?.openId ?? '';
+    }
+    if (!linked.length) {
       const myId = await this.myUserId(user);
       next['关联用户'] = myId ? [myId] : [];
     }

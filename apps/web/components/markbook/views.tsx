@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
+import { mergeColumnsByBaseName, mergedWeightFull } from '@acms/contracts';
 import type { MarkbookColumn, MarkbookGrid, MarkbookSummary } from '../../lib/api';
 
 /**
@@ -33,6 +34,13 @@ export interface GridViewProps {
   onCellChange: (columnId: string, studentId: string, value: string) => void;
   onEditColumn: (col: MarkbookColumn) => void;
   onRemoveColumn: (col: MarkbookColumn) => void;
+  /**
+   * 归并表头的批量操作（「按学科分行」视图专用）：一次传入同一考核项下的 N 条列记录。
+   * ⚠️ 只有这两个回调存在时，归并列的「编辑 / 删除」才会按科目批量处理；
+   *    缺失则回退成只操作第一条（旧行为）—— 页面务必都传上。
+   */
+  onEditColumns?: (cols: MarkbookColumn[]) => void;
+  onRemoveColumns?: (cols: MarkbookColumn[]) => void;
   summaryOf: (studentId: string) => MarkbookSummary | undefined;
   /** '' = 全部；'' 之外的取值 = 只看该校（未指定学科用 `__none__`） */
   subjectFilter: string;
@@ -88,20 +96,45 @@ function StudentCell({ name, enName }: { name: string; enName?: string }) {
 
 function ColumnOps({
   col,
+  cols,
   onEdit,
   onRemove,
+  onEditMany,
+  onRemoveMany,
 }: {
-  col: MarkbookColumn;
+  col?: MarkbookColumn;
+  /**
+   * 归并后的多条列记录（「按学科分行」视图用）。
+   * 归并后表头一列可能对应 N 条列记录（每学科一条）⇒ 编辑/删除要能按科目处理，
+   * 不能只对第一条生效（那样另外几条会静默留着，老师以为删干净了）。
+   */
+  cols?: MarkbookColumn[];
   onEdit: (c: MarkbookColumn) => void;
   onRemove: (c: MarkbookColumn) => void;
+  onEditMany?: (cs: MarkbookColumn[]) => void;
+  onRemoveMany?: (cs: MarkbookColumn[]) => void;
 }) {
   const t = useTranslations('markbook');
+  const list = cols?.length ? cols : col ? [col] : [];
+  if (!list.length) return null;
+  const many = list.length > 1;
+  const first = list[0];
   return (
     <div className="mb-col-ops">
-      <button type="button" className="link-btn" onClick={() => onEdit(col)}>
+      <button
+        type="button"
+        className="link-btn"
+        title={many ? t('editMergedHint', { count: list.length }) : undefined}
+        onClick={() => (many && onEditMany ? onEditMany(list) : onEdit(list[0]))}
+      >
         {t('edit')}
       </button>
-      <button type="button" className="link-btn" onClick={() => onRemove(col)}>
+      <button
+        type="button"
+        className="link-btn"
+        title={many ? t('deleteMergedHint', { count: list.length }) : undefined}
+        onClick={() => (many && onRemoveMany ? onRemoveMany(list) : onRemove(list[0]))}
+      >
         {t('delete')}
       </button>
     </div>
@@ -573,28 +606,25 @@ export function SubjectRowsView(p: GridViewProps) {
   const { byType, subjSum, subjects } = useIndexes(p.grid, p.subjectFilter, p.typeFilter);
 
   /**
-   * 表头：按考核类型分组；组内再按**列名**归并 —— 同一类型下同名的列（各学科各一份）算「同一列」，
-   * 由行上的学科决定取哪一份。
-   * 🔴 这就是「学科拆到行里之后，表头不该再出现「期末考试·语文/·数学/·英语」三列」的落点。
+   * 表头：按考核类型分组；组内按**基础名**归并（去掉建列时自动拼上去的「 · 科目」后缀）。
+   *
+   * 🔴 这是「学科拆到行里」的**前提**：建列时勾了 3 个科目 ⇒ `subjectColumnDrafts`
+   *    会落成「日常 · 数学 / 日常 · 英语 / 日常 · 生物学」**三条独立列记录**。
+   *    表头若照它们排三列，每一行就只有斜对角那一格能填、另外两格永远是空的
+   *    （2026-09-22 生产截图）。归并后一列 = 一个考核项，由行上的学科决定取哪条记录。
+   *    规则与撞名保护都在 `@acms/contracts` 的 `mergeColumnsByBaseName`（带单测）。
    */
   const groups = useMemo(() => {
-    return [...byType.entries()].map(([type, cs]) => {
-      const order: string[] = [];
-      const map = new Map<string, Map<string, MarkbookColumn>>();
-      for (const c of cs) {
-        const name = c.name;
-        if (!map.has(name)) {
-          map.set(name, new Map());
-          order.push(name);
-        }
-        map.get(name)!.set(c.subject || '', c);
-      }
-      return {
-        type,
-        cols: order.map((name) => ({ name, bySubject: map.get(name)! })),
-        raw: cs,
-      };
-    });
+    return [...byType.entries()].map(([type, cs]) => ({
+      type,
+      /** 每个元素 = 表头一列：`base` 是显示名，`bySubject` 决定各学科行取哪条列记录 */
+      cols: mergeColumnsByBaseName(cs).map((g) => ({
+        base: g.base,
+        bySubject: g.bySubject,
+        all: g.cols,
+        wf: mergedWeightFull(g.cols),
+      })),
+    }));
   }, [byType]);
 
   /** 行：学生 × 学科（学科来自该班列；筛选后只剩选中的那个） */
@@ -645,18 +675,41 @@ export function SubjectRowsView(p: GridViewProps) {
             {groups.map((g) => (
               <Fragment key={`h-${g.type}`}>
                 {g.cols.map((c) => (
-                  <th key={`${g.type}__${c.name}`} className="mb-col-head">
-                    <div className="mb-col-name">{c.name}</div>
-                    <div className="mb-col-sub">
-                      {t('colWeightFull', {
-                        weight: [...c.bySubject.values()][0]?.weight ?? 1,
-                        full: [...c.bySubject.values()][0]?.fullMark ?? 100,
-                      })}
+                  <th key={`${g.type}__${c.all[0]?.id ?? c.base}`} className="mb-col-head">
+                    {/* 表头只写考核项名（不含科目）—— 科目已经在行上；悬停告诉它涵盖哪几个学科 */}
+                    <div
+                      className="mb-col-name"
+                      title={c.wf.items.map((i) => i.subject || t('subjectNone')).join('、')}
+                    >
+                      {c.base}
+                    </div>
+                    <div
+                      className="mb-col-sub"
+                      title={
+                        c.wf.same
+                          ? undefined
+                          : c.wf.items
+                              .map(
+                                (i) =>
+                                  `${i.subject || t('subjectNone')}：${t('colWeightFull', {
+                                    weight: i.weight,
+                                    full: i.fullMark,
+                                  })}`,
+                              )
+                              .join('\n')
+                      }
+                    >
+                      {/* 归并后一列可能对应多科目，权重/满分不一致时不敢写一个具体值 */}
+                      {c.wf.same
+                        ? t('colWeightFull', { weight: c.wf.weight, full: c.wf.fullMark })
+                        : t('colWeightVaries')}
                     </div>
                     <ColumnOps
-                      col={[...c.bySubject.values()][0]}
+                      cols={c.all}
                       onEdit={p.onEditColumn}
                       onRemove={p.onRemoveColumn}
+                      onEditMany={p.onEditColumns}
+                      onRemoveMany={p.onRemoveColumns}
                     />
                   </th>
                 ))}
@@ -682,7 +735,7 @@ export function SubjectRowsView(p: GridViewProps) {
                     {g.cols.map((c) => {
                       const col = c.bySubject.get(r.subject);
                       return (
-                        <td key={`${g.type}__${c.name}`} className="mb-cell">
+                        <td key={`${g.type}__${c.all[0]?.id ?? c.base}`} className="mb-cell">
                           {col ? (
                             <CellBox
                               value={p.cellValue(col.id, r.studentId)}
@@ -690,7 +743,15 @@ export function SubjectRowsView(p: GridViewProps) {
                               onChange={(v) => p.onCellChange(col.id, r.studentId, v)}
                             />
                           ) : (
-                            <span className="mbv-ro mbv-ro-empty">—</span>
+                            /* 这个学科没给该考核项建列（不是「没录分」）：不可编辑，且说明为什么 */
+                            <span
+                              className="mbv-ro mbv-ro-empty"
+                              title={t('cellNoColumnForSubject', {
+                                subject: r.subject || t('subjectNone'),
+                              })}
+                            >
+                              —
+                            </span>
                           )}
                         </td>
                       );

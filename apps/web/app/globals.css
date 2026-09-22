@@ -2203,6 +2203,16 @@ select.form-input:disabled { color: var(--fg); }
 .mb-chip.static { cursor: default; background: var(--bg-subtle); }
 .mb-chip.static:hover { border-color: var(--border); }
 
+/* 「按学科分行」归并表头带过来的多学科切换条（一列 = 一个考核项 × N 个学科） */
+.mb-sibbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 8px 10px; margin-bottom: 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-subtle);
+}
+.mb-sibbar-label { font-size: var(--font-xs); color: var(--fg-secondary); }
+.mb-sibbar-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mb-sibbar-hint { font-size: var(--font-xs); color: var(--fg-secondary); }
+
 /* 作业同步弹窗里的四步指示条 */
 .mb-steps {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;

@@ -21,6 +21,8 @@ import Modal from './Modal';
 export default function ColumnEditor({
   cls,
   col,
+  siblings,
+  onPickSibling,
   scales,
   subjects,
   types,
@@ -34,6 +36,13 @@ export default function ColumnEditor({
   cls: string;
   /** null = 新建；非空 = 修改该列 */
   col: MarkbookColumn | null;
+  /**
+   * 「按学科分行」视图的**归并表头**一次带进来的同组列记录（同一个考核项下的各学科）。
+   * 长度 > 1 时弹窗顶部出现学科切换条；点另一个学科由页面改 `col` —— 外层 `key` 变了
+   * 组件会重建，表单自然回填成那一条的值（不用手写一套「切换时重置」的同步逻辑）。
+   */
+  siblings?: MarkbookColumn[];
+  onPickSibling?: (col: MarkbookColumn) => void;
   scales: { id: string; name: string; isDefault: boolean }[];
   /** 「科目」候选 = 字典「授课科目」 */
   subjects: string[];
@@ -190,6 +199,27 @@ export default function ColumnEditor({
       }
     >
       {err ? <div className="notice notice-error">{err}</div> : null}
+
+      {/* 归并表头一次带进来多条列记录（每个学科一条）：先切学科，再改这一条。
+          不加这段的话，老师点「编辑」只会打开第一条（数学），改完以为其它学科也跟着改了。 */}
+      {siblings && siblings.length > 1 ? (
+        <div className="mb-sibbar">
+          <span className="mb-sibbar-label">{t('editSiblingHint', { count: siblings.length })}</span>
+          <span className="mb-sibbar-chips">
+            {siblings.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={['mb-chip', s.subject ? '' : 'none', s.id === col?.id ? 'on' : ''].filter(Boolean).join(' ')}
+                onClick={() => onPickSibling?.(s)}
+              >
+                {s.subject || t('subjectNoneShort')}
+              </button>
+            ))}
+          </span>
+          <span className="mb-sibbar-hint">{t('editSiblingEach')}</span>
+        </div>
+      ) : null}
 
       {/* ── ① 归属：决定这一列出现在哪个成绩册里 ───────────────────── */}
       <div className="mb-sect">

@@ -88,8 +88,15 @@ export default function MarkbookPage() {
   /** 考核类型筛选：'' = 全部 */
   const [typeFilter, setTypeFilter] = useState('');
 
-  /** 列编辑：null=关闭，{col:null}=新建 */
-  const [editing, setEditing] = useState<{ col: MarkbookColumn | null } | null>(null);
+  /**
+   * 列编辑：null=关闭，{col:null}=新建。
+   * `siblings` = 「按学科分行」视图里与 `col` 同属一个考核项（同一基础名）的其它列记录
+   * —— 归并表头下点「编辑」会一次带进来，弹窗顶部可切学科分别编辑。
+   */
+  const [editing, setEditing] = useState<{
+    col: MarkbookColumn | null;
+    siblings?: MarkbookColumn[];
+  } | null>(null);
   /** 「作业转成绩册」弹出框是否打开（2026-09-20：从网格下方的内联面板提到顶部按钮） */
   const [hwOpen, setHwOpen] = useState(false);
 
@@ -285,6 +292,32 @@ export default function MarkbookPage() {
     await loadGrid(cls);
   };
 
+  /**
+   * 批量删除（「按学科分行」视图的**归并表头**专用，2026-09-23）。
+   *
+   * 该视图里表头一列 = 一个考核项，背后可能是 N 条列记录（每个学科一条）。
+   * 老师点「删除」想删的是这**一列**，所以要连着删 N 条；
+   * 但确认框必须把科目列清楚 —— 删错就是把别的学科的成绩一起带走。
+   *
+   * ⚠️ 串行删（`for await` 故意不并发）：同一张表的列记录，并发写容易撞
+   * 「读旧行 → 写回」的合并路径。
+   */
+  const removeColumns = async (cols: MarkbookColumn[]) => {
+    if (!cols.length) return;
+    const ok =
+      cols.length === 1
+        ? window.confirm(t('confirmDeleteColumn', { name: cols[0].name }))
+        : window.confirm(
+            t('confirmDeleteColumns', {
+              count: cols.length,
+              subjects: cols.map((c) => c.subject || t('subjectNone')).join('、'),
+            }),
+          );
+    if (!ok) return;
+    for (const c of cols) await api.markbookDeleteColumn(c.id);
+    await loadGrid(cls);
+  };
+
   const dirtyCount = dirty.size;
 
   /** 该班出现过的学科（筛选候选；'' = 未指定学科，用 SUBJECT_NONE 表示） */
@@ -448,6 +481,11 @@ export default function MarkbookPage() {
               onCellChange={onCellChange}
               onEditColumn={(c) => setEditing({ col: c })}
               onRemoveColumn={(c) => void removeColumn(c)}
+              // 归并表头（一列 = 一个考核项 × N 个学科）走这两个：编辑带学科切换、删除按科目批量
+              onEditColumns={(cols) =>
+                setEditing({ col: cols[0] ?? null, siblings: cols.length > 1 ? cols : undefined })
+              }
+              onRemoveColumns={(cols) => void removeColumns(cols)}
               summaryOf={(id) => summaryMap.get(id)}
               subjectFilter={subjectFilter}
               typeFilter={typeFilter}
@@ -471,6 +509,9 @@ export default function MarkbookPage() {
             key={editing.col?.id ?? '__new__'}
             cls={cls}
             col={editing.col}
+            // 归并表头一次带进来的「同考核项的其它学科列记录」（顶部 chip 切换，key 变了会重建表单）
+            siblings={editing.siblings}
+            onPickSibling={(c) => setEditing((cur) => (cur ? { ...cur, col: c } : cur))}
             scales={grid?.scales ?? []}
             // 「科目」候选 = 字典「授课科目」（原来取该班已有列 ⇒ 新班/新科目候选为空）
             subjects={subjectOptions}

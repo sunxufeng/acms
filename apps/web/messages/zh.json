@@ -933,7 +933,8 @@
     "fldEnrollYm": "入学年月",
     "fldAreteEntryYear": "Arete入学年",
     "colEnrollYm": "入学年月",
-    "colAreteEntryYear": "Arete入学年"
+    "colAreteEntryYear": "Arete入学年",
+    "enrollAutoHint": "选完会按入学年月自动带出「入学年份」与「Arete入学年」，带出后可手动修改（例：23秋季 → 2023 / 第3年）"
   },
   "admin": {
     "titleRoleManagement": "角色管理",

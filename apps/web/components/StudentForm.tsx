@@ -6,6 +6,13 @@ import { api } from '../lib/api';
 import { useTl } from '../lib/useTl';
 import { useTranslations } from 'next-intl';
 import { useRoleLabels } from './RoleLabels';
+// 「入学年月 → 入学年份 / Arete入学年」的派生规则（前后端共用一份，见 packages/contracts）
+import {
+  ARETE_ENROLL_YEAR_FIELD,
+  ENROLL_MONTH_FIELD,
+  ENROLL_YEAR_FIELD,
+  deriveEnrollFields,
+} from '@acms/contracts';
 
 export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone' | 'textarea' | 'number' | 'typescore';
 
@@ -18,6 +25,12 @@ export interface FieldDef {
   dictKey?: string;
   /** 多选字段以单选下拉呈现（存储仍保持数组，兼容飞书多选字段） */
   singleChoice?: boolean;
+  /**
+   * 控件下方的小字提示，值是 **students 命名空间**的文案 key（如 `enrollAutoHint`）。
+   * ⚠️ 存 key 不存中文：label 是数据 key 只能用 `tl()` 渲染，但提示是纯 UI 文案，
+   * 走 `ts()` 才会跟着语言切换（与 `ts('uploadAttachment')` 一致）。
+   */
+  hintKey?: string;
   /** 数字字段范围（前端校验用） */
   min?: number;
   max?: number;
@@ -51,7 +64,7 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
        * 改名是**四层同批**的（表单 key/label/dictKey · 字典 key · `acms_fields.name`
        * · 生产 `data` jsonb 的键），少改一层就会静默丢数据 —— 见 references/业务专线。
        */
-      { key: '入学年月', label: '入学年月', type: 'select', dictKey: '入学年月' },
+      { key: '入学年月', label: '入学年月', type: 'select', dictKey: '入学年月', hintKey: 'enrollAutoHint' },
       { key: '入学年份', label: '入学年份', type: 'select', dictKey: '入学年份' },
       /** Arete 入学第几年（第1年–第10年）；放在「Arete毕业届」之前 —— 先学年、后届次 */
       { key: 'Arete入学年', label: 'Arete入学年', type: 'select', dictKey: 'Arete入学年' },
@@ -1088,23 +1101,44 @@ function PhotoAttachmentSection({
                 {/* f.label 同时是飞书字段名（数据 key），只能在渲染时翻译，不能把中文换成 i18n key */}
                 <span className="form-label-text">{tl(f.label)}</span>
                 {f.type === 'select' ? (
-                  <select
-                    className="form-input"
-                    value={String(values[f.key] ?? '')}
-                    disabled={readOnly}
-                    onChange={(e) => {
-                      setField(f.key, e.target.value);
-                      if (f.key === '现居住省') setField('城市', ''); // 省变化 → 清空城市（级联）
-                    }}
-                  >
-                    <option value="">—</option>
-                    {(f.key === '城市'
-                      ? (provinceCities[String(values['现居住省'] ?? '')] ?? [])
-                      : optionsFor(f)
-                    ).map((o) => (
-                      <option key={o} value={o}>{tl(o)}</option>
-                    ))}
-                  </select>
+                  <>
+                    <select
+                      className="form-input"
+                      value={String(values[f.key] ?? '')}
+                      disabled={readOnly}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setField(f.key, v);
+                        if (f.key === '现居住省') setField('城市', ''); // 省变化 → 清空城市（级联）
+                        /**
+                         * 「入学年月」变化 → 自动带出「入学年份」与「Arete入学年」（2026-09-22 峰哥）。
+                         *
+                         * 三条边界（都写在 contracts/student-enroll.ts 里，这里只调用）：
+                         * ① 规则只有一份（contracts），不在前后端各写一遍；
+                         * ② **推导不出就不动**（返回空对象）—— 清空「入学年月」不会顺手抹掉那两个值，
+                         *    便利填充不该变成静默的数据删除；
+                         * ③ 这是便利填充**不是不变式**：带出后用户仍可手改，改完不会再被覆盖，
+                         *    除非他重新选一次「入学年月」。
+                         */
+                        if (f.key === ENROLL_MONTH_FIELD) {
+                          const derived = deriveEnrollFields(v);
+                          const y = derived[ENROLL_YEAR_FIELD];
+                          const n = derived[ARETE_ENROLL_YEAR_FIELD];
+                          if (y) setField(ENROLL_YEAR_FIELD, y);
+                          if (n) setField(ARETE_ENROLL_YEAR_FIELD, n);
+                        }
+                      }}
+                    >
+                      <option value="">—</option>
+                      {(f.key === '城市'
+                        ? (provinceCities[String(values['现居住省'] ?? '')] ?? [])
+                        : optionsFor(f)
+                      ).map((o) => (
+                        <option key={o} value={o}>{tl(o)}</option>
+                      ))}
+                    </select>
+                    {f.hintKey ? <div className="form-hint">{ts(f.hintKey)}</div> : null}
+                  </>
                 ) : f.type === 'multiselect' ? (
                   f.key === '学生标签' ? (
                     <TagInput

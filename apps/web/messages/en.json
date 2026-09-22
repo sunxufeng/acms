@@ -933,7 +933,8 @@
     "fldEnrollYm": "Enrollment Term",
     "fldAreteEntryYear": "Arete Year",
     "colEnrollYm": "Enrollment Term",
-    "colAreteEntryYear": "Arete Year"
+    "colAreteEntryYear": "Arete Year",
+    "enrollAutoHint": "Fills in “Enrollment Year” and “Arete Year” automatically after you pick the term; you can still edit them (e.g. 23秋季 → 2023 / Year 3)"
   },
   "admin": {
     "titleRoleManagement": "Role Management",

@@ -929,7 +929,11 @@
     "scopeSrcRole": "Scope comes from your role configuration",
     "scopeCampus": "Also limited by campus: {campuses}",
     "scopeSrcRoleAll": "Role grants all students",
-    "scopeSrcRoleNone": "⚠️ Role has no data scope — no students visible"
+    "scopeSrcRoleNone": "⚠️ Role has no data scope — no students visible",
+    "fldEnrollYm": "Enrollment Term",
+    "fldAreteEntryYear": "Arete Year",
+    "colEnrollYm": "Enrollment Term",
+    "colAreteEntryYear": "Arete Year"
   },
   "admin": {
     "titleRoleManagement": "Role Management",
@@ -2574,7 +2578,22 @@
     "是否达标": "Attained",
     "得分": "Score",
     "学生记录（日常跟进 / IDP沟通 / 学生沟通 / 家校沟通 / 学生观察）是同一张表，按「记录类型」分别导出；只能导出你本人有权查看的类型。": "Student records (Daily follow-up / IDP comms / Student comms / Home-school comms / Observations) live in one table — export them per Record Type. Only the types you may view can be exported.",
-    "批次": "Batch"
+    "批次": "Batch",
+    "入学年月": "Enrollment Term",
+    "Arete入学年": "Arete Year",
+    "按入学年月": "By enrollment term",
+    "年级 · 性别 · 入学年月": "Grade · Gender · Enrollment term",
+    "按入学年月/学期看招生规模变化": "Enrollment size by term",
+    "第1年": "Year 1",
+    "第2年": "Year 2",
+    "第3年": "Year 3",
+    "第4年": "Year 4",
+    "第5年": "Year 5",
+    "第6年": "Year 6",
+    "第7年": "Year 7",
+    "第8年": "Year 8",
+    "第9年": "Year 9",
+    "第10年": "Year 10"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

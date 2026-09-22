@@ -12,15 +12,25 @@ import { FilterSelect } from '../../components/FilterSelect';
 // 按钮门控：判据 = `module:students:<动作>`，与后端 authorize() 同一套点（2026-09-17 收口）
 import { usePermissions } from '../../lib/permissions';
 
+/**
+ * 列表列（顺序即表头顺序）。
+ *
+ * 🔴 表头由本数组渲染，而 `<tbody>` 里的 `<td>` 是**另一份手写**（见下方逐行渲染）。
+ * 两者必须**一一对应** —— 多一列少一列都不会报错，只会整行串位（列头与数据错开），
+ * 所以增删列必须两处同批改。
+ *
+ * 2026-09-22 峰哥要求：隐藏 `Arete毕业届 / 来源渠道 / 生源跟进状态 / 更新时间`，
+ * 并在「当前/入学年级」列后插入 `Arete入学年` 与 `入学年月`。
+ * 隐藏的三列生产实测**全是 0 行有值**（来源渠道 0 · 生源跟进状态 0 · 更新时间 0）⇒ 隐藏零损失；
+ * 本页没有导出按钮，导出在 `/export` 页按表读 `acms_fields` ⇒ 隐藏**不影响导出**。
+ */
 const COLS = [
   { key: '学生姓名', label: 'colStudent', width: '' },
   { key: '英文名', label: 'colEnglishName', width: '120px' },
   { key: '性别', label: 'colGender', width: '64px' },
-  { key: 'Arete毕业届', label: 'colAreteGraduation', width: '110px' },
   { key: '入学年级', label: 'colAreteClass', width: '' },
-  { key: '来源渠道', label: 'colSource', width: '80px' },
-  { key: '生源跟进状态', label: 'colFollowUp', width: '80px' },
-  { key: '更新时间', label: 'colUpdated', width: '140px' },
+  { key: 'Arete入学年', label: 'colAreteEntryYear', width: '110px' },
+  { key: '入学年月', label: 'colEnrollYm', width: '100px' },
   { key: '当前状态', label: 'common.status', width: '100px' },
 ];
 
@@ -30,7 +40,7 @@ const COLS = [
  */
 const DRILL_KEYS = [
   '当前状态', '入学年级', '当前年级', '班主任', '招生负责老师', '升学导师',
-  '来源渠道', '生源跟进状态', '入学年份', 'Arete毕业届', '校区', '性别',
+  '来源渠道', '生源跟进状态', '入学年月', '入学年份', 'Arete入学年', 'Arete毕业届', '校区', '性别',
   '是否是新生', '数据密级',
 ];
 
@@ -85,6 +95,8 @@ function fmtDate(v: unknown): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+// 注：2026-09-22 隐藏「更新时间」列后本函数暂无调用方，暂时保留 ——
+// 它是这几个页面里唯一的时间戳格式化实现，删掉后若再要展示时间，容易又写出一份不一致的。
 
 function avatarColor(name: string): string {
   const colors = ['avatar-teal', 'avatar-emerald', 'avatar-amber', 'avatar-rose'];
@@ -143,7 +155,11 @@ export default function StudentsPage() {
     当前年级: '',
     班主任: [],
     招生负责老师: [],
+    // 2026-09-22：原「入学年份」改名「入学年月」；「入学年份」改为新字段（2021–2030），
+    // 另新增「Arete入学年」。
+    入学年月: '',
     入学年份: '',
+    Arete入学年: '',
     Arete毕业届: '',
   });
 
@@ -563,13 +579,31 @@ export default function StudentsPage() {
          *
          * 不是隐藏而是删掉：留着只是 `style={{display:'none'}}` 这类障眼法的话，
          * 初始 state 与请求参数里还得继续带着它们，将来接手的人会以为「这里本来有筛选却筛不动」。
-         * 两列在**列表与 CSV 导出里照旧显示**（COLS 未动）—— 移除的是筛选入口，不是数据。
+         * （同日稍后按要求把这两列在**列表里也隐藏了** —— 生产实测两列 + 更新时间**都是 0 行有值**，
+         *   隐藏零损失；数据仍在，`/export` 页照样导得出。）
          */}
+        {/**
+         * 2026-09-22 峰哥：「入学年份」改名「**入学年月**」（值不变，仍是 `26秋季` 这类学年学期），
+         * 并新增「入学年份」（2021–2030 纯年份）与「Arete入学年」（第1年–第10年）两个筛选框。
+         * 顺序与表单一致：入学年月 → 入学年份 → Arete入学年。
+         */}
+        <FilterSelect
+          label={t('fldEnrollYm')}
+          value={filters['入学年月'] as string}
+          onChange={(v) => setFilter('入学年月', v)}
+          options={dicts['入学年月'] ?? ['21春季', '21秋季', '22春季', '22秋季', '23春季', '23秋季', '24秋季', '25春季', '25秋季', '26春季', '26秋季', '27春季', '27秋季', '28春季', '28秋季']}
+        />
         <FilterSelect
           label={t('fldEnrollYear')}
           value={filters['入学年份'] as string}
           onChange={(v) => setFilter('入学年份', v)}
-          options={dicts['入学年份'] ?? ['2021春', '2021秋', '2022春', '2022秋', '2023春', '2023秋', '2024春', '2024秋', '2025春', '2025秋', '2026春', '2026秋', '2027春', '2027秋']}
+          options={dicts['入学年份'] ?? ['2021', '2022', '2023', '2024', '2025', '2026', '2027', '2028', '2029', '2030']}
+        />
+        <FilterSelect
+          label={t('fldAreteEntryYear')}
+          value={filters['Arete入学年'] as string}
+          onChange={(v) => setFilter('Arete入学年', v)}
+          options={dicts['Arete入学年'] ?? ['第1年', '第2年', '第3年', '第4年', '第5年', '第6年', '第7年', '第8年', '第9年', '第10年']}
         />
         <FilterSelect
           label={t('fldAreteSession')}
@@ -670,22 +704,16 @@ export default function StudentsPage() {
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['英文名']) || '—'}</td>
                       {/* 性别 */}
                       <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['性别']) || '—'}</td>
-                      {/* Arete毕业届 */}
-                      <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['Arete毕业届']) || '—'}</td>
                       {/* Arete班（年级/班级）：当前年级为主（加粗置顶），入学年级为次（小字置底） */}
                       <td>
                         <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{str(s['当前年级']) || t('noClass')}</div>
                         <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{str(s['入学年级']) || '—'}</div>
                       </td>
-                      {/* 来源渠道 */}
-                      <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['来源渠道']) || '—'}</td>
-                      {/* 跟进状态 */}
-                      <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['生源跟进状态']) || '—'}</td>
-                      {/* Updated */}
-                      <td style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)' }}>
-                        {fmtDate(s['更新时间']) || '—'}
-                      </td>
-                      {/* Status（移到更新列后）→ 只显示状态；性别已独立成列，不再挂在状态下面 */}
+                      {/* Arete入学年（第1年–第10年） */}
+                      <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['Arete入学年']) || '—'}</td>
+                      {/* 入学年月 —— 原「入学年份」，2026-09-22 改名（值是 26秋季 这类学年学期） */}
+                      <td style={{ fontSize: 'var(--font-sm)' }}>{str(s['入学年月']) || '—'}</td>
+                      {/* Status：只显示状态；性别已独立成列，不再挂在状态下面 */}
                       <td>
                         <div className={`status-dot ${statusClass(status)}`}>{status || '—'}</div>
                       </td>

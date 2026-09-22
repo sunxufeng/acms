@@ -32,7 +32,11 @@ export interface CreateStudentDto {
   当前学段?: string;
   入学年级?: string;
   入学类型?: string;
+  // 2026-09-22：「入学年份」改名「入学年月」（值是 26秋季 这类学年学期）；
+  // 「入学年份」这个名字给新的纯年份字段（2021–2030），并新增「Arete入学年」。
+  入学年月?: string;
   入学年份?: string;
+  Arete入学年?: string;
   实际学制?: string;
   '学籍号（脱敏）'?: string;
   预计毕业日期?: string;
@@ -157,7 +161,11 @@ export interface UpdateStudentDto {
   当前学段?: string;
   入学年级?: string;
   入学类型?: string;
+  // 2026-09-22：「入学年份」改名「入学年月」（值是 26秋季 这类学年学期）；
+  // 「入学年份」这个名字给新的纯年份字段（2021–2030），并新增「Arete入学年」。
+  入学年月?: string;
   入学年份?: string;
+  Arete入学年?: string;
   实际学制?: string;
   '学籍号（脱敏）'?: string;
   预计毕业日期?: string;
@@ -211,7 +219,11 @@ export interface StudentFilterDto {
   生源跟进状态?: string;
   现居住省?: string;
   城市?: string;
+  // 2026-09-22：「入学年份」改名「入学年月」（值是 26秋季 这类学年学期）；
+  // 「入学年份」这个名字给新的纯年份字段（2021–2030），并新增「Arete入学年」。
+  入学年月?: string;
   入学年份?: string;
+  Arete入学年?: string;
   实际学制?: string;
   /** 报表「学生结构概览 / 年级升级流向」下钻用：姓名（前端先映射回 open_id） */
   升学导师?: string;

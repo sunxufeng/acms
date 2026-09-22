@@ -49,7 +49,7 @@ interface ReportDef {
   perm?: string;
   /**
    * 查询条件分组：进报表后顶部显示哪一组公共筛选条件。
-   * - 'students'：学生类报表共用（校区 / 当前年级 / 入学年份 / 是否新生）
+   * - 'students'：学生类报表共用（校区 / 当前年级 / 入学年月 / 是否新生）
    * - 'time'：时间类报表共用（起止日期 + 快捷区间）
    * 列表页不显示任何筛选条件（2026-09-11 调整）。
    */
@@ -61,9 +61,9 @@ const R = (k: ReportKey) => modulePermission(REPORT_MODULE_KEYS[k], 'read');
 
 /** 报表清单：ready=true 的已有数据支撑，false 的等对应业务表录入后自动出图 */
 const REPORTS: ReportDef[] = [
-  { key: 'overview', perm: R('overview'), label: '学生结构概览', desc: '在校人数、性别比、新生占比等核心指标', dims: '年级 · 性别 · 入学年份', ready: true, group: 'students' },
+  { key: 'overview', perm: R('overview'), label: '学生结构概览', desc: '在校人数、性别比、新生占比等核心指标', dims: '年级 · 性别 · 入学年月', ready: true, group: 'students' },
   { key: 'gradeFlow', perm: R('gradeFlow'), label: '年级升级流向', desc: '入学年级与当前年级对比，看学生升级流动', dims: '条形图 · 变化表', ready: true, group: 'students' },
-  { key: 'trend', perm: R('trend'), label: '入学趋势', desc: '按入学年份/学期看招生规模变化', dims: '柱状图 · 导出', ready: true, group: 'students' },
+  { key: 'trend', perm: R('trend'), label: '入学趋势', desc: '按入学年月/学期看招生规模变化', dims: '柱状图 · 导出', ready: true, group: 'students' },
   { key: 'completeness', perm: R('completeness'), label: '档案完整度', desc: '按字段统计缺失率，定位待补录的字段与学生', dims: '缺失排行 · 导出', ready: true, group: 'students' },
   {
     key: 'weiling', perm: R('weiling'),
@@ -122,7 +122,9 @@ const REPORTS: ReportDef[] = [
   { key: 'evaluation', perm: 'module:stageEvaluations:read', label: '阶段评价', desc: '评价等级分布、按周期变化趋势', source: '阶段评价表', ready: false, href: '/stage-evaluations' },
 ];
 
-const FILTER_KEYS = ['校区', '当前年级', '入学年份', '是否是新生'] as const;
+// 2026-09-22：字段「入学年份」改名「入学年月」，筛选键必须跟着改（否则筛选键指向不存在的字段，
+// 后端过滤不到任何数据且不报错）。报表这里用的是同一个字段，语义仍是「学年学期」。
+const FILTER_KEYS = ['校区', '当前年级', '入学年月', '是否是新生'] as const;
 
 function todayISO(): string {
   const d = new Date();

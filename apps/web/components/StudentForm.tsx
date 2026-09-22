@@ -43,7 +43,18 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '城市', label: '城市', type: 'select', dictKey: '城市' },
       { key: '户籍类型', label: '户籍类型', type: 'select', dictKey: '户籍类型', options: ['城镇', '农村'] },
       { key: '政治面貌', label: '政治面貌', type: 'select', dictKey: '政治面貌', options: ['群众', '团员', '党员', '无党派'] },
+      /**
+       * ⚠️ 2026-09-22 峰哥要求的改名：原「入学年份」→「**入学年月**」。
+       *
+       * 原名与实际值不符 —— 它的值是 `26秋季 / 26春季` 这类**学年学期**，不是年份。
+       * 「入学年份」这个名字让给了新的纯年份字段（2021–2030），紧跟在后面。
+       * 改名是**四层同批**的（表单 key/label/dictKey · 字典 key · `acms_fields.name`
+       * · 生产 `data` jsonb 的键），少改一层就会静默丢数据 —— 见 references/业务专线。
+       */
+      { key: '入学年月', label: '入学年月', type: 'select', dictKey: '入学年月' },
       { key: '入学年份', label: '入学年份', type: 'select', dictKey: '入学年份' },
+      /** Arete 入学第几年（第1年–第10年）；放在「Arete毕业届」之前 —— 先学年、后届次 */
+      { key: 'Arete入学年', label: 'Arete入学年', type: 'select', dictKey: 'Arete入学年' },
       { key: 'Arete毕业届', label: 'Arete毕业届', type: 'select', dictKey: 'Arete毕业届', options: ['第1届', '第2届', '第3届', '第4届', '第5届', '第6届'] },
       { key: '毕业届', label: '毕业届', type: 'select', dictKey: '毕业届', options: ['2021', '2022', '2023', '2024', '2025', '2026', '2027'] },
       { key: '日常禁忌', label: '日常禁忌', type: 'text' },

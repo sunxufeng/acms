@@ -124,7 +124,7 @@ export function StudentOverview({ rows, drill }: { rows: Row[]; drill?: Drill })
         ))}
       </Panel>
 
-      {/* 六个业务维度：按当前年级 / 入学年份 / 班主任 / 招生负责老师 / 升学导师 / 当前状态 统计
+      {/* 六个业务维度：按当前年级 / 入学年月 / 班主任 / 招生负责老师 / 升学导师 / 当前状态 统计
           （2026-09-11 新增，都随顶部查询条件联动） */}
       {DIMENSION_PANELS.map(({ key, title }) => {
         const dist = countBy(rows, key);
@@ -155,7 +155,9 @@ export function StudentOverview({ rows, drill }: { rows: Row[]; drill?: Drill })
 /** 学生结构概览的维度统计面板（顺序即展示顺序） */
 const DIMENSION_PANELS: { key: string; title: string }[] = [
   { key: '当前年级', title: '按当前年级' },
-  { key: '入学年份', title: '按入学年份' },
+  // 2026-09-22：字段「入学年份」改名「入学年月」——维度 key 必须跟着改，
+  // 否则分组统计读到的是不存在的字段（整维度空，且不报错）。
+  { key: '入学年月', title: '按入学年月' },
   { key: '班主任', title: '按班主任' },
   { key: '招生负责老师', title: '按招生负责老师' },
   { key: '升学导师', title: '按升学导师' },
@@ -224,18 +226,19 @@ export function GradeFlow({ rows, drill }: { rows: Row[]; drill?: Drill }) {
 /* ── 3. 入学趋势 ───────────────────────────────── */
 export function EnrollmentTrend({ rows, drill }: { rows: Row[]; drill?: Drill }) {
   const tl = useTl();
-  const byYear = countBy(rows, '入学年份').filter(([k]) => k !== EMPTY_KEY);
+  // 维度字段 2026-09-22 由「入学年份」改名「入学年月」（值是 26秋季 这类学年学期）
+  const byYear = countBy(rows, '入学年月').filter(([k]) => k !== EMPTY_KEY);
   const data = byYear.map(([label, value]) => ({ label, value }));
 
   return (
     <Panel
-      title={tl('按入学年份')}
-      extra={<ExportBtn filename="enrollment-trend.csv" head={[tl('入学年份'), tl('人数')]} rows={byYear} />}
+      title={tl('按入学年月')}
+      extra={<ExportBtn filename="enrollment-trend.csv" head={[tl('入学年月'), tl('人数')]} rows={byYear} />}
     >
       {data.length ? (
         <ColumnChart
           data={data}
-          onPick={drill ? (label) => drill({ 入学年份: label }) : undefined}
+          onPick={drill ? (label) => drill({ 入学年月: label }) : undefined}
         />
       ) : (
         <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>{tl('暂无数据')}</div>
@@ -247,7 +250,7 @@ export function EnrollmentTrend({ rows, drill }: { rows: Row[]; drill?: Drill })
 /* ── 4. 档案完整度 ─────────────────────────────── */
 /** 关键档案字段（用于统计缺失率；与学生档案表真实字段一致） */
 const COMPLETENESS_FIELDS = [
-  '性别', '出生日期', '入学日期', '校区', '当前年级', '入学年级', '入学年份',
+  '性别', '出生日期', '入学日期', '校区', '当前年级', '入学年级', '入学年月',
   '当前学段', '实际学制', '入学类型', '来源渠道', '原学校', '原学校类型',
   '合同状态', '付款状态', '综合评定等级', '签证情况', '数据密级',
   '学生手机号', '学生邮箱', '现居住省', '城市',

@@ -106,7 +106,10 @@ export class StudentService {
       if (vals.length === 1) conditions.push({ field: '当前状态', value: vals });
     }
     if (query.入学年级) conditions.push({ field: '入学年级', value: [query.入学年级] });
+    // 2026-09-22：原「入学年份」改名「入学年月」，另新增「入学年份」「Arete入学年」
+    if (query.入学年月) conditions.push({ field: '入学年月', value: [query.入学年月] });
     if (query.入学年份) conditions.push({ field: '入学年份', value: [query.入学年份] });
+    if (query.Arete入学年) conditions.push({ field: 'Arete入学年', value: [query.Arete入学年] });
     if (query.实际学制) conditions.push({ field: '实际学制', value: [query.实际学制] });
     if (query.当前年级) conditions.push({ field: '当前年级', value: [query.当前年级] });
     if (query.班主任) conditions.push({ field: '班主任', value: [query.班主任] });
@@ -142,7 +145,7 @@ export class StudentService {
     const eq: Array<keyof StudentFilterDto> = [
       '当前状态', '入学年级', '当前年级', '班主任', '招生负责老师', '升学导师', '校区',
       '数据密级', '性别', '来源渠道', '生源跟进状态', '入学级', '毕业届', '是否是新生',
-      '入学年份', '实际学制', '现居住省', '城市', '学生标签', '特长标签',
+      '入学年月', '入学年份', 'Arete入学年', '实际学制', '现居住省', '城市', '学生标签', '特长标签',
       '原学校类型', '合同状态', '付款状态', '家庭关键决策点',
       '综合评定等级', '签证情况',
       '是否企业家庭', '是否工坊企业', '是否多胎家庭',

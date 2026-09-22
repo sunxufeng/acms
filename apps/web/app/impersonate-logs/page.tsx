@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api, type ImpersonateLogResult } from '../../lib/api';
+// 筛选下拉统一走全站组件（2026-09-22 第二批）
+import { FilterSelect } from '../../components/FilterSelect';
 
 /**
  * 模拟记录（后台管理，2026-09-16 Phase 2）。
@@ -93,14 +95,7 @@ export default function ImpersonateLogsPage() {
         )}
 
         <div className="imp-toolbar">
-          <select className="form-input imp-select" value={action} onChange={(e) => setAction(e.target.value)}>
-            <option value="">{t('logsAllActions')}</option>
-            {(data?.actions ?? []).map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
+          <FilterSelect label={t('logsColAction')} value={action} onChange={setAction} options={data?.actions ?? []} />
           <input
             className="form-input imp-search"
             value={actor}

@@ -15,6 +15,8 @@ import {
   type TermGradePreview,
   type TermGradeRow,
 } from '../../lib/api';
+// 筛选下拉统一走全站组件（2026-09-22 第二批：本页原本是原生 select + 手写「全部科目」）
+import { FilterSelect } from '../../components/FilterSelect';
 
 /**
  * 考试与成绩（教学管理，2026-09-16 参照 RosarioSIS v13 的 Grades 模块设计）。
@@ -495,39 +497,43 @@ export default function ExamGradesPage() {
 
         {/* 公共筛选条 */}
         <div className="mb-toolbar">
-          <label className="mb-field">
-            <span>{t('fBatch')}</span>
-            <select className="form-input" value={batchId} onChange={(e) => setBatchId(e.target.value)}>
-              {batches.length === 0 && <option value="">{t('noBatch')}</option>}
-              {batches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}（{b.status}）
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="mb-field">
-            <span>{t('fClass')}</span>
-            <select className="form-input" value={cls} onChange={(e) => setCls(e.target.value)}>
-              {classes.length === 0 && <option value="">{t('noClass')}</option>}
-              {classes.map((c) => (
-                <option key={c.cls} value={c.cls}>
-                  {t('classOption', { cls: c.cls, n: c.students })}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="mb-field">
-            <span>{t('fSubject')}</span>
-            <select className="form-input" value={subject} onChange={(e) => setSubject(e.target.value)}>
-              <option value="">{t('subjectAll')}</option>
-              {subjects.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}（{s.columns}）
-                </option>
-              ))}
-            </select>
-          </label>
+          {/* 批次 / 班级是**必选参数**（值恒非空，下面整页按它取数）⇒ `clearable={false}`；
+              科目可选，所以保留「全部」。
+              原先「暂无批次 / 暂无班级」是下拉里的一个 option —— 换掉后会丢，所以空列表时
+              改成旁边一行文字提示，保住「为什么这里是空的」这条信息。 */}
+          {batches.length === 0 ? (
+            <span className="muted" style={{ fontSize: 'var(--font-xs)' }}>{t('noBatch')}</span>
+          ) : (
+            <FilterSelect
+              label={t('fBatch')}
+              value={batchId}
+              onChange={setBatchId}
+              options={batches.map((b) => b.id)}
+              optionLabels={Object.fromEntries(batches.map((b) => [b.id, `${b.name}（${b.status}）`]))}
+              clearable={false}
+            />
+          )}
+          {classes.length === 0 ? (
+            <span className="muted" style={{ fontSize: 'var(--font-xs)' }}>{t('noClass')}</span>
+          ) : (
+            <FilterSelect
+              label={t('fClass')}
+              value={cls}
+              onChange={setCls}
+              options={classes.map((c) => c.cls)}
+              optionLabels={Object.fromEntries(
+                classes.map((c) => [c.cls, t('classOption', { cls: c.cls, n: c.students })]),
+              )}
+              clearable={false}
+            />
+          )}
+          <FilterSelect
+            label={t('fSubject')}
+            value={subject}
+            onChange={setSubject}
+            options={subjects.map((s) => s.value)}
+            optionLabels={Object.fromEntries(subjects.map((s) => [s.value, `${s.label}（${s.columns}）`]))}
+          />
           {batch && (
             <span className="mb-meta">
               {batch.year} · {batch.term}

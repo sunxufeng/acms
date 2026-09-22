@@ -6,6 +6,8 @@ import { api } from '../../lib/api';
 import { usePermissions } from '../../lib/permissions';
 import { useTl } from '../../lib/useTl';
 import { WEILING_STATUS_LABELS } from '@acms/contracts';
+// 筛选下拉统一走全站组件（2026-09-22 第二批）
+import { FilterSelect } from '../FilterSelect';
 
 interface Item {
   name: string;
@@ -223,30 +225,16 @@ export function WeilingPanel() {
         <input className="form-input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 150 }} />
         <span style={{ color: 'var(--fg-tertiary)' }}>至</span>
         <input className="form-input" type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 150 }} />
-        <select className="form-input" value={owner} onChange={(e) => setOwner(e.target.value)} style={{ width: 170 }}>
-          <option value="">归属人：全部</option>
-          {opts.owners.map((o) => (
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </select>
-        <select className="form-input" value={channel} onChange={(e) => setChannel(e.target.value)} style={{ width: 150 }}>
-          <option value="">来源渠道：全部</option>
-          {opts.channels.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-        <select className="form-input" value={stage} onChange={(e) => setStage(e.target.value)} style={{ width: 130 }}>
-          <option value="">客户阶段：全部</option>
-          {opts.stages.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-        <select className="form-input" value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 150 }}>
-          <option value="">状态：全部</option>
-          {Object.entries(WEILING_STATUS_LABELS).map(([code, label]) => (
-            <option key={code} value={code}>{label}</option>
-          ))}
-        </select>
+        <FilterSelect label={tl('归属人')} value={owner} onChange={setOwner} options={opts.owners} />
+        <FilterSelect label={tl('来源渠道')} value={channel} onChange={setChannel} options={opts.channels} />
+        <FilterSelect label={tl('客户阶段')} value={stage} onChange={setStage} options={opts.stages} />
+        <FilterSelect
+          label={tl('状态')}
+          value={status}
+          onChange={setStatus}
+          options={Object.keys(WEILING_STATUS_LABELS)}
+          optionLabels={WEILING_STATUS_LABELS as unknown as Record<string, string>}
+        />
         <button
           className="btn btn-ghost"
           onClick={() => {

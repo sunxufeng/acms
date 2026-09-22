@@ -13,6 +13,8 @@ import {
 import HomeworkSyncPanel from '../../components/markbook/HomeworkSyncPanel';
 import ColumnEditor from '../../components/markbook/ColumnEditor';
 import Modal from '../../components/markbook/Modal';
+// 筛选下拉统一走全站组件（2026-09-22 第二批）：本页原先用「标签在左 + 原生 select」的 mb-field 写法
+import { FilterSelect } from '../../components/FilterSelect';
 import { defaultTermOf } from '@acms/contracts';
 import {
   MARKBOOK_VIEWS,
@@ -326,39 +328,24 @@ export default function MarkbookPage() {
         {/* 学年 / 学期 / 班级：三者共同决定「显示哪些考核列」（学生名单仍只看班级）。
             🔴 学年学期不是「选完就忘」的筛选项 —— 新建考核列时会作为这一列的归属带进去。 */}
         <div className="mb-toolbar">
-          <label className="mb-field">
-            <span>{t('yearLabel')}</span>
-            <select className="form-input" value={year} onChange={(e) => setYear(e.target.value)}>
-              <option value="">{t('termAll')}</option>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="mb-field">
-            <span>{t('termLabel')}</span>
-            <select className="form-input" value={term} onChange={(e) => setTerm(e.target.value)}>
-              <option value="">{t('termAll')}</option>
-              {termOptions.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="mb-field">
-            <span>{t('classLabel')}</span>
-            <select className="form-input" value={cls} onChange={(e) => setCls(e.target.value)}>
-              {classes.length === 0 && <option value="">{t('noClass')}</option>}
-              {classes.map((c) => (
-                <option key={c.cls} value={c.cls}>
-                  {t('classOption', { cls: c.cls, n: c.students })}
-                </option>
-              ))}
-            </select>
-          </label>
+          {/* 学年 / 学期可不限（原「全部」选项）；班级是**必选参数**（成绩册整页按它取数）
+              ⇒ `clearable={false}`，空列表时用文字提示替代原来的「暂无班级」option。 */}
+          <FilterSelect label={t('yearLabel')} value={year} onChange={setYear} options={yearOptions} />
+          <FilterSelect label={t('termLabel')} value={term} onChange={setTerm} options={termOptions} />
+          {classes.length === 0 ? (
+            <span className="muted" style={{ fontSize: 'var(--font-xs)' }}>{t('noClass')}</span>
+          ) : (
+            <FilterSelect
+              label={t('classLabel')}
+              value={cls}
+              onChange={setCls}
+              options={classes.map((c) => c.cls)}
+              optionLabels={Object.fromEntries(
+                classes.map((c) => [c.cls, t('classOption', { cls: c.cls, n: c.students })]),
+              )}
+              clearable={false}
+            />
+          )}
           {/* 两个动作放在一起：都是「往这个成绩册里加/写数据」 */}
           <span className="mb-toolbar-actions">
             <button
@@ -428,35 +415,27 @@ export default function MarkbookPage() {
               </span>
 
               {subjectFilterOptions.length > 1 ? (
-                <label className="mbv-filter">
-                  <span>{t('colSubject')}</span>
-                  <select
-                    className="form-input"
-                    value={subjectFilter}
-                    onChange={(e) => setSubjectFilter(e.target.value)}
-                  >
-                    <option value="">{t('filterAll')}</option>
-                    {subjectFilterOptions.map((sj) => (
-                      <option key={sj} value={sj}>
-                        {sj || t('subjectNone')}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <FilterSelect
+                  label={t('colSubject')}
+                  value={subjectFilter}
+                  onChange={setSubjectFilter}
+                  options={subjectFilterOptions}
+                  optionLabels={Object.fromEntries(
+                    subjectFilterOptions.map((sj) => [sj, sj || t('subjectNone')]),
+                  )}
+                />
               ) : null}
 
               {typeFilters.length > 1 ? (
-                <label className="mbv-filter">
-                  <span>{t('colTypeLabel')}</span>
-                  <select className="form-input" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-                    <option value="">{t('filterAll')}</option>
-                    {(typeFilters as (string | null)[]).map((ty) => (
-                      <option key={String(ty)} value={String(ty)}>
-                        {ty || t('typeNone')}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <FilterSelect
+                  label={t('colTypeLabel')}
+                  value={typeFilter}
+                  onChange={setTypeFilter}
+                  options={(typeFilters as (string | null)[]).map((ty) => String(ty))}
+                  optionLabels={Object.fromEntries(
+                    (typeFilters as (string | null)[]).map((ty) => [String(ty), ty || t('typeNone')]),
+                  )}
+                />
               ) : null}
             </div>
             {/* 四种视图渲染的是同一份数据（见 components/markbook/views.tsx）：

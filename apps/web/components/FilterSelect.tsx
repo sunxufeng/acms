@@ -44,6 +44,18 @@ export type FilterSelectBaseProps = {
   options: string[];
   /** 值 → 显示名（见 `CrudColumn.filterOptionLabels`）：只影响显示，提交的仍是值本身 */
   optionLabels?: Record<string, string>;
+  /**
+   * 是否可清空（默认 `true`）。
+   *
+   * 🔴 传 `false` 用于**必选参数**，如成绩册的「批次 / 班级」：这类值恒非空（页面逻辑依赖它），
+   * 给一个「全部」项不但没意义，点下去还会把状态清成一个非法值。传 `false` 时不渲染
+   * 「全部」项、空值显示占位 `—`。
+   *
+   * ⚠️ 但「请选择 XX」这种**向导式选择**（空 = 用户还没选，如成绩权重页的选班级）
+   * 仍应保留原生 `<select>`：那里的空值语义是「未选」而不是「不限」，
+   * 触发器上写「班级：全部」会误导成"所有班级的权重"。
+   */
+  clearable?: boolean;
 };
 
 export type FilterSelectSingleProps = FilterSelectBaseProps & {
@@ -79,6 +91,9 @@ export function FilterSelect(props: FilterSelectSingleProps | FilterSelectMultiP
   /** 统一成数组形态再做后续判断：单选有值 = `[值]`、空值 = `[]` */
   const sel: string[] = Array.isArray(props.value) ? props.value : props.value ? [props.value] : [];
   const hasValue = sel.length > 0;
+  /** 必选参数（`clearable={false}`）不给「全部」项；空值理论上不出现，兜底显示 `—` */
+  const clearable = props.clearable !== false;
+  const emptyText = clearable ? t('all') : '—';
   /** 多选串起来时的分隔符：中文用顿号，英文用逗号 */
   const display = sel.map((v) => tl(optionLabels?.[v] ?? v)).join(locale === 'en' ? ', ' : '、');
 
@@ -94,23 +109,25 @@ export function FilterSelect(props: FilterSelectSingleProps | FilterSelectMultiP
       <button
         type="button"
         className="filter-select-trigger"
-        title={`${label}：${hasValue ? display : t('all')}`}
+        title={`${label}：${hasValue ? display : emptyText}`}
         onClick={() => setOpen(!open)}
       >
-        <span>{label}：{hasValue ? display : t('all')}</span>
+        <span>{label}：{hasValue ? display : emptyText}</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="m6 9 6 6 6-6" /></svg>
       </button>
       {open && (
         <div className="filter-select-dropdown">
-          <div
-            className={`filter-select-opt${hasValue ? '' : ' active'}`}
-            onClick={() => {
-              commit([]);
-              setOpen(false);
-            }}
-          >
-            {t('all')}
-          </div>
+          {clearable ? (
+            <div
+              className={`filter-select-opt${hasValue ? '' : ' active'}`}
+              onClick={() => {
+                commit([]);
+                setOpen(false);
+              }}
+            >
+              {t('all')}
+            </div>
+          ) : null}
           {options.map((o) => {
             const checked = sel.includes(o);
             return (

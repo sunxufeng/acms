@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
 import { usePermissions } from '../../lib/permissions';
+// 查询条件下的下拉统一走全站组件（2026-09-22 第二批）：这里原本手写「标签：全部」来模仿统一长相
+import { FilterSelect } from '../../components/FilterSelect';
 import { modulePermission, REPORT_MODULE_KEYS, type ReportKey } from '@acms/contracts';
 import {
   EnrollmentTrend,
@@ -224,18 +226,13 @@ export default function ReportsPage() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: '1.25rem' }}>
           <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{tl('查询条件')}</span>
           {FILTER_KEYS.map((k) => (
-            <select
+            <FilterSelect
               key={k}
-              className="form-input"
-              style={selectStyle}
+              label={tl(k)}
               value={filters[k] ?? ''}
-              onChange={(e) => setFilters((f) => ({ ...f, [k]: e.target.value }))}
-            >
-              <option value="">{`${tl(k)}：${tl('全部')}`}</option>
-              {distinct(all ?? [], k).map((o) => (
-                <option key={o} value={o}>{tl(o)}</option>
-              ))}
-            </select>
+              onChange={(v) => setFilters((f) => ({ ...f, [k]: v }))}
+              options={distinct(all ?? [], k)}
+            />
           ))}
           <button className="btn btn-outline" onClick={() => setFilters({})}>{tl('重置')}</button>
           <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>

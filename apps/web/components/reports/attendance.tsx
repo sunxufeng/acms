@@ -10,6 +10,8 @@ import {
   type AttendanceTrendPoint,
 } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
+// 筛选下拉统一走全站组件（2026-09-22 第二批）
+import { FilterSelect } from '../FilterSelect';
 import { ColumnChart, EmptyData, MetricCard, MetricRow, Panel, SimpleTable } from './charts';
 
 /**
@@ -171,18 +173,8 @@ export function AttendancePanel() {
         <button className="btn btn-ghost" onClick={() => { setFrom(daysAgo(6)); setTo(todayISO()); }}>{tl('近 7 天')}</button>
         <button className="btn btn-ghost" onClick={() => { setFrom(daysAgo(29)); setTo(todayISO()); }}>{tl('近 30 天')}</button>
         <button className="btn btn-ghost" onClick={() => { setFrom(daysAgo(89)); setTo(todayISO()); }}>{tl('近 90 天')}</button>
-        <select className="form-input" style={{ minWidth: 130, fontSize: 'var(--font-sm)' }} value={cls} onChange={(e) => setCls(e.target.value)}>
-          <option value="">{`${tl('班级')}：${tl('全部')}`}</option>
-          {(data?.options.classes ?? []).map((o) => (
-            <option key={o} value={o}>{tl(o)}</option>
-          ))}
-        </select>
-        <select className="form-input" style={{ minWidth: 130, fontSize: 'var(--font-sm)' }} value={grade} onChange={(e) => setGrade(e.target.value)}>
-          <option value="">{`${tl('当前年级')}：${tl('全部')}`}</option>
-          {(data?.options.grades ?? []).map((o) => (
-            <option key={o} value={o}>{tl(o)}</option>
-          ))}
-        </select>
+        <FilterSelect label={tl('班级')} value={cls} onChange={setCls} options={data?.options.classes ?? []} />
+        <FilterSelect label={tl('当前年级')} value={grade} onChange={setGrade} options={data?.options.grades ?? []} />
         <button className="btn btn-outline" onClick={() => { setFrom(daysAgo(29)); setTo(todayISO()); setCls(''); setGrade(''); }}>
           {tl('重置')}
         </button>

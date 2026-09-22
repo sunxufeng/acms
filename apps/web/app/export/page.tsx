@@ -9,6 +9,8 @@ import {
   STUDENT_RECORD_EXPORT_KEY,
   STUDENT_RECORD_TYPES,
 } from '@acms/contracts';
+// 下拉统一走全站组件（2026-09-22 第二批）
+import { FilterSelect } from '../../components/FilterSelect';
 
 /**
  * 导出对象。`key` = `TABLES` 里的表键；`type` = 只导该「记录类型」（三合一记录表专用）。
@@ -101,16 +103,17 @@ export default function ExportPage() {
       <div className="form-fieldset" style={{ maxWidth: 520 }}>
         <legend className="form-legend">{tl('选择导出对象')}</legend>
         <div className="form-grid">
-          <div className="form-label">
-            <span className="form-label-text">{tl('业务表')}</span>
-            <select className="form-input" value={selected} onChange={(e) => setSelected(e.target.value)}>
-              {TABLES.map((t) => (
-                <option key={itemValue(t)} value={itemValue(t)}>
-                  {t.type ? t.label : `${t.label}（${t.key}）`}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* 业务表是**必选参数**（导出必须指名一张表）⇒ `clearable={false}` */}
+          <FilterSelect
+            label={tl('业务表')}
+            value={selected}
+            onChange={setSelected}
+            options={TABLES.map((t) => itemValue(t))}
+            optionLabels={Object.fromEntries(
+              TABLES.map((t) => [itemValue(t), t.type ? t.label : `${t.label}（${t.key}）`]),
+            )}
+            clearable={false}
+          />
         </div>
         <div style={{ marginTop: 16 }}>
           <button className="btn btn-primary" onClick={run} disabled={busy}>

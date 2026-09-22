@@ -18,6 +18,9 @@ import {
   type RoomAvailability,
   type RoomAvailabilityItem,
 } from '@acms/contracts';
+// 下拉统一走全站组件（2026-09-22 第二批）：容纳人数原先是原生 select，
+// 且文案自带「容量：」前缀（原生控件没有标签位），换成组件后标签回到触发器上。
+import { FilterSelect } from '../../components/FilterSelect';
 import { api, type MeetingRoomLocalResult } from '../../lib/api';
 import { usePermissions } from '../../lib/permissions';
 
@@ -301,18 +304,19 @@ export default function MeetingRoomsPage() {
           </span>
         ))}
 
-        <select
-          className="form-input"
-          style={{ width: 132, marginLeft: 'auto' }}
-          value={capacity}
-          onChange={(e) => setCapacity(Number(e.target.value))}
-        >
-          {CAPACITY_CHOICES.map((c) => (
-            <option key={c} value={c}>
-              {c ? t('capacityAtLeast', { n: c }) : t('capacityAll')}
-            </option>
-          ))}
-        </select>
+        <div style={{ marginLeft: 'auto' }}>
+          {/* `0` 表示「不限」，不是「未选」⇒ 值恒非空，用 `clearable={false}` */}
+          <FilterSelect
+            label={t('findCapacity')}
+            value={String(capacity)}
+            onChange={(v) => setCapacity(Number(v))}
+            options={CAPACITY_CHOICES.map((c) => String(c))}
+            optionLabels={Object.fromEntries(
+              CAPACITY_CHOICES.map((c) => [String(c), c ? t('capacityMin', { n: c }) : t('capacityAny')]),
+            )}
+            clearable={false}
+          />
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>

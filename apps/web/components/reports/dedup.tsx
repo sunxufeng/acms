@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { api, type ContactDedupResult, type DedupLevel, type DedupMember } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
 import { downloadCsv } from './panels';
+// 筛选下拉统一走全站组件（2026-09-22 第二批）
+import { FilterSelect } from '../FilterSelect';
 
 /**
  * 报表 · 联系人去重（2026-09-14 新增）。
@@ -350,39 +352,28 @@ export function DedupPanel() {
 
       {/* 筛选：只影响下面的清单 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: '1rem' }}>
-        <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>{tl('置信等级')}</span>
-        <select
-          className="form-input"
-          style={{ minWidth: 150, fontSize: 'var(--font-sm)' }}
+        {/* 置信等级是**必选模式**（没有"全部"一说，其中一个值恰好叫「全部（含仅同名）」）
+            ⇒ `clearable={false}`，否则下拉里会出现两个"全部"、点错还会把模式清空。 */}
+        <FilterSelect
+          label={tl('置信等级')}
           value={level}
-          onChange={(e) => setLevel(e.target.value as 'likely' | 'strong' | 'all')}
-        >
-          <option value="likely">{tl('较可信及以上（默认）')}</option>
-          <option value="strong">{tl('仅强证据')}</option>
-          <option value="all">{tl('全部（含仅同名）')}</option>
-        </select>
-        <select
-          className="form-input"
-          style={{ minWidth: 150, fontSize: 'var(--font-sm)' }}
+          onChange={(v) => setLevel(v as 'likely' | 'strong' | 'all')}
+          options={['likely', 'strong', 'all']}
+          optionLabels={{ likely: '较可信及以上（默认）', strong: '仅强证据', all: '全部（含仅同名）' }}
+          clearable={false}
+        />
+        <FilterSelect
+          label={tl('来源渠道')}
           value={channel}
-          onChange={(e) => setChannel(e.target.value)}
-        >
-          <option value="">{`${tl('来源渠道')}：${tl('全部')}`}</option>
-          {(data?.filterOptions.channels ?? []).map((o) => (
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </select>
-        <select
-          className="form-input"
-          style={{ minWidth: 170, fontSize: 'var(--font-sm)' }}
+          onChange={setChannel}
+          options={data?.filterOptions.channels ?? []}
+        />
+        <FilterSelect
+          label={tl('归属人')}
           value={owner}
-          onChange={(e) => setOwner(e.target.value)}
-        >
-          <option value="">{`${tl('归属人')}：${tl('全部')}`}</option>
-          {(data?.filterOptions.owners ?? []).map((o) => (
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </select>
+          onChange={setOwner}
+          options={data?.filterOptions.owners ?? []}
+        />
         <button className="btn btn-ghost" onClick={() => { setLevel('likely'); setChannel(''); setOwner(''); }}>
           {tl('重置')}
         </button>

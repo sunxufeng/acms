@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { api, type ExamDistReport, type ExamGpaReport } from '../../lib/api';
 import { useTl } from '../../lib/useTl';
 import { BarRow, EmptyData, MetricCard, MetricRow, Panel, SimpleTable } from './charts';
+// 筛选下拉统一走全站组件（2026-09-22 第二批）
+import { FilterSelect } from '../FilterSelect';
 
 /**
  * 考试与成绩的两张报表（2026-09-16 Phase 2）。
@@ -83,30 +85,20 @@ export function ExamDistPanel() {
         }
       >
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <select className="form-input" style={{ width: 260 }} value={data.batchId} onChange={(e) => { setBatchId(e.target.value); }}>
-            {(data.batches ?? []).map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-                {b.status ? `（${b.status}）` : ''}
-              </option>
-            ))}
-          </select>
-          <select className="form-input" style={{ width: 150 }} value={cls} onChange={(e) => setCls(e.target.value)}>
-            <option value="">{tl('全部班级')}</option>
-            {data.classes.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <select className="form-input" style={{ width: 150 }} value={subject} onChange={(e) => setSubject(e.target.value)}>
-            <option value="">{tl('全部科目')}</option>
-            {data.subjects.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          {/* 批次是**必选参数**（值恒非空，报表按它取数）⇒ `clearable={false}`：
+              给「全部」项不但没意义，点下去还会把 batchId 清成空字符串。 */}
+          <FilterSelect
+            label={tl('批次')}
+            value={data.batchId}
+            onChange={setBatchId}
+            options={(data.batches ?? []).map((b) => b.id)}
+            optionLabels={Object.fromEntries(
+              (data.batches ?? []).map((b) => [b.id, b.status ? `${b.name}（${b.status}）` : b.name]),
+            )}
+            clearable={false}
+          />
+          <FilterSelect label={tl('班级')} value={cls} onChange={setCls} options={data.classes} />
+          <FilterSelect label={tl('科目')} value={subject} onChange={setSubject} options={data.subjects} />
         </div>
       </Panel>
 
@@ -223,22 +215,17 @@ export function ExamGpaPanel() {
         }
       >
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select className="form-input" style={{ width: 260 }} value={data.batchId} onChange={(e) => setBatchId(e.target.value)}>
-            {(data.batches ?? []).map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-                {b.status ? `（${b.status}）` : ''}
-              </option>
-            ))}
-          </select>
-          <select className="form-input" style={{ width: 150 }} value={cls} onChange={(e) => setCls(e.target.value)}>
-            <option value="">{tl('全部班级')}</option>
-            {data.classes.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          <FilterSelect
+            label={tl('批次')}
+            value={data.batchId}
+            onChange={setBatchId}
+            options={(data.batches ?? []).map((b) => b.id)}
+            optionLabels={Object.fromEntries(
+              (data.batches ?? []).map((b) => [b.id, b.status ? `${b.name}（${b.status}）` : b.name]),
+            )}
+            clearable={false}
+          />
+          <FilterSelect label={tl('班级')} value={cls} onChange={setCls} options={data.classes} />
         </div>
       </Panel>
 

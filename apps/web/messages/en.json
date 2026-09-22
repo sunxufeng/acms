@@ -2573,7 +2573,8 @@
     "（当前无人覆盖，此处上限对全部成员生效）": "(Nobody overrides it — this cap applies to all members.)",
     "是否达标": "Attained",
     "得分": "Score",
-    "学生记录（日常跟进 / IDP沟通 / 学生沟通 / 家校沟通 / 学生观察）是同一张表，按「记录类型」分别导出；只能导出你本人有权查看的类型。": "Student records (Daily follow-up / IDP comms / Student comms / Home-school comms / Observations) live in one table — export them per Record Type. Only the types you may view can be exported."
+    "学生记录（日常跟进 / IDP沟通 / 学生沟通 / 家校沟通 / 学生观察）是同一张表，按「记录类型」分别导出；只能导出你本人有权查看的类型。": "Student records (Daily follow-up / IDP comms / Student comms / Home-school comms / Observations) live in one table — export them per Record Type. Only the types you may view can be exported.",
+    "批次": "Batch"
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",
@@ -2907,7 +2908,9 @@
     "people": "",
     "footerNote": "Each day {from}:00–{to}:00, one cell per {bucket} hour; red = busy, pale = free. Occupancy refreshes every 2 minutes and can be queried for any date. Only “busy” is shown — meeting titles are not exposed.",
     "noFuture": "Feishu only provides meeting-room reservations up to today, so future dates cannot be shown",
-    "onlyPast": "(Feishu provides reservations up to today only)"
+    "onlyPast": "(Feishu provides reservations up to today only)",
+    "capacityAny": "Any",
+    "capacityMin": "≥ {n} people"
   },
   "noteConvert": {
     "subtitle": "Select which modules may receive note content, and map which field the Summary / Raw Record / Recording goes into. Enabled modules appear in the Convert button on the My Notes list. Newly developed modules show up here automatically.",

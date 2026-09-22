@@ -353,16 +353,25 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   // 并能手动运行一次。任务本身走通用 CRUD（path='/scheduled-tasks'）。
   //
   // 可见性与授权口径 = **仅系统管理员**（峰哥定），三处一起表达这个意图：
-  //  ① 本行 `adminOnly: true` 限制菜单入口；
-  //  ② 三个 legacy 字段全为 null ⇒ **不继承给任何存量角色**；
-  //  ③ 故意**不抬 `ROLE_PERMISSION_VERSION`**，也**不进 `MODULE_RESOURCE_INTRODUCED_VERSION`**。
-  // 🔴 ③ 是重点：抬版本会让增量迁移按 legacyRead 把权限发给一批角色，而这里恰恰
-  //    不该发给任何人（任务能改目标文件夹、能手动跑全量，而那条链路会把**未脱敏的
-  //    笔记原文**写进云盘）。不抬版本的代价是"除管理员外谁都没有"—— 那正是想要的结果。
-  //    `healLockedRoles()` 用代码里的全量权限覆盖锁定角色 ⇒ 系统管理员自动持有。
+  //  ① `adminOnly: true` 限制菜单入口；
+  //  ② legacyRead/legacyWrite 指向 **`admin:user`** —— 全站唯一只由「系统管理员」持有的
+  //     旧权限点（实测：院级管理/审计/教务等角色都没有它）⇒ 派生出来的
+  //     `module:scheduledTasks:*` 只进管理员，其余角色一个都没有；
+  //  ③ 故意**不抬 `ROLE_PERMISSION_VERSION`**、也**不进 `MODULE_RESOURCE_INTRODUCED_VERSION`**。
+  //
+  // 🔴 ② 为什么不能偷懒写 `legacyRead: null`：`inheritModulePermissions` 是按
+  //    legacyRead/legacyWrite **派生**模块权限的（见 packages/domain/src/permission.ts），
+  //    两个都 null ⇒ 连**系统管理员都拿不到** `module:scheduledTasks:*` ⇒
+  //    菜单看不见、按钮全隐藏、接口 403，而且 `healLockedRoles()` 只覆盖「代码里的全量」，
+  //    派生不出来的点不在里面，救不回来。（2026-09-19 学生记录用过同样的机制：
+  //    legacyRead 直接写 `module:` 点也是允许的，这里选 `admin:user` 是为了"仅管理员"。）
+  //
+  // 🔴 ③ 是重点：抬版本会让增量迁移按 legacyRead 把权限发给一批角色。这里即便只发给管理员
+  //    也不算错，但没必要动版本、动就是一次全量迁移的风险。不动的代价是"除管理员外谁都没有"
+  //    —— 那正是想要的结果。
   // 「运行」映射到 `transition`（不是 edit）：以后若要放开给某个助理，
   //    可以单独给"能跑但改不了配置"的权限，不用连写权限一起发。
-  { key: 'scheduledTasks', label: '定时任务', path: '/scheduled-tasks', legacyRead: null, legacyWrite: null, menuPermission: null, actions: [...CRUD, 'transition'], genericCrud: true, adminOnly: true },
+  { key: 'scheduledTasks', label: '定时任务', path: '/scheduled-tasks', legacyRead: 'admin:user', legacyWrite: 'admin:user', menuPermission: null, actions: [...CRUD, 'transition'], genericCrud: true, adminOnly: true },
 ];
 
 /** 返回值是 Permission 的子类型，供现有 authorize/hasPermission 直接使用。 */

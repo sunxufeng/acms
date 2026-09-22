@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, type GetnoteLink } from '../lib/api';
 import { useTranslations } from 'next-intl';
+// 聚合结果的形状由 contracts 单一维护（后端 service 直接返回它，前端不再抄一份）
+import type { StudentNoteLink, StudentNoteLinksResult } from '@acms/contracts';
 
 /** 语义搜索召回的候选笔记 */
 interface Candidate {
@@ -35,6 +37,21 @@ export interface NotePanelProps {
   seedContent?: string;
   /** 外部新增了关联笔记时递增此值，面板会重新拉取（如「存为笔记」之后） */
   reloadKey?: number;
+  /**
+   * 传了就切到**聚合模式**（学生详情页用，2026-09-22 新增）。
+   *
+   * 此时列表不再只看「直接关联本实体」的笔记，而是把**该生所有路径**（本人 + 各类学生记录 +
+   * 招生跟进 …）关联到的笔记一次列出，每条标出来源 —— 学生详情页原先只查「实体类型=学生档案」，
+   * 而生产实测这种关联 0 条，真实笔记全挂在学生记录上，于是面板永远显示「暂无关联笔记」。
+   *
+   * 写操作（+ 关联笔记 / + 新建笔记 / × 解除）仍然只作用于 `entityType` + `entityId`；
+   * 聚合来的条目**只读**，右侧给「打开记录」—— 解除要去来源记录里做，
+   * 否则「解除的到底是哪一条关联」说不清。
+   *
+   * ⚠️ 做成同一个组件的模式开关而不是新开一个组件：这样候选搜索、凭证校验、错误处理、
+   *    全量覆盖式回写全都只有一份。分成两个组件必然漂移出两套文案与两套异常处理。
+   */
+  studentId?: string;
 }
 
 /**
@@ -73,6 +90,7 @@ export function NotePanel({
   seedTitle = '',
   seedContent = '',
   reloadKey = 0,
+  studentId = '',
 }: NotePanelProps) {
   const t = useTranslations('getnote');
 
@@ -80,6 +98,11 @@ export function NotePanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  /** 聚合模式的数据（`studentId` 非空时才有值）：该生所有路径关联到的笔记 + 来源 */
+  const [agg, setAgg] = useState<StudentNoteLinksResult | null>(null);
+  /** 聚合列表的来源筛选：'' = 全部，'__direct__' = 只看直接关联，其余为来源标签 */
+  const [aggFilter, setAggFilter] = useState('');
 
   const [picking, setPicking] = useState(false);
   const [kw, setKw] = useState('');
@@ -107,13 +130,16 @@ export function NotePanel({
   const reload = useCallback(async () => {
     setLoading(true);
     try {
+      // 聚合模式：一次拿到「该生所有路径」关联的笔记（含来源标注）
+      if (studentId) setAgg(await api.getStudentNoteLinks(studentId));
+      // 直接关联那一份始终要拉：它才是写操作（覆盖式回写）的基准，也是「× 解除」出现的依据
       setLinks(await api.listGetnoteLinks(entityType, entityId));
     } catch (e) {
       setError((e as Error).message ?? String(e));
     } finally {
       setLoading(false);
     }
-  }, [entityType, entityId]);
+  }, [entityType, entityId, studentId]);
 
   useEffect(() => {
     void reload();
@@ -239,6 +265,16 @@ export function NotePanel({
 
       {loading ? (
         <p className="muted" style={{ margin: 0 }}>{t('loading')}</p>
+      ) : studentId ? (
+        /* 聚合模式：列表带来源标注、可加「打开记录」，聚合来的条目只读 */
+        <StudentNoteAggregate
+          agg={agg}
+          links={links}
+          filter={aggFilter}
+          onFilter={setAggFilter}
+          saving={saving}
+          onUnlink={removeLink}
+        />
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
           {links.length === 0 && <span className="muted">{t('notLinked')}</span>}
@@ -383,3 +419,156 @@ export function NotePanel({
 }
 
 export default NotePanel;
+
+/**
+ * 聚合模式下的列表（学生详情页用）。
+ *
+ * 三条规则，都写在明面上：
+ *  ① **来源可点**：每篇笔记下面列出「是哪条记录带出来的」，点它跳到那条记录 ——
+ *     这是这个面板存在的意义（用户要能一眼看出"这篇笔记是这个学生的什么记录带出来的"）；
+ *  ② **解除只给直接关联**：聚合来的条目右侧没有「×」，只有「打开记录」——
+ *     一条笔记可能被多条记录同时关联，在聚合视图里解除说不清解的是哪一条；
+ *  ③ **按姓名匹配的来源打标**：招生跟进没有可用的关联字段，只能拿「学生姓名」文本去比，
+ *     而那个字段里有家长称谓（「陈治翰姐姐」）和手机号脏值，可能认错人 —— 不标出来就是误导。
+ */
+function StudentNoteAggregate({
+  agg,
+  links,
+  filter,
+  onFilter,
+  saving,
+  onUnlink,
+}: {
+  agg: StudentNoteLinksResult | null;
+  links: GetnoteLink[];
+  filter: string;
+  onFilter: (v: string) => void;
+  saving: boolean;
+  onUnlink: (noteId: string) => void;
+}) {
+  const t = useTranslations('getnote');
+  if (!agg) return <p className="muted" style={{ margin: 0 }}>{t('notLinked')}</p>;
+
+  const directIds = new Set(links.map((l) => l.noteId));
+  const notes = agg.notes.filter((n) => {
+    if (!filter) return true;
+    if (filter === '__direct__') return n.direct;
+    return n.sources.some((s) => s.label === filter);
+  });
+  const chips = [
+    { key: '', label: t('aggChipAll'), n: agg.notes.length },
+    ...(agg.directCount > 0 ? [{ key: '__direct__', label: t('aggDirect'), n: agg.directCount }] : []),
+    ...Object.entries(agg.counts)
+      // 「学生档案」这一项由上面的「直接关联」承担，避免同一个数出现两个 chip
+      .filter(([label]) => label !== '学生档案')
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, n]) => ({ key: label, label, n })),
+  ];
+
+  return (
+    <div>
+      <p className="muted" style={{ margin: '0 0 8px', fontSize: 12 }}>
+        {t('aggSummary', { direct: agg.directCount, via: agg.notes.length - agg.directCount })}
+      </p>
+
+      {agg.hiddenSources.length > 0 && (
+        <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--fg-warning)' }}>
+          {t('aggHiddenSources', { list: agg.hiddenSources.join('、') })}
+        </p>
+      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+        {chips.map((c) => (
+          <button
+            key={c.key || '__all__'}
+            type="button"
+            className={filter === c.key ? 'chip chip-active' : 'chip'}
+            onClick={() => onFilter(c.key)}
+          >
+            {c.label} {c.n}
+          </button>
+        ))}
+      </div>
+
+      {notes.length === 0 ? (
+        <div>
+          <p className="muted" style={{ margin: 0 }}>
+            {agg.notes.length === 0 ? t('aggEmpty') : t('aggFilterEmpty')}
+          </p>
+          {agg.notes.length === 0 && (
+            <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>{t('aggEmptyHint')}</p>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {notes.map((n) => (
+            <div
+              key={n.noteId}
+              style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}
+            >
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap', flexShrink: 0, maxWidth: 180 }}>
+                  {n.sources.map((s) => (
+                    <span
+                      key={`${s.entityType}|${s.recordId}`}
+                      style={{
+                        fontSize: 11,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        background: 'var(--accent-muted)',
+                        color: 'var(--accent)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {s.label}
+                    </span>
+                  ))}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Link
+                    href={`/getnote?note=${encodeURIComponent(n.noteId)}`}
+                    title={n.noteId}
+                    style={{ fontSize: 13, color: 'var(--accent)' }}
+                  >
+                    {n.title || n.noteId}
+                  </Link>
+                  {n.sources.map((s) => (
+                    <div
+                      key={`line-${s.entityType}|${s.recordId}`}
+                      style={{ fontSize: 12, color: 'var(--fg-tertiary)', marginTop: 3 }}
+                    >
+                      <Link href={s.detailHref} style={{ color: 'var(--fg-secondary)' }}>
+                        {s.recordTitle}
+                      </Link>
+                      {s.recordTime ? ` · ${fmtDay(s.recordTime)}` : ''}
+                      {s.linkedBy ? ` · ${t('linkedByLabel', { name: s.linkedBy })}` : ''}
+                      {s.byName ? ` · ${t('aggByName')}` : ''}
+                    </div>
+                  ))}
+                </div>
+                {directIds.has(n.noteId) ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={saving}
+                    title={t('unlink')}
+                    onClick={() => onUnlink(n.noteId)}
+                  >
+                    {t('unlink')}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 毫秒 → `YYYY-MM-DD`（只要日期，来源记录的时间带上时分反而噪音） */
+function fmtDay(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}

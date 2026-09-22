@@ -13,3 +13,5 @@ export * from './followup-owner.js';
 export * from './weiling.js';
 export * from './meeting.js';
 export * from './meeting-room.js';
+// 学生维度的「笔记来源」口径（分区中文名 + 实体类型 → 归属模块），前端与多个 service 共用
+export * from './student-note-sources.js';

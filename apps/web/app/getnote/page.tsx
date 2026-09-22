@@ -786,6 +786,25 @@ export default function GetnotePage() {
     }
   }, [t]);
 
+  /**
+   * 深链：`/getnote?note=<id>` 直接打开这篇笔记的详情。
+   *
+   * 用途：学生详情页的「关联笔记」聚合面板里，点某篇笔记要能直接打开它 ——
+   * 那篇笔记的来源记录可能属于另一个模块，用户不想在「我的笔记」里再找一遍。
+   *
+   * ⚠️ 读 `window.location.search` 而**不用 `useSearchParams()`**：后者会让这个客户端页面
+   *    要求 Suspense 边界（Next 的 CSR bailout 规则），给一个本来不依赖它的页面平添 SPA 边界。
+   * ⚠️ 只跑一次（ref 守卫）：openDetail 会 setState，而它又在依赖数组里 ——
+   *    不加守卫会在每次 openDetail 身份变化时重复打开，把用户手动关掉的详情又弹回来。
+   */
+  const deepLinked = useRef(false);
+  useEffect(() => {
+    if (deepLinked.current) return;
+    deepLinked.current = true;
+    const nid = new URLSearchParams(window.location.search).get('note');
+    if (nid) void openDetail(nid);
+  }, [openDetail]);
+
   const columns = useMemo(
     () =>
       makeColumns(

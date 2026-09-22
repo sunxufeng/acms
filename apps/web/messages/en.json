@@ -2818,7 +2818,15 @@
     "stopAudio": "Stop playback",
     "noAudioYet": "This note's recording has not been saved to ACMS yet (admins can run “Save original audio” in the toolbar)",
     "audioWithConvert": "Original recording will be carried over",
-    "audioPending": "Pending"
+    "audioPending": "Pending",
+    "aggChipAll": "All",
+    "aggDirect": "Direct",
+    "aggSummary": "{direct} direct · {via} via records",
+    "aggHiddenSources": "Not shown (no permission): {list}",
+    "aggEmpty": "No notes linked to this student yet",
+    "aggEmptyHint": "Link notes from a student record detail page, or use \"+ Link note\" / \"+ New note\" above",
+    "aggFilterEmpty": "No notes from this source",
+    "aggByName": "matched by name"
   },
   "getnoteSources": {
     "title": "Knowledge Sources",

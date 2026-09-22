@@ -1,6 +1,17 @@
 import { Inject, Injectable, Logger, HttpException, HttpStatus, type OnModuleInit } from '@nestjs/common';
 import type { BaseClient } from '@acms/base-adapter';
-import { TABLES, USER_TABLE, splitNoteTags, NOTE_STATUS_ACTIVE, NOTE_STATUS_ALL, NOTE_STATUS_ARCHIVED, hiddenArchivedCount, isArchivedNote, normalizeNoteStatus, noteStatusMatches } from '@acms/contracts';
+import { TABLES, USER_TABLE, splitNoteTags, NOTE_STATUS_ACTIVE, NOTE_STATUS_ALL, NOTE_STATUS_ARCHIVED, hiddenArchivedCount, isArchivedNote, normalizeNoteStatus, noteStatusMatches, NOTE_ENTITY_TYPE_STUDENT, NOTE_ENTITY_TYPE_TO_PATH, SECTION_LABELS, moduleByPath, modulePermission } from '@acms/contracts';
+import { authorize, type Principal } from '@acms/domain';
+// 「学生关联笔记」聚合要复用学生全景那套「按学生取记录」的口径（meta.studentMatch / 类型域 / 模块权限）
+import { LIFECYCLE_METAS } from '../shared/lifecycle.meta.js';
+import { IDP_PLAN_META } from '../idp/idp.meta.js';
+import { linkIds } from '../shared/record.util.js';
+import {
+  buildTypeScopeFilter,
+  matchFilter,
+  typeAllowedValues,
+  type RecordMeta,
+} from '../shared/generic-crud.module.js';
 import { getSqlStore } from '../base.provider.js';
 import { toText } from '@acms/base-adapter';
 import type {
@@ -8,6 +19,9 @@ import type {
   NoteConvertLogItem,
   NoteConfigMapItem,
   NoteListFilters,
+  StudentNoteLink,
+  StudentNoteSource,
+  StudentNoteLinksResult,
 } from '@acms/contracts';
 import { BASE_CLIENT } from '../base.provider.js';
 import { REDIS } from '../redis.provider.js';
@@ -150,6 +164,33 @@ function toEpochMs(v: unknown): number {
   }
   const t = new Date(s).getTime();
   return Number.isNaN(t) ? 0 : t;
+}
+
+/** SessionUser → ABAC 主体（`authorize()` 的入参）。与 student-360 里那份保持同一形状 */
+function toPrincipal(user: SessionUser): Principal {
+  return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
+}
+
+/**
+ * 业务记录的「标题」——各模块的字段名不同（沟通主题 / 跟进内容 / 评价标题…），
+ * 所以按候选列表取第一个非空值，全空时回落到来源标签。
+ */
+const RECORD_TITLE_FIELDS = [
+  '沟通主题',
+  '跟进内容',
+  '评价标题',
+  '活动名称',
+  '会议议题',
+  '课程名称',
+  '标题',
+] as const;
+
+function noteRecordTitle(f: Record<string, unknown>, fallback: string): string {
+  for (const k of RECORD_TITLE_FIELDS) {
+    const v = toText(f[k]);
+    if (v) return v;
+  }
+  return fallback;
 }
 
 export interface GetnoteNote {
@@ -2684,6 +2725,237 @@ export class GetnoteService implements OnModuleInit {
       title: toText(r.fields['笔记标题']) ?? '',
       linkedBy: toText(r.fields['关联人']) ?? '',
     }));
+  }
+
+  // ── 学生维度聚合：把所有能连到这个学生的笔记一次捞出来 ──────────────────
+
+  /**
+   * 某个学生**所有路径**关联到的笔记（2026-09-22 新增）。
+   *
+   * ## 为什么需要它
+   *
+   * 学生详情页原来的 `NotePanel` 只查「实体类型 = 学生档案」，而生产实测这种关联 **0 条** ——
+   * 真实笔记全挂在**学生记录**（19 条）和**招生跟进**（10 条）上 ⇒ 面板永远显示「暂无关联笔记」，
+   * 而用户明明在记录详情页里绑过笔记。
+   *
+   * ## 取数顺序（先读小表、再逐条定点取，**不拉全表**）
+   *
+   *  ① 全量读「笔记关联」表 —— 生产目前 35 行，全读无压力；
+   *  ② 「实体类型 = 学生档案 且 实体 ID = 该生」= **直接关联**，它是「这个学生本人的笔记」，排最前；
+   *  ③ 其余按 `NOTE_ENTITY_TYPE_TO_PATH` 找到归属表，用 `base.get(表, 实体ID)` **逐条定点取**该记录
+   *     —— 比「拉全表再内存筛」快一个量级，而且天然兼容历史里写歪的实体类型别名
+   *     （`学生记录` / `IDP沟通` / `日常跟进` 指的是同一张表）；
+   *  ④ 取回记录后按该表 meta 的 `studentMatch` 判归属（`by:'id'` 走关联字段、`by:'name'` 走姓名文本 ——
+   *     招生跟进与三合一记录都是后者）；
+   *  ⑤ 🔴 权限：来源模块没有 read 权限的**整块跳过并记入 `hiddenSources`** ——
+   *     不跳的话会把「家校沟通」这类别的模块的笔记泄漏给没有权限的人；不记的话用户会以为
+   *     这个学生真的只有这几篇。
+   */
+  async listLinksByStudent(user: SessionUser, studentId: string): Promise<StudentNoteLinksResult> {
+    const stu = await this.base.get(TABLES.studentProfile.tableId, studentId);
+    if (!stu) throw new HttpException('NOT_FOUND:studentProfile', HttpStatus.NOT_FOUND);
+    const studentName = toText(stu.fields['学生姓名']) ?? '';
+    const principal = toPrincipal(user);
+
+    // ① 全量读「笔记关联」（小表）
+    const rows: {
+      entityType: string;
+      entityId: string;
+      noteId: string;
+      title: string;
+      linkedBy: string;
+      linkedAt: string;
+    }[] = [];
+    {
+      let tok: string | undefined;
+      let guard = 0;
+      do {
+        const res = await this.base.search(TABLES.noteLink.tableId, { pageSize: 200, pageToken: tok });
+        for (const r of res.items) {
+          const noteId = toText(r.fields['笔记ID']) ?? '';
+          if (!noteId) continue; // 关联表里的空行（历史脏数据）直接跳过
+          rows.push({
+            entityType: toText(r.fields['实体类型']) ?? '',
+            entityId: toText(r.fields['实体ID']) ?? '',
+            noteId,
+            title: toText(r.fields['笔记标题']) ?? '',
+            linkedBy: toText(r.fields['关联人']) ?? '',
+            linkedAt: toText(r.fields['关联时间']) ?? '',
+          });
+        }
+        tok = res.hasMore ? res.pageToken : undefined;
+      } while (tok && guard++ < 50);
+    }
+
+    const isDirect = (r: { entityType: string; entityId: string }) =>
+      r.entityType === NOTE_ENTITY_TYPE_STUDENT && r.entityId === studentId;
+
+    // ② 直接关联
+    const collected: { noteId: string; title: string; src: StudentNoteSource }[] = [];
+    for (const r of rows.filter(isDirect)) {
+      collected.push({
+        noteId: r.noteId,
+        title: r.title,
+        src: {
+          entityType: NOTE_ENTITY_TYPE_STUDENT,
+          label: NOTE_ENTITY_TYPE_STUDENT,
+          recordId: studentId,
+          recordTitle: studentName,
+          recordTime: null,
+          detailHref: `/students/${studentId}`,
+          linkedBy: r.linkedBy,
+          linkedAt: r.linkedAt,
+          byName: false,
+        },
+      });
+    }
+
+    // ③④⑤ 间接：逐条定点取记录 → 判归属 → 过权限
+    const hiddenSources = new Set<string>();
+    // ⚠️ 缓存的是**判定结果**而不是「判过没」：同一条记录可以挂多篇笔记，
+    //    按「判过就跳过」写会让第 2 篇起全部丢失。
+    const srcCache = new Map<string, StudentNoteSource | null>();
+    for (const r of rows) {
+      if (isDirect(r)) continue;
+      const key = `${r.entityType}|${r.entityId}`;
+      let src = srcCache.get(key);
+      if (src === undefined) {
+        src = await this.noteSourceForStudent(
+          user,
+          principal,
+          r.entityType,
+          r.entityId,
+          studentId,
+          studentName,
+          hiddenSources,
+        );
+        srcCache.set(key, src);
+      }
+      if (!src) continue;
+      collected.push({ noteId: r.noteId, title: r.title, src });
+    }
+
+    // 合并同一篇笔记的多个来源（同一来源重复出现也去掉）
+    const byNote = new Map<string, StudentNoteLink>();
+    for (const it of collected) {
+      const srcKey = `${it.src.entityType}|${it.src.recordId}`;
+      let note = byNote.get(it.noteId);
+      if (!note) {
+        note = { noteId: it.noteId, title: it.title, sources: [], direct: false };
+        byNote.set(it.noteId, note);
+      }
+      if (!note.title && it.title) note.title = it.title;
+      if (it.src.entityType === NOTE_ENTITY_TYPE_STUDENT) note.direct = true;
+      if (!note.sources.some((s) => `${s.entityType}|${s.recordId}` === srcKey)) {
+        note.sources.push(it.src);
+      }
+    }
+
+    // 来源标签 → 笔记数（同一篇笔记在同一标签下只算一次）
+    const counts: Record<string, number> = {};
+    let directCount = 0;
+    for (const n of byNote.values()) {
+      if (n.direct) directCount += 1;
+      for (const label of new Set(n.sources.map((s) => s.label))) {
+        counts[label] = (counts[label] ?? 0) + 1;
+      }
+    }
+
+    const orderOf = (s: StudentNoteSource) => (s.entityType === NOTE_ENTITY_TYPE_STUDENT ? 0 : 1);
+    const timeOf = (n: StudentNoteLink) =>
+      Math.max(0, ...n.sources.map((s) => s.recordTime ?? 0));
+    for (const n of byNote.values()) {
+      n.sources.sort((a, b) => orderOf(a) - orderOf(b) || (b.recordTime ?? 0) - (a.recordTime ?? 0));
+    }
+    const notes = [...byNote.values()].sort(
+      (a, b) => Number(b.direct) - Number(a.direct) || timeOf(b) - timeOf(a),
+    );
+
+    return {
+      studentId,
+      studentName,
+      notes,
+      counts,
+      directCount,
+      hiddenSources: [...hiddenSources],
+    };
+  }
+
+  /**
+   * 一条「笔记关联」指向的业务记录，是否属于该学生？属于就返回它的来源描述，否则 null。
+   *
+   * 三件事一起做（顺序不能换，否则会先泄漏再判断）：
+   *  ① 类型 → 归属表（`NOTE_ENTITY_TYPE_TO_PATH`），没登记的表直接 null（如会议纪要，结构上无学生字段）；
+   *  ② 模块 read 权限 —— 没权限**记入 hiddenSources 后立即返回**，绝不继续往下读记录；
+   *  ③ 取记录 → `meta.studentMatch` 判归属 → 类型域权限（学生记录 5 种类型各有权重点）。
+   */
+  private async noteSourceForStudent(
+    user: SessionUser,
+    principal: Principal,
+    entityType: string,
+    entityId: string,
+    studentId: string,
+    studentName: string,
+    hiddenSources: Set<string>,
+  ): Promise<StudentNoteSource | null> {
+    const meta = this.noteMetaByEntityType(entityType);
+    if (!meta) return null;
+
+    const mod = moduleByPath('/' + meta.path);
+    const label = SECTION_LABELS[meta.path] ?? meta.path;
+    if (mod) {
+      const readOk = meta.typeScope
+        ? (() => {
+            // 类型域模块（学生记录）：只要有**任一类型**的权限就算有权，具体类型在下面再筛
+            const allowed = typeAllowedValues(meta, user, 'read');
+            return allowed === null || allowed.length > 0;
+          })()
+        : authorize(principal, modulePermission(mod.key, 'read')).allowed;
+      if (!readOk) {
+        hiddenSources.add(label);
+        return null;
+      }
+    }
+
+    const rec = await this.base.get(meta.tableId, entityId).catch(() => null);
+    if (!rec) return null;
+    const f = rec.fields as Record<string, unknown>;
+
+    const sm = meta.studentMatch;
+    if (!sm) return null;
+    const belong =
+      sm.by === 'id'
+        ? linkIds(f[sm.field]).includes(studentId)
+        : studentName !== '' && (toText(f[sm.field]) ?? '') === studentName;
+    if (!belong) return null;
+
+    const typeCond = buildTypeScopeFilter(meta, user);
+    if (typeCond === 'none') return null;
+    if (typeCond && !matchFilter({ id: entityId, fields: f }, typeCond)) return null;
+
+    const recType = toText(f['记录类型']) ?? '';
+    const timeField = meta.sortField ?? meta.dateFields?.[0];
+    const t = timeField ? toEpochMs(f[timeField]) : 0;
+    return {
+      entityType,
+      // 三合一记录用**记录自身的类型**当标签（IDP沟通 > 学生记录），比模块名精确
+      label: meta.typeScope && recType ? recType : label,
+      recordId: entityId,
+      recordTitle: noteRecordTitle(f, label),
+      recordTime: Number.isFinite(t) && t > 0 ? t : null,
+      detailHref: `/${meta.path}/${entityId}`,
+      linkedBy: '',
+      linkedAt: '',
+      byName: sm.by === 'name',
+    };
+  }
+
+  /** 实体类型 → 该实体所属表的 meta（别名归一：『学生记录』与『IDP沟通』都指向三合一表） */
+  private noteMetaByEntityType(entityType: string): RecordMeta | undefined {
+    const path = NOTE_ENTITY_TYPE_TO_PATH[entityType];
+    if (!path) return undefined;
+    const all: RecordMeta[] = [...LIFECYCLE_METAS, IDP_PLAN_META];
+    return all.find((m) => m.path === path);
   }
 
   /**

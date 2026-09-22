@@ -10,6 +10,7 @@ import type {
   MeetingRoomLevel,
   RoomAvailability,
   FindFreeResult,
+  StudentNoteLinksResult,
 } from '@acms/contracts';
 
 // 「作业 → 成绩册同步」的请求 / 返回形状由面板组件（apps/web/components/markbook/
@@ -1423,6 +1424,14 @@ export const api = {
     request<GetnoteLink[]>(
       `/getnote/links?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`,
     ),
+  /**
+   * 某个学生**所有路径**关联到的笔记（学生详情页聚合面板）。
+   * 与 `listGetnoteLinks` 的区别：那个是单跳（某实体直接绑的笔记），这个是
+   * 「该生本人 + 他的各类记录（学生记录 / 招生跟进 …）」多跳聚合，且带来源标注。
+   * 跨模块来源按**来源模块**的 read 权限过滤，无权限的会进 `hiddenSources`。
+   */
+  getStudentNoteLinks: (studentId: string) =>
+    request<StudentNoteLinksResult>(`/getnote/links/by-student/${encodeURIComponent(studentId)}`),
   /** 全量覆盖式写入：传空数组即清空，与邮件归档「手动关联学生」同范式 */
   replaceGetnoteLinks: (
     entityType: string,

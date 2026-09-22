@@ -135,14 +135,14 @@ export default function StudentsPage() {
   const [error, setError] = useState('');
 
   const [q, setQ] = useState('');
+  // 「来源渠道 / 生源跟进状态」两项已随筛选框一起移除（2026-09-22）：留着空值只会在
+  // 请求参数里多带两个恒为空的字段，将来接手的人会以为它们还有用。
   const [filters, setFilters] = useState<Record<string, string | string[]>>({
     当前状态: [],
     入学年级: '',
     当前年级: '',
     班主任: [],
     招生负责老师: [],
-    来源渠道: '',
-    生源跟进状态: '',
     入学年份: '',
     Arete毕业届: '',
   });
@@ -558,18 +558,13 @@ export default function StudentsPage() {
           options={recruitOptions}
           multiple
         />
-        <FilterSelect
-          label={t('fldSource')}
-          value={filters['来源渠道'] as string}
-          onChange={(v) => setFilter('来源渠道', v)}
-          options={dicts['来源渠道'] ?? ['官网', '转介绍', '展会', '社交媒体', '代理', '其他']}
-        />
-        <FilterSelect
-          label={t('colFollowUp')}
-          value={filters['生源跟进状态'] as string}
-          onChange={(v) => setFilter('生源跟进状态', v)}
-          options={dicts['生源跟进状态'] ?? ['新线索', '跟进中', '已报名', '已入学', '已流失']}
-        />
+        {/**
+         * 「来源渠道」「生源跟进状态」两个筛选框**已按要求移除**（2026-09-22 峰哥）。
+         *
+         * 不是隐藏而是删掉：留着只是 `style={{display:'none'}}` 这类障眼法的话，
+         * 初始 state 与请求参数里还得继续带着它们，将来接手的人会以为「这里本来有筛选却筛不动」。
+         * 两列在**列表与 CSV 导出里照旧显示**（COLS 未动）—— 移除的是筛选入口，不是数据。
+         */}
         <FilterSelect
           label={t('fldEnrollYear')}
           value={filters['入学年份'] as string}

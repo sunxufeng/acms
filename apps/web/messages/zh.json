@@ -2818,7 +2818,15 @@
     "stopAudio": "停止播放",
     "noAudioYet": "该笔记的录音还没保存到系统（管理员可在工具栏点「保存原始音频」补抓）",
     "audioWithConvert": "会一并带上原始录音",
-    "audioPending": "待抓取"
+    "audioPending": "待抓取",
+    "aggChipAll": "全部",
+    "aggDirect": "直接关联",
+    "aggSummary": "直接关联 {direct} 篇 · 通过记录关联 {via} 篇",
+    "aggHiddenSources": "有来源你没权限查看，未计入：{list}",
+    "aggEmpty": "这个学生还没有关联笔记",
+    "aggEmptyHint": "在各条学生记录的详情页点「关联笔记」挂上，或用上面的「+ 关联笔记 / + 新建笔记」直接挂到这个学生上",
+    "aggFilterEmpty": "该来源下没有笔记",
+    "aggByName": "按姓名匹配"
   },
   "getnoteSources": {
     "title": "知识库配置",

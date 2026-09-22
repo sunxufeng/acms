@@ -96,8 +96,12 @@ export default function StudentDetailPage() {
         )}
       </section>
 
-      {/* ── 关联笔记（得到大脑） ─────────── */}
-      <NotePanel entityType="学生档案" entityId={id} entityName={name} />
+      {/* ── 关联笔记（得到大脑） ───────────
+          传 `studentId` 即「聚合模式」：把该生**所有路径**关联到的笔记列出来并标出来源
+          （本人直接关联 + 各类学生记录的 + 招生跟进的）。
+          只传 entityType/entityId 的话只查「实体类型=学生档案」——生产实测那种关联 0 条，
+          于是这个面板长期显示「暂无关联笔记」，而笔记其实挂在学生记录上。 */}
+      <NotePanel entityType="学生档案" entityId={id} entityName={name} studentId={id} />
     </div>
   );
 }

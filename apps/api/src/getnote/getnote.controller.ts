@@ -165,6 +165,26 @@ export class GetnoteController {
     return this.svc.listLinks(entityType, entityId);
   }
 
+  /**
+   * 某个学生**所有路径**关联到的笔记 —— 学生详情页聚合面板的数据源（2026-09-22 新增）。
+   *
+   * 与上面 `@Get('links')` 的区别：那个是「某个业务实体直接绑了哪些笔记」（单跳），
+   * 这个是「这个学生**以及他的各类记录**绑了哪些笔记」（多跳 + 来源标注）。
+   *
+   * ⚠️ 权限点沿用 `module:getnote:read`：它同样是 `NotePanel` 一类界面在用，不是「知识库配置」
+   *    —— 判断接口归属要看「谁在调它」，别按名字选权限点（2026-09-17 踩过这个坑）。
+   *    这里**不额外要求学生模块权限**：能看到该页面的人已经过了页面级门控，重复加只会让
+   *    「有笔记权限、无学生权限」的调用方拿到 403。跨模块的泄漏由 service 内按**来源模块**
+   *    逐个 read 权限挡住（没权限的来源整块跳过，不是返回空列表）。
+   */
+  @Get('links/by-student/:studentId')
+  listLinksByStudent(@Req() req: Request, @Param('studentId') studentId: string) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'module:getnote:read');
+    if (!studentId) throw new HttpException('BAD_REQUEST:studentId required', HttpStatus.BAD_REQUEST);
+    return this.svc.listLinksByStudent(user, studentId);
+  }
+
   /** 全量覆盖式写入关联（传空数组即清空）。与邮件归档「手动关联学生」同一范式。 */
   @Put('links')
   replaceLinks(@Req() req: Request, @Body() body: Record<string, unknown>) {

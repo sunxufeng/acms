@@ -1,6 +1,6 @@
 import { Inject, Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { SessionUser } from '@acms/contracts';
-import { moduleByPath, modulePermission } from '@acms/contracts';
+import { moduleByPath, modulePermission, SECTION_LABELS } from '@acms/contracts';
 import { authorize, type Principal } from '@acms/domain';
 import { BaseClient, toText } from '@acms/base-adapter';
 import { TABLES } from '@acms/contracts';
@@ -40,22 +40,10 @@ function parseRecordDate(raw: unknown): number | undefined {
   return undefined;
 }
 
-const SECTION_LABELS: Record<string, string> = {
-  'source-followups': '招生跟进',
-  'student-attendances': '学生考勤',
-  grades: '学业成绩',
-  'practice-activities': '实践活动',
-  // 学生记录（2026-09-18）：日常跟进 / 家校沟通 / 学生观察 三合一后的分区名。
-  // 三个旧 path 的条目已删除 —— 它们与主表指向同一张表，遍历时被 tableId 去重掉，
-  // 留在这里只会让人误以为还有三个独立分区。
-  'student-records': '学生记录',
-  'stage-evaluations': '阶段评价',
-  'alumni-followups': '校友跟进',
-  'idp-plans': 'IDP方案',
-  // 考试与成绩（2026-09-16 Phase 2）：不是 RecordMeta 驱动的表，见 examSections()
-  termGrades: '期末总评',
-  reportCards: '成绩单',
-};
+/**
+ * 分区中文名（`SECTION_LABELS`）已提到 `@acms/contracts` —— 「学生关联笔记」聚合要用同一份
+ * 路径 → 中文名，留在本文件里就会漂移出第二份。
+ */
 
 export interface Student360Section {
   key: string;

@@ -29,6 +29,15 @@ export interface NoteArchiveJobDef {
    * 将来出现小写 `idp` 的标题不至于漏掉。
    */
   titleMustInclude: string;
+  /**
+   * 「补跑窗口」：到点后的多少小时内仍算「今天这一次」。
+   *
+   * 🔴 为什么必须有：判据若是「当前时刻 ≥ 计划时刻 ⇒ 该跑」，那么在**任何时候**重启进程
+   *    （蓝绿部署每天好几次）都会被判成「今天该跑却还没跑」⇒ **立刻跑一遍全量**。
+   *    2026-09-22 实测踩到：部署重启（21:13）把两个任务当场都触发了。
+   * 窗口取 6 小时（01:00 → 07:00）：覆盖「凌晨重启/宕机后补跑」，又不会在白天/晚上乱跑。
+   */
+  catchUpHours: number;
 }
 
 export const NOTE_ARCHIVE_JOBS: Record<NoteArchiveJobKey, NoteArchiveJobDef> = {
@@ -39,6 +48,7 @@ export const NOTE_ARCHIVE_JOBS: Record<NoteArchiveJobKey, NoteArchiveJobDef> = {
     minute: 0,
     rootFolderToken: NOTE_ARCHIVE_ROOT_IDP,
     titleMustInclude: 'IDP',
+    catchUpHours: 6,
   },
   all: {
     key: 'all',
@@ -47,6 +57,7 @@ export const NOTE_ARCHIVE_JOBS: Record<NoteArchiveJobKey, NoteArchiveJobDef> = {
     minute: 30,
     rootFolderToken: NOTE_ARCHIVE_ROOT_ALL,
     titleMustInclude: '',
+    catchUpHours: 6,
   },
 };
 
@@ -176,4 +187,26 @@ export function noteArchiveBody(opts: {
 export function noteMatchesArchiveJob(title: unknown, job: NoteArchiveJobDef): boolean {
   if (!job.titleMustInclude) return true;
   return String(title ?? '').toLowerCase().includes(job.titleMustInclude.toLowerCase());
+}
+
+/**
+ * 这个任务此刻该不该跑（**纯函数，定时器与测试共用同一份判据**）。
+ *
+ * 三个条件同时满足才跑：
+ *  ① 今天还没跑过（`ranToday` 由调用方维护，进程内即可 —— 任务本身幂等）
+ *  ② 已经到点：`nowMinutes >= hour*60+minute`
+ *  ③ 还在补跑窗口内：`nowMinutes <= 到点 + catchUpHours*60`
+ *
+ * 🔴 ③ 是 2026-09-22 补上的：只看 ①② 的话，**任何一次重启**（蓝绿部署每天好几次）
+ *    都会被判成「今天该跑却没跑」⇒ 立刻跑全量。实测部署重启（21:13）就把两个任务当场触发了。
+ */
+export function shouldRunArchiveJob(
+  job: NoteArchiveJobDef,
+  nowMinutes: number,
+  ranToday: boolean,
+): boolean {
+  if (ranToday) return false;
+  const start = job.hour * 60 + job.minute;
+  if (nowMinutes < start) return false;
+  return nowMinutes <= start + Math.max(0, job.catchUpHours) * 60;
 }

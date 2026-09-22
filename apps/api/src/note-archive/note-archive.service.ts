@@ -13,6 +13,7 @@ import {
   noteArchiveRecordId,
   noteMatchesArchiveJob,
   normalizeOwnerFolderName,
+  shouldRunArchiveJob,
   normalizeNoteStatus,
   type NoteArchiveJobKey,
 } from '@acms/contracts';
@@ -99,6 +100,8 @@ export class NoteArchiveService implements OnModuleInit {
   private readonly ranDay = new Set<string>();
   /** `${根}:${归一后的人名}` → 文件夹 token（每次运行从云盘现状重建，不跨天缓存） */
   private readonly folderCache = new Map<string, string>();
+  /** `names:${文件夹token}` → 该文件夹里已有的文件名集合（本次运行内缓存，防中断重跑重复上传） */
+  private readonly nameCache = new Map<string, Set<string>>();
   private tableReady = false;
 
   async onModuleInit(): Promise<void> {
@@ -149,10 +152,9 @@ export class NoteArchiveService implements OnModuleInit {
       const { day, minutes } = beijingClock();
       for (const job of Object.values(NOTE_ARCHIVE_JOBS)) {
         const marker = `${job.key}:${day}`;
-        if (this.ranDay.has(marker)) continue;
-        if (minutes < job.hour * 60 + job.minute) continue;
+        if (!shouldRunArchiveJob(job, minutes, this.ranDay.has(marker))) continue;
         this.ranDay.add(marker);
-        this.logger.log(`每日笔记归档开始：${job.label}（${String(job.hour).padStart(2, '0')}:${String(job.minute).padStart(2, '0')}）`);
+        this.logger.log(`每日笔记归档开始：${job.label}（${String(job.hour).padStart(2, '0')}:${String(job.minute).padStart(2, '0')}，补跑窗口 ${job.catchUpHours}h）`);
         void this.runScheduled(job.key);
       }
     };
@@ -367,6 +369,7 @@ export class NoteArchiveService implements OnModuleInit {
     const archived = await this.loadArchivedSet(jobKey);
     const status = await this.loadStatusMap();
     this.folderCache.clear();
+    this.nameCache.clear();
 
     // ① 先枚举候选（快照表是全量超集）
     type Cand = { id: string; title: string; owner: string; createdMs: number; summary: string };
@@ -411,6 +414,14 @@ export class NoteArchiveService implements OnModuleInit {
             continue;
           }
           const fileName = noteArchiveFileName({ date: date || '日期未知', title: c.title, kind, noteId: c.id });
+          // 第二道防线：文件夹里**已有同名文件**就不重复上传。
+          // 主判据是归档记录表，但一次运行被中断（部署/重启）时记录还没写，
+          // 重跑就会把同一篇的两个文件再传一遍（云盘允许重名 ⇒ 出现一模一样的副本）。
+          // 名字里带笔记 ID，所以按名字比是可靠的。
+          if (await this.fileExists(folder.token, fileName, token)) {
+            names.push(fileName);
+            continue;
+          }
           const up = await uploadDriveFile({
             folderToken: folder.token,
             fileName,
@@ -476,6 +487,28 @@ export class NoteArchiveService implements OnModuleInit {
     p.folders += 1;
     this.logger.log(`已新建归档文件夹：${ownerName}`);
     return { name: ownerName, token: newToken };
+  }
+
+  /**
+   * 文件夹里是否已有这个文件名（**每次运行按需列一次该人文件夹**，之后走内存缓存）。
+   *
+   * 为什么要这一层：中断后重跑时归档记录还没写（记录是「两个文件都传完」才写），
+   * 只按记录判会重复上传，而云盘允许同名 ⇒ 文件夹里会出现一模一样的副本。
+   * 名字里带笔记 ID（`…-明细__<id>.md`）⇒ 按名字比是可靠的，不是模糊匹配。
+   */
+  private async fileExists(folderToken: string, fileName: string, token: string): Promise<boolean> {
+    const key = `names:${folderToken}`;
+    let names = this.nameCache.get(key);
+    if (!names) {
+      names = new Set<string>();
+      const list = await listDriveFiles({ folderToken, pageSize: 100, userAccessToken: token });
+      const files: Array<{ name: string }> = (list as { files?: Array<{ name: string }> }).files ?? [];
+      for (const f of files) names.add(f.name);
+      this.nameCache.set(key, names);
+    }
+    if (names.has(fileName)) return true;
+    names.add(fileName); // 本次运行内后续不再重复查
+    return false;
   }
 
   /** 写归档记录（行 id = `<笔记ID>__<任务>`，upsert 幂等） */

@@ -9,6 +9,7 @@ import {
   noteMatchesArchiveJob,
   normalizeOwnerFolderName,
   sanitizeFileNamePart,
+  shouldRunArchiveJob,
 } from '@acms/contracts';
 
 /**
@@ -128,6 +129,43 @@ describe('任务筛选与到点判据', () => {
     expect(beijingDate(Date.parse('2026-09-13T17:00:00Z'))).toBe('2026-09-14'); // +8 后跨日
     expect(beijingDate(0)).toBe('');
     expect(beijingDate(Number.NaN)).toBe('');
+  });
+});
+
+describe('🔴 到点判据 shouldRunArchiveJob（补跑窗口）', () => {
+  const idp = NOTE_ARCHIVE_JOBS.idp; // 01:00，窗口 6h
+  const all = NOTE_ARCHIVE_JOBS.all; // 01:30，窗口 6h
+
+  it('没到点不跑', () => {
+    expect(shouldRunArchiveJob(idp, 0, false)).toBe(false); // 00:00
+    expect(shouldRunArchiveJob(idp, 59, false)).toBe(false); // 00:59
+    expect(shouldRunArchiveJob(all, 60, false)).toBe(false); // 01:00（all 是 01:30）
+  });
+
+  it('到点就跑（含窗口内的补跑）', () => {
+    expect(shouldRunArchiveJob(idp, 60, false)).toBe(true); // 01:00 整
+    expect(shouldRunArchiveJob(idp, 61, false)).toBe(true); // 01:01（刚重启）
+    expect(shouldRunArchiveJob(idp, 6 * 60, false)).toBe(true); // 06:00，窗口边缘
+    expect(shouldRunArchiveJob(all, 90, false)).toBe(true); // 01:30 整
+  });
+
+  it('🔴 出了窗口就不跑 —— 这条就是今天踩的那个 bug', () => {
+    // 21:13 部署重启：只看「已过 01:00」的话会被判成「今天该跑却没跑」⇒ 当场跑全量
+    expect(shouldRunArchiveJob(idp, 21 * 60 + 13, false)).toBe(false);
+    expect(shouldRunArchiveJob(idp, 7 * 60 + 1, false)).toBe(false); // 07:01，刚出窗口
+    expect(shouldRunArchiveJob(all, 21 * 60 + 13, false)).toBe(false);
+  });
+
+  it('今天已经跑过就不再跑（同一天多次 tick 只跑一次）', () => {
+    expect(shouldRunArchiveJob(idp, 60, true)).toBe(false);
+    expect(shouldRunArchiveJob(idp, 6 * 60, true)).toBe(false);
+  });
+
+  it('两个任务的窗口不重叠（IDP 先跑、全量后跑，各自独立判定）', () => {
+    expect(shouldRunArchiveJob(idp, 60, false)).toBe(true);
+    expect(shouldRunArchiveJob(all, 60, false)).toBe(false);
+    expect(shouldRunArchiveJob(all, 90, false)).toBe(true); // 此时 idp 已跑过（ranToday=true）
+    expect(shouldRunArchiveJob(idp, 90, true)).toBe(false);
   });
 });
 

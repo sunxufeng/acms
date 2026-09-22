@@ -7,6 +7,20 @@
 >
 > 由 AI 助手在每次工作后同步；`[x]` = 已完成，`[ ]` = 待处理。
 
+## 2026-09-22 下午（4 条，完成 4）
+
+**学生详情页「关联笔记」聚合**：原面板只查「实体类型=学生档案」而生产 0 条 ⇒ 改成聚合全路径。
+
+- [x] 后端 `GET /getnote/links/by-student/:id`：读小表 → 逐条定点取记录 → 按 `meta.studentMatch`
+  判归属 → 按来源模块权限过滤；无权限来源整块跳过并记 `hiddenSources`
+- [x] contracts 抽 `SECTION_LABELS`（原在 student-360 service 里）+ `NOTE_ENTITY_TYPE_TO_PATH`
+  归一历史别名（`学生记录`/`IDP沟通` 同一张表）+ 前后端共用返回类型
+- [x] 前端 `NotePanel` 加 `studentId` 模式开关（来源徽标 / chips 计数 / 来源可点进记录 /
+  按姓名匹配打标 / 解除只给直接关联）；`/getnote` 加 `?note=` 深链
+- [x] `/students` 删除「来源渠道」「生源跟进状态」两个筛选框（含初始 state，不是 display:none）
+- [x] 验证：夏子墨 3 篇（来源与日期正确）/ 空学生返空 / 不存在返 404 / 列表触发器 9 → 7 /
+  新接口已进 chunk；typecheck + i18n lint（BUILD_ID `f226NgFc7U1G92HjjJdch`）
+
 ## 2026-09-22 中午（4 条，完成 4）
 
 **统一下拉筛选框 · 第二批**：剩余原生 `<select>` 收口（先剔掉「不是筛选框」的一半）。

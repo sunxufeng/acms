@@ -20,6 +20,9 @@ import SearchMultiSelect from './SearchMultiSelect';
 import DepartmentMultiTree from './DepartmentMultiTree';
 import ColorPicker, { ColorChip } from './ColorPicker';
 import Pagination from './Pagination';
+// 下拉筛选触发器已抽成独立组件（2026-09-22）：自建页面此前只能复制一份或改用原生 select，
+// 结果漂移出 4 种长相（/students 只显示标签、/ai/* 空值少「：全部」…）。要筛就 import 它，别再复制。
+import { FilterSelect } from './FilterSelect';
 import { takeConvertPayload, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../lib/noteConvert';
 import { currentUserName } from '../lib/noteAutoFill';
 // 音频判定下沉到 lib/rowAudio（2026-09-19）：列表「操作」列的行内播放也要用同一判据，
@@ -572,56 +575,6 @@ function attachmentFiles(
  * ⚠️ 列表行的播放入口在**「操作」列**，由页面通过 `rowActionSlot` 渲染
  *    （见 `lib/rowAudio.ts` 的 `useRowAudio`：单实例 + ▶/⏸ 切换，不给每行挂 audio 元素）。
  */
-
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-  optionLabels,
-}: {
-  label: string;
-  value: string;
-  onChange: (val: string) => void;
-  options: string[];
-  /** 值 → 显示名（见 CrudColumn.filterOptionLabels）：只影响显示，提交的仍是值本身 */
-  optionLabels?: Record<string, string>;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const t = useTranslations();
-  const tl = useTl();
-  useEffect(() => {
-    const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
-  return (
-    <div className="filter-select" ref={ref}>
-      <button type="button" className="filter-select-trigger" onClick={() => setOpen(!open)}>
-        {/**
-         * 触发器**统一**显示成 `标签：当前值`，没选时显示「标签：全部」。
-         *
-         * 🔴 为什么空值也要显示（2026-09-21 峰哥报障「状态下拉显示『状态：有效』不统一」）：
-         *    原先空值只显示标签（`来源`），而带默认值的筛选（`filterDefault`，如笔记状态
-         *    默认「有效」）显示 `状态：有效` ⇒ 同一排筛选框两种长相。
-         *    统一成「标签：值」后，触发器的文案本身就是「当前在按什么筛」——
-         *    也顺便让"没选 = 不筛（全部）"这件事显式可见。
-         */}
-        <span>{label}：{value ? tl(optionLabels?.[value] ?? value) : t('crud.all')}</span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="m6 9 6 6 6-6" /></svg>
-      </button>
-      {open && (
-        <div className="filter-select-dropdown">
-          <div className={`filter-select-opt${!value ? ' active' : ''}`} onClick={() => { onChange(''); setOpen(false); }}>{t('crud.all')}</div>
-          {options.map((o) => (
-            <div key={o} className={`filter-select-opt${o === value ? ' active' : ''}`} onClick={() => { onChange(o); setOpen(false); }}>{tl(optionLabels?.[o] ?? o)}</div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 const overlayStyle: React.CSSProperties = {
   position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 50,

@@ -6,6 +6,9 @@ import { api, type Page, type StudentRecord } from '../../lib/api';
 import { useTranslations } from 'next-intl';
 import { StudentForm } from '../../components/StudentForm';
 import Pagination from '../../components/Pagination';
+// 下拉筛选统一走全站组件（2026-09-22）：本页此前自带一份副本 —— 只显示标签、看不出当前
+// 筛了什么，与全站「标签：当前值」的长相不一致。多选能力已并入统一组件（`multiple`）。
+import { FilterSelect } from '../../components/FilterSelect';
 // 按钮门控：判据 = `module:students:<动作>`，与后端 authorize() 同一套点（2026-09-17 收口）
 import { usePermissions } from '../../lib/permissions';
 
@@ -94,84 +97,6 @@ function statusClass(status: string): string {
   if (status === '在校在读' || status === '已录未报到' || status === '潜在学生') return 'status-active';
   if (status === '毕业') return 'status-graduated';
   return 'status-left';
-}
-
-/** Small dropdown filter component */
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-  multi = false,
-}: {
-  label: string;
-  value: string | string[];
-  onChange: (val: string | string[]) => void;
-  options: string[];
-  multi?: boolean;
-}) {
-  const t = useTranslations('students');
-  const c = useTranslations('common');
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const sel = Array.isArray(value) ? value : value ? [value] : [];
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [ref]);
-
-  const toggle = (opt: string) => {
-    if (multi) {
-      const next = sel.includes(opt) ? sel.filter((x) => x !== opt) : [...sel, opt];
-      onChange(next);
-    } else {
-      onChange(opt === value ? '' : opt);
-      setOpen(false);
-    }
-  };
-
-  const clear = () => {
-    onChange(multi ? [] : '');
-    setOpen(false);
-  };
-
-  return (
-    <div className="filter-select" ref={ref}>
-      <button type="button" className="filter-select-trigger" onClick={() => setOpen(!open)}>
-        <span>{label}</span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="m6 9 6 6 6-6"/></svg>
-      </button>
-      {open && (
-        <div className="filter-select-dropdown">
-          {!multi && (
-            <div
-              className={`filter-select-opt${!value ? ' active' : ''}`}
-              onClick={() => onChange('')}
-            >
-              {c('all')}
-            </div>
-          )}
-          {options.map((o) => (
-            <div
-              key={o}
-              className={`filter-select-opt${(multi ? sel.includes(o) : o === value) ? ' active' : ''}`}
-              onClick={() => toggle(o)}
-            >
-              {multi && <span className="filter-check">{sel.includes(o) ? '✓' : ''}</span>}
-              {o}
-            </div>
-          ))}
-          {sel.length > 0 && (
-            <div className="filter-select-clear" onClick={clear}>{t('clearFilter')}</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 export default function StudentsPage() {
@@ -605,7 +530,7 @@ export default function StudentsPage() {
           value={filters['当前状态'] as string[]}
           onChange={(v) => setFilter('当前状态', v)}
           options={dicts['当前状态'] ?? ['已录未报到', '在校在读', '离校未毕(休学）', '离校未毕(保留学籍）', '毕业', '退学', '放弃入学', '潜在学生']}
-          multi
+          multiple
         />
         <FilterSelect
           label={t('fldGrade')}
@@ -624,14 +549,14 @@ export default function StudentsPage() {
           value={filters['班主任'] as string[]}
           onChange={(v) => setFilter('班主任', v)}
           options={headTeacherOptions}
-          multi
+          multiple
         />
         <FilterSelect
           label={t('fldRecruiter')}
           value={filters['招生负责老师'] as string[]}
           onChange={(v) => setFilter('招生负责老师', v)}
           options={recruitOptions}
-          multi
+          multiple
         />
         <FilterSelect
           label={t('fldSource')}

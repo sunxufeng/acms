@@ -4,36 +4,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '../../../lib/api';
 import { SkillForm, type Skill } from './SkillForm';
+// 下拉筛选统一走全站组件（2026-09-22）。本页与 /ai/config 各带一份副本，两份逐字相同，
+// 但都少了空值时的「：全部」⇒ 同一排筛选框仍是两种长相。副本已删，改用统一组件。
+import { FilterSelect } from '../../../components/FilterSelect';
 
 type Tool = { name: string; description: string };
 type SkillRow = Tool & Skill;
-
-function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const t = useTranslations();
-  useEffect(() => {
-    const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
-  return (
-    <div className="filter-select" ref={ref}>
-      <button type="button" className="filter-select-trigger" onClick={() => setOpen(!open)}>
-        <span>{label}{value ? `：${value}` : ''}</span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="m6 9 6 6 6-6" /></svg>
-      </button>
-      {open && (
-        <div className="filter-select-dropdown">
-          <div className={`filter-select-opt${!value ? ' active' : ''}`} onClick={() => { onChange(''); setOpen(false); }}>{t('crud.all')}</div>
-          {options.map((o) => (
-            <div key={o} className={`filter-select-opt${o === value ? ' active' : ''}`} onClick={() => { onChange(o); setOpen(false); }}>{o}</div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function AiSkillsPage() {
   const t = useTranslations('ai.skills');

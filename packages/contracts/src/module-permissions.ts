@@ -349,6 +349,20 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   //    同 label、同 path 的资源 ⇒ 权限矩阵里出现两个「部门管理」，授权时极易勾错；
   //    `departments` 无人持有（没有任何角色有 department:read）且无代码引用，2026-09-14 已删除。
   { key: 'departmentManagement', label: '部门管理', path: '/department-management', legacyRead: null, legacyWrite: null, menuPermission: null, actions: [...READ, 'update'], genericCrud: false },
+  // 定时任务（后台管理，2026-09-22 晚新增）：维护「笔记归档到飞书云盘」这类定时任务，
+  // 并能手动运行一次。任务本身走通用 CRUD（path='/scheduled-tasks'）。
+  //
+  // 可见性与授权口径 = **仅系统管理员**（峰哥定），三处一起表达这个意图：
+  //  ① 本行 `adminOnly: true` 限制菜单入口；
+  //  ② 三个 legacy 字段全为 null ⇒ **不继承给任何存量角色**；
+  //  ③ 故意**不抬 `ROLE_PERMISSION_VERSION`**，也**不进 `MODULE_RESOURCE_INTRODUCED_VERSION`**。
+  // 🔴 ③ 是重点：抬版本会让增量迁移按 legacyRead 把权限发给一批角色，而这里恰恰
+  //    不该发给任何人（任务能改目标文件夹、能手动跑全量，而那条链路会把**未脱敏的
+  //    笔记原文**写进云盘）。不抬版本的代价是"除管理员外谁都没有"—— 那正是想要的结果。
+  //    `healLockedRoles()` 用代码里的全量权限覆盖锁定角色 ⇒ 系统管理员自动持有。
+  // 「运行」映射到 `transition`（不是 edit）：以后若要放开给某个助理，
+  //    可以单独给"能跑但改不了配置"的权限，不用连写权限一起发。
+  { key: 'scheduledTasks', label: '定时任务', path: '/scheduled-tasks', legacyRead: null, legacyWrite: null, menuPermission: null, actions: [...CRUD, 'transition'], genericCrud: true, adminOnly: true },
 ];
 
 /** 返回值是 Permission 的子类型，供现有 authorize/hasPermission 直接使用。 */

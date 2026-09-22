@@ -1,10 +1,13 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import {
-  NOTE_ARCHIVE_JOBS,
+  ARCHIVE_JOB_FIELDS,
   NOTE_ARCHIVE_FAIL,
+  NOTE_ARCHIVE_JOB_SEEDS,
   NOTE_ARCHIVE_KINDS,
   NOTE_ARCHIVE_OK,
   TABLES,
+  archiveJobRowFields,
+  archiveJobScheduleText,
   beijingClock,
   beijingDate,
   isArchivedNote,
@@ -12,9 +15,13 @@ import {
   noteArchiveFileName,
   noteArchiveRecordId,
   noteMatchesArchiveJob,
-  normalizeOwnerFolderName,
-  shouldRunArchiveJob,
   normalizeNoteStatus,
+  normalizeOwnerFolderName,
+  parseArchiveJobRow,
+  shouldRunArchiveJob,
+  validateArchiveJob,
+  weekdaySummary,
+  type NoteArchiveJobDef,
   type NoteArchiveJobKey,
 } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
@@ -23,7 +30,7 @@ import { createDriveFolder, listDriveFiles, sendText, uploadDriveFile } from '..
 
 /** 归档进度（与「批量抓音频」同一套形状：跑完仍留在 Map 里供前端/排查读取） */
 export interface NoteArchiveProgress {
-  job: NoteArchiveJobKey;
+  job: string;
   label: string;
   running: boolean;
   trigger: 'cron' | 'manual' | 'check';
@@ -74,13 +81,29 @@ function toMs(v: unknown): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
+/** 北京时间 `YYYY-MM-DD HH:mm`（写「上次运行」用） */
+function beijingStamp(ms: number): string {
+  if (!ms || !Number.isFinite(ms)) return '';
+  const p = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(ms));
+  const pick = (t: string) => p.find((x) => x.type === t)?.value ?? '';
+  return `${pick('year')}-${pick('month')}-${pick('day')} ${pick('hour')}:${pick('minute')}`;
+}
+
 /**
- * 「我的笔记 → 飞书云盘」每日归档服务（2026-09-22 峰哥要求）。
+ * 「我的笔记 → 飞书云盘」定时归档服务（2026-09-22 峰哥要求）。
  *
- * ## 两个任务（时间与规则见 `contracts/note-archive.ts`）
- * - **01:00**：有效 ∧ 标题含 IDP → `VULJ…`（全量根目录下的「IDP」子文件夹）
- * - **01:30**：全部有效 → `K6Ij…`
- * 两边都「按人建子文件夹 + 明细与总结两份 md + 文件名前缀日期 + 已复制过跳过」。
+ * ## 任务来自**数据表**（菜单「定时任务」里可增删改 + 手动运行）
+ * 2026-09-22 首版把两条任务（01:00 归档 IDP、01:30 归档全部有效）写成了代码常量；
+ * 当天晚些时候按峰哥要求做成可维护的数据行（`TABLES.noteArchiveJob`）。
+ * 种子两条沿用 `idp` / `all` 作为**任务标识** ⇒ 已产生的归档记录继续有效。
  *
  * ## 为什么以「笔记快照表」为准（而不是正文表 / 实时列表）
  * 实测：快照表 780（有效 763）是**超集**；正文表 658 少 122 条（那些只有总结没有明细）；
@@ -88,7 +111,7 @@ function toMs(v: unknown): number {
  * 明细取不到就只出总结，并在进度里计 `noDetail` —— **不静默漏**。
  *
  * ## 幂等
- * 判据是**归档记录表**（行 id = `<笔记ID>__<任务>`）里 `状态=成功`，不是「云盘里有没有同名文件」——
+ * 判据是**归档记录表**（行 id = `<笔记ID>__<任务标识>`）里 `状态=成功`，不是「云盘里有没有同名文件」——
  * 名字比不可靠（标题会被截断、同名同日同标题是真实存在的），而记录表是本地事实。
  * 因此单次跑不完可以放心重跑（第二天继续），也不会重复复制。
  */
@@ -96,7 +119,7 @@ function toMs(v: unknown): number {
 export class NoteArchiveService implements OnModuleInit {
   private readonly logger = new Logger(NoteArchiveService.name);
   private readonly jobs = new Map<NoteArchiveJobKey, NoteArchiveProgress>();
-  /** `任务:日期` → 已跑过（进程内即可，理由同音频任务：蓝绿重启只丢这个标记，任务本身幂等） */
+  /** `${任务}:${日期}` → 已跑过（进程内即可，理由同音频任务：蓝绿重启只丢这个标记，任务本身幂等） */
   private readonly ranDay = new Set<string>();
   /** `${根}:${归一后的人名}` → 文件夹 token（每次运行从云盘现状重建，不跨天缓存） */
   private readonly folderCache = new Map<string, string>();
@@ -106,17 +129,17 @@ export class NoteArchiveService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     try {
-      await this.ensureArchiveTable();
+      await this.ensureTables();
     } catch (e) {
-      this.logger.warn(`归档记录表建表失败（下次运行会重试）：${(e as Error).message.slice(0, 160)}`);
+      this.logger.warn(`归档建表失败（下次运行会重试）：${(e as Error).message.slice(0, 160)}`);
     }
     this.startCron();
   }
 
-  private async ensureArchiveTable(): Promise<void> {
+  private async ensureTables(): Promise<void> {
     const sql = getSqlStore();
     if (!sql || this.tableReady) return;
-    const T = { TEXT: 1, NUMBER: 2 } as const;
+    const T = { TEXT: 1, NUMBER: 2, MULTI: 4 } as const;
     await sql.ensureTable(TABLES.noteArchive.tableId, '笔记归档记录表', [
       { name: ARCHIVE_FIELDS.笔记ID, type: T.TEXT },
       { name: ARCHIVE_FIELDS.任务, type: T.TEXT },
@@ -131,46 +154,98 @@ export class NoteArchiveService implements OnModuleInit {
       { name: ARCHIVE_FIELDS.明细字数, type: T.NUMBER },
       { name: ARCHIVE_FIELDS.总结字数, type: T.NUMBER },
     ]);
+    await sql.ensureTable(TABLES.noteArchiveJob.tableId, '笔记归档任务表', [
+      { name: ARCHIVE_JOB_FIELDS.任务名称, type: T.TEXT },
+      { name: ARCHIVE_JOB_FIELDS.启用, type: T.TEXT },
+      { name: ARCHIVE_JOB_FIELDS.执行时间, type: T.TEXT },
+      { name: ARCHIVE_JOB_FIELDS.执行日, type: T.MULTI },
+      { name: ARCHIVE_JOB_FIELDS.目标文件夹, type: T.TEXT },
+      { name: ARCHIVE_JOB_FIELDS.标题关键词, type: T.TEXT },
+      { name: ARCHIVE_JOB_FIELDS.输出内容, type: T.MULTI },
+      { name: ARCHIVE_JOB_FIELDS.按人分文件夹, type: T.TEXT },
+      { name: ARCHIVE_JOB_FIELDS.补跑窗口, type: T.NUMBER },
+      { name: ARCHIVE_JOB_FIELDS.上次运行, type: T.TEXT },
+      { name: ARCHIVE_JOB_FIELDS.上次运行详情, type: T.TEXT },
+    ]);
+    await this.seedJobs();
     this.tableReady = true;
-    this.logger.log('笔记归档记录表已就绪');
+    this.logger.log('笔记归档表已就绪（记录表 + 任务表）');
   }
 
   /**
-   * 起「每天 01:00 / 01:30 归档」的定时器。
+   * 写入种子任务 —— **只在表为空时**。
+   *
+   * 不能每次都写：用户删掉的任务在重启后自己长回来，比"少一条任务"难解释得多。
+   * 种子标识沿用 `idp` / `all` ⇒ 首跑已产生的归档记录继续有效（升级不重跑）。
+   */
+  private async seedJobs(): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql) return;
+    const n = await sql.count(TABLES.noteArchiveJob.tableId).catch(() => 0);
+    if (n > 0) return;
+    for (const job of NOTE_ARCHIVE_JOB_SEEDS) {
+      await sql.createWithId(TABLES.noteArchiveJob.tableId, job.key, archiveJobRowFields(job));
+    }
+    this.logger.log(`已写入 ${NOTE_ARCHIVE_JOB_SEEDS.length} 条归档任务种子`);
+  }
+
+  /** 读全部任务（按 row id = 任务标识）。表很小，不做缓存 —— 用户刚改完就要生效 */
+  async loadJobs(): Promise<NoteArchiveJobDef[]> {
+    const sql = getSqlStore();
+    if (!sql) return [];
+    const out: NoteArchiveJobDef[] = [];
+    let token: string | undefined;
+    for (let i = 0; i < 10; i += 1) {
+      const page = await sql
+        .search(TABLES.noteArchiveJob.tableId, { pageSize: 100, ...(token ? { pageToken: token } : {}) })
+        .catch(() => null);
+      if (!page) break;
+      for (const r of page.items ?? []) {
+        const id = String((r as unknown as { recordId?: string }).recordId ?? '').trim();
+        if (id) out.push(parseArchiveJobRow(id, r.fields as Record<string, unknown>));
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return out.sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute) || a.key.localeCompare(b.key));
+  }
+
+  /** 取单个任务（运行/体检用）；找不到返回 null */
+  async findJob(id: string): Promise<NoteArchiveJobDef | null> {
+    const jobs = await this.loadJobs();
+    return jobs.find((j) => j.key === id) ?? null;
+  }
+
+  /**
+   * 起定时器。
    *
    * 🔴 与「每日音频抓取」同一范式：**不是** `setInterval(24h)` —— 蓝绿部署每次都重启进程，
    *    24 小时计时清零，部署一勤就永远等不到那一刻。改成「每小时醒一次，看北京时间到点没到点、
-   *    今天跑没跑过」，判据是**日期 + 时刻**，与进程活了多久无关。
-   *    重启最坏多跑一次，而任务按归档记录表幂等。
+   *    今天跑没跑过、今天是不是它的执行日」，判据是**日期 + 时刻**，与进程活了多久无关。
+   *    ⚠️ 判据里必须带**补跑窗口**（见 `shouldRunArchiveJob`）—— 否则每次重启都会触发一遍。
    */
   private startCron(): void {
     if (String(process.env.GETNOTE_ARCHIVE_CRON ?? '').trim().toLowerCase() === 'off') {
-      this.logger.log('GETNOTE_ARCHIVE_CRON=off，跳过每日笔记归档定时器');
+      this.logger.log('GETNOTE_ARCHIVE_CRON=off，跳过笔记归档定时器');
       return;
     }
-    const tick = () => {
-      const { day, minutes } = beijingClock();
-      for (const job of Object.values(NOTE_ARCHIVE_JOBS)) {
-        const marker = `${job.key}:${day}`;
-        if (!shouldRunArchiveJob(job, minutes, this.ranDay.has(marker))) continue;
-        this.ranDay.add(marker);
-        this.logger.log(`每日笔记归档开始：${job.label}（${String(job.hour).padStart(2, '0')}:${String(job.minute).padStart(2, '0')}，补跑窗口 ${job.catchUpHours}h）`);
-        void this.runScheduled(job.key);
+    const tick = async () => {
+      try {
+        const { day, minutes, weekday } = beijingClock();
+        const jobs = await this.loadJobs();
+        for (const job of jobs) {
+          const marker = `${job.key}:${day}`;
+          if (!shouldRunArchiveJob(job, minutes, this.ranDay.has(marker), weekday)) continue;
+          this.ranDay.add(marker);
+          this.logger.log(`笔记归档定时触发：${job.label}（${archiveJobScheduleText(job)}，补跑窗口 ${job.catchUpHours}h）`);
+          this.start(job, { trigger: 'cron' });
+        }
+      } catch (e) {
+        this.logger.warn(`笔记归档定时检查失败：${(e as Error).message.slice(0, 160)}`);
       }
     };
-    setTimeout(tick, 3 * 60 * 1000).unref?.();
-    setInterval(tick, 60 * 60 * 1000).unref?.();
-  }
-
-  private async runScheduled(jobKey: NoteArchiveJobKey): Promise<void> {
-    try {
-      const p = this.start(jobKey, { trigger: 'cron' });
-      // start 是异步跑，这里等它由内部自己收尾；失败会把 error 记在进度里并发告警
-      void p;
-    } catch (e) {
-      this.logger.error(`每日笔记归档启动失败：${(e as Error).message}`);
-      await this.alert(`笔记归档（${NOTE_ARCHIVE_JOBS[jobKey].label}）启动失败：${(e as Error).message.slice(0, 180)}`);
-    }
+    setTimeout(() => void tick(), 3 * 60 * 1000).unref?.();
+    setInterval(() => void tick(), 60 * 60 * 1000).unref?.();
   }
 
   /** 归档失败/异常时发飞书 IM —— 不告警就会「静默不归档」，谁也不知道 */
@@ -192,22 +267,41 @@ export class NoteArchiveService implements OnModuleInit {
     return t;
   }
 
-  /** 当前进度（含最近一次已完成的） */
-  status(): Record<string, NoteArchiveProgress | null> {
-    const out: Record<string, NoteArchiveProgress | null> = {};
-    for (const k of Object.keys(NOTE_ARCHIVE_JOBS) as NoteArchiveJobKey[]) out[k] = this.jobs.get(k) ?? null;
+  /** 各任务「最近一次」进度（键 = 任务标识；页面按行取自己的那条） */
+  status(): Record<string, NoteArchiveProgress> {
+    const out: Record<string, NoteArchiveProgress> = {};
+    for (const [k, v] of this.jobs) out[k] = v;
     return out;
   }
 
-  /** 体检：令牌能不能用、两个目标文件夹可达吗、待归档多少（**手动跑之前先看这个**） */
+  /**
+   * 体检：令牌能不能用、每个任务的目标文件夹可达吗、待归档多少、**配置有没有问题**（**手动跑之前先看这个**）。
+   *
+   * 为什么要把配置问题一起返回：任务现在是人手填的（时间/文件夹/关键词），
+   * 配错的后果是**凌晨静默失败**。页面上当场标红，比事后翻日志便宜得多。
+   */
   async check(): Promise<{
     ok: boolean;
     userOpenId: string;
-    folders: { job: string; label: string; token: string; ok: boolean; subFolders: number; error?: string }[];
-    pending: { job: string; label: string; pending: number; alreadyArchived: number }[];
+    tokenOk: boolean;
+    tokenError: string;
+    jobs: {
+      id: string;
+      label: string;
+      enabled: boolean;
+      schedule: string;
+      kinds: string[];
+      rootFolderToken: string;
+      problems: string[];
+      folderOk: boolean;
+      folderError: string;
+      subFolders: number;
+      pending: number;
+      archived: number;
+    }[];
   }> {
     const openId = String(process.env.NOTE_ARCHIVE_USER_OPENID ?? 'ou_d76a678e745598605144be152b041084').trim();
-    await this.ensureArchiveTable().catch(() => {}); // 首次体检时表可能还没建
+    await this.ensureTables().catch(() => {}); // 首次体检时表可能还没建
     let token = '';
     let tokenErr = '';
     try {
@@ -215,48 +309,62 @@ export class NoteArchiveService implements OnModuleInit {
     } catch (e) {
       tokenErr = (e as Error).message;
     }
-    const folders: { job: string; label: string; token: string; ok: boolean; subFolders: number; error?: string }[] = [];
-    for (const job of Object.values(NOTE_ARCHIVE_JOBS)) {
-      if (!token) {
-        folders.push({ job: job.key, label: job.label, token: job.rootFolderToken, ok: false, subFolders: 0, error: tokenErr });
-        continue;
+    const jobs = await this.loadJobs();
+    const out: Awaited<ReturnType<NoteArchiveService['check']>>['jobs'] = [];
+    for (const job of jobs) {
+      const problems = validateArchiveJob(job);
+      const counts = await this.countPending(job).catch(() => ({ pending: 0, archived: 0 }));
+      let folderOk = false;
+      let folderError = token ? '' : tokenErr;
+      let subFolders = 0;
+      if (token) {
+        const r = await listDriveFiles({ folderToken: job.rootFolderToken, pageSize: 100, userAccessToken: token });
+        if (r && 'error' in r && r.error) {
+          folderError = String(r.error);
+        } else {
+          const files = (r as { files?: Array<{ type: string }> }).files ?? [];
+          folderOk = true;
+          subFolders = files.filter((f) => f.type === 'folder').length;
+        }
       }
-      const r = await listDriveFiles({ folderToken: job.rootFolderToken, pageSize: 100, userAccessToken: token });
-      if (r && r.error) {
-        folders.push({ job: job.key, label: job.label, token: job.rootFolderToken, ok: false, subFolders: 0, error: r.error });
-      } else {
-        const files: Array<{ type: string }> =
-          (r as { files?: Array<{ type: string }> }).files ?? [];
-        folders.push({
-          job: job.key,
-          label: job.label,
-          token: job.rootFolderToken,
-          ok: true,
-          subFolders: files.filter((f: { type: string }) => f.type === 'folder').length,
-        });
-      }
+      out.push({
+        id: job.key,
+        label: job.label,
+        enabled: job.enabled,
+        schedule: archiveJobScheduleText(job),
+        kinds: [...job.kinds],
+        rootFolderToken: job.rootFolderToken,
+        problems,
+        folderOk,
+        folderError,
+        subFolders,
+        pending: counts.pending,
+        archived: counts.archived,
+      });
     }
-    const pending = await Promise.all(
-      Object.values(NOTE_ARCHIVE_JOBS).map(async (job) => {
-        const c = await this.countPending(job.key);
-        return { job: job.key, label: job.label, pending: c.pending, alreadyArchived: c.archived };
-      }),
-    );
-    return { ok: token !== '' && folders.every((f) => f.ok), userOpenId: openId, folders, pending };
+    return {
+      ok: token !== '' && out.every((j) => j.folderOk && !j.problems.length),
+      userOpenId: openId,
+      tokenOk: token !== '',
+      tokenError: tokenErr,
+      jobs: out,
+    };
   }
 
   /** 候选集合（有效 ∧ 任务标题过滤）与其中已归档的数量 */
-  private async countPending(jobKey: NoteArchiveJobKey): Promise<{ pending: number; archived: number }> {
+  private async countPending(job: NoteArchiveJobDef): Promise<{ pending: number; archived: number }> {
     const sql = getSqlStore();
     if (!sql) return { pending: 0, archived: 0 };
-    const job = NOTE_ARCHIVE_JOBS[jobKey];
-    const archived = await this.loadArchivedSet(jobKey);
+    const archived = await this.loadArchivedSet(job.key);
     const status = await this.loadStatusMap();
     let pending = 0;
     let done = 0;
     let token: string | undefined;
     for (let i = 0; i < 40; i += 1) {
-      const page = await sql.search(TABLES.noteSnapshot.tableId, { pageSize: 500, ...(token ? { pageToken: token } : {}) });
+      const page = await sql.search(TABLES.noteSnapshot.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
       for (const r of page.items ?? []) {
         const f = (r.fields ?? {}) as Record<string, unknown>;
         const id = String(f['笔记ID'] ?? '').trim();
@@ -304,7 +412,10 @@ export class NoteArchiveService implements OnModuleInit {
     if (!sql) return map;
     let token: string | undefined;
     for (let i = 0; i < 40; i += 1) {
-      const page = await sql.search(TABLES.noteStatus.tableId, { pageSize: 500, ...(token ? { pageToken: token } : {}) });
+      const page = await sql.search(TABLES.noteStatus.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
       for (const r of page.items ?? []) {
         const f = (r.fields ?? {}) as Record<string, unknown>;
         const rr = r as unknown as { recordId?: string; id?: string };
@@ -320,13 +431,15 @@ export class NoteArchiveService implements OnModuleInit {
   /**
    * 触发一次归档（异步执行，立即返回进度对象）。
    * 同一任务的第二次调用会被忽略（正在跑）。
+   *
+   * ⚠️ **不校验 `enabled`** —— 手动运行的意义就是"现在立刻跑一次"，
+   *    停用只约束定时器（见 `shouldRunArchiveJob`）。
    */
-  start(jobKey: NoteArchiveJobKey, opts: { limit?: number; trigger: 'cron' | 'manual' }): NoteArchiveProgress {
-    const job = NOTE_ARCHIVE_JOBS[jobKey];
-    const cur = this.jobs.get(jobKey);
+  start(job: NoteArchiveJobDef, opts: { limit?: number; trigger: 'cron' | 'manual' }): NoteArchiveProgress {
+    const cur = this.jobs.get(job.key);
     if (cur?.running) return cur;
     const progress: NoteArchiveProgress = {
-      job: jobKey,
+      job: job.key,
       label: job.label,
       running: true,
       trigger: opts.trigger,
@@ -339,34 +452,55 @@ export class NoteArchiveService implements OnModuleInit {
       folders: 0,
       startedAt: Date.now(),
     };
-    this.jobs.set(jobKey, progress);
-    void this.run(jobKey, opts.limit ?? 0, progress)
-      .then(() => {
+    this.jobs.set(job.key, progress);
+    void this.run(job, opts.limit ?? 0, progress)
+      .then(async () => {
         progress.running = false;
         progress.finishedAt = Date.now();
         this.logger.log(
           `笔记归档完成（${job.label}）：候选 ${progress.total}，跳过 ${progress.skipped}，` +
             `上传 ${progress.uploaded}，无明细 ${progress.noDetail}，失败 ${progress.failed}，文件夹 ${progress.folders}`,
         );
+        await this.writeRunResult(job, progress).catch(() => {});
       })
       .catch(async (e) => {
         progress.running = false;
         progress.finishedAt = Date.now();
         progress.error = (e as Error).message.slice(0, 300);
         this.logger.error(`笔记归档异常（${job.label}）：${progress.error}`);
+        await this.writeRunResult(job, progress).catch(() => {});
         await this.alert(`${job.label} 归档异常：${progress.error}`);
       });
     return progress;
   }
 
-  private async run(jobKey: NoteArchiveJobKey, limit: number, p: NoteArchiveProgress): Promise<void> {
+  /** 把本次结果写回任务行（页面上「上次运行」两列；写失败不影响归档本身） */
+  private async writeRunResult(job: NoteArchiveJobDef, p: NoteArchiveProgress): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql) return;
+    const parts = [
+      `候选 ${p.total}`,
+      `上传 ${p.uploaded}`,
+      `跳过 ${p.skipped}`,
+      `无明细 ${p.noDetail}`,
+      `失败 ${p.failed}`,
+    ];
+    if (p.error) parts.push(`错误：${p.error.slice(0, 80)}`);
+    await sql.update(TABLES.noteArchiveJob.tableId, job.key, {
+      [ARCHIVE_JOB_FIELDS.上次运行]: beijingStamp(p.finishedAt ?? Date.now()),
+      [ARCHIVE_JOB_FIELDS.上次运行详情]: parts.join(' · '),
+    });
+  }
+
+  private async run(job: NoteArchiveJobDef, limit: number, p: NoteArchiveProgress): Promise<void> {
     const sql = getSqlStore();
     if (!sql) throw new Error('SQL 存储不可用（SQL_TABLES 未开启？）');
-    await this.ensureArchiveTable();
-    const job = NOTE_ARCHIVE_JOBS[jobKey];
+    await this.ensureTables();
+    const problems = validateArchiveJob(job);
+    if (problems.length) throw new Error(`任务配置有问题：${problems.join('；')}`);
     const token = await this.userToken();
 
-    const archived = await this.loadArchivedSet(jobKey);
+    const archived = await this.loadArchivedSet(job.key);
     const status = await this.loadStatusMap();
     this.folderCache.clear();
     this.nameCache.clear();
@@ -376,7 +510,10 @@ export class NoteArchiveService implements OnModuleInit {
     const cands: Cand[] = [];
     let pageToken: string | undefined;
     for (let i = 0; i < 40; i += 1) {
-      const page = await sql.search(TABLES.noteSnapshot.tableId, { pageSize: 500, ...(pageToken ? { pageToken } : {}) });
+      const page = await sql.search(TABLES.noteSnapshot.tableId, {
+        pageSize: 500,
+        ...(pageToken ? { pageToken } : {}),
+      });
       for (const r of page.items ?? []) {
         const f = (r.fields ?? {}) as Record<string, unknown>;
         const id = String(f['笔记ID'] ?? '').trim();
@@ -396,18 +533,21 @@ export class NoteArchiveService implements OnModuleInit {
     }
     // 已归档的排除在外（这就是「已经复制过的跳过」的判据）
     const fresh = cands.filter((c) => !archived.has(c.id));
+    p.skipped = cands.length - fresh.length;
     p.total = fresh.length;
     const todo = limit > 0 ? fresh.slice(0, limit) : fresh;
 
     // ② 逐篇归档（串行 + 节流：飞书云盘并发写同名目录会撞 232140101）
     for (const c of todo) {
       try {
-        const folder = await this.ensureOwnerFolder(job.rootFolderToken, normalizeOwnerFolderName(c.owner), token, p);
+        const folder = job.groupByOwner
+          ? await this.ensureOwnerFolder(job.rootFolderToken, normalizeOwnerFolderName(c.owner), token, p)
+          : { name: '', token: job.rootFolderToken };
         const detailRec = await sql.get(TABLES.noteBody.tableId, c.id).catch(() => null);
         const detail = String((detailRec?.fields ?? {})['原始记录'] ?? '').trim();
         const date = beijingDate(c.createdMs);
         const names: string[] = [];
-        for (const kind of NOTE_ARCHIVE_KINDS) {
+        for (const kind of job.kinds) {
           const content = kind === '明细' ? detail : c.summary;
           if (!content.trim()) {
             if (kind === '明细') p.noDetail += 1;
@@ -440,12 +580,14 @@ export class NoteArchiveService implements OnModuleInit {
           p.uploaded += 1;
           await new Promise((r) => setTimeout(r, 300)); // 节流：QPS 友好，也让失败更早暴露
         }
-        await this.saveArchiveRecord(c, jobKey, folder, names, detail.length, c.summary.length, NOTE_ARCHIVE_OK, '');
+        await this.saveArchiveRecord(c, job.key, folder, names, detail.length, c.summary.length, NOTE_ARCHIVE_OK, '');
         p.done += 1;
       } catch (e) {
         p.failed += 1;
         p.done += 1;
-        await this.saveArchiveRecord(c, jobKey, null, [], 0, 0, NOTE_ARCHIVE_FAIL, (e as Error).message.slice(0, 240)).catch(() => {});
+        await this.saveArchiveRecord(c, job.key, null, [], 0, 0, NOTE_ARCHIVE_FAIL, (e as Error).message.slice(0, 240)).catch(
+          () => {},
+        );
         this.logger.warn(`笔记归档失败（${c.id} ${c.title.slice(0, 20)}）：${(e as Error).message.slice(0, 160)}`);
       }
     }
@@ -457,6 +599,58 @@ export class NoteArchiveService implements OnModuleInit {
           `无明细 ${p.noDetail}。失败明细见「笔记归档记录表」（状态=失败）。`,
       );
     }
+  }
+
+  /**
+   * 清掉某个任务的归档记录（「**补归档**」用：目标文件夹换过之后，旧记录会让同批笔记
+   * 在新文件夹里永远不再出现）。
+   *
+   * ⚠️ 只删记录、**不动云盘上的文件** —— 旧文件夹里的东西原样留着（那是用户的资产，
+   *    脚本没有资格替人删）。调用方必须先让用户明确确认。
+   */
+  async clearRecords(jobKey: NoteArchiveJobKey): Promise<{ removed: number }> {
+    const sql = getSqlStore();
+    if (!sql) return { removed: 0 };
+    let removed = 0;
+    let token: string | undefined;
+    for (let i = 0; i < 40; i += 1) {
+      const page = await sql
+        .search(TABLES.noteArchive.tableId, { pageSize: 500, ...(token ? { pageToken: token } : {}) })
+        .catch(() => null);
+      if (!page) break;
+      for (const r of page.items ?? []) {
+        const f = (r.fields ?? {}) as Record<string, unknown>;
+        if (String(f[ARCHIVE_FIELDS.任务] ?? '') !== jobKey) continue;
+        const id = String((r as unknown as { recordId?: string }).recordId ?? '').trim();
+        if (!id) continue;
+        await sql.delete(TABLES.noteArchive.tableId, id).catch(() => {});
+        removed += 1;
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return { removed };
+  }
+
+  /** 某任务已有多少条归档记录（「补归档」前置判断 + 删除任务时的提示） */
+  async countRecords(jobKey: NoteArchiveJobKey): Promise<number> {
+    const sql = getSqlStore();
+    if (!sql) return 0;
+    let n = 0;
+    let token: string | undefined;
+    for (let i = 0; i < 40; i += 1) {
+      const page = await sql
+        .search(TABLES.noteArchive.tableId, { pageSize: 500, ...(token ? { pageToken: token } : {}) })
+        .catch(() => null);
+      if (!page) break;
+      for (const r of page.items ?? []) {
+        const f = (r.fields ?? {}) as Record<string, unknown>;
+        if (String(f[ARCHIVE_FIELDS.任务] ?? '') === jobKey) n += 1;
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return n;
   }
 
   /** 找出/新建「按人」的文件夹（每次运行都从云盘现状重建缓存，不跨天） */
@@ -492,7 +686,7 @@ export class NoteArchiveService implements OnModuleInit {
   /**
    * 文件夹里是否已有这个文件名（**每次运行按需列一次该人文件夹**，之后走内存缓存）。
    *
-   * 为什么要这一层：中断后重跑时归档记录还没写（记录是「两个文件都传完」才写），
+   * 为什么要这一层：中断后重跑时归档记录还没写（记录是「文件都传完」才写），
    * 只按记录判会重复上传，而云盘允许同名 ⇒ 文件夹里会出现一模一样的副本。
    * 名字里带笔记 ID（`…-明细__<id>.md`）⇒ 按名字比是可靠的，不是模糊匹配。
    */
@@ -511,7 +705,7 @@ export class NoteArchiveService implements OnModuleInit {
     return false;
   }
 
-  /** 写归档记录（行 id = `<笔记ID>__<任务>`，upsert 幂等） */
+  /** 写归档记录（行 id = `<笔记ID>__<任务标识>`，upsert 幂等） */
   private async saveArchiveRecord(
     c: { id: string; title: string; owner: string },
     jobKey: NoteArchiveJobKey,

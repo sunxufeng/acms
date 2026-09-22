@@ -140,6 +140,15 @@ export const TABLES = {
    * 重跑不会重复复制 —— 「已经复制过的跳过」就靠这张表判定。
    */
   noteArchive: { tableId: 'tblnotearchive001', name: '笔记归档记录表' },
+  /**
+   * 笔记归档**任务**表（2026-09-22 晚新增）：把「每天 01:00 归档 IDP 笔记」这类定时任务
+   * 从代码常量搬成数据行，于是菜单「定时任务」里能增删改 + 手动运行。
+   *
+   * 行 id = **任务标识**（`noteArchiveRecordId` 的外键）。种子两条沿用 `idp` / `all`
+   * ⇒ 首跑已产生的归档记录继续有效，升级不会把 1412 个文件重新复制一遍。
+   * 🔴 所以行 id 一旦创建就不可改（页面上只读），可改的是「任务名称」。
+   */
+  noteArchiveJob: { tableId: 'tblnotejob0000001', name: '笔记归档任务表' },
   /** 开放平台：外接系统的应用凭证（App ID / App Secret）。自建 SQL 表，启动期幂等建表。 */
   openPlatformApp: { tableId: 'tblopenapp000001', name: '开放平台应用表' },
   /** 卫瓴SCRM 联系人（从开放平台同步过来的只读副本） */

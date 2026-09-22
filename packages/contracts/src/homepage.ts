@@ -408,6 +408,10 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'menu-settings', label: '菜单管理', enLabel: 'Menu Management', href: '/menu-settings', icon: 'dictionary', section: '后台管理', order: 120, adminOnly: true },
     { key: 'menu-groups-settings', label: '菜单分组', enLabel: 'Menu Groups', href: '/menu-groups-settings', icon: 'list', section: '后台管理', order: 122, adminOnly: true },
     { key: 'note-convert', label: '转换配置', enLabel: 'Note Convert', href: '/note-convert', icon: 'settings', section: '后台管理', order: 124, adminOnly: true },
+    // 定时任务（2026-09-22 晚新增）：维护「笔记归档到飞书云盘」这类定时任务 + 手动运行。
+    // `adminOnly` + perm 双保险：任务能改目标文件夹、能手动跑全量（763 篇原文进云盘），
+    // 属系统级操作；且那条链路写的是**未脱敏的笔记原文**，可见范围由云盘权限决定。
+    { key: 'scheduledTasks', label: '定时任务', enLabel: 'Scheduled Tasks', href: '/scheduled-tasks', icon: 'schedule', section: '后台管理', order: 126, adminOnly: true, perm: 'module:scheduledTasks:read' },
     { key: 'student-users', label: '学生账号', enLabel: 'Student Accounts', href: '/student-users', icon: 'user', section: '后台管理', order: 130, adminOnly: true, perm: 'admin:studentUser' },
 
   // ── 组织管理（2026-09-10 新增）：只读同步飞书通讯录部门树，全员可见 ──

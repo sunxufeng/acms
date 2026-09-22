@@ -1111,6 +1111,41 @@ export const api = {
   updateAttendanceZone: (id: string, data: Record<string, unknown>) => request<Record<string, unknown>>(`/attendance-zones/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveAttendanceZone: (id: string) => request<{ ok: boolean }>(`/attendance-zones/${id}`, { method: 'DELETE' }),
 
+  // ── 定时任务（笔记归档到飞书云盘；2026-09-22 晚做成可维护的任务表） ──
+  // 任务本身的增删改走通用 CRUD（`/scheduled-tasks`，与 `scheduled-tasks` 模块的 RecordMeta 对应）；
+  // 「运行 / 状态 / 体检」走 `/note-archive`（那条链路要写云盘，权限单独收着）。
+  listScheduledTasks: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<Page<Record<string, unknown>>>(`/scheduled-tasks${q ? `?${q}` : ''}`);
+  },
+  createScheduledTask: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/scheduled-tasks', { method: 'POST', body: JSON.stringify(data) }),
+  updateScheduledTask: (id: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/scheduled-tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  archiveScheduledTask: (id: string) =>
+    request<{ ok: boolean }>(`/scheduled-tasks/${id}`, { method: 'DELETE' }),
+  /** 手动跑一次；`limit > 0` 时只跑前 N 篇（分批用，如先跑 50 篇看看效果） */
+  runNoteArchiveJob: (id: string, limit = 0) =>
+    request<NoteArchiveProgressItem>(`/note-archive/jobs/${encodeURIComponent(id)}/run`, {
+      method: 'POST',
+      body: JSON.stringify({ limit }),
+    }),
+  /**
+   * 清掉该任务的「已归档」记录（换过目标文件夹后**补归档**用）。
+   * `run` 默认 true ⇒ 清完立刻开始重新归档，省一次点击。
+   */
+  resetNoteArchiveJob: (id: string, run = true, limit = 0) =>
+    request<{ cleared: number; progress: NoteArchiveProgressItem | null }>(
+      `/note-archive/jobs/${encodeURIComponent(id)}/reset`,
+      { method: 'POST', body: JSON.stringify({ run, limit }) },
+    ),
+  /** 各任务最近一次进度（键 = 任务标识） */
+  noteArchiveStatus: () => request<Record<string, NoteArchiveProgressItem>>('/note-archive/status'),
+  /** 体检：令牌能不能用 + 目标文件夹可达 + 待归档量 + **配置问题**（跑之前先看这个） */
+  checkNoteArchive: () => request<NoteArchiveCheckResult>('/note-archive/check'),
+
   // ── 微信用户（家长/学生登录绑定记录，通用 CRUD + 解绑/强制下线动作） ──
   listWechatBindings: (params: Record<string, string | undefined> = {}) => {
     const qs = new URLSearchParams();
@@ -3129,3 +3164,48 @@ export interface AttendanceReportPayload {
 /** 考勤终态审核状态（与后端 reports/attendance-rate.ts 的常量一致） */
 export const ATTENDANCE_REVIEW_STATUSES = ['待审核', '已通过', '已驳回'] as const;
 export type AttendanceReviewStatus = (typeof ATTENDANCE_REVIEW_STATUSES)[number];
+
+/** 笔记归档任务的最近一次进度（`GET /note-archive/status` 的单项） */
+export interface NoteArchiveProgressItem {
+  job: string;
+  label: string;
+  running: boolean;
+  trigger: 'cron' | 'manual' | 'check';
+  /** 本次候选（筛选后、未扣已归档） */
+  total: number;
+  done: number;
+  /** 真正上传的文件数（一篇最多 2 个：明细 + 总结） */
+  uploaded: number;
+  /** 已经归档过、本次跳过 */
+  skipped: number;
+  /** 只有总结、没有明细 */
+  noDetail: number;
+  failed: number;
+  folders: number;
+  startedAt: number;
+  finishedAt?: number;
+  error?: string;
+}
+
+/** `GET /note-archive/check`（体检）的结果 */
+export interface NoteArchiveCheckResult {
+  ok: boolean;
+  userOpenId: string;
+  tokenOk: boolean;
+  tokenError: string;
+  jobs: {
+    id: string;
+    label: string;
+    enabled: boolean;
+    schedule: string;
+    kinds: string[];
+    rootFolderToken: string;
+    /** 人话问题清单（空 = 没问题）—— 配错要看得见，而不是等凌晨静默失败 */
+    problems: string[];
+    folderOk: boolean;
+    folderError: string;
+    subFolders: number;
+    pending: number;
+    archived: number;
+  }[];
+}

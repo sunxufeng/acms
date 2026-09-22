@@ -13,6 +13,8 @@ import {
   STUDENT_RECORD_ENTRY_KEY,
   STUDENT_RECORD_TYPE_FIELD,
   STUDENT_RECORD_TYPE_TO_MODULE,
+  ARCHIVE_JOB_FIELDS,
+  NOTE_ARCHIVE_JOB_DEFAULTS,
   type SessionUser,
 } from '@acms/contracts';
 import { scheduleStateOf } from '../ai-route/schedule-state.js';
@@ -466,6 +468,29 @@ export const CONFIG_METAS: RecordMeta[] = [
     searchField: '标识',
     searchFields: ['标识', '姓名', '学号'],
     sortField: '最近登录',
+  },
+  /**
+   * 笔记归档定时任务（2026-09-22 晚，菜单「定时任务」）。
+   *
+   * 只给系统管理员（可见性与授权口径见 `module-permissions.ts` 的 `scheduledTasks` 条目）：
+   * 任务能改目标文件夹、能手动跑全量，而这条链路会把**未脱敏的笔记原文**写进云盘。
+   *
+   * 两个字段只读：它们由归档服务每次跑完回写（`NoteArchiveService.writeRunResult`），
+   * 人工填没有意义 —— 而且手改之后说不清"上次运行"指的是哪一次。
+   * `执行日` / `输出内容` 是多选（建表时 type=4），必须在 `multi` 里登记，
+   * 否则读出来是字符串，页面上的勾选状态对不上、保存时也会把数组拍成字符串。
+   */
+  {
+    path: 'scheduled-tasks',
+    tableId: TABLES.noteArchiveJob.tableId,
+    readPerm: 'module:scheduledTasks:read',
+    writePerm: 'module:scheduledTasks:write',
+    readonly: [ARCHIVE_JOB_FIELDS.上次运行, ARCHIVE_JOB_FIELDS.上次运行详情],
+    numbers: [ARCHIVE_JOB_FIELDS.补跑窗口],
+    multi: [ARCHIVE_JOB_FIELDS.执行日, ARCHIVE_JOB_FIELDS.输出内容],
+    searchField: ARCHIVE_JOB_FIELDS.任务名称,
+    sortField: ARCHIVE_JOB_FIELDS.执行时间,
+    defaults: NOTE_ARCHIVE_JOB_DEFAULTS,
   },
 ];
 

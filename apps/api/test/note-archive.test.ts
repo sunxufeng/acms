@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  NOTE_ARCHIVE_JOBS,
+  NOTE_ARCHIVE_JOB_SEEDS,
   beijingClock,
   beijingDate,
   noteArchiveBody,
@@ -10,6 +10,7 @@ import {
   normalizeOwnerFolderName,
   sanitizeFileNamePart,
   shouldRunArchiveJob,
+  type NoteArchiveJobDef,
 } from '@acms/contracts';
 
 /**
@@ -18,6 +19,11 @@ import {
  *
  * 纯函数，不连数据库、不碰云盘。
  */
+
+/** 种子任务按 key 取（2026-09-22 晚：任务改成数据行后，代码里的这份只是建表种子） */
+const SEED: Record<string, NoteArchiveJobDef> = Object.fromEntries(
+  NOTE_ARCHIVE_JOB_SEEDS.map((j) => [j.key, j]),
+) as Record<string, NoteArchiveJobDef>;
 
 describe('文件夹名归一（🔴 不归一就会给同一个人建两个文件夹）', () => {
   it('半角竖线 + 空格 → 全角｜（库里与云盘的真实差异）', () => {
@@ -94,7 +100,7 @@ describe('文件名：`YYYY-MM-DD 标题-明细__<笔记ID>.md`', () => {
 
 describe('任务筛选与到点判据', () => {
   it('IDP 任务只收标题含 IDP 的（大小写不敏感）', () => {
-    const idp = NOTE_ARCHIVE_JOBS.idp;
+    const idp = SEED.idp!;
     expect(noteMatchesArchiveJob('张宇翔第一次IDP面谈记录', idp)).toBe(true);
     expect(noteMatchesArchiveJob('idp 小写也要收', idp)).toBe(true);
     expect(noteMatchesArchiveJob('普通会议记录', idp)).toBe(false);
@@ -102,16 +108,16 @@ describe('任务筛选与到点判据', () => {
   });
 
   it('全量任务不过滤标题', () => {
-    const all = NOTE_ARCHIVE_JOBS.all;
+    const all = SEED.all!;
     expect(noteMatchesArchiveJob('普通会议记录', all)).toBe(true);
     expect(noteMatchesArchiveJob('', all)).toBe(true);
   });
 
   it('两个任务的时间与目标文件夹（峰哥指定：1:00 / 1:30，两个不同文件夹）', () => {
-    expect([NOTE_ARCHIVE_JOBS.idp.hour, NOTE_ARCHIVE_JOBS.idp.minute]).toEqual([1, 0]);
-    expect([NOTE_ARCHIVE_JOBS.all.hour, NOTE_ARCHIVE_JOBS.all.minute]).toEqual([1, 30]);
-    expect(NOTE_ARCHIVE_JOBS.idp.rootFolderToken).toBe('VULJfnQXjlbHvEdP4clcqQbBnOc');
-    expect(NOTE_ARCHIVE_JOBS.all.rootFolderToken).toBe('K6IjfMZuOlq8D3dwytfcnGjYnSh');
+    expect([SEED.idp!.hour, SEED.idp!.minute]).toEqual([1, 0]);
+    expect([SEED.all!.hour, SEED.all!.minute]).toEqual([1, 30]);
+    expect(SEED.idp!.rootFolderToken).toBe('VULJfnQXjlbHvEdP4clcqQbBnOc');
+    expect(SEED.all!.rootFolderToken).toBe('K6IjfMZuOlq8D3dwytfcnGjYnSh');
   });
 
   it('🔴 到点判据走北京时间，不受服务器时区影响', () => {
@@ -133,8 +139,8 @@ describe('任务筛选与到点判据', () => {
 });
 
 describe('🔴 到点判据 shouldRunArchiveJob（补跑窗口）', () => {
-  const idp = NOTE_ARCHIVE_JOBS.idp; // 01:00，窗口 6h
-  const all = NOTE_ARCHIVE_JOBS.all; // 01:30，窗口 6h
+  const idp = SEED.idp!; // 01:00，窗口 6h
+  const all = SEED.all!; // 01:30，窗口 6h
 
   it('没到点不跑', () => {
     expect(shouldRunArchiveJob(idp, 0, false)).toBe(false); // 00:00

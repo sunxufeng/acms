@@ -131,6 +131,15 @@ export const TABLES = {
    * ⚠️ **没有行 = 有效**：历史笔记不需要任何回填（这正是「历史数据都是有效」的实现方式）。
    */
   noteStatus: { tableId: 'tblnotestatus0001', name: '笔记状态表' },
+  /**
+   * 笔记归档记录表（2026-09-22 新增）：记录「某篇笔记 × 某个归档任务」是否已复制到飞书云盘。
+   *
+   * 为什么独立一张表（同上 `noteStatus` 的理由）：快照表是**同步任务按上游数据 upsert** 的，
+   * 业务标记混进去迟早被同步写脏；快照表也只覆盖**管理员聚合到的**笔记。
+   * 行 id = `<笔记ID>__<任务>`（见 contracts 的 `noteArchiveRecordId`）⇒ 幂等 upsert，
+   * 重跑不会重复复制 —— 「已经复制过的跳过」就靠这张表判定。
+   */
+  noteArchive: { tableId: 'tblnotearchive001', name: '笔记归档记录表' },
   /** 开放平台：外接系统的应用凭证（App ID / App Secret）。自建 SQL 表，启动期幂等建表。 */
   openPlatformApp: { tableId: 'tblopenapp000001', name: '开放平台应用表' },
   /** 卫瓴SCRM 联系人（从开放平台同步过来的只读副本） */

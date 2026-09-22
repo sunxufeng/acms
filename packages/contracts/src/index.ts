@@ -17,3 +17,5 @@ export * from './meeting-room.js';
 export * from './student-note-sources.js';
 // 学生档案「入学年月 → 入学年份 / Arete入学年」的派生规则（界面自动带出 + 单测钉住）
 export * from './student-enroll.js';
+// 笔记归档到飞书云盘的口径（命名/文件夹归一/到点判据，定时任务与报告共用一份）
+export * from './note-archive.js';

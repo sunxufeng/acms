@@ -505,9 +505,11 @@ export function cardMarkdown(md = '') {
 // folderToken 来自云盘链接 .../folder/<token>。
 
 // 列出某个文件夹下的文件与子文件夹
-export async function listDriveFiles({ folderToken, pageSize = 50, userAccessToken }: { folderToken: string; pageSize?: number; userAccessToken: string }) {
+// ⚠️ 必须支持 pageToken：飞书该接口用 `page_token` 翻页，一次最多 100 条。
+export async function listDriveFiles({ folderToken, pageSize = 50, pageToken = '', userAccessToken }: { folderToken: string; pageSize?: number; pageToken?: string; userAccessToken: string }) {
   if (!userAccessToken) return { error: '缺少用户飞书令牌（未授权云盘）' };
-  const url = `${FEISHU_HOST}/open-apis/drive/v1/files?folder_token=${encodeURIComponent(folderToken)}&page_size=${Math.min(100, pageSize)}`;
+  const url = `${FEISHU_HOST}/open-apis/drive/v1/files?folder_token=${encodeURIComponent(folderToken)}&page_size=${Math.min(100, pageSize)}`
+    + (pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : '');
   const res = await fetch(url, { headers: { authorization: `Bearer ${userAccessToken}` } });
   const data = await res.json();
   if (data.code !== 0) return { error: `列出云盘文件失败: ${data.msg}` };
@@ -518,6 +520,59 @@ export async function listDriveFiles({ folderToken, pageSize = 50, userAccessTok
     parent_token: f.parent_token,
   }));
   return { files, next_page_token: (data.data && data.data.next_page_token) || '' };
+}
+
+/**
+ * 新建云盘文件夹，返回其 token。
+ * 幂等由调用方负责（先列再建）—— 飞书没有「按名字 upsert 文件夹」的接口，
+ * 并发建同名文件夹会撞 `232140101` 之类的冲突码。
+ */
+export async function createDriveFolder({ name, parentFolderToken, userAccessToken }: { name: string; parentFolderToken: string; userAccessToken: string }) {
+  if (!userAccessToken) return { error: '缺少用户飞书令牌（未授权云盘）' };
+  const res = await fetch(`${FEISHU_HOST}/open-apis/drive/v1/files/create_folder`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${userAccessToken}` },
+    body: JSON.stringify({ name, folder_token: parentFolderToken }),
+  });
+  const data = await res.json();
+  if (data.code !== 0) return { error: `新建文件夹失败(${data.code}): ${data.msg}` };
+  return { token: (data.data && data.data.token) || '' };
+}
+
+/**
+ * 上传一个文件到指定文件夹（`upload_all`，≤20MB 的单请求上传）。
+ *
+ * 用 `.md` 而不是导入成飞书原生文档：与已有的归档保持一致（云盘里是可直接下载的 md），
+ * 且导入任务要额外的轮询与「导入目标」参数，失败面更大。
+ */
+export async function uploadDriveFile({
+  folderToken,
+  fileName,
+  content,
+  userAccessToken,
+}: {
+  folderToken: string;
+  fileName: string;
+  content: Buffer | string;
+  userAccessToken: string;
+}) {
+  if (!userAccessToken) return { error: '缺少用户飞书令牌（未授权云盘）' };
+  const buf = Buffer.isBuffer(content) ? content : Buffer.from(String(content), 'utf-8');
+  const form = new FormData();
+  form.append('file_name', fileName);
+  form.append('parent_type', 'explorer');
+  form.append('parent_node', folderToken);
+  form.append('size', String(buf.length));
+  form.append('file', new Blob([new Uint8Array(buf)]), fileName);
+  const res = await fetch(`${FEISHU_HOST}/open-apis/drive/v1/files/upload_all`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${userAccessToken}` }, // 不要手写 content-type，FormData 自带 boundary
+    body: form,
+  });
+  const data = await res.json().catch(() => null);
+  if (!data) return { error: `上传失败：HTTP ${res.status}` };
+  if (data.code !== 0) return { error: `上传失败(${data.code}): ${data.msg}` };
+  return { file_token: (data.data && data.data.file_token) || '', size: buf.length };
 }
 
 // 移动文件/文件夹到目标文件夹。type: 'file' | 'folder'
@@ -581,13 +636,23 @@ export async function downloadDriveFile({ fileToken, userAccessToken }: { fileTo
 }
 
 // 分页列出某文件夹下所有文件与子文件夹（自动翻页，避免一次性超过 page_size 上限）
-export async function listDriveFilesAll({ folderToken, userAccessToken }: { folderToken: string; userAccessToken: string }) {  const all: Array<{ file_token: string; name: string; type: string; parent_token?: string }> = [];
+// 🔴 2026-09-22 修：原实现**没把 pageToken 传下去**（`listDriveFiles` 也不收它），
+//    循环里每次都拉第一页 ⇒ 超过 100 条的文件夹会「重复第一页 + 永远拿不到后面的」。
+//    现在翻页参数一路透传，并按 file_token 去重兜底。
+export async function listDriveFilesAll({ folderToken, userAccessToken }: { folderToken: string; userAccessToken: string }) {
+  const all: Array<{ file_token: string; name: string; type: string; parent_token?: string }> = [];
+  const seen = new Set<string>();
   let pageToken = '';
-  for (let i = 0; i < 20; i++) {
-    const r = await listDriveFiles({ folderToken, pageSize: 100, userAccessToken });
+  for (let i = 0; i < 50; i++) {
+    const r = await listDriveFiles({ folderToken, pageSize: 100, pageToken, userAccessToken });
     if (r && r.error) return { error: r.error };
     const files = (r && r.files) || [];
-    all.push(...files);
+    for (const f of files) {
+      const k = f.file_token || `${f.name}#${f.type}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      all.push(f);
+    }
     pageToken = (r && r.next_page_token) || '';
     if (!pageToken || !files.length) break;
   }

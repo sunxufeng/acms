@@ -7,6 +7,25 @@
 >
 > 由 AI 助手在每次工作后同步；`[x]` = 已完成，`[ ]` = 待处理。
 
+## 2026-09-22 深夜（4 条，完成 4）
+
+**新菜单「定时任务」**（后台管理·仅系统管理员）：把笔记归档任务从代码常量做成交付页面可维护的任务行。
+
+- [x] 任务落表 `noteArchiveJob` + 种子两条**沿用 `idp`/`all` 作行 id**（归档记录的外键，
+      换 id 会让昨晚 1412 个文件全部重传）；行 id 只读、任务名称可改
+- [x] 口径入 contracts：`parseFolderToken`（粘链接自动取 token）/ `parseTimeOfDay` /
+      `normalizeWeekdays` / `normalizeKinds` / `parseArchiveJobRow`（解析失败回落默认，不崩）/
+      `validateArchiveJob`（配置问题清单）；`shouldRunArchiveJob` 补 `enabled` 与 `weekday`
+- [x] 后端：`loadJobs/findJob/clearRecords/countRecords` + `writeRunResult`（回写「上次运行」）；
+      接口 `jobs` / `status` / `check`（多返回配置问题与 token 状态）/ `jobs/:id/run` / `jobs/:id/reset`
+- [x] 🔴 修授权口径：legacyRead/Write 写 `null` ⇒ `inheritModulePermissions` 派生不出
+      `module:scheduledTasks:*` ⇒ **管理员自己也没权限**（菜单/按钮/接口全无，`healLockedRoles` 救不回）
+      ⇒ 改指 `admin:user`（全站唯一仅管理员持有）+ 4 条单测钉住（10 个角色一个点都没有）
+- [x] 前端 `/scheduled-tasks`（CrudPage + moduleKey）：操作列「运行」（运行中禁用）+「补归档」；
+      8 秒轮询进度横幅；「体检」按钮；改目标文件夹时按 token 对比后提示是否补归档
+- [x] 验收七项全绿（含**真跑**：候选 1 / 跳过 28 / 上传 0 —— 删记录重跑补齐且无重复副本、
+      「上次运行」回写、教师本人 403、菜单自愈、线上页面 200 + 产物核对）
+
 ## 2026-09-22 晚（11 条，完成 11）
 
 **「我的笔记」每日自动归档到飞书云盘**（01:00 IDP / 01:30 全量，按人 + 明细/总结 + 日期前缀 + 跳过已复制）。

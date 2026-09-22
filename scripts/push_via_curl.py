@@ -56,7 +56,9 @@ def api(method, path, payload=None, attempts=4, timeout=180):
     重试只对**幂等**的 Git Database 接口有意义：blob/tree/commit 都是按内容寻址，重复提交无副作用。
     """
     args = [
-        'curl', '-sS', '--max-time', str(timeout), '-X', method,
+        # ⚠️ `-w` 的值**不能以 @ 开头**（curl 会把 @xxx 当成"从文件读格式串"，
+        #    报 `option -w: error encountered when reading a file`）
+        'curl', '-sS', '--max-time', str(timeout), '-w', '\nHTTPCODE:%{http_code}', '-X', method,
         '-H', 'Authorization: Bearer ' + TOKEN,
         '-H', 'Accept: application/vnd.github+json',
     ]
@@ -73,10 +75,28 @@ def api(method, path, payload=None, attempts=4, timeout=180):
         r = subprocess.run(args, input=data, capture_output=True, env=env)
         out = r.stdout.decode('utf-8', 'replace')
         if r.returncode == 0:
+            # ⚠️ 状态码必须看（2026-09-23 加，代价：一次推送排查花了 20 分钟）：
+            #    此前**完全不看状态码**，只 `json.loads(out)` —— 而 GitHub 的 4xx/5xx 响应
+            #    也是合法 JSON，于是错误体被当成成功返回，调用方在 `blob['sha']` 处抛
+            #    KeyError（`KeyError: 'sha'`），真正原因（如
+            #    `403 Resource not accessible by personal access token` = PAT 被降成只读）
+            #    被彻底吞掉，看起来像"脚本坏了"而不是"token 没权限"。
+            body, _, code = out.rpartition('HTTPCODE:')
+            code = code.strip()
             try:
-                return json.loads(out)
+                parsed = json.loads(body or '{}')
             except Exception:
                 last = '响应不是 JSON：' + out[:200]
+            else:
+                if code.startswith('4') or code.startswith('5'):
+                    msg = parsed.get('message') if isinstance(parsed, dict) else None
+                    raise SystemExit(
+                        'GitHub API %s %s -> HTTP %s：%s\n'
+                        '（403 Resource not accessible by personal access token ⇒ 该 PAT 缺 Contents: write，'
+                        '要去 GitHub Settings → Developer settings → Fine-grained tokens 里把仓库权限改成 Read and write）'
+                        % (method, path, code, msg or body[:200])
+                    )
+                return parsed
         else:
             last = r.stderr.decode()[:200]
         if i < attempts - 1:

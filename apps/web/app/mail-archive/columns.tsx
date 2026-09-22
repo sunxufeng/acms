@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { useTranslations } from 'next-intl';
 import type { CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
+import { formatDate } from '../../lib/date';
 import { humanizeError } from '../../lib/errMsg';
 
 type AttMeta = { name: string; size: number; type: string; file_token: string };
@@ -413,6 +414,10 @@ export const COLUMNS: CrudColumn[] = [
     key: '归属用户',
     label: '用户',
     width: '130px',
+    // 列表里隐藏（2026-09-23）：新增的「邮箱」列已经能认出账户，且这里的姓名串常常 4 个人
+    // 一起挤在一格（「吴洁｜Joyce、曹德强｜Daniel、…」）—— 列宽撑不住、也没人按它看邮件。
+    // 值仍由后端注入（详情页/其它地方若要用不受影响），只是不出现在表格里。
+    list: false,
     render: (v) => {
       const names = String(v ?? '')
         .split('、')
@@ -447,7 +452,7 @@ export const COLUMNS: CrudColumn[] = [
     filterType: 'select',
     filterParam: '归属账户',
   },
-  { key: '邮箱文件夹', label: '文件夹', width: '140px', filter: true },
+  { key: '邮箱文件夹', label: '文件夹', width: '140px', list: false },
   {
     // 原「关联学生」列 → 改为「关联」列：学生与联系人并列展示、各自可点。
     // 筛选走 filterParam 'related'：一个输入框同时搜学生姓名与联系人姓名，结果取并集
@@ -462,7 +467,17 @@ export const COLUMNS: CrudColumn[] = [
     filterWidth: 120,
     render: (_v, row) => <LinkRelatedCell row={row} />,
   },
-  { key: '发送时间', label: '发送时间', width: '170px', type: 'datetime' },
+  {
+    // 只显示到年月日（2026-09-23 峰哥定）：列表里看时分秒没有意义，还把列挤得很宽。
+    // ⚠️ 必须走 `formatDate` 而不是 `String(v).slice(0, 10)`：库里存的是 **UTC** ISO 串
+    //    （`2025-08-18T09:14:45.000Z`），直接截前 10 位在东八区会**跨天差一天**
+    //    （`…T20:32:41Z` 其实是次日的北京时间）。formatDate 按浏览器时区换算后再取日期。
+    key: '发送时间',
+    label: '发送时间',
+    width: '130px',
+    type: 'datetime',
+    render: (v) => formatDate(v),
+  },
   { key: '附件数', label: '附件', width: '190px', type: 'number', render: (_v, row) => <AttachmentCell row={row} /> },
-  { key: '是否已读', label: '已读', width: '90px', type: 'select', options: ['是', '否'], filter: true },
+  { key: '是否已读', label: '已读', width: '90px', type: 'select', options: ['是', '否'], filter: true, list: false },
 ];

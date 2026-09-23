@@ -411,6 +411,9 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     // 「我的跟进」（2026-09-24）：联系人维度的聚合视图 —— 我名下、且有互动（跟进记录/招生跟进/邮件）的联系人。
     // `perm` 与「联系人管理」同源：它读的就是联系人表，没有联系人读权限就不该看到。
     { key: 'myFollowups', label: '我的跟进', enLabel: 'My Follow-ups', href: '/my-followups', icon: 'userGroup', section: '招生管理', order: 20, perm: 'weiling:read' },
+    // 「归属人映射」（2026-09-24）：卫瓴归属人 → ACMS 用户 的对照表，`adminOnly` ——
+    // 改它等于改「谁能看到谁的联系人」，与用户/角色管理同级风险，不给普通角色。
+    { key: 'ownerMappings', label: '归属人映射', enLabel: 'Owner Mapping', href: '/owner-mappings', icon: 'userGroup', section: '招生管理', order: 15, adminOnly: true },
     { key: 'menu-settings', label: '菜单管理', enLabel: 'Menu Management', href: '/menu-settings', icon: 'dictionary', section: '后台管理', order: 120, adminOnly: true },
     { key: 'menu-groups-settings', label: '菜单分组', enLabel: 'Menu Groups', href: '/menu-groups-settings', icon: 'list', section: '后台管理', order: 122, adminOnly: true },
     { key: 'note-convert', label: '转换配置', enLabel: 'Note Convert', href: '/note-convert', icon: 'settings', section: '后台管理', order: 124, adminOnly: true },

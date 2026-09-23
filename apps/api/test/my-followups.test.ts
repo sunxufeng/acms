@@ -38,15 +38,14 @@ describe('我的跟进 · 后端聚合', () => {
     expect(ctrl).toContain('SessionGuard');
   });
 
-  it('归属人：按「姓 + 英文名近似」打分匹配（卫瓴侧是复合串、英文名还有错拼）', () => {
-    // 生产实测卫瓴侧是 `致极学院-曹老师｜Dainel|1510`，与系统里 `曹德强｜Daniel` 对不上：
-    // 精确匹配会全失败 ⇒ 归属人为空 ⇒ 退化成"拉全站联系人"。
+  it('归属人兜底：按「姓 + 英文名近似」打分（复合串 + 错拼，精确匹配全失败）', () => {
+    // 生产实测卫瓴侧是 `致极学院-曹老师｜Dainel|1510`，与系统里 `曹德强｜Daniel` 对不上。
+    // ⚠️ 这是**兜底**路径；权威来源是归属人映射表（见上一条断言）。
     expect(svc).toContain('function personTokens');
     expect(svc).toContain('function ownerTokens');
     expect(svc).toContain('function enLike');
     expect(svc).toContain('levenshtein');
-    expect(svc).toContain('const asked = String(query.owner');
-    expect(svc).toContain('asked || inferred');
+    expect(svc).toContain('inferOwner');
   });
 
   it('🔴 识别不出归属人时返回空列表（绝不退化成不加筛条件 → 把全站联系人当成「我的」）', () => {
@@ -61,6 +60,32 @@ describe('我的跟进 · 后端聚合', () => {
   it('索引带 TTL 缓存（全表扫约万行，不能每次翻页都重扫）', () => {
     expect(svc).toContain('INDEX_TTL_MS');
     expect(svc).toContain('this.index && Date.now() - this.index.at < INDEX_TTL_MS');
+  });
+
+  it('🔴 归属人优先取「归属人映射表」（不再只靠姓名猜）', () => {
+    // 2026-09-24 改版：映射表是权威来源，姓名打分只是映射缺失时的兜底
+    expect(svc).toContain('TABLES.ownerMapping.tableId');
+    expect(svc).toContain('mappingIndex');
+    expect(svc).toContain("ownerSource = 'mapping'");
+    expect(svc).toContain("ownerSource = 'name'");
+  });
+
+  it('🔴 明细**全量**返回（峰哥要求展开就能看全，不再"You can only see 3"）', () => {
+    // 上限只用于防极端数据，正常联系人的明细全给
+    expect(svc).toContain('const DETAIL_CAP = 200');
+    expect(svc).not.toContain('DETAIL_PER_KIND');
+  });
+
+  it('三个勾选框：勾上的必须**都有**该类互动（AND），全不勾则不限', () => {
+    expect(svc).toContain("query.kindProgress === '1'");
+    expect(svc).toContain("query.kindSource === '1'");
+    expect(svc).toContain("query.kindMail === '1'");
+    expect(svc).toContain('anyWant');
+  });
+
+  it('筛选用「用户」而不是「归属人」（user 参数 → 查映射）', () => {
+    expect(svc).toContain("String(query.user ?? '')");
+    expect(svc).toContain('userOptions');
   });
 });
 
@@ -81,8 +106,27 @@ describe('我的跟进 · 前端交互', () => {
     expect(page).toContain('canHover');
   });
 
-  it('「查看全部」的去处带上了该联系人筛选（招生跟进 / 邮件用 __has / related）', () => {
-    expect(page).toContain('关联联系人__has=');
-    expect(page).toContain('related=');
+  it('翻页用全站统一组件（Pagination），不再自写「上一页 / 下一页」', () => {
+    expect(page).toContain("import Pagination from '../../components/Pagination'");
+    expect(page).toContain('<Pagination');
+    expect(page).not.toContain("t('prevPage')");
+  });
+
+  it('招生跟进 / 邮件点开**弹窗**看详情（不跳页，连着看多条才不折腾）', () => {
+    expect(page).toContain('SourceFollowupModal');
+    expect(page).toContain('MailDetailModal');
+    expect(page).toContain('setSourceModal');
+    expect(page).toContain('setMailModal');
+  });
+
+  it('三个勾选框把对应参数传给后端（勾上 = 只留有该项的）', () => {
+    expect(page).toContain('kindProgress');
+    expect(page).toContain('kindSource');
+    expect(page).toContain('kindMail');
+  });
+
+  it('筛选下拉是「用户」（不是归属人）', () => {
+    expect(page).toContain("t('userLabel')");
+    expect(page).toContain('userLabels');
   });
 });

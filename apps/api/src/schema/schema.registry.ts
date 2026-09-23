@@ -9,6 +9,7 @@ import { MARKBOOK_METAS } from '../markbook/markbook.meta.js';
 import { CURRICULUM_METAS } from '../curriculum/curriculum.meta.js';
 import { BEHAVIOUR_METAS } from '../behaviour/behaviour.meta.js';
 import { EXAM_GRADE_METAS } from '../exam-grade/exam-grade.meta.js';
+import { OWNER_MAPPING_METAS } from '../owner-mapping/owner-mapping.meta.js';
 import type { RecordMeta } from '../shared/generic-crud.module.js';
 
 /**
@@ -33,6 +34,7 @@ export const ALL_METAS: RecordMeta[] = [
   ...CURRICULUM_METAS,
   ...BEHAVIOUR_METAS,
   ...EXAM_GRADE_METAS,
+  ...OWNER_MAPPING_METAS,
 ];
 
 /** 路径 → 元数据（前端调用路径与 RecordMeta.path 一致，可直接按它查表） */

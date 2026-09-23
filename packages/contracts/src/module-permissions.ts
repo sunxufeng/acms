@@ -253,6 +253,14 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'aiAdmin', label: 'AI 用量', path: '/ai/admin', legacyRead: 'ai:admin', legacyWrite: null, menuPermission: 'aiusage:read', actions: READ },
   { key: 'getnote', label: '知识库', path: '/getnote', legacyRead: 'getnote:read', legacyWrite: 'getnote:write', menuPermission: 'getnote:read', actions: [...CRUD, 'import'] },
   { key: 'getnoteSources', label: '知识库配置', path: '/getnote-sources', aliases: ['/getnote/sources', '/export/getnoteSource'], legacyRead: 'getnote:read', legacyWrite: 'getnote:write', menuPermission: 'getnote:write', actions: RECORD },
+  /**
+   * 归属人映射（2026-09-24）：卫瓴「归属人」→ ACMS 用户 的对照表。
+   *
+   * 🔴 权限**故意绑联系人维护权限**（`module:weilingContacts:update`，非 `weiling:read`）：
+   *    改这张表等于改「谁能看到谁的联系人」—— 招生老师若能改，就能把别人名下的联系人
+   *    映射到自己名下，等于越权读数据。菜单同样 `adminOnly`（见 homepage.ts）。
+   */
+  { key: 'ownerMappings', label: '归属人映射', path: '/owner-mappings', aliases: ['/export/ownerMapping'], legacyRead: 'weiling:write', legacyWrite: 'weiling:write', menuPermission: 'weiling:write', actions: RECORD, genericCrud: true },
   { key: 'dictionary', label: '字典数据', path: '/dictionaries', legacyRead: 'config:read', legacyWrite: 'config:write', menuPermission: 'config:read', actions: [...READ, 'update'] },
   // 数据密级（2026-09-18）：配置「哪些字段在哪个密级以下会被打码/隐藏」。
   // adminOnly —— 改密级等于改全站脱敏口径，与用户管理/角色管理同级风险。

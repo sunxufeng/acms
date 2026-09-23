@@ -237,11 +237,18 @@ export interface MyFollowupItem {
   };
 }
 export interface MyFollowupsResp {
-  /** 实际使用的归属人（`owner` 参数优先，否则由登录人姓名推断） */
-  owner: string;
-  /** 登录人在用户表里的姓名，用于核对识别结果 */
+  /** 当前查看的用户（record id）与姓名；未指定 `user` 参数时是登录人自己 */
+  user: string;
+  userName: string;
+  /** 登录人自己的 record id 与姓名 */
+  myId: string;
   myName: string;
-  ownerOptions: string[];
+  /** 实际用于筛联系人的「卫瓴归属人」值（联系人表里的复合串） */
+  owner: string;
+  /** 归属人从哪来：`mapping`=归属人映射表（正规）· `name`=按姓名推断（建议去配映射）· 空=没识别出 */
+  ownerSource: 'mapping' | 'name' | '';
+  /** 有映射关系的用户 —— 顶部「用户」筛选的候选（只列配过映射的） */
+  users: { id: string; name: string; owners: string[] }[];
   /** true = 没识别出归属人（此时后端返回空列表，不会退化成「全站联系人」） */
   ownerUnresolved?: boolean;
   stats: { contacts: number; withProgress: number; withSource: number; withMail: number };
@@ -1770,6 +1777,22 @@ export const api = {
 
   /** 考勤码（教学域配置表，通用 CRUD）。出勤口径的可配置码表，见 /attendance-codes 页面 */
   attendanceCodes: crud('/attendance-codes'),
+
+  // ── 归属人映射（2026-09-24）：「卫瓴归属人 → ACMS 用户」的对照表 ──────────
+  // 供「我的跟进」决定登录人能看到哪些联系人；只有管理员能改（菜单 adminOnly）。
+  ownerMappings: crud('/owner-mappings'),
+
+  /**
+   * 通用详情：`GET /<path>/<id>`。
+   *
+   * `crud()` 工厂只生成 list / create / update / archive / transition，**没有详情**；
+   * 而弹窗场景（「我的跟进」里点招生跟进 / 邮件）需要的正是单条完整记录
+   * （列表里只有摘要，正文/明细/附件在详情里）。
+   */
+  getRecord: (path: string, id: string) =>
+    request<Record<string, unknown>>(
+      `${path.startsWith('/') ? path : `/${path}`}/${encodeURIComponent(id)}`,
+    ),
 
   // ── 成绩册的配置表（2026-09-20 补页面）──────────────────────────────────
   // 这四张表以前只有接口没有页面：页面提示「先去配 XX」，而那个页面不存在。

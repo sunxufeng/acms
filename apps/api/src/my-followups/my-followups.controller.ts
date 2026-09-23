@@ -20,10 +20,19 @@ function userOf(req: Request): SessionUser {
 export class MyFollowupsController {
   constructor(private readonly svc: MyFollowupsService) {}
 
-  /** 归属人候选（当前联系人表里出现过的值），供顶部「归属人」下拉切换 */
+  /**
+   * 归属人候选（当前联系人表里出现过的值）—— 供「归属人映射」页配置选择。
+   * ⚠️ 静态路由要排在 `@Get()` 之前（这里没有 `:id`，但保持一致纪律）。
+   */
   @Get('owners')
   owners(@Req() req: Request) {
     return this.svc.ownerOptions(userOf(req));
+  }
+
+  /** 有映射关系的用户列表 —— 「我的跟进」顶部的「用户」筛选用它（筛选用用户，不用归属人） */
+  @Get('users')
+  users(@Req() req: Request) {
+    return this.svc.userOptions(userOf(req));
   }
 
   @Get()

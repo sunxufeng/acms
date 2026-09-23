@@ -181,7 +181,11 @@ export default function MyFollowupsPage() {
       {loading ? <p style={{ color: 'var(--fg-tertiary)' }}>{t('loading')}</p> : null}
 
       {!loading && !err && items.length === 0 ? (
-        <p style={{ color: 'var(--fg-tertiary)' }}>{allScope ? t('emptyAll') : t('empty')}</p>
+        data?.ownerUnresolved ? (
+          <p style={{ color: 'var(--fg-secondary)' }}>{t('ownerUnresolved', { me: data.myName })}</p>
+        ) : (
+          <p style={{ color: 'var(--fg-tertiary)' }}>{allScope ? t('emptyAll') : t('empty')}</p>
+        )
       ) : null}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

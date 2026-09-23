@@ -2718,6 +2718,7 @@
     "loadFailed": "Failed to load: {msg}",
     "empty": "No contacts with activity — tick “Show all” to see every contact assigned to you",
     "emptyAll": "No contacts assigned to you yet",
+    "ownerUnresolved": "Could not work out which owner record is yours (you are {me}) — the contacts table stores owners as compound strings like “致极学院-曹老师｜Dainel”. Please pick one in the Owner filter above.",
     "lastPrefix": "Latest: ",
     "hoverHint": "Click the row to expand all three",
     "kindProgress": "Notes",

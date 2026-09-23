@@ -242,6 +242,8 @@ export interface MyFollowupsResp {
   /** 登录人在用户表里的姓名，用于核对识别结果 */
   myName: string;
   ownerOptions: string[];
+  /** true = 没识别出归属人（此时后端返回空列表，不会退化成「全站联系人」） */
+  ownerUnresolved?: boolean;
   stats: { contacts: number; withProgress: number; withSource: number; withMail: number };
   /** 客户阶段 / 来源渠道候选（取自「我的联系人」全量，不是当前页） */
   stages: string[];

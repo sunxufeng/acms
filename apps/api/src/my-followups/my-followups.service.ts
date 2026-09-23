@@ -30,8 +30,14 @@ const INDEX_TTL_MS = 60_000;
 const OWNERS_TTL_MS = 10 * 60_000;
 /** 一次拉取的分页大小（SqlStore 上限 500） */
 const PAGE = 500;
-/** 单个用户最多返回多少联系人（防极端数据把响应撑爆；超出时列表会提示） */
-const MAX_CONTACTS = 300;
+/**
+ * 单个用户最多处理多少联系人。
+ *
+ * 生产实测「归属人」这个字段在卫瓴侧是**批量线索池**（「致极学院-曹老师｜Dainel|1510」
+ * 名下 1510 条），所以不能按"一个人几十条"来估上限；3000 的数组在内存里只有几 MB，
+ * 且下面还会按「三类至少有一项」收窄。
+ */
+const MAX_CONTACTS = 3000;
 
 type Row = Record<string, unknown>;
 
@@ -57,11 +63,74 @@ function toEpochMs(v: unknown): number {
   return Number.isFinite(t) ? t : 0;
 }
 
-/** 只取姓名主体：`曹德强｜Daniel` → `曹德强`（卫瓴那边的归属人一般不带英文名） */
-function nameCore(name: string): string {
-  return String(name ?? '')
-    .split(/[｜|]/)[0]!
-    .trim();
+/** 编辑距离（英文名近似匹配用） */
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i += 1) {
+    const cur = [i];
+    for (let j = 1; j <= n; j += 1) {
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n]!;
+}
+
+/**
+ * 英文名近似：首字母相同 + 编辑距离 ≤ 2。
+ *
+ * 🔴 生产实测卫瓴侧的英文名**有错拼**（我们系统是 `Daniel`，卫瓴那边写的是 `Dainel`），
+ *    精确比较一个都匹配不上 —— 结果就是"归属人识别失败 → 拉全站联系人"。
+ */
+function enLike(a: string, b: string): boolean {
+  const x = a.toLowerCase().replace(/[^a-z]/g, '');
+  const y = b.toLowerCase().replace(/[^a-z]/g, '');
+  if (!x || !y || x[0] !== y[0]) return false;
+  if (Math.abs(x.length - y.length) > 2) return false;
+  return levenshtein(x, y) <= 2;
+}
+
+/** 登录人姓名拆分：`曹德强｜Daniel` → { surname: '曹', en: ['Daniel'], parts: ['曹德强','Daniel'] } */
+function personTokens(full: string): { surname: string; en: string[]; parts: string[] } {
+  const parts = String(full ?? '')
+    .split(/[｜|]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const cn = parts.find((p) => /[\u4e00-\u9fa5]/.test(p)) ?? '';
+  return {
+    surname: cn.replace(/[^\u4e00-\u9fa5]/g, '').slice(0, 1),
+    en: parts.filter((p) => /^[A-Za-z][A-Za-z .'-]*$/.test(p)),
+    parts,
+  };
+}
+
+/**
+ * 归属人候选拆分：`致极学院-曹老师｜Dainel|1510` → { surname: '曹', en: ['Dainel'], raw }
+ *
+ * 这个字段在卫瓴侧是**拼接出来的复合串**：机构前缀 + 称呼（`曹老师`）+ 英文名 + `|条数`，
+ * 所以要先剥掉 `|计数`、`致极学院-` 前缀和 `老师` 称呼，才拿得到可用于比对的姓氏。
+ */
+function ownerTokens(v: string): { surname: string; en: string[]; raw: string } {
+  const raw = String(v ?? '').trim();
+  const body = raw.split('|').slice(0, -1).join('|') || raw;
+  const segs = body
+    .split(/[｜|]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const cn = segs.find((p) => /[\u4e00-\u9fa5]/.test(p)) ?? '';
+  return {
+    surname: cn
+      .replace(/^致极学院-?/, '')
+      .replace(/老师$/, '')
+      .replace(/[^\u4e00-\u9fa5]/g, '')
+      .slice(0, 1),
+    en: segs.filter((p) => /^[A-Za-z][A-Za-z .'-]*$/.test(p)),
+    raw,
+  };
 }
 
 function clip(s: unknown, max = 80): string {
@@ -249,15 +318,47 @@ export class MyFollowupsService {
     const owners = await this.ownerOptions(user);
     const me = await this.currentUser(user);
     const myName = String(me?.['姓名'] ?? '').trim();
-    const core = nameCore(myName);
+    const mine = personTokens(myName);
 
     const asked = String(query.owner ?? '').trim();
-    const inferred =
-      owners.find((o) => o === core) ??
-      owners.find((o) => o === myName) ??
-      owners.find((o) => core && (o.includes(core) || core.includes(o))) ??
-      '';
+    // 归属人识别：**不能按姓名精确匹配** —— 卫瓴侧的归属人是
+    // 「致极学院-曹老师｜Dainel|1510」这种复合串（机构前缀 + 称呼 + 英文名 + `|计数»），
+    // 与我们系统里的「曹德强｜Daniel」对不上，而且英文名还有错拼。
+    // 所以打分匹配：姓相同 +2、英文名近似 +3、命中完整词 +4；阈值 3（单靠同姓不算）。
+    const scored = owners
+      .map((o) => {
+        const ot = ownerTokens(o);
+        let score = 0;
+        if (mine.surname && ot.surname && mine.surname === ot.surname) score += 2;
+        if (mine.en.some((e) => ot.en.some((oe) => enLike(e, oe)))) score += 3;
+        if (mine.parts.some((p) => p.length >= 3 && ot.raw.includes(p))) score += 4;
+        return { o, score };
+      })
+      .filter((x) => x.score >= 3)
+      .sort((a, b) => b.score - a.score);
+    const inferred = scored[0]?.o ?? '';
     const owner = asked || inferred;
+
+    // 🔴 没识别出归属人时**直接返回空**，绝不能退化成「不加筛条件」——
+    //    那会把全站几千个联系人当成"我的"（实测：两个不同的人看到同一份数据，
+    //    而且都被 300 条上限截断），既误导又像越权。
+    if (!owner) {
+      return {
+        owner: '',
+        myName,
+        ownerOptions: owners,
+        ownerUnresolved: true,
+        stats: { contacts: 0, withProgress: 0, withSource: 0, withMail: 0 },
+        stages: [],
+        channels: [],
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        hasMore: false,
+        truncated: false,
+      };
+    }
 
     const aggMap = await this.ensureIndex();
 

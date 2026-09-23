@@ -38,10 +38,24 @@ describe('我的跟进 · 后端聚合', () => {
     expect(ctrl).toContain('SessionGuard');
   });
 
-  it('归属人：登录人姓名取主体后匹配，且允许 owner 参数覆盖（识别不准时能手动切）', () => {
-    expect(svc).toContain('function nameCore');
+  it('归属人：按「姓 + 英文名近似」打分匹配（卫瓴侧是复合串、英文名还有错拼）', () => {
+    // 生产实测卫瓴侧是 `致极学院-曹老师｜Dainel|1510`，与系统里 `曹德强｜Daniel` 对不上：
+    // 精确匹配会全失败 ⇒ 归属人为空 ⇒ 退化成"拉全站联系人"。
+    expect(svc).toContain('function personTokens');
+    expect(svc).toContain('function ownerTokens');
+    expect(svc).toContain('function enLike');
+    expect(svc).toContain('levenshtein');
     expect(svc).toContain('const asked = String(query.owner');
     expect(svc).toContain('asked || inferred');
+  });
+
+  it('🔴 识别不出归属人时返回空列表（绝不退化成不加筛条件 → 把全站联系人当成「我的」）', () => {
+    expect(svc).toContain('if (!owner)');
+    expect(svc).toContain('ownerUnresolved: true');
+  });
+
+  it('联系人数上限按「批量线索池」估（实测单个归属人 1510 条，按几十条估会截断）', () => {
+    expect(svc).toContain('const MAX_CONTACTS = 3000');
   });
 
   it('索引带 TTL 缓存（全表扫约万行，不能每次翻页都重扫）', () => {

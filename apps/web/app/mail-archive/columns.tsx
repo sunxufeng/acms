@@ -3,36 +3,15 @@ import { useTranslations } from 'next-intl';
 import type { CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
 import { formatDate } from '../../lib/date';
+// 附件解析与体积格式化抽到 lib 共享：学生档案「相关邮件」也要用同一份（各写一份必然漏改一处）
+import { fmtAttachmentSize, parseMailAttachments } from '../../lib/mailAttachments';
 import { humanizeError } from '../../lib/errMsg';
-
-type AttMeta = { name: string; size: number; type: string; file_token: string };
-
-/** 「附件信息」字段是 JSON 字符串；历史记录可能已是数组，两种形态都要兼容 */
-function parseAtts(raw: unknown): AttMeta[] {
-  if (Array.isArray(raw)) return raw as AttMeta[];
-  if (typeof raw === 'string' && raw.trim()) {
-    try {
-      const p = JSON.parse(raw) as unknown;
-      if (Array.isArray(p)) return p as AttMeta[];
-    } catch {
-      /* 解析失败按无附件处理 */
-    }
-  }
-  return [];
-}
-
-function fmtSize(n: number): string {
-  if (!n) return '';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
 
 /** 附件单元格：直接列出附件名，点击即换取下载链接并打开 */
 function AttachmentCell({ row }: { row: Record<string, unknown> }) {
   const t = useTranslations('mailArchive');
   const [busy, setBusy] = useState<string | null>(null);
-  const atts = parseAtts(row['附件信息']);
+  const atts = parseMailAttachments(row['附件信息']);
   const failed = String(row['附件失败原因'] ?? '').trim();
   const recordId = String(row.id ?? '');
 
@@ -59,7 +38,7 @@ function AttachmentCell({ row }: { row: Record<string, unknown> }) {
         <button
           key={a.file_token}
           type="button"
-          title={`${a.name}${a.size ? ` (${fmtSize(a.size)})` : ''}`}
+          title={`${a.name}${a.size ? ` (${fmtAttachmentSize(a.size)})` : ''}`}
           disabled={busy === a.file_token}
           onClick={() => download(a.file_token)}
           style={{
@@ -80,7 +59,7 @@ function AttachmentCell({ row }: { row: Record<string, unknown> }) {
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
           {a.size ? (
             <span style={{ color: 'var(--fg-tertiary)', flexShrink: 0 }}>
-              {busy === a.file_token ? '…' : fmtSize(a.size)}
+              {busy === a.file_token ? '…' : fmtAttachmentSize(a.size)}
             </span>
           ) : null}
         </button>

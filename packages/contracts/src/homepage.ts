@@ -307,6 +307,9 @@ export const SECTION_EN_LABELS: Record<string, string> = {
   教学管理: 'Teaching',
   组织管理: 'Organization',
   'AI 路由': 'AI Gateway',
+  // 2026-09-24 补：这个分组一直在用（「联系人管理」菜单就是它），但英文映射漏了 ——
+  // 英文环境下侧边栏会回退成中文「招生管理」。
+  招生管理: 'Admissions',
 };
 
 /** 默认导航菜单（与当前 AppShell 硬编码菜单保持一致，用于回退） */
@@ -405,6 +408,9 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'homepage-settings', label: '登录页配置', enLabel: 'Login Page Config', href: '/homepage-settings', icon: 'settings', section: '后台管理', order: 110, adminOnly: true },
     { key: 'open-platform', label: '开放平台', enLabel: 'Open Platform', href: '/open-platform', icon: 'settings', section: '后台管理', order: 115, adminOnly: true, perm: 'openplatform:read' },
     { key: 'weiling-contacts', label: '联系人管理', enLabel: 'Contacts', href: '/weiling-contacts', icon: 'userGroup', section: '招生管理', order: 10, perm: 'weiling:read' },
+    // 「我的跟进」（2026-09-24）：联系人维度的聚合视图 —— 我名下、且有互动（跟进记录/招生跟进/邮件）的联系人。
+    // `perm` 与「联系人管理」同源：它读的就是联系人表，没有联系人读权限就不该看到。
+    { key: 'myFollowups', label: '我的跟进', enLabel: 'My Follow-ups', href: '/my-followups', icon: 'userGroup', section: '招生管理', order: 20, perm: 'weiling:read' },
     { key: 'menu-settings', label: '菜单管理', enLabel: 'Menu Management', href: '/menu-settings', icon: 'dictionary', section: '后台管理', order: 120, adminOnly: true },
     { key: 'menu-groups-settings', label: '菜单分组', enLabel: 'Menu Groups', href: '/menu-groups-settings', icon: 'list', section: '后台管理', order: 122, adminOnly: true },
     { key: 'note-convert', label: '转换配置', enLabel: 'Note Convert', href: '/note-convert', icon: 'settings', section: '后台管理', order: 124, adminOnly: true },

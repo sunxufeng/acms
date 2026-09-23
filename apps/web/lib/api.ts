@@ -206,6 +206,54 @@ export interface Page<T> {
   hasMore: boolean;
 }
 
+// ── 「我的跟进」响应类型 ────────────────────────────────────────────────
+/** 单条互动明细（跟进记录 / 招生跟进 / 邮件共用一种形状） */
+export interface MyFollowupKindRow {
+  id: string;
+  /** 毫秒时间戳（后端已把四种时间形态归一），0 = 没时间 */
+  at: number;
+  summary: string;
+  meta: string;
+}
+export interface MyFollowupItem {
+  id: string;
+  name: string;
+  phone: string;
+  stage: string;
+  channel: string;
+  owner: string;
+  score: string;
+  followCount: string;
+  lastFollowAt: unknown;
+  counts: { progress: number; source: number; mail: number };
+  hasAny: boolean;
+  lastAt: number;
+  lastKind: string;
+  lastSummary: string;
+  detail: {
+    progress: MyFollowupKindRow[];
+    source: MyFollowupKindRow[];
+    mail: MyFollowupKindRow[];
+  };
+}
+export interface MyFollowupsResp {
+  /** 实际使用的归属人（`owner` 参数优先，否则由登录人姓名推断） */
+  owner: string;
+  /** 登录人在用户表里的姓名，用于核对识别结果 */
+  myName: string;
+  ownerOptions: string[];
+  stats: { contacts: number; withProgress: number; withSource: number; withMail: number };
+  /** 客户阶段 / 来源渠道候选（取自「我的联系人」全量，不是当前页） */
+  stages: string[];
+  channels: string[];
+  items: MyFollowupItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  truncated: boolean;
+}
+
 /** 邮件同步的实时进度（「立即收取」异步化后轮询展示） */
 export interface MailSyncProgress {
   running: boolean;
@@ -1357,6 +1405,16 @@ export const api = {
    */
   listMailArchiveAccountOptions: () =>
     request<{ name: string; email: string }[]>('/mail-archive/account-options'),
+
+  // ── 我的跟进（招生管理）：联系人维度的三类互动聚合 ──────────────────────
+  listMyFollowups: (params: Record<string, string | undefined> = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
+    const q = qs.toString();
+    return request<MyFollowupsResp>(`/my-followups${q ? `?${q}` : ''}`);
+  },
+  /** 归属人候选（联系人表里出现过的值），供顶部下拉切换 */
+  listMyFollowupOwners: () => request<string[]>('/my-followups/owners'),
   /** 手动关联/解除关联**学生**：studentIds 为完整列表，传 [] 即清空 */
   linkMailStudents: (id: string, studentIds: string[]) =>
     request<{ ok: boolean }>(`/mail-archive/${id}/link`, { method: 'PUT', body: JSON.stringify({ studentIds }) }),

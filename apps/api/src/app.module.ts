@@ -45,6 +45,7 @@ import { GetnoteModule } from './getnote/getnote.module.js';
 import { NoteSnapshotModule } from './getnote/note-snapshot.module.js';
 import { OpenPlatformModule } from './open-platform/open-platform.module.js';
 import { WeilingModule } from './weiling/weiling.module.js';
+import { MyFollowupsModule } from './my-followups/my-followups.module.js';
 import { GetnoteSourceModule } from './getnote/sources.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import {
@@ -127,6 +128,7 @@ import { ImpersonateModule } from './impersonate/impersonate.module.js';
     NoteSnapshotModule,
     OpenPlatformModule,
     WeilingModule,
+    MyFollowupsModule,
     GetnoteSourceModule,
     ReportsModule,
     FieldMaskModule,

@@ -34,8 +34,17 @@ const MAPPING = TABLES.ownerMapping.tableId;
 const DETAIL_CAP = 200;
 /** 三类关联索引的缓存时长（全表扫约万行，不能每次翻页都重扫） */
 const INDEX_TTL_MS = 60_000;
-/** 映射表 / 用户表 / 归属人候选的缓存时长 */
-const META_TTL_MS = 5 * 60_000;
+/**
+ * 映射表 / 用户表的缓存时长。
+ *
+ * 🔴 只有 30 秒（2026-09-24 实测调过）：管理员在「归属人映射」里配好一条之后，
+ *    「我的跟进」**必须很快跟上** —— 原来给 5 分钟，实测配完立刻刷新页面还是旧结果
+ *    （`ownerSource` 仍显示按姓名推断、用户下拉仍是空），看起来像"配置没生效"。
+ *    这两张表都很小（映射几十行、用户几百行），30 秒一次的读取成本可以忽略。
+ */
+const META_TTL_MS = 30_000;
+/** 联系人表的归属人候选：3686 行的全表扫，只在兜底路径用到，给长一些 */
+const OWNERS_TTL_MS = 5 * 60_000;
 /** 一次拉取的分页大小（SqlStore 上限 500） */
 const PAGE = 500;
 /** 单个用户最多处理多少联系人（实测单个归属人名下 1510 条，是批量线索池） */
@@ -256,7 +265,7 @@ export class MyFollowupsService {
   /** 联系人表里出现过的「归属人」候选（缓存），供「归属人映射」页选择 */
   async ownerOptions(user: SessionUser): Promise<string[]> {
     requireModule(user, 'weilingContacts', 'read');
-    if (this.ownersCache && Date.now() - this.ownersCache.at < META_TTL_MS) return this.ownersCache.list;
+    if (this.ownersCache && Date.now() - this.ownersCache.at < OWNERS_TTL_MS) return this.ownersCache.list;
     const rows = await this.fetchAll(CONTACT);
     const set = new Set<string>();
     for (const r of rows) {

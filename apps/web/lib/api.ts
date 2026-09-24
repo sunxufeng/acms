@@ -1444,7 +1444,7 @@ export const api = {
    * 与保存时自动补的分工：这里是"把历史数据整理一遍"，`linkMail*` 是"改完立刻补"。
    */
   reconcileMailLinks: () =>
-    request<{ scanned: number; fixed: number; cleaned: number }>('/mail-archive/reconcile-links', { method: 'POST' }),
+    request<{ scanned: number; fixed: number }>('/mail-archive/reconcile-links', { method: 'POST' }),
   getMailAttachmentUrl: (id: string, fileToken: string) =>
     request<{ url: string }>(`/mail-archive/${id}/attachment-url?file_token=${encodeURIComponent(fileToken)}`),
 

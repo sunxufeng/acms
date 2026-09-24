@@ -53,7 +53,7 @@ export default function MailArchivePage() {
   }, []);
 
   /**
-   * 重算关联（幂等）：补「联系人 → 学生」「学生 → 联系人」的传递关联 + 清悬空壳值。
+   * 重算关联（幂等）：补「联系人 → 学生」「学生 → 联系人」的传递关联。
    *
    * 为什么需要手动入口：老师**手工改关联**时服务端已自动补（见 mail-archive.service 的 `link()`），
    * 但历史数据不会自己变 —— 尤其本次上线前老师是"直接在邮件上挂学生"，
@@ -66,7 +66,7 @@ export default function MailArchivePage() {
       setNoteErr(false);
       try {
         const r = await api.reconcileMailLinks();
-        setNote(t('reconcileDone', { scanned: r.scanned, fixed: r.fixed, cleaned: r.cleaned }));
+        setNote(t('reconcileDone', { scanned: r.scanned, fixed: r.fixed }));
         reload();
       } catch (e) {
         setNoteErr(true);

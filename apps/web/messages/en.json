@@ -2768,7 +2768,7 @@
   },
   "mailArchive": {
     "linkFailed": "Failed to link: {msg}",
-    "reconcileDone": "Reconciled: scanned {scanned}, updated {fixed}, cleaned {cleaned}",
+    "reconcileDone": "Reconciled: scanned {scanned}, updated {fixed}",
     "reconcileFailed": "Reconcile failed: {msg}",
     "closeNote": "Close",
     "unlinkFailed": "Failed to unlink: {msg}",

@@ -88,13 +88,20 @@ const LINK_MIN_CONFIDENCE = 85;
 /** 联系人索引（联系人 id ↔ 学生 id）的缓存时长：3686 行全表扫，两次写入之间不必重扫 */
 const CONTACT_INDEX_TTL_MS = 60_000;
 
-/** 违规/悬空值的识别：`{"link_record_ids": null}` 这类「看着有值、解析后为空」的壳 */
-function isShellLinkValue(raw: unknown): boolean {
-  if (raw == null || Array.isArray(raw)) return false;
-  const s = String(raw).trim();
-  if (!s || s === '[]') return false;
-  return idsOf(raw).length === 0;
-}
+/**
+ * ⚠️ 「空关联」有**两种**底层表示，判空必须用 `idsOf()`（2026-09-24 生产实测）：
+ *
+ *   · 从未写过该字段     → `''` / `null`（生产 5564 封）
+ *   · 写过但关联为空     → `{"link_record_ids": null}`（生产 816 封）
+ *
+ * 第二种**不是脏数据**，而是「空关联」序列化后的正常形态之一 —— 读接口有时会把它
+ * 还原成这个对象（实测：把 `[]` 写回去之后，再读仍可能是它）。
+ * 所以：
+ *   ① 判空只能用 `idsOf(v).length > 0`，`String(v) !== ''` 会把 816 封当成"已有关联"
+ *      ⇒ 自动补关联**永久静默跳过**；
+ *   ② **不要去"清理"它** —— 清不掉（写回 `[]` 后读出来还是它），只会每次重算都白写一遍。
+ *      第一版就踩了这个坑：重复点「重算关联」每次都报 cleaned=154 并重复写 154 条空记录。
+ */
 
 /** 单个附件上传的超时（ms）。
  *  ⚠️ Node 的 fetch **默认没有超时** —— 飞书网关挂起时请求会一直挂着不返回，
@@ -727,16 +734,23 @@ export class MailArchiveService extends BaseRecordService {
     return this.contactIdxCache;
   }
 
-  /** 按联系人索引算出该邮件**应该**有的关联（并集：原有 ∪ 派生） */
+  /** 按联系人索引算出该邮件**应该**有的关联（并集：原有 ∪ 派生），以及每一侧是否真的变了 */
   private reconcileFields(
     fields: Record<string, unknown>,
     idx: { studentsByContact: Map<string, string[]>; contactsByStudent: Map<string, string[]> },
-  ): { students: string[]; contacts: string[]; changed: boolean } {
-    // 🔴 判空一律用 idsOf：`{"link_record_ids": null}` 这类壳值会让
-    //    `String(v) !== ''` 式的判空误判成"已有关联"（生产里 816 封都是壳值）。
+  ): {
+    students: string[];
+    contacts: string[];
+    studentsChanged: boolean;
+    contactsChanged: boolean;
+    changed: boolean;
+  } {
+    // 🔴 判空一律用 idsOf：`{"link_record_ids": null}` 这种「空关联」形态会让
+    //    `String(v) !== ''` 式的判空误判成"已有关联"（生产里 816 封都是它，详见文件头注释）。
     const students = new Set(idsOf(fields['关联学生']));
     const contacts = new Set(idsOf(fields['关联联系人']));
-    const before = students.size + contacts.size;
+    const s0 = students.size;
+    const c0 = contacts.size;
     // 传递闭包：最多 3 轮。联系人的「关联学生ID」是单值 ⇒ 实际 1–2 轮就稳定；
     // 留余量是为了以后改成多值时不漏，且有 guard、不会发散。
     for (let round = 0; round < 3; round += 1) {
@@ -753,10 +767,14 @@ export class MailArchiveService extends BaseRecordService {
       }
       if (!grew) break;
     }
+    const studentsChanged = students.size !== s0;
+    const contactsChanged = contacts.size !== c0;
     return {
       students: [...students],
       contacts: [...contacts],
-      changed: students.size + contacts.size !== before,
+      studentsChanged,
+      contactsChanged,
+      changed: studentsChanged || contactsChanged,
     };
   }
 
@@ -767,27 +785,29 @@ export class MailArchiveService extends BaseRecordService {
     const f = (rec.fields ?? {}) as Record<string, unknown>;
     const idx = await this.contactIndex();
     const r = this.reconcileFields(f, idx);
+    // 🔴 只在**真的补出了东西**时才写：空关联的字段形态有两种（见文件头注释），
+    //    想"顺手规范化"会变成每次重算都白写一遍（第一版踩过）。
+    if (!r.changed) return false;
     const patch: Record<string, unknown> = {};
-    // 除了"有新东西可补"，顺手把壳值清成 []：它会让各处判空失效（见 isShellLinkValue）
-    if (r.changed || isShellLinkValue(f['关联学生'])) patch['关联学生'] = r.students;
-    if (r.changed || isShellLinkValue(f['关联联系人'])) patch['关联联系人'] = r.contacts;
-    if (!Object.keys(patch).length) return false;
+    if (r.studentsChanged) patch['关联学生'] = r.students;
+    if (r.contactsChanged) patch['关联联系人'] = r.contacts;
     await this.base.update(this.meta.tableId, recordId, patch);
     return true;
   }
 
   /**
-   * 全量重算邮件关联（幂等）：给历史数据补上传递关系，并清掉悬空的壳值。
+   * 全量重算邮件关联（幂等）：给历史数据补上传递关系。
    *
    * 为什么需要它：`link()` 只在**老师手工改关联**时触发，历史邮件（含本次上线前
    * 那几封「已挂学生」的邮件）不会自己变。用手动入口而不是常驻定时任务 ——
    * 数据"自己变了"会让人困惑，而这个动作的语义是管理员主动发起的一次整理。
+   *
+   * 幂等判据：跑第二遍必须是 `fixed: 0` 且**不产生任何写**（只按"真的变了"写）。
    */
-  async reconcileAll(): Promise<{ scanned: number; fixed: number; cleaned: number }> {
+  async reconcileAll(): Promise<{ scanned: number; fixed: number }> {
     const idx = await this.contactIndex();
     let scanned = 0;
     let fixed = 0;
-    let cleaned = 0;
     let pageToken: string | undefined;
     let guard = 0;
     do {
@@ -798,24 +818,22 @@ export class MailArchiveService extends BaseRecordService {
         if (!rid) continue;
         scanned += 1;
         const f = (rec.fields ?? rec) as Record<string, unknown>;
-        const shell = isShellLinkValue(f['关联学生']) || isShellLinkValue(f['关联联系人']);
         const r = this.reconcileFields(f, idx);
-        if (!r.changed && !shell) continue;
+        if (!r.changed) continue;
         const patch: Record<string, unknown> = {};
-        if (r.changed || isShellLinkValue(f['关联学生'])) patch['关联学生'] = r.students;
-        if (r.changed || isShellLinkValue(f['关联联系人'])) patch['关联联系人'] = r.contacts;
+        if (r.studentsChanged) patch['关联学生'] = r.students;
+        if (r.contactsChanged) patch['关联联系人'] = r.contacts;
         try {
           await this.base.update(this.meta.tableId, rid, patch);
-          if (r.changed) fixed += 1;
-          if (shell) cleaned += 1;
+          fixed += 1;
         } catch (e) {
           this.logger.warn(`重算关联失败 ${rid}：${(e as Error).message.slice(0, 120)}`);
         }
       }
       pageToken = res.pageToken;
     } while (pageToken && guard++ < 60);
-    this.logger.log(`邮件关联重算完成：扫描 ${scanned}，补全 ${fixed}，清理壳值 ${cleaned}`);
-    return { scanned, fixed, cleaned };
+    this.logger.log(`邮件关联重算完成：扫描 ${scanned}，补全 ${fixed}`);
+    return { scanned, fixed };
   }
 
   /**

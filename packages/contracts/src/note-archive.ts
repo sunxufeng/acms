@@ -517,8 +517,11 @@ export function jobKindLabel(kind: JobKind): string {
 export function archiveJobScheduleText(job: NoteArchiveJobDef): string {
   const time = `${String(job.hour).padStart(2, '0')}:${String(job.minute).padStart(2, '0')}`;
   const days = weekdaySummary(job.weekdays);
-  if (job.freq === '每小时') return `${days} 每小时第 ${job.minute} 分`;
-  if (job.freq === '每15分钟') return `${days} 每 15 分钟`;
+  // ⚠️ 频率=每小时/每15分钟时，`weekdaySummary([])` 会给出「每天」——
+  //    拼起来变成「每天 每小时第 57 分」这种自相矛盾的文案（日志里一眼就看得见）。
+  //    所以非「每天」频率下，只在**真的限定了星期**时才带前缀。
+  if (job.freq === '每小时') return job.weekdays.length ? `${days} 每小时第 ${job.minute} 分` : `每小时第 ${job.minute} 分`;
+  if (job.freq === '每15分钟') return job.weekdays.length ? `${days} 每 15 分钟` : '每 15 分钟';
   return `${days} ${time}`;
 }
 

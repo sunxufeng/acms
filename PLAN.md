@@ -1238,7 +1238,7 @@ apps/api 272 项测试全绿 · BUILD_ID `a1gxMnLdbpLCV1v7HEYPY`（槽 3002/3102
 | 计划条目 | 78（已完成 75 · 待开始 3）—— 见第二节各域表格（基础设施 21 · 招生管理 21 · 权限安全 15 · 教学管理 12 · 报表管理 5 · AI 路由 3 · 数据质量 1） |
 | 待办（**Issues 是真源**） | 6 项 open：[#1](https://github.com/sunxufeng/acms/issues/1) 教学班数据补录（P0·阻塞）· [#3](https://github.com/sunxufeng/acms/issues/3) AI 路由用户管理 · [#4](https://github.com/sunxufeng/acms/issues/4) 首页 logo 重传 · [#12](https://github.com/sunxufeng/acms/issues/12) 关联笔记可见性口径 · [#13](https://github.com/sunxufeng/acms/issues/13) 会议纪要加关联学生 · [#14](https://github.com/sunxufeng/acms/issues/14) 两处字典与实际数据不匹配 |
 | 导出副本 `PLAN.csv` | 100 条（已完成 97 · 待开始 3）—— 与第二节**同源但更细**（含逐条修复），供工作台「项目 → 计划」导入 |
-| 执行任务（8/25 – 9/24） | 924（已完成 921 · 待处理 3）—— 见 `docs/TASKS-ARCHIVE.md` |
+| 执行任务（8/25 – 9/24） | 929（已完成 926 · 待处理 3）—— 见 `docs/TASKS-ARCHIVE.md` |
 | 工作日 | 29 天（8/25 起算，含两端自然日） |
 | 线上部署形态 | Blue-Green，当前活跃 slot 见服务器 `/opt/acms/repo/.deploy_slot` |
 

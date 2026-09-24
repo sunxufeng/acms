@@ -177,4 +177,22 @@ export class MailArchiveController {
     await this.svc.link(user, id, { studentIds: body?.studentIds, contactIds: body?.contactIds });
     return { ok: true };
   }
+
+  /**
+   * 全量重算邮件关联（管理员/维护动作，幂等）：给历史邮件补上
+   * 「联系人 → 学生」「学生 → 联系人」的传递关联，并清掉悬空的壳值。
+   *
+   * 与 `link()` 的分工：`link()` 负责"老师手工改关联时立刻补"，
+   * 这里负责"把已经存在的历史数据整理一遍"。
+   *
+   * 权限用 `module:mailArchive:update`（与 sync-all 同款）：它不取邮箱凭证、
+   * 只写关联字段，但会**扫全表并批量写**，属于维护动作，不该下放给只读角色。
+   */
+  @Post('reconcile-links')
+  async reconcileLinks(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:mailArchive:update').allowed)
+      throw new HttpException('FORBIDDEN:module:mailArchive:update', HttpStatus.FORBIDDEN);
+    return this.svc.reconcileAll();
+  }
 }

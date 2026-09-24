@@ -1356,6 +1356,8 @@
     "告警等级": "Alert Level",
     "告警重算失败": "Alert recalculation failed",
     "告警重算完成": "Alert recalculation completed",
+    "重算关联": "Reconcile links",
+    "重算中…": "Reconciling…",
     "周期": "Cycle",
     "周课表": "Weekly Schedule",
     "周起始日": "Week starts on",
@@ -2766,6 +2768,9 @@
   },
   "mailArchive": {
     "linkFailed": "Failed to link: {msg}",
+    "reconcileDone": "Reconciled: scanned {scanned}, updated {fixed}, cleaned {cleaned}",
+    "reconcileFailed": "Reconcile failed: {msg}",
+    "closeNote": "Close",
     "unlinkFailed": "Failed to unlink: {msg}",
     "getDownloadUrlFailed": "Failed to get the download link: {msg}",
     "noBody": "(No content)",

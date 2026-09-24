@@ -23,7 +23,12 @@ describe('邮件归档 link 接口的权限判据', () => {
   it('🔴 判 module:mailArchive:read，不判 update（判 update ⇒ 除管理员外全部 403）', () => {
     const i = ctrl.indexOf("@Put(':id/link')");
     expect(i, '找不到 @Put(\':id/link\') 路由').toBeGreaterThan(-1);
-    const body = ctrl.slice(i, i + 1400);
+    // ⚠️ 只截到**下一个路由装饰器**为止（不能用固定长度）：
+    //    同文件里 `@Post('reconcile-links')` 是维护动作、**合法地**用 update 判据，
+    //    固定 1400 字窗口会把它连带截进来 ⇒ 这条守卫会误报。
+    //    （2026-09-24 加 reconcile-links 时就踩到了这个假阳性。）
+    const next = ctrl.indexOf('\n  @', i + 1);
+    const body = ctrl.slice(i, next > i ? next : i + 1400);
     expect(body).toContain("'module:mailArchive:read'");
     expect(body).not.toContain("'module:mailArchive:update'");
   });

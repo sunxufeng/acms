@@ -1356,6 +1356,8 @@
     "告警等级": "告警等级",
     "告警重算失败": "告警重算失败",
     "告警重算完成": "告警重算完成",
+    "重算关联": "重算关联",
+    "重算中…": "重算中…",
     "周期": "周期",
     "周课表": "周课表",
     "周起始日": "周起始日",
@@ -2766,6 +2768,9 @@
   },
   "mailArchive": {
     "linkFailed": "关联失败：{msg}",
+    "reconcileDone": "已重算：扫描 {scanned} 封，补全 {fixed} 封，清理空值 {cleaned} 封",
+    "reconcileFailed": "重算失败：{msg}",
+    "closeNote": "关闭",
     "unlinkFailed": "取消关联失败：{msg}",
     "getDownloadUrlFailed": "获取下载链接失败：{msg}",
     "noBody": "(无正文)",

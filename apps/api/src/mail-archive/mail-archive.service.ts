@@ -57,8 +57,44 @@ function parseFreqMinutes(raw: unknown): number {
 }
 
 /** 附件上传的并发上限。太高会撞飞书上传接口限流（表现为大量 502），
- *  太低则大附件邮件仍然很慢。3 是实测下来既不超时也不触发限流的档位。 */
+ *  太低则大邮件仍然很慢。3 是实测下来既不超时也不触发限流的档位。 */
 const ATTACHMENT_CONCURRENCY = 3;
+
+/**
+ * 「邮件 → 联系人 → 学生」三方一致化（2026-09-24 峰哥需求）。
+ *
+ * 规则（**只补不覆盖**，两个方向都做）：
+ *   A. 邮件关联了联系人 ⇒ 把该联系人匹配到的**学生**补进邮件的「关联学生」
+ *   B. 邮件关联了学生   ⇒ 把「关联学生ID」指向该学生的**联系人**补进「关联联系人」
+ *
+ * 为什么要 B（反向）：生产实测「关联联系人」几乎没人用（6383 封里只有 1 封），
+ * 而老师习惯直接在邮件上挂学生 —— 只做 A 的话这条链子中间是空的，等于没效果。
+ * 反过来，已有学生的邮件几乎都能找到家长联系人（数据上立刻见效）。
+ *
+ * 为什么落在**服务端**：所有关联写入都走 `link()`（前端「关联」面板的唯一入口），
+ * 在这里收口一次就覆盖全部调用方；前端联动只能覆盖"手工点的那一下"，
+ * 而 IMAP 同步、批量导入、以后的接口都绕过它。
+ */
+/**
+ * 联系人「关联学生ID」的最低可信度。
+ *
+ * 该字段是 `matchStudents()` 按姓名/手机号**猜**出来的（带 `匹配置信度` 分数）。
+ * 只认 ≥85（姓名 / 学生手机 / 家长电话 这三档；生产里 55–79 是「昵称包含学生姓名」这类弱匹配）
+ * —— 弱匹配会把邮件挂到**错误的学生档案**上，而学生档案下方会直接显示这封邮件，错了很难被发现。
+ * 所以**宁可不补，也不补错**。
+ */
+const LINK_MIN_CONFIDENCE = 85;
+
+/** 联系人索引（联系人 id ↔ 学生 id）的缓存时长：3686 行全表扫，两次写入之间不必重扫 */
+const CONTACT_INDEX_TTL_MS = 60_000;
+
+/** 违规/悬空值的识别：`{"link_record_ids": null}` 这类「看着有值、解析后为空」的壳 */
+function isShellLinkValue(raw: unknown): boolean {
+  if (raw == null || Array.isArray(raw)) return false;
+  const s = String(raw).trim();
+  if (!s || s === '[]') return false;
+  return idsOf(raw).length === 0;
+}
 
 /** 单个附件上传的超时（ms）。
  *  ⚠️ Node 的 fetch **默认没有超时** —— 飞书网关挂起时请求会一直挂着不返回，
@@ -172,6 +208,13 @@ export class MailArchiveService extends BaseRecordService {
 
   /** 账户 ID → 最近一次同步的进度（「立即收取」异步化后供前端轮询） */
   private readonly syncStates = new Map<string, SyncProgress>();
+
+  /** 联系人 ↔ 学生 索引（只含置信度达标的匹配），供「三方一致化」用；见 contactIndex() */
+  private contactIdxCache?: {
+    at: number;
+    studentsByContact: Map<string, string[]>;
+    contactsByStudent: Map<string, string[]>;
+  };
 
   /**
    * ⚠️ 后两个参数必须写显式 @Inject，否则会被父类的注入元数据覆盖。
@@ -637,6 +680,142 @@ export class MailArchiveService extends BaseRecordService {
     if (ids.contactIds !== undefined) patch['关联联系人'] = clean(ids.contactIds);
     if (!Object.keys(patch).length) return;
     await this.base.update(this.meta.tableId, recordId, patch);
+
+    // ① 老师手工改完之后，立刻按「三方一致化」补上传递关系（联系人 ↔ 学生）。
+    //    收口在服务端而不是前端联动：前端只能覆盖"手工点的那一下"，IMAP 同步、
+    //    批量导入、以后的接口都会绕过它。
+    // ② ⚠️ 已知且刻意保留的语义：若老师把「学生」清空、但联系人仍挂着，
+    //    这一步会把该联系人对应的学生**补回来**（因为「只补不覆盖」且没有"人工排除清单"）。
+    //    要彻底表达"这封邮件与该学生无关"，需把联系人也取消。
+    //    若要支持"取消后不再补"，得加一个隐藏的排除字段（峰哥 2026-09-24 决定先不做）。
+    await this.reconcileRecord(recordId);
+  }
+
+  /**
+   * 联系人索引：只收**置信度达标**的匹配（见 `LINK_MIN_CONFIDENCE`）。
+   *   studentsByContact: 联系人 id → 学生 id[]（正常 1 个，matchStudents 是单值匹配）
+   *   contactsByStudent: 学生 id → 联系人 id[]（一个学生常有爸爸/妈妈多个联系人）
+   */
+  private async contactIndex(): Promise<{
+    studentsByContact: Map<string, string[]>;
+    contactsByStudent: Map<string, string[]>;
+  }> {
+    if (this.contactIdxCache && Date.now() - this.contactIdxCache.at < CONTACT_INDEX_TTL_MS) {
+      return this.contactIdxCache;
+    }
+    const studentsByContact = new Map<string, string[]>();
+    const contactsByStudent = new Map<string, string[]>();
+    let pageToken: string | undefined;
+    let guard = 0;
+    do {
+      const res = await this.base.search(TABLES.weilingContact.tableId, { pageSize: 500, pageToken });
+      for (const item of res.items ?? []) {
+        const rec = item as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+        const cid = String(rec.recordId ?? rec.id ?? '').trim();
+        const f = (rec.fields ?? rec) as Record<string, unknown>;
+        const sid = String(f['关联学生ID'] ?? '').trim();
+        const conf = Number(f['匹配置信度'] ?? 0);
+        if (!cid || !sid || !Number.isFinite(conf) || conf < LINK_MIN_CONFIDENCE) continue;
+        studentsByContact.set(cid, [sid]);
+        const back = contactsByStudent.get(sid) ?? [];
+        back.push(cid);
+        contactsByStudent.set(sid, back);
+      }
+      pageToken = res.pageToken;
+    } while (pageToken && guard++ < 40);
+    this.contactIdxCache = { at: Date.now(), studentsByContact, contactsByStudent };
+    return this.contactIdxCache;
+  }
+
+  /** 按联系人索引算出该邮件**应该**有的关联（并集：原有 ∪ 派生） */
+  private reconcileFields(
+    fields: Record<string, unknown>,
+    idx: { studentsByContact: Map<string, string[]>; contactsByStudent: Map<string, string[]> },
+  ): { students: string[]; contacts: string[]; changed: boolean } {
+    // 🔴 判空一律用 idsOf：`{"link_record_ids": null}` 这类壳值会让
+    //    `String(v) !== ''` 式的判空误判成"已有关联"（生产里 816 封都是壳值）。
+    const students = new Set(idsOf(fields['关联学生']));
+    const contacts = new Set(idsOf(fields['关联联系人']));
+    const before = students.size + contacts.size;
+    // 传递闭包：最多 3 轮。联系人的「关联学生ID」是单值 ⇒ 实际 1–2 轮就稳定；
+    // 留余量是为了以后改成多值时不漏，且有 guard、不会发散。
+    for (let round = 0; round < 3; round += 1) {
+      let grew = false;
+      for (const c of [...contacts]) {
+        for (const s of idx.studentsByContact.get(c) ?? []) {
+          if (!students.has(s)) { students.add(s); grew = true; }
+        }
+      }
+      for (const s of [...students]) {
+        for (const c of idx.contactsByStudent.get(s) ?? []) {
+          if (!contacts.has(c)) { contacts.add(c); grew = true; }
+        }
+      }
+      if (!grew) break;
+    }
+    return {
+      students: [...students],
+      contacts: [...contacts],
+      changed: students.size + contacts.size !== before,
+    };
+  }
+
+  /** 补全一封邮件的传递关联（幂等）。返回是否写了库。 */
+  private async reconcileRecord(recordId: string): Promise<boolean> {
+    const rec = await this.base.get(this.meta.tableId, recordId);
+    if (!rec) return false;
+    const f = (rec.fields ?? {}) as Record<string, unknown>;
+    const idx = await this.contactIndex();
+    const r = this.reconcileFields(f, idx);
+    const patch: Record<string, unknown> = {};
+    // 除了"有新东西可补"，顺手把壳值清成 []：它会让各处判空失效（见 isShellLinkValue）
+    if (r.changed || isShellLinkValue(f['关联学生'])) patch['关联学生'] = r.students;
+    if (r.changed || isShellLinkValue(f['关联联系人'])) patch['关联联系人'] = r.contacts;
+    if (!Object.keys(patch).length) return false;
+    await this.base.update(this.meta.tableId, recordId, patch);
+    return true;
+  }
+
+  /**
+   * 全量重算邮件关联（幂等）：给历史数据补上传递关系，并清掉悬空的壳值。
+   *
+   * 为什么需要它：`link()` 只在**老师手工改关联**时触发，历史邮件（含本次上线前
+   * 那几封「已挂学生」的邮件）不会自己变。用手动入口而不是常驻定时任务 ——
+   * 数据"自己变了"会让人困惑，而这个动作的语义是管理员主动发起的一次整理。
+   */
+  async reconcileAll(): Promise<{ scanned: number; fixed: number; cleaned: number }> {
+    const idx = await this.contactIndex();
+    let scanned = 0;
+    let fixed = 0;
+    let cleaned = 0;
+    let pageToken: string | undefined;
+    let guard = 0;
+    do {
+      const res = await this.base.search(this.meta.tableId, { pageSize: 200, pageToken });
+      for (const item of res.items ?? []) {
+        const rec = item as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+        const rid = String(rec.recordId ?? rec.id ?? '').trim();
+        if (!rid) continue;
+        scanned += 1;
+        const f = (rec.fields ?? rec) as Record<string, unknown>;
+        const shell = isShellLinkValue(f['关联学生']) || isShellLinkValue(f['关联联系人']);
+        const r = this.reconcileFields(f, idx);
+        if (!r.changed && !shell) continue;
+        const patch: Record<string, unknown> = {};
+        if (r.changed || isShellLinkValue(f['关联学生'])) patch['关联学生'] = r.students;
+        if (r.changed || isShellLinkValue(f['关联联系人'])) patch['关联联系人'] = r.contacts;
+        try {
+          await this.base.update(this.meta.tableId, rid, patch);
+          if (r.changed) fixed += 1;
+          if (shell) cleaned += 1;
+        } catch (e) {
+          this.logger.warn(`重算关联失败 ${rid}：${(e as Error).message.slice(0, 120)}`);
+        }
+      }
+      pageToken = res.pageToken;
+    } while (pageToken && guard++ < 60);
+    this.logger.log(`邮件关联重算完成：扫描 ${scanned}，补全 ${fixed}，清理壳值 ${cleaned}`);
+    return { scanned, fixed, cleaned };
   }
 
   /**

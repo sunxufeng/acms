@@ -129,4 +129,24 @@ describe('我的跟进 · 前端交互', () => {
     expect(page).toContain("t('userLabel')");
     expect(page).toContain('userLabels');
   });
+
+  it('🔴 非系统管理员**只能看自己**：`user` 参数一律忽略（服务端硬锁，不信前端）', () => {
+    // 「我的跟进」名义上是"我的" —— 若能切到别的招生老师，等于把别人的客户跟进
+    // （联系方式 / 沟通明细 / 邮件）开放给所有持联系人读权限的人。
+    expect(svc).toContain('function canSeeOthers');
+    expect(svc).toContain("roles?.includes('系统管理员')");
+    expect(svc).toContain('scopeAll && asked ? asked : myId');
+  });
+
+  it('用户下拉对非管理员**只回本人**（下拉本身就是越权入口）', () => {
+    expect(svc).toContain('if (!canSeeOthers(user))');
+  });
+
+  it('响应带 selfOnly，前端把「用户」下拉换成「仅本人」标签', () => {
+    expect(svc).toContain('selfOnly: !scopeAll');
+    expect(page).toContain('data?.selfOnly ?');
+    expect(page).toContain("t('selfOnly')");
+    // 非管理员下不能渲染用户下拉（否则又给出"能切"的错觉）
+    expect(page).toMatch(/data\?\.selfOnly \?[\s\S]{0,400}?\) : \(\s*<FilterSelect/);
+  });
 });

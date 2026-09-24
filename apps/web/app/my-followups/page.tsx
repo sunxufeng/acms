@@ -23,6 +23,20 @@ const checkStyle: CSSProperties = {
   cursor: 'pointer',
 };
 
+/** 非管理员看到的「仅本人」标签（替代「用户」下拉的位置与视觉分量） */
+const selfOnlyStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  height: 32,
+  padding: '0 10px',
+  fontSize: 13,
+  color: 'var(--fg-secondary)',
+  background: 'var(--bg-subtle, var(--bg-secondary))',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+};
+
 /** 展开状态写进地址栏（`?open=<联系人 id>`）：刷新、从别处返回后仍是展开的 */
 function readOpenFromUrl(): string {
   if (typeof window === 'undefined') return '';
@@ -100,6 +114,11 @@ export default function MyFollowupsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /** 服务端已把非管理员锁到本人：清掉残留的 user 参数，别让请求带着无效值来回跑 */
+  useEffect(() => {
+    if (data?.selfOnly && userId) setUserId('');
+  }, [data?.selfOnly, userId]);
 
   function toggle(id: string) {
     const next = openId === id ? '' : id;
@@ -211,13 +230,22 @@ export default function MyFollowupsPage() {
 
       {/* ── 筛选条：用户 + 关键字 + 阶段 / 渠道 + 三类勾选 + 看全部 ── */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-        <FilterSelect
-          label={t('userLabel')}
-          options={userOpts}
-          optionLabels={userLabels}
-          value={userId}
-          onChange={resetTo1(setUserId)}
-        />
+        {/* 用户筛选：**只有系统管理员**能切人；其他人锁到本人（服务端也硬锁，见 canSeeOthers）。
+            非管理员这里渲染成标签而不是下拉 —— 不给"能切"的错觉，也少一次无效请求。 */}
+        {data?.selfOnly ? (
+          <span style={selfOnlyStyle}>
+            {t('userLabel')}：{data.userName || data.myName}
+            <span style={{ color: 'var(--fg-tertiary)' }}>（{t('selfOnly')}）</span>
+          </span>
+        ) : (
+          <FilterSelect
+            label={t('userLabel')}
+            options={userOpts}
+            optionLabels={userLabels}
+            value={userId}
+            onChange={resetTo1(setUserId)}
+          />
+        )}
         <input
           className="form-input"
           style={{ width: 190 }}

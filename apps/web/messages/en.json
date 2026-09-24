@@ -2708,6 +2708,7 @@
     "title": "My Follow-ups",
     "subtitle": "Contacts assigned to me that have activity — follow-up notes, admissions follow-ups and emails",
     "userLabel": "User",
+    "selfOnly": "Only me",
     "searchPlaceholder": "Search name / phone / summary",
     "stageLabel": "Stage",
     "channelLabel": "Channel",

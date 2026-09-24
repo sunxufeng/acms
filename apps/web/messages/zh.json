@@ -2708,6 +2708,7 @@
     "title": "我的跟进",
     "subtitle": "我名下、且有互动的联系人 —— 汇总跟进记录 / 招生跟进 / 邮件往来三类",
     "userLabel": "用户",
+    "selfOnly": "仅本人",
     "searchPlaceholder": "搜索 姓名 / 手机 / 摘要",
     "stageLabel": "客户阶段",
     "channelLabel": "来源渠道",

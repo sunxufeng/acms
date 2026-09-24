@@ -53,6 +53,23 @@ const MAX_CONTACTS = 3000;
 type Row = Record<string, unknown>;
 
 /**
+ * 能否查看**别人**的跟进 —— 只有系统管理员可以（2026-09-24 峰哥定）。
+ *
+ * 🔴 语义问题，不只是 UI 问题：「我的跟进」名义上是"我的"，如果谁都能切到别的招生老师，
+ *    等于把**别人的客户跟进记录**（含联系方式、沟通明细、邮件）开放给所有持
+ *    `module:weilingContacts:read` 的人。所以：
+ *   · 服务端**硬锁** —— 非管理员请求里的 `user` 参数一律忽略，按本人处理（不信前端）；
+ *   · 用户下拉也只回本人（否则下拉本身就是越权入口）；
+ *   · 前端把下拉换成「仅本人」标签，是为了不给出"能切"的错觉，但**防线在这两条硬锁上**。
+ *
+ * 判据用角色名（与 `note-archive` / `api-token` 同款写法）：本系统里
+ * 「系统管理员」是唯一的组织级管理员角色，且它的权限集被锁定不可改。
+ */
+function canSeeOthers(user: SessionUser): boolean {
+  return !!user?.roles?.includes('系统管理员');
+}
+
+/**
  * 时间归一：**一律转毫秒时间戳**。三类数据的时间形态各不相同（毫秒戳 / ISO / UTC 串），
  * 直接 `Number()` 得 NaN ⇒ 那条记录被当成「没有时间」排到最后。
  */
@@ -307,6 +324,15 @@ export class MyFollowupsService {
     requireModule(user, 'weilingContacts', 'read');
     const [byUser, users] = await Promise.all([this.mappingIndex(), this.allUsers()]);
     const nameOf = new Map(users.map((u) => [String(u.id ?? ''), String(u['姓名'] ?? '')]));
+    // 🔴 非管理员**只回本人**：下拉里出现别人，本身就是越权入口（见 canSeeOthers）。
+    //    本人没配映射时也回本人一行 —— 让页面能显示"仅本人：<姓名>"，
+    //    而不是空下拉（空下拉看起来像"加载失败"）。
+    if (!canSeeOthers(user)) {
+      const me = await this.currentUser(user);
+      const myId = String(me?.id ?? '');
+      if (!myId) return [];
+      return [{ id: myId, name: String(me?.['姓名'] ?? '') || myId, owners: byUser.get(myId) ?? [] }];
+    }
     const out: { id: string; name: string; owners: string[] }[] = [];
     for (const [uid, owners] of byUser) {
       out.push({ id: uid, name: nameOf.get(uid) || uid, owners });
@@ -342,10 +368,14 @@ export class MyFollowupsService {
   /**
    * 列表：某用户的联系人 + 三类互动。
    *
+   * 看谁的数据（**先过权限闸**）：
+   *   非系统管理员 ⇒ 无视 `user` 参数，**只能是本人**（响应 `selfOnly: true`）；
+   *   系统管理员 ⇒ 可用 `user` 参数切到任意配过映射的用户。
+   *
    * 归属人的确定顺序：
-   *   ① `user` 参数指定的用户 → 映射表里的归属人（前端「用户」筛选走这条）
-   *   ② 当前登录人 → 映射表里的归属人（**正常路径**）
-   *   ③ 当前登录人 → 按姓名猜（兜底，响应里 `ownerSource: 'name'` 提示去配映射）
+   *   ① `user`（仅管理员，或本人）→ 映射表里的归属人
+   *   ② 本人 → 映射表里的归属人（**正常路径**）
+   *   ③ 本人 → 按姓名猜（兜底，响应里 `ownerSource: 'name'` 提示去配映射）
    *   ④ 都没有 ⇒ 空列表 + `ownerUnresolved`
    */
   async list(user: SessionUser, query: Record<string, string | undefined>) {
@@ -356,7 +386,11 @@ export class MyFollowupsService {
     const [byUser, users] = await Promise.all([this.mappingIndex(), this.allUsers()]);
     const nameOf = new Map(users.map((u) => [String(u.id ?? ''), String(u['姓名'] ?? '')]));
 
-    const targetId = String(query.user ?? '').trim() || myId;
+    // 🔴 非管理员**忽略 `user` 参数**，一律按本人处理（服务端硬锁，见 canSeeOthers）。
+    //    `user` 只给系统管理员用于"切到某位老师看"；前端隐藏下拉只是省事，真正的闸在这里。
+    const scopeAll = canSeeOthers(user);
+    const asked = String(query.user ?? '').trim();
+    const targetId = scopeAll && asked ? asked : myId;
     const targetName = nameOf.get(targetId) || (targetId === myId ? myName : targetId);
 
     let owner = '';
@@ -379,6 +413,8 @@ export class MyFollowupsService {
       userName: targetName,
       myName,
       myId,
+      /** true = 当前登录人**只能看自己**（非系统管理员），前端据此把「用户」下拉换成标签 */
+      selfOnly: !scopeAll,
       owner,
       ownerSource,
       users: await this.userOptions(user),

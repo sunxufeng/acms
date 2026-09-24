@@ -247,7 +247,14 @@ export interface MyFollowupsResp {
   owner: string;
   /** 归属人从哪来：`mapping`=归属人映射表（正规）· `name`=按姓名推断（建议去配映射）· 空=没识别出 */
   ownerSource: 'mapping' | 'name' | '';
-  /** 有映射关系的用户 —— 顶部「用户」筛选的候选（只列配过映射的） */
+  /**
+   * true = **只能看自己**（非系统管理员）。
+   *
+   * 服务端会忽略这类请求里的 `user` 参数并硬锁到本人；前端据此把「用户」下拉
+   * 换成「仅本人」标签 —— 别只做前端隐藏，闸在服务端（见 my-followups.service `canSeeOthers`）。
+   */
+  selfOnly?: boolean;
+  /** 有映射关系的用户 —— 顶部「用户」筛选的候选（非管理员只回本人） */
   users: { id: string; name: string; owners: string[] }[];
   /** true = 没识别出归属人（此时后端返回空列表，不会退化成「全站联系人」） */
   ownerUnresolved?: boolean;

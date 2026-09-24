@@ -1357,6 +1357,8 @@
     "告警重算失败": "Alert recalculation failed",
     "告警重算完成": "Alert recalculation completed",
     "重算关联": "Reconcile links",
+    "任务类型": "Task type",
+    "频率": "Frequency",
     "重算中…": "Reconciling…",
     "周期": "Cycle",
     "周课表": "Weekly Schedule",

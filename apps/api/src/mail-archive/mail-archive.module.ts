@@ -1,7 +1,5 @@
-import { Module, OnModuleInit } from '@nestjs/common';
-import { Cron } from 'croner';
+import { Module } from '@nestjs/common';
 import { baseClientProvider } from '../base.provider.js';
-import { runAs, systemActor } from '../shared/actor-context.js';
 import { FileUploadModule } from '../file-upload/file-upload.module.js';
 import { MailAccountService } from './mail-account.service.js';
 import { MailArchiveService } from './mail-archive.service.js';
@@ -11,34 +9,17 @@ import { MailAccountController, MailArchiveController } from './mail-archive.con
  * 邮件自动归档模块。
  *  - mail-accounts：IMAP 账户配置（密码 AES 加密入库，列表/详情以掩码返回）
  *  - mail-archive：归档邮件记录（由同步任务写入，前端只读）
- *  - 定时任务：每 15 分钟触发一次「同步全部启用账户」，各账户按自身收取频率节流
+ *
+ * ⚠️ 触发时间**不在这个模块里**了（2026-09-24）：原来是硬编码的「每 15 分钟」cron 表达式，
+ *    现在由 `ScheduledTasksRunner` 按「定时任务」页的任务行驱动
+ *    （默认任务「邮件收取」= 每15分钟，与改造前行为等价）。
+ *    每个账户**是否真去收**仍由它自己的「收取频率」决定（节流在 `syncAll` 内）。
+ *    `exports` 是给调度器注入用的，别删。
  */
 @Module({
   imports: [FileUploadModule],
   controllers: [MailAccountController, MailArchiveController],
   providers: [MailAccountService, MailArchiveService, baseClientProvider],
+  exports: [MailArchiveService],
 })
-export class MailArchiveModule implements OnModuleInit {
-  private readonly logger = console;
-
-  constructor(private readonly archive: MailArchiveService) {}
-
-  onModuleInit() {
-    // 每 15 分钟执行一次全量同步（账户级频率在 syncAll 内部节流）
-    try {
-      new Cron(
-        '*/15 * * * *',
-        { name: 'mail-archive-sync', protect: true },
-        () => {
-          // 后台写入无用户会话，显式声明身份，使归档记录的创建人 = system:mail-archive
-          runAs(systemActor('mail-archive', '系统 · 邮件归档'), () => this.archive.syncAll())
-            .then((r) => this.logger.log(`[mail-archive] 定时同步完成，触发 ${r.synced} 个账户`))
-            .catch((e) => this.logger.error(`[mail-archive] 定时同步失败: ${(e as Error).message}`));
-        },
-      );
-      this.logger.log('[mail-archive] 已注册定时同步任务（每 15 分钟）');
-    } catch (e) {
-      this.logger.error(`[mail-archive] 定时任务注册失败: ${(e as Error).message}`);
-    }
-  }
-}
+export class MailArchiveModule {}

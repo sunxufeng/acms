@@ -145,6 +145,9 @@ describe('任务行 → 运行口径 parseArchiveJobRow', () => {
       key: 'rec_abc',
       label: '周报归档',
       enabled: true,
+      // 「定时任务」通用化后新增的两个字段；这行没写它们 ⇒ 走兼容缺省
+      kind: '笔记归档',
+      freq: '每天',
       hour: 9,
       minute: 30,
       weekdays: [1, 5],

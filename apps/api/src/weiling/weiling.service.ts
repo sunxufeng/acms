@@ -98,10 +98,19 @@ export class WeilingService implements OnModuleInit {
     error: string;
   } = { running: false, done: false, total: 0, scanned: 0, lost: 0, kept: 0, skipped: 0, at: 0, error: '' };
 
-  async onModuleInit() {
-    // 启动后延迟 1 分钟做一次同步（让其它模块先就绪），之后每天一次
-    setTimeout(() => void this.syncAll(false), 60_000).unref?.();
-    setInterval(() => void this.syncAll(false), 24 * 60 * 60 * 1000).unref?.();
+  /**
+   * 🔴 定时同步**已移出本服务**（2026-09-24）。
+   *
+   * 原来这里是「启动后 60 秒跑一次 + 每 24 小时的 setInterval」—— 那个写法有两个问题：
+   *  ① 蓝绿部署每次重启都会把 24 小时计时清零 ⇒ 名义"每天一次"，实际时间点一直往后漂
+   *     （实测一天部署 4 次就跑了 4 次），而且**用户改不了**；
+   *  ② 与「笔记归档」那套"每小时醒一次 + 判到点"的正确范式不一致（项目里早写过反例注释）。
+   *
+   * 现在改由 `ScheduledTasksRunner` 驱动：任务行「卫瓴联系人同步」（默认每天 07:00）在
+   * 「定时任务」页里可改时间/频率。需要立刻更新时仍可点联系人管理页的「同步」按钮。
+   */
+  onModuleInit(): void {
+    // 故意为空：本服务的定时器由 ScheduledTasksRunner 统一管理
   }
 
   // ── 凭证 ────────────────────────────────────────────────────

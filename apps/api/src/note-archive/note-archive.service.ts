@@ -119,8 +119,6 @@ function beijingStamp(ms: number): string {
 export class NoteArchiveService implements OnModuleInit {
   private readonly logger = new Logger(NoteArchiveService.name);
   private readonly jobs = new Map<NoteArchiveJobKey, NoteArchiveProgress>();
-  /** `${任务}:${日期}` → 已跑过（进程内即可，理由同音频任务：蓝绿重启只丢这个标记，任务本身幂等） */
-  private readonly ranDay = new Set<string>();
   /** `${根}:${归一后的人名}` → 文件夹 token（每次运行从云盘现状重建，不跨天缓存） */
   private readonly folderCache = new Map<string, string>();
   /** `names:${文件夹token}` → 该文件夹里已有的文件名集合（本次运行内缓存，防中断重跑重复上传） */
@@ -133,7 +131,9 @@ export class NoteArchiveService implements OnModuleInit {
     } catch (e) {
       this.logger.warn(`归档建表失败（下次运行会重试）：${(e as Error).message.slice(0, 160)}`);
     }
-    this.startCron();
+    // 🔴 定时器**已移出本服务**（2026-09-24）：统一由 `ScheduledTasksRunner` 按
+    //    「定时任务」页的任务行驱动。这里若再自建一份 cron 循环，同一任务会被调度两次
+    //    （两边都判到点、都写「上次运行」），且出问题时分不清是谁跑的。
   }
 
   private async ensureTables(): Promise<void> {
@@ -157,6 +157,10 @@ export class NoteArchiveService implements OnModuleInit {
     await sql.ensureTable(TABLES.noteArchiveJob.tableId, '笔记归档任务表', [
       { name: ARCHIVE_JOB_FIELDS.任务名称, type: T.TEXT },
       { name: ARCHIVE_JOB_FIELDS.启用, type: T.TEXT },
+      // 「定时任务」通用化新增（2026-09-24）：ensureTable 的字段登记是 upsert ⇒
+      // 往这个数组里加一行，部署时就会自动在 acms_fields 里补上（幂等，不需要手工脚本）
+      { name: ARCHIVE_JOB_FIELDS.任务类型, type: T.TEXT },
+      { name: ARCHIVE_JOB_FIELDS.频率, type: T.TEXT },
       { name: ARCHIVE_JOB_FIELDS.执行时间, type: T.TEXT },
       { name: ARCHIVE_JOB_FIELDS.执行日, type: T.MULTI },
       { name: ARCHIVE_JOB_FIELDS.目标文件夹, type: T.TEXT },
@@ -216,37 +220,6 @@ export class NoteArchiveService implements OnModuleInit {
     return jobs.find((j) => j.key === id) ?? null;
   }
 
-  /**
-   * 起定时器。
-   *
-   * 🔴 与「每日音频抓取」同一范式：**不是** `setInterval(24h)` —— 蓝绿部署每次都重启进程，
-   *    24 小时计时清零，部署一勤就永远等不到那一刻。改成「每小时醒一次，看北京时间到点没到点、
-   *    今天跑没跑过、今天是不是它的执行日」，判据是**日期 + 时刻**，与进程活了多久无关。
-   *    ⚠️ 判据里必须带**补跑窗口**（见 `shouldRunArchiveJob`）—— 否则每次重启都会触发一遍。
-   */
-  private startCron(): void {
-    if (String(process.env.GETNOTE_ARCHIVE_CRON ?? '').trim().toLowerCase() === 'off') {
-      this.logger.log('GETNOTE_ARCHIVE_CRON=off，跳过笔记归档定时器');
-      return;
-    }
-    const tick = async () => {
-      try {
-        const { day, minutes, weekday } = beijingClock();
-        const jobs = await this.loadJobs();
-        for (const job of jobs) {
-          const marker = `${job.key}:${day}`;
-          if (!shouldRunArchiveJob(job, minutes, this.ranDay.has(marker), weekday)) continue;
-          this.ranDay.add(marker);
-          this.logger.log(`笔记归档定时触发：${job.label}（${archiveJobScheduleText(job)}，补跑窗口 ${job.catchUpHours}h）`);
-          this.start(job, { trigger: 'cron' });
-        }
-      } catch (e) {
-        this.logger.warn(`笔记归档定时检查失败：${(e as Error).message.slice(0, 160)}`);
-      }
-    };
-    setTimeout(() => void tick(), 3 * 60 * 1000).unref?.();
-    setInterval(() => void tick(), 60 * 60 * 1000).unref?.();
-  }
 
   /** 归档失败/异常时发飞书 IM —— 不告警就会「静默不归档」，谁也不知道 */
   private async alert(text: string): Promise<void> {

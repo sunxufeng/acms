@@ -6,6 +6,9 @@ import { api, type NoteArchiveCheckResult, type NoteArchiveProgressItem } from '
 import {
   ARCHIVE_JOB_FIELDS as F,
   ARCHIVE_JOB_WEEKDAY_OPTIONS,
+  JOB_FREQS,
+  JOB_KINDS,
+  JOB_KIND_NOTE_ARCHIVE,
   NOTE_ARCHIVE_KINDS,
   parseFolderToken,
 } from '@acms/contracts';
@@ -43,14 +46,39 @@ const COLUMNS: CrudColumn[] = [
     listOrder: 3,
   },
   {
+    // 2026-09-24 新增：任务类型（「定时任务」从"笔记归档专用"升级为通用调度器）
+    key: F.任务类型,
+    label: '任务类型',
+    width: '140px',
+    form: true,
+    type: 'select',
+    options: [...JOB_KINDS],
+    filter: true,
+    filterOptions: [...JOB_KINDS],
+    hint: '到点执行什么。「目标文件夹 / 标题关键词 / 输出内容 / 按人分文件夹」只有「笔记归档」用得上',
+    listOrder: 4,
+  },
+  {
+    key: F.频率,
+    label: '频率',
+    width: '110px',
+    form: true,
+    type: 'select',
+    options: [...JOB_FREQS],
+    filter: true,
+    filterOptions: [...JOB_FREQS],
+    hint: '每天＝按「执行时间」的 HH:MM；每小时＝每小时的第 N 分（取「执行时间」的分钟）；每15分钟＝每小时 0/15/30/45 分',
+    listOrder: 5,
+  },
+  {
     key: F.执行时间,
     label: '执行时间',
     width: '90px',
     form: true,
     type: 'text',
     required: true,
-    hint: 'HH:MM，北京时间',
-    listOrder: 4,
+    hint: 'HH:MM，北京时间。频率=每小时时只用其中的「分钟」',
+    listOrder: 6,
   },
   {
     key: F.执行日,
@@ -60,7 +88,7 @@ const COLUMNS: CrudColumn[] = [
     type: 'multiselect',
     options: ARCHIVE_JOB_WEEKDAY_OPTIONS,
     hint: '勾「每天」或留空 = 每天都跑',
-    listOrder: 5,
+    listOrder: 7,
   },
   {
     key: F.目标文件夹,
@@ -68,9 +96,10 @@ const COLUMNS: CrudColumn[] = [
     width: '120px',
     form: true,
     type: 'text',
-    required: true,
-    hint: '可直接粘飞书文件夹链接（自动取 token），也可以填 26 位 token',
-    listOrder: 6,
+    // ⚠️ 不能在这里写 required：卫瓴同步 / 邮件收取两类任务没有这个概念，
+    //    写了 required 那两类永远存不下去。必填改由下面的「按类型的保存校验」管。
+    hint: '【仅「笔记归档」需要】可直接粘飞书文件夹链接（自动取 token），也可以填 26 位 token',
+    listOrder: 8,
     render: (v) => <span title={String(v ?? '')}>{folderCell(v)}</span>,
   },
   {
@@ -80,7 +109,7 @@ const COLUMNS: CrudColumn[] = [
     form: true,
     type: 'text',
     hint: '标题包含它才归档（大小写不敏感）；留空 = 该任务归档全部有效笔记',
-    listOrder: 7,
+    listOrder: 9,
   },
   {
     key: F.输出内容,
@@ -89,8 +118,8 @@ const COLUMNS: CrudColumn[] = [
     form: true,
     type: 'multiselect',
     options: [...NOTE_ARCHIVE_KINDS],
-    hint: '每篇出哪些文件；「无明细」指笔记本身没有原始记录（只有总结）',
-    listOrder: 8,
+    hint: '【仅「笔记归档」需要】每篇出哪些文件；「无明细」指笔记本身没有原始记录（只有总结）',
+    listOrder: 10,
   },
   {
     key: F.按人分文件夹,
@@ -99,8 +128,8 @@ const COLUMNS: CrudColumn[] = [
     form: true,
     type: 'select',
     options: YES_NO,
-    hint: '「否」表示所有文件平铺在目标文件夹根下',
-    listOrder: 9,
+    hint: '【仅「笔记归档」需要】「否」表示所有文件平铺在目标文件夹根下',
+    listOrder: 11,
   },
   {
     key: F.补跑窗口,
@@ -109,11 +138,26 @@ const COLUMNS: CrudColumn[] = [
     form: true,
     type: 'number',
     hint: '到点后多少小时内仍算「今天这一次」——覆盖凌晨重启/宕机的补跑。默认 6（01:00 → 07:00）',
-    listOrder: 10,
+    listOrder: 12,
   },
-  { key: F.上次运行, label: '上次运行', width: '130px', listOrder: 11 },
-  { key: F.上次运行详情, label: '上次运行详情', listOrder: 12 },
+  { key: F.上次运行, label: '上次运行', width: '130px', listOrder: 13 },
+  { key: F.上次运行详情, label: '上次运行详情', listOrder: 14 },
 ];
+
+/**
+ * 保存前的**按类型**校验。
+ *
+ * 为什么不能靠 `column.required`：那是全类型共用的 —— 给「目标文件夹」标 required 之后，
+ * 卫瓴同步 / 邮件收取两类任务永远存不下去（它们本来就没有这个字段的概念）。
+ * 所以必填只在「笔记归档」这一支里判。
+ */
+function assertJobFields(d: Record<string, unknown>): void {
+  const kind = String(d[F.任务类型] ?? JOB_KIND_NOTE_ARCHIVE);
+  if (kind !== JOB_KIND_NOTE_ARCHIVE) return;
+  if (!parseFolderToken(d[F.目标文件夹])) {
+    throw new Error('「笔记归档」任务必须填目标文件夹（可粘飞书文件夹链接）');
+  }
+}
 
 type Notice = { tone: 'info' | 'ok' | 'warn' | 'error'; text: string } | null;
 
@@ -179,18 +223,35 @@ export default function ScheduledTasksPage() {
     }
   }, []);
 
-  /** 手动运行（停用的任务也能跑 —— 手动就是要立刻跑一次） */
-  const runJob = useCallback(async (id: string, label: string) => {
+  /**
+   * 手动运行（停用的任务也能跑 —— 手动就是要立刻跑一次）。
+   * **按任务类型分发**：笔记归档走归档接口，卫瓴同步 / 邮件收取走各自的手动同步接口 ——
+   * 三类任务虽然共享同一张配置表，但执行体完全不同。
+   */
+  const runJob = useCallback(async (id: string, label: string, kind: string) => {
+    const isArchive = kind === JOB_KIND_NOTE_ARCHIVE;
     const ok = window.confirm(
-      `立刻运行「${label}」？\n\n` +
-        `会归档所有尚未归档的匹配笔记；已经归档过的会自动跳过。\n` +
-        `运行期间可以离开本页 —— 跑完后「上次运行」两列会更新。`,
+      isArchive
+        ? `立刻运行「${label}」？\n\n会归档所有尚未归档的匹配笔记；已经归档过的会自动跳过。\n运行期间可以离开本页 —— 跑完后「上次运行」两列会更新。`
+        : `立刻执行一次「${label}」？\n\n执行期间可以离开本页 —— 跑完后「上次运行」两列会更新。`,
     );
     if (!ok) return;
-    setNotice({ tone: 'info', text: `已触发「${label}」，正在归档…（进度每 8 秒刷新一次）` });
+    setNotice({ tone: 'info', text: `已触发「${label}」…` });
     try {
-      const p = await api.runNoteArchiveJob(id);
-      setProgress((m) => ({ ...m, [id]: p }));
+      if (kind === '卫瓴联系人同步') {
+        const r = await api.weilingSync(false);
+        setNotice({
+          tone: r.ok ? 'ok' : 'warn',
+          text: r.ok ? `卫瓴同步完成：${r.count} 条联系人` : `未执行：${r.message ?? '未知原因'}`,
+        });
+      } else if (kind === '邮件收取') {
+        const r = await api.syncAllMail();
+        setNotice({ tone: 'ok', text: `已触发 ${r.synced} 个账户收取（各账户仍按自己的「收取频率」节流）` });
+      } else {
+        const p = await api.runNoteArchiveJob(id);
+        setProgress((m) => ({ ...m, [id]: p }));
+        setNotice({ tone: 'info', text: `已触发「${label}」，正在归档…（进度每 8 秒刷新一次）` });
+      }
     } catch (e) {
       setNotice({ tone: 'error', text: `运行失败：${(e as Error).message}` });
     }
@@ -260,25 +321,30 @@ export default function ScheduledTasksPage() {
       <CrudPage
         moduleKey="scheduledTasks"
         title="定时任务"
-        subtitle="按点自动把「我的笔记」复制到飞书云盘（已归档的自动跳过）。增删改在这里，跑一次用操作列的「运行」。"
+        subtitle="到点自动执行的任务都在这里配：笔记归档 / 卫瓴联系人同步 / 邮件收取。改「任务类型 + 频率 + 执行时间」即可，改完下一分钟生效；立刻跑一次用操作列的「运行」。"
         columns={COLUMNS}
         pageSize={20}
         inlineEdit
         standaloneForm
         api={{
           list: (p) => api.listScheduledTasks(p),
-          create: (d) => api.createScheduledTask(d),
+          create: (d) => {
+            assertJobFields(d as Record<string, unknown>);
+            return api.createScheduledTask(d);
+          },
           /**
            * 保存前后对比「目标文件夹」：换过文件夹 ⇒ 之前已归档的笔记不会自动出现在新文件夹里
            * （判据是归档记录，不是"云盘里有没有文件"），所以当场问一句要不要**补归档**。
            * 峰哥定的口径是「提示我，我来定」—— 不自动重传 763 篇。
            */
           update: async (id, d) => {
+            assertJobFields(d as Record<string, unknown>);
             const before = rowsRef.current.get(id);
             const beforeToken = parseFolderToken(before?.[F.目标文件夹]);
             const afterToken = parseFolderToken(d[F.目标文件夹]);
             const res = await api.updateScheduledTask(id, d);
-            if (beforeToken !== afterToken && afterToken) {
+            const kindAfter = String(d[F.任务类型] ?? JOB_KIND_NOTE_ARCHIVE);
+            if (kindAfter === JOB_KIND_NOTE_ARCHIVE && beforeToken !== afterToken && afterToken) {
               const label = String(d[F.任务名称] ?? '该任务');
               const yes = window.confirm(
                 `「${label}」的目标文件夹已改变。\n\n` +
@@ -303,9 +369,12 @@ export default function ScheduledTasksPage() {
         rowActionSlot={(row) => {
           const id = String(row.id ?? '');
           const label = String(row[F.任务名称] ?? id);
+          const kind = String(row[F.任务类型] ?? JOB_KIND_NOTE_ARCHIVE);
+          const isArchive = kind === JOB_KIND_NOTE_ARCHIVE;
           const p = progress[id];
           const isRunning = !!p?.running;
-          const pending = check?.jobs.find((j) => j.id === id)?.pending;
+          // 「待归档」「补归档」只对笔记归档有意义：另两类没有"归档记录"这个概念
+          const pending = isArchive ? check?.jobs.find((j) => j.id === id)?.pending : undefined;
           return (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
               <button
@@ -313,19 +382,21 @@ export default function ScheduledTasksPage() {
                 className="btn btn-primary btn-sm"
                 disabled={isRunning}
                 title={isRunning ? '正在跑，跑完可再点' : '立刻跑一次（已归档的自动跳过）'}
-                onClick={() => void runJob(id, label)}
+                onClick={() => void runJob(id, label, kind)}
               >
                 {isRunning ? '运行中…' : '运行'}
               </button>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                disabled={isRunning}
-                title="清掉该任务的归档记录并重新归档（换过目标文件夹后用）"
-                onClick={() => void resyncJob(id, label)}
-              >
-                补归档
-              </button>
+              {isArchive ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={isRunning}
+                  title="清掉该任务的归档记录并重新归档（换过目标文件夹后用）"
+                  onClick={() => void resyncJob(id, label)}
+                >
+                  补归档
+                </button>
+              ) : null}
               {typeof pending === 'number' && !isRunning ? (
                 <span style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)' }}>待 {pending}</span>
               ) : null}

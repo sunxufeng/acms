@@ -33,6 +33,10 @@ export interface NoteArchiveJobDef {
   label: string;
   /** 停用的任务不参与定时触发（但**仍可手动运行** —— 手动就是要立刻跑一次） */
   enabled: boolean;
+  /** 到点执行什么：笔记归档 / 卫瓴联系人同步 / 邮件收取 */
+  kind: JobKind;
+  /** 多久跑一次：每天（按 HH:MM）/ 每小时（按第 N 分）/ 每15分钟 */
+  freq: JobFreq;
   /** 北京时间（服务器时区不可信，判据一律走 `beijingClock()`） */
   hour: number;
   minute: number;
@@ -76,6 +80,15 @@ export const NOTE_ARCHIVE_FAIL = '失败';
 export const ARCHIVE_JOB_FIELDS = {
   任务名称: '任务名称',
   启用: '启用',
+  /**
+   * 任务类型（2026-09-24 新增，「定时任务」升级为通用调度器）：
+   * `笔记归档` / `卫瓴联系人同步` / `邮件收取`。
+   * ⚠️ 存量行没有这个字段 ⇒ 一律按 `笔记归档` 处理（见 `parseArchiveJobRow`），
+   *    否则上线当天两条归档任务会被当成"未知类型"而**静默不跑**。
+   */
+  任务类型: '任务类型',
+  /** 频率：`每天`（用 执行时间 的 HH:MM）/ `每小时`（每小时的第 N 分，取 执行时间 的分钟）/ `每15分钟` */
+  频率: '频率',
   执行时间: '执行时间',
   执行日: '执行日',
   目标文件夹: '目标文件夹',
@@ -86,6 +99,20 @@ export const ARCHIVE_JOB_FIELDS = {
   上次运行: '上次运行',
   上次运行详情: '上次运行详情',
 } as const;
+
+/** 任务类型（决定「到点了执行什么」） */
+export const JOB_KINDS = ['笔记归档', '卫瓴联系人同步', '邮件收取'] as const;
+export type JobKind = (typeof JOB_KINDS)[number];
+/** 缺省类型：存量任务都是笔记归档（**兼容老数据**，别改成空串） */
+export const JOB_KIND_DEFAULT: JobKind = '笔记归档';
+/** 只有这个类型才需要「目标文件夹 / 标题关键词 / 输出内容 / 按人分文件夹」 */
+export const JOB_KIND_NOTE_ARCHIVE: JobKind = '笔记归档';
+
+/** 频率档位 */
+export const JOB_FREQS = ['每天', '每小时', '每15分钟'] as const;
+export type JobFreq = (typeof JOB_FREQS)[number];
+export const JOB_FREQ_DEFAULT: JobFreq = '每天';
+
 
 export const ARCHIVE_JOB_ON = '是';
 export const ARCHIVE_JOB_OFF = '否';
@@ -105,6 +132,8 @@ export const NOTE_ARCHIVE_JOB_SEEDS: NoteArchiveJobDef[] = [
     key: 'idp',
     label: 'IDP 笔记',
     enabled: true,
+    kind: '笔记归档',
+    freq: '每天',
     hour: 1,
     minute: 0,
     weekdays: [],
@@ -118,6 +147,8 @@ export const NOTE_ARCHIVE_JOB_SEEDS: NoteArchiveJobDef[] = [
     key: 'all',
     label: '全部有效笔记',
     enabled: true,
+    kind: '笔记归档',
+    freq: '每天',
     hour: 1,
     minute: 30,
     weekdays: [],
@@ -127,11 +158,47 @@ export const NOTE_ARCHIVE_JOB_SEEDS: NoteArchiveJobDef[] = [
     groupByOwner: true,
     catchUpHours: 6,
   },
+  {
+    // 2026-09-24 新增：替代原先硬编码的 `setInterval(24h)`
+    //（那个写法每次部署重启都会把 24 小时计时清零，时间点会一直漂）
+    key: 'weilingSync',
+    label: '卫瓴联系人同步',
+    enabled: true,
+    kind: '卫瓴联系人同步',
+    freq: '每天',
+    hour: 7,
+    minute: 0,
+    weekdays: [],
+    rootFolderToken: '',
+    titleMustInclude: '',
+    kinds: [],
+    groupByOwner: false,
+    catchUpHours: 6,
+  },
+  {
+    // 2026-09-24 新增：替代 mail-archive.module 里硬编码的 `*/15 * * * *`
+    // 频率保持「每15分钟」⇒ 与改造前的行为等价；账户自己的「收取频率」仍然生效（在 syncAll 内节流）
+    key: 'mailFetch',
+    label: '邮件收取',
+    enabled: true,
+    kind: '邮件收取',
+    freq: '每15分钟',
+    hour: 0,
+    minute: 0,
+    weekdays: [],
+    rootFolderToken: '',
+    titleMustInclude: '',
+    kinds: [],
+    groupByOwner: false,
+    catchUpHours: 6,
+  },
 ];
 
 /** 任务的默认值（页面新建表单用；`RecordMeta.defaults` 直接引用这一份） */
 export const NOTE_ARCHIVE_JOB_DEFAULTS: Record<string, unknown> = {
   [ARCHIVE_JOB_FIELDS.启用]: ARCHIVE_JOB_ON,
+  [ARCHIVE_JOB_FIELDS.任务类型]: JOB_KIND_DEFAULT,
+  [ARCHIVE_JOB_FIELDS.频率]: JOB_FREQ_DEFAULT,
   [ARCHIVE_JOB_FIELDS.执行时间]: '01:00',
   [ARCHIVE_JOB_FIELDS.执行日]: [ARCHIVE_JOB_WEEKDAY_ANY],
   [ARCHIVE_JOB_FIELDS.标题关键词]: '',
@@ -233,6 +300,10 @@ export function parseArchiveJobRow(
     key: id,
     label: String(f[ARCHIVE_JOB_FIELDS.任务名称] ?? '').trim() || seed?.label || `任务 ${id}`,
     enabled: parseYesNo(f[ARCHIVE_JOB_FIELDS.启用], true),
+    // 🔴 缺省必须是「笔记归档 / 每天」：存量行的这两个字段是空的，
+    //    给成别的值时，上线当天两条归档任务会静默不跑（且不报错）。
+    kind: normalizeJobKind(f[ARCHIVE_JOB_FIELDS.任务类型]) ?? seed?.kind ?? JOB_KIND_DEFAULT,
+    freq: normalizeJobFreq(f[ARCHIVE_JOB_FIELDS.频率]) ?? seed?.freq ?? JOB_FREQ_DEFAULT,
     hour: time.hour,
     minute: time.minute,
     weekdays: normalizeWeekdays(f[ARCHIVE_JOB_FIELDS.执行日]),
@@ -249,6 +320,8 @@ export function archiveJobRowFields(job: NoteArchiveJobDef): Record<string, unkn
   return {
     [ARCHIVE_JOB_FIELDS.任务名称]: job.label,
     [ARCHIVE_JOB_FIELDS.启用]: job.enabled ? ARCHIVE_JOB_ON : ARCHIVE_JOB_OFF,
+    [ARCHIVE_JOB_FIELDS.任务类型]: job.kind,
+    [ARCHIVE_JOB_FIELDS.频率]: job.freq,
     [ARCHIVE_JOB_FIELDS.执行时间]: `${String(job.hour).padStart(2, '0')}:${String(job.minute).padStart(2, '0')}`,
     [ARCHIVE_JOB_FIELDS.执行日]: job.weekdays.length
       ? job.weekdays.map((d) => ARCHIVE_JOB_WEEKDAY_LABELS[d])
@@ -266,12 +339,20 @@ export function archiveJobRowFields(job: NoteArchiveJobDef): Record<string, unkn
  *
  * 用途有两个：① 页面列表上标红（配错的当场能看到，而不是等凌晨静默失败）；
  * ② `check` 接口的体检结果。**只报告不阻断保存** —— 半配好的任务先存下来是正常需求。
+ *
+ * ⚠️ 按**任务类型**分支（2026-09-24）：`目标文件夹` / `输出内容` 只有笔记归档才需要 ——
+ *    卫瓴同步与邮件收取没有这些概念，不分支的话那两类任务会永远标红。
  */
 export function validateArchiveJob(job: NoteArchiveJobDef): string[] {
   const out: string[] = [];
-  if (!job.rootFolderToken) out.push('目标文件夹解析不出 token（请粘文件夹链接或 26 位 token）');
-  if (!Array.isArray(job.kinds) || !job.kinds.length) out.push('输出内容没选（明细/总结至少选一个）');
   if (!Number.isInteger(job.hour) || !Number.isInteger(job.minute)) out.push('执行时间不是 HH:MM');
+  if (job.kind === JOB_KIND_NOTE_ARCHIVE) {
+    if (!job.rootFolderToken) out.push('目标文件夹解析不出 token（请粘文件夹链接或 26 位 token）');
+    if (!Array.isArray(job.kinds) || !job.kinds.length) out.push('输出内容没选（明细/总结至少选一个）');
+  }
+  if (job.freq === '每小时' && !(job.minute >= 0 && job.minute <= 59)) {
+    out.push('「每小时」频率用的是执行时间的分钟（0–59）');
+  }
   return out;
 }
 
@@ -412,10 +493,49 @@ export function jobRunsOnWeekday(job: NoteArchiveJobDef, weekday: number): boole
   return job.weekdays.includes(weekday);
 }
 
-/** 任务展示用的「执行安排」文案：`每天 01:00` / `周一、周三 09:30` */
+/** 任务类型归一：认不出的值返回 undefined，调用方回退缺省（**不要让脏值变成"未知类型不跑"**） */
+export function normalizeJobKind(input: unknown): JobKind | undefined {
+  const s = String(input ?? '').trim();
+  return (JOB_KINDS as readonly string[]).includes(s) ? (s as JobKind) : undefined;
+}
+
+/** 频率归一，同上 */
+export function normalizeJobFreq(input: unknown): JobFreq | undefined {
+  const s = String(input ?? '').trim();
+  return (JOB_FREQS as readonly string[]).includes(s) ? (s as JobFreq) : undefined;
+}
+
+/** 任务类型 → 展示名（列表用） */
+export function jobKindLabel(kind: JobKind): string {
+  return kind;
+}
+
+/**
+ * 任务展示用的「执行安排」文案：`每天 01:00` / `每小时第 30 分` / `每15分钟`。
+ * 给人看的，别拿它做判据（判据在 `shouldRunArchiveJob`）。
+ */
 export function archiveJobScheduleText(job: NoteArchiveJobDef): string {
   const time = `${String(job.hour).padStart(2, '0')}:${String(job.minute).padStart(2, '0')}`;
-  return `${weekdaySummary(job.weekdays)} ${time}`;
+  const days = weekdaySummary(job.weekdays);
+  if (job.freq === '每小时') return `${days} 每小时第 ${job.minute} 分`;
+  if (job.freq === '每15分钟') return `${days} 每 15 分钟`;
+  return `${days} ${time}`;
+}
+
+/**
+ * 本次触发属于哪个「时间槽」—— **同一槽位内只跑一次**的去重键。
+ *
+ * 为什么需要槽位而不是"今天跑过没跑过"：
+ *   `每小时` / `每15分钟` 频率下，"今天跑过一次"会让它一天只跑一次。
+ *   槽位键按频率取不同粒度（天 / 小时 / 15 分钟格），语义与频率严格对应。
+ * ⚠️ 进程内即可（蓝绿重启只丢这个标记）：这三个任务本身都是幂等的
+ *    （归档按「笔记×任务」upsert、联系人同步按 id upsert、邮件按 UID 去重）。
+ */
+export function jobSlotKey(job: NoteArchiveJobDef, day: string, nowMinutes: number): string {
+  const hour = Math.floor(nowMinutes / 60);
+  if (job.freq === '每15分钟') return `${job.key}:${day}:${hour}:${Math.floor((nowMinutes % 60) / 15)}`;
+  if (job.freq === '每小时') return `${job.key}:${day}:${hour}`;
+  return `${job.key}:${day}`;
 }
 
 /**
@@ -441,8 +561,19 @@ export function shouldRunArchiveJob(
   weekday?: number,
 ): boolean {
   if (!job.enabled) return false;
+  // `ranToday` 实际含义是「**本时间槽**已跑过」（见 `jobSlotKey`）——参数名保留是为兼容旧调用
   if (ranToday) return false;
   if (weekday !== undefined && !jobRunsOnWeekday(job, weekday)) return false;
+  if (job.freq === '每15分钟') {
+    // 槽位 = 每小时 4 格（:00 / :15 / :30 / :45）；给 6 分钟容差，
+    // 免得某一分钟 tick 被别的活占住就整天漏掉这一格（槽位去重保证一格只跑一次）。
+    return nowMinutes - Math.floor(nowMinutes / 15) * 15 <= 6;
+  }
+  if (job.freq === '每小时') {
+    // 每小时的第 N 分（N = 执行时间的分钟）。同样是「到点之后这一小时内都算到点」——
+    // 部署重启错过那一刻时，本小时内下一次 tick 能补上；槽位去重保证一小时只跑一次。
+    return nowMinutes % 60 >= job.minute;
+  }
   const start = job.hour * 60 + job.minute;
   if (nowMinutes < start) return false;
   return nowMinutes <= start + Math.max(0, job.catchUpHours) * 60;

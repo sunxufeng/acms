@@ -56,9 +56,12 @@ const COMM_WORDS: TypeWords = {
 
 const WORDS: Record<string, TypeWords> = {
   日常跟进: COMM_WORDS,
-  // IDP沟通 / 学生沟通（2026-09-21 新增）：与日常跟进完全相同，共用同一份词表
+  // IDP沟通 / 学生沟通 / 学生实践（2026-09-21 与 2026-09-26 新增）：
+  // 三者与日常跟进**完全相同**，共用同一份词表 —— 这样改了日常跟进的措辞，它们跟着变
+  //（各抄一份就会出现"改了三个忘了第四个"的静默不一致）。
   IDP沟通: COMM_WORDS,
   学生沟通: COMM_WORDS,
+  学生实践: COMM_WORDS,
   家校沟通: COMM_WORDS,
   学生观察: { person: '观察人', theme: '主题', time: '观察时间', summary: '观察总结（MD）', detail: '观察明细（MD）', note: '观察人备注' },
 };

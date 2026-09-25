@@ -124,8 +124,9 @@ export function StudentOverview({ rows, drill }: { rows: Row[]; drill?: Drill })
         ))}
       </Panel>
 
-      {/* 六个业务维度：按当前年级 / 入学年月 / 班主任 / 招生负责老师 / 升学导师 / 当前状态 统计
-          （2026-09-11 新增，都随顶部查询条件联动） */}
+      {/* 八个业务维度：按当前年级 / 入学年月 / 入学年份 / Arete入学年 / 班主任 /
+          招生负责老师 / 升学导师 / 当前状态 统计（都随顶部查询条件联动）
+          —— 维面清单见下方 DIMENSION_PANELS，加维度要连后端投影白名单一起改 */}
       {DIMENSION_PANELS.map(({ key, title }) => {
         const dist = countBy(rows, key);
         const max = Math.max(1, ...dist.map(([, c]) => c));
@@ -152,12 +153,24 @@ export function StudentOverview({ rows, drill }: { rows: Row[]; drill?: Drill })
   );
 }
 
-/** 学生结构概览的维度统计面板（顺序即展示顺序） */
+/**
+ * 学生结构概览的维度统计面板（顺序即展示顺序）。
+ *
+ * 🔴 **每加一个维度，必须同步加后端 `reports.service.ts` 的 `DIMENSION_FIELDS`** ——
+ *    那是投影白名单，只放行名单里的字段；漏加不会报错，只会让这个维面**整维空**
+ *    （看起来像"学生都没填"，实际是值没传出来）。有单测钉住两端同源。
+ */
 const DIMENSION_PANELS: { key: string; title: string }[] = [
   { key: '当前年级', title: '按当前年级' },
   // 2026-09-22：字段「入学年份」改名「入学年月」——维度 key 必须跟着改，
   // 否则分组统计读到的是不存在的字段（整维度空，且不报错）。
   { key: '入学年月', title: '按入学年月' },
+  // 2026-09-26（峰哥要）：再补两个入学口径的维度。
+  //   「入学年份」= 纯年份（2026），「Arete入学年」= Arete 第 N 个学年（第6年）。
+  //   三者是同一批学生的三种切法：入学年月看学期、入学年份看年份、Arete入学年看学年届次 ——
+  //   招生复盘最常用「按入学年份」（招了几届、每届多少人）。
+  { key: '入学年份', title: '按入学年份' },
+  { key: 'Arete入学年', title: '按Arete入学年' },
   { key: '班主任', title: '按班主任' },
   { key: '招生负责老师', title: '按招生负责老师' },
   { key: '升学导师', title: '按升学导师' },

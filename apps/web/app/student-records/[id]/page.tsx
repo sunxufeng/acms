@@ -20,9 +20,9 @@ import { buildStudentRecordColumns, studentName as studentNameOf } from '../colu
  *  ② **`entityType` 与 `kind` 必须按类型传旧的取值**（日常跟进 / 家校沟通 / 学生观察），
  *     不能统一成「学生记录」：NotePanel 的笔记绑定是按「实体类型 + 记录 id」存的，
  *     历史绑定写的就是旧类型名，统一改名会让已有绑定**全部查不出来**。
- *     ③ 2026-09-21 新增的类型「IDP沟通」传的是它**自己的**类型名（不是「日常跟进」）——
- *     同一条记录里 entityType 与 `记录类型` 字段必须一致，否则「存为笔记」写进去的
- *     「实体类型」与之后 NotePanel 查询用的就对不上（查不出已绑的笔记）。
+ *     ③ 2026-09-21 之后新增的类型（「IDP沟通」「学生沟通」「学生实践」）传的是它**自己的**类型名
+ *     （不是「日常跟进」）—— 同一条记录里 entityType 与 `记录类型` 字段必须一致，否则
+ *     「存为笔记」写进去的「实体类型」与之后 NotePanel 查询用的就对不上（查不出已绑的笔记）。
  *     新增实体类型时记得在 `getnote.service.ts` 的 `ENTITY_TAG` 里补一条（只为标签可读）。
  */
 const KIND_BY_TYPE: Record<string, AiSummarizeKind> = {
@@ -33,6 +33,10 @@ const KIND_BY_TYPE: Record<string, AiSummarizeKind> = {
   IDP沟通: 'daily-followups',
   // 学生沟通（2026-09-21）：同用日常跟进那套 AI 摘要配置（字段与口径完全相同）
   学生沟通: 'daily-followups',
+  // 学生实践（2026-09-26）：同上，字段与口径完全相同 ⇒ 共用同一套提示词。
+  // ⚠️ 显式写出来（不靠下面的 `??` 兜底）：兜底值一旦被改动，这个类型会**悄悄换一套提示词**，
+  //    不报错、只是摘要质量变差，很难发现。
+  学生实践: 'daily-followups',
   家校沟通: 'home-school-comms',
   学生观察: 'student-observations',
 };

@@ -2592,7 +2592,6 @@
     "（当前无人覆盖，此处上限对全部成员生效）": "(Nobody overrides it — this cap applies to all members.)",
     "是否达标": "Attained",
     "得分": "Score",
-    "学生记录（日常跟进 / IDP沟通 / 学生沟通 / 家校沟通 / 学生观察）是同一张表，按「记录类型」分别导出；只能导出你本人有权查看的类型。": "Student records (Daily follow-up / IDP comms / Student comms / Home-school comms / Observations) live in one table — export them per Record Type. Only the types you may view can be exported.",
     "批次": "Batch",
     "入学年月": "Enrollment Term",
     "Arete入学年": "Arete Year",
@@ -2608,7 +2607,8 @@
     "第7年": "Year 7",
     "第8年": "Year 8",
     "第9年": "Year 9",
-    "第10年": "Year 10"
+    "第10年": "Year 10",
+    "学生记录（{types}）是同一张表，按「记录类型」分别导出；只能导出你本人有权查看的类型。": "Student records ({types}) all live in one table; export them one record type at a time. You can only export the types you have permission to view."
   },
   "idp": {
     "idpPlanNotFound": "IDP plan not found",

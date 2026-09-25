@@ -8,6 +8,7 @@ import {
   STUDENT_RECORD_EXPORT_ALL,
   STUDENT_RECORD_EXPORT_KEY,
   STUDENT_RECORD_TYPES,
+  STUDENT_RECORD_TYPE_VALUES,
 } from '@acms/contracts';
 // 下拉统一走全站组件（2026-09-22 第二批）
 import { FilterSelect } from '../../components/FilterSelect';
@@ -45,8 +46,8 @@ const TABLES: ExportItem[] = [
   { key: 'attendance', label: '学生考勤' },
   { key: 'academicGrade', label: '学业成绩' },
   { key: 'practiceActivity', label: '实践活动' },
-  // 学生记录（日常跟进 / IDP沟通 / 学生沟通 / 家校沟通 / 学生观察）—— 一张表按类型分别导出，
-  // 清单从类型定义生成，将来再加类型不必改这里。
+  // 学生记录（日常跟进 / IDP沟通 / 学生沟通 / 学生实践 / 家校沟通 / 学生观察）——
+  // 一张表按类型分别导出，清单从类型定义生成，将来再加类型不必改这里。
   ...STUDENT_RECORD_TYPES.map((t) => ({
     key: STUDENT_RECORD_EXPORT_KEY,
     label: `学生记录 · ${t.value}`,
@@ -96,7 +97,13 @@ export default function ExportPage() {
         <h1 className="page-title">{tl('数据导出')}</h1>
         <p className="muted">{tl('将任一业务表全量导出为 CSV（含 BOM，Excel 可直接打开）。需「导出」权限（export:run）。')}</p>
         <p className="muted">
-          {tl('学生记录（日常跟进 / IDP沟通 / 学生沟通 / 家校沟通 / 学生观察）是同一张表，按「记录类型」分别导出；只能导出你本人有权查看的类型。')}
+          {/* 类型清单**从类型定义生成**（`{types}` 是占位符，渲染时替换）——
+              原先这里手写了 5 个类型名，加「IDP沟通」「学生实践」时都要记得回来改，
+              漏了不报错，只是页面写着的类型与下拉里能选的对不上。 */}
+          {tl('学生记录（{types}）是同一张表，按「记录类型」分别导出；只能导出你本人有权查看的类型。').replace(
+            '{types}',
+            STUDENT_RECORD_TYPE_VALUES.join(' / '),
+          )}
         </p>
       </div>
 

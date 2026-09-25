@@ -118,6 +118,8 @@ const ENTITY_TAG: Record<string, string> = {
   IDP沟通: 'idpComm',
   // 学生沟通（2026-09-21）：与学生**本人**的沟通，区别于「家校沟通」（与家长）
   学生沟通: 'studentComm',
+  // 学生实践（2026-09-26）：围绕实践类安排的沟通记录（注意不是「实践活动」模块，那是另一张表）
+  学生实践: 'studentPractice',
   IDP计划: 'idp',
   学业成绩: 'grade',
   学生考勤: 'attendance',

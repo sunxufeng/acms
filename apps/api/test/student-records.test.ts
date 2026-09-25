@@ -307,11 +307,24 @@ describe('真实类型定义（contracts）与字典 / 权限点的三方一致'
     }
   });
 
-  it('共用「日常跟进」权限点的类型：IDP沟通 / 学生沟通（回归：改成新模块会让上线后没人看得见）', () => {
-    // 以后再加"与日常跟进同类"的类型时，把值加进这个数组即可
-    for (const v of ['IDP沟通', '学生沟通']) {
-      expect(moduleKeyOfRecordType(v), `「${v}」应当复用 dailyFollowups`).toBe('dailyFollowups');
+  it('🔴 类型 → 权限点映射按定义逐条接线（漏接线 ⇒ 该类型谁都看不见）', () => {
+    // 期望值**按类型定义动态推导**，而不是写死清单：否则每加一个同类类型都要回来改这条 ——
+    // 上一版写死了 ['IDP沟通','学生沟通']，加类型时它既不会变红（守不住新值）、又留着旧名单。
+    for (const t of STUDENT_RECORD_TYPES) {
+      expect(moduleKeyOfRecordType(t.value), `「${t.value}」的权限点应等于定义里的 ${t.moduleKey}`)
+        .toBe(t.moduleKey);
     }
+  });
+
+  it('🔴 复用「日常跟进」权限点的类型：绝不新造权限点（新权限点上线即无人持有）', () => {
+    // 「与新类型内容/敏感度一致就复用权限点」是明确判据（见 contracts 的类型定义注释）：
+    // 新造一个权限点的代价是**上线后除管理员外没有任何角色持有它** ⇒ 所有人 Tab 与下拉里
+    // 都看不到这个类型（功能等于没上线），且不报错。
+    // 这里对**本次新增的具体值**写死：它是这一版的决定，值得被钉住；
+    // 而"全体类型都要接线"那件事由上面那条动态推导守。
+    expect(moduleKeyOfRecordType('学生实践'), '学生实践 必须复用 dailyFollowups').toBe('dailyFollowups');
+    expect(moduleKeyOfRecordType('学生沟通')).toBe('dailyFollowups');
+    expect(moduleKeyOfRecordType('IDP沟通')).toBe('dailyFollowups');
   });
 
   it('未知类型返回 undefined（写入校验据此报「未知的记录类型」，不会造出谁都看不见的脏记录）', () => {

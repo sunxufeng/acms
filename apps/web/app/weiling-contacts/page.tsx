@@ -22,6 +22,9 @@ export default function WeilingContactsPage() {
   const [pgRunning, setPgRunning] = useState(false);
   const [rcMsg, setRcMsg] = useState('');
   const [rcRunning, setRcRunning] = useState(false);
+  /** 「补招生负责老师」（2026-09-26）：把联系人归属人映射出的 ACMS 用户填进学生档案 */
+  const [frRunning, setFrRunning] = useState(false);
+  const [frMsg, setFrMsg] = useState('');
   const [lostMsg, setLostMsg] = useState('');
   const [lostRunning, setLostRunning] = useState(false);
   const [lostProgress, setLostProgress] = useState<{ scanned: number; total: number } | null>(null);
@@ -163,6 +166,26 @@ export default function WeilingContactsPage() {
   };
 
   /**
+   * 补「招生负责老师」（2026-09-26 峰哥需求）。
+   *
+   * 联系人已匹配到学生时，该联系人的「归属人」经「归属人映射」能对应到一个 ACMS 用户
+   * （= 招生老师）⇒ 学生的「招生负责老师」是空的就填上。
+   * 自动同步只在**新建立关联**时补（否则老师手工清空后会被同步填回来），存量用这个按钮补。
+   */
+  const fillRecruiter = async () => {
+    setFrRunning(true);
+    setFrMsg('');
+    try {
+      const r = await api.fillWeilingRecruiter();
+      setFrMsg(`已补：扫描 ${r.total} 条联系人，命中 ${r.matched} 条，补招生负责老师 ${r.filled} 人`);
+    } catch (e) {
+      setFrMsg(`补写失败：${errMsg(e)}`);
+    } finally {
+      setFrRunning(false);
+    }
+  };
+
+  /**
    * 流失状态同步：走的是卫瓴**客户**接口（联系人接口不返回这个字段），
    * 逐个联系人查，约 5 分钟。后台跑，这里只负责启动 + 轮询进度。
    */
@@ -236,6 +259,9 @@ export default function WeilingContactsPage() {
         <button className="btn btn-outline btn-sm" disabled={rcRunning} onClick={() => void recountFollows()}>
           {rcRunning ? '重算中…' : '重算跟进次数'}
         </button>
+        <button className="btn btn-outline btn-sm" disabled={frRunning} onClick={() => void fillRecruiter()}>
+          {frRunning ? '补写中…' : '补招生负责老师'}
+        </button>
         <button className="btn btn-outline btn-sm" disabled={lostRunning} onClick={() => void syncLost()}>
           {lostRunning
             ? `同步流失状态 ${lostProgress?.total ? `${lostProgress.scanned}/${lostProgress.total}` : '…'}`
@@ -255,6 +281,9 @@ export default function WeilingContactsPage() {
         ) : null}
         {lostMsg ? (
           <span style={{ color: lostMsg.includes('失败') ? 'var(--fg-error)' : 'var(--fg-secondary)' }}>{lostMsg}</span>
+        ) : null}
+        {frMsg ? (
+          <span style={{ color: frMsg.includes('失败') ? 'var(--fg-error)' : 'var(--fg-secondary)' }}>{frMsg}</span>
         ) : null}
       </div>
 

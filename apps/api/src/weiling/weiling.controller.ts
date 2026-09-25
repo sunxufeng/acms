@@ -124,6 +124,24 @@ export class WeilingController {
   }
 
   /**
+   * 补「招生负责老师」（2026-09-26 峰哥需求）。
+   *
+   * 口径：联系人已匹配到学生时，该联系人的「归属人」经「归属人映射」能得到 ACMS 用户
+   * （= 招生老师）⇒ **学生的「招生负责老师」为空就填上**，已有值不动（老师可自由改）。
+   *
+   * 为什么单独一个入口：自动同步只在**新建立关联**时补（避免老师手工清空后又被同步填回来），
+   * 存量数据要用这个显式动作补一次。幂等：重复点只会补新增的空值。
+   */
+  @Post('fill-recruiter')
+  fillRecruiter(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    if (!authorize({ roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel }, 'module:weilingContacts:update').allowed) {
+      throw new HttpException('FORBIDDEN:module:weilingContacts:update', HttpStatus.FORBIDDEN);
+    }
+    return this.svc.matchStudents({ fillRecruiter: 'always' });
+  }
+
+  /**
    * 重算联系人的「跟进次数」（不访问上游，只扫本地库）。
    * 该字段是同步时写回的缓存快照，会与跟进记录表漂移；权限与其它维护动作一致（weiling:sync）。
    */

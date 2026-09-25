@@ -1,8 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { TABLES, WEILING_STATUS_ORDER, weilingStatusLabel } from '@acms/contracts';
+import { TABLES, USER_TABLE, WEILING_STATUS_ORDER, weilingStatusLabel } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { decryptSecret } from '../shared/secret-cipher.js';
 import { runAs, systemActor } from '../shared/actor-context.js';
+import { linkIds } from '../shared/record.util.js';
 
 /**
  * 卫瓴 SCRM 开放平台对接。
@@ -757,15 +758,34 @@ export class WeilingService implements OnModuleInit {
     return { scanned, fixed };
   }
 
-  async matchStudents(): Promise<{ ok: boolean; matched: number; total: number; message?: string }> {
+  /**
+   * @param opts.fillRecruiter
+   *   `'new'`（默认，自动同步走这条）—— **只在新建立关联时**补「招生负责老师」；
+   *   `'always'`（「补招生负责老师」维护动作）—— 扫**全部已匹配**的联系人补空。
+   *   两者都是**只补空、不覆盖**；区别只在"要不要把存量也算进来"。
+   */
+  async matchStudents(
+    opts: { fillRecruiter?: 'new' | 'always' } = {},
+  ): Promise<{ ok: boolean; matched: number; total: number; filled: number; message?: string }> {
+    const fillMode = opts.fillRecruiter ?? 'new';
     const sql = getSqlStore();
-    if (!sql) return { ok: false, matched: 0, total: 0, message: '未配置数据库连接' };
+    if (!sql) return { ok: false, matched: 0, total: 0, filled: 0, message: '未配置数据库连接' };
     try {
       const students = await this.fetchStudentIndex();
-      if (!students.length) return { ok: false, matched: 0, total: 0, message: '未读到学生档案' };
+      if (!students.length) return { ok: false, matched: 0, total: 0, filled: 0, message: '未读到学生档案' };
+
+      // 归属人 → ACMS 用户 open_id（「招生负责老师」默认值的依据）。读不到就退化成"不补"。
+      const ownerOpenIds = await this.ownerOpenIdIndex();
 
       let total = 0;
       let matched = 0;
+      /**
+       * 本次**新建立**关联的学生 → 候选招生老师。
+       *
+       * 🔴 只记「新建立」（该联系人此前没关联这个学生）—— 见下面 `fillRecruiter()` 的注释：
+       *    若每轮同步都无脑补空，老师手工清掉的值会在下一次同步后**自己回来**（数据自己变）。
+       */
+      const candidates = new Map<string, { openId: string; score: number; contactId: string }>();
       let token: string | undefined;
       for (let page = 0; page < 60; page += 1) {
         const res = await sql.search(TABLES.weilingContact.tableId, {
@@ -785,6 +805,7 @@ export class WeilingService implements OnModuleInit {
           const id = String(rec.id ?? rec.recordId ?? f['id'] ?? f['contact_id'] ?? '');
           total += 1;
           if (!id) continue;
+          const prevStudentId = String(f['关联学生ID'] ?? '');
           const hit = bestMatch(f, students);
           const patch: Record<string, unknown> = {
             关联学生: hit?.name ?? '',
@@ -793,7 +814,18 @@ export class WeilingService implements OnModuleInit {
             匹配依据: hit?.reason ?? '',
             匹配时间: Date.now(),
           };
-          if (hit) matched += 1;
+          if (hit) {
+            matched += 1;
+            // 新建立关联（此前没关联 / 换了一个学生）⇒ 记为该学生「招生负责老师」的候选。
+            // 同一学生可能被多个联系人指向（父母各自一条线索），后面按置信度挑最优的一条。
+            const ownerOpenId = ownerOpenIds.get(String(f['归属人'] ?? '').trim()) ?? '';
+            const isNewLink = prevStudentId !== hit.id;
+            if (ownerOpenId && (isNewLink || fillMode === 'always')) {
+              const prev = candidates.get(hit.id);
+              const cand = { openId: ownerOpenId, score: hit.score, contactId: id };
+              if (preferRecruiterCandidate(prev, cand)) candidates.set(hit.id, cand);
+            }
+          }
           try {
             await sql.update(TABLES.weilingContact.tableId, id, patch);
           } catch (e) {
@@ -803,13 +835,103 @@ export class WeilingService implements OnModuleInit {
         if (!res.hasMore || !res.pageToken) break;
         token = res.pageToken;
       }
-      this.logger.log(`卫瓴联系人匹配完成：${matched}/${total} 命中`);
-      return { ok: true, matched, total };
+      const filled = await this.fillRecruiter(candidates);
+      this.logger.log(
+        `卫瓴联系人匹配完成：${matched}/${total} 命中，补招生负责老师 ${filled} 人（模式 ${fillMode}）`,
+      );
+      return { ok: true, matched, total, filled };
     } catch (e) {
       const msg = (e as Error).message.slice(0, 200);
       this.logger.warn(`卫瓴联系人匹配失败：${msg}`);
-      return { ok: false, matched: 0, total: 0, message: msg };
+      return { ok: false, matched: 0, total: 0, filled: 0, message: msg };
     }
+  }
+
+  /**
+   * 归属人 → ACMS 用户 open_id 的索引。
+   *
+   * 两跳，都用既有数据（不新增表）：
+   *   联系人.`归属人`（文本，值是「致极学院-曹老师｜Dainel」这种显示名）
+   *     ── 按**完全相同**的文本 ──▶ 「归属人映射」`ACMS用户`（用户表 record id）
+   *     ──▶ 用户表 `飞书 Open ID`
+   *
+   * ⚠️ 终点必须是 **open_id** 而不是用户 record id：学生档案的「招生负责老师」存的就是
+   *    open_id 文本（`StudentService.toWriteFields()` 里对人员字段取 `ids[0]`）。
+   * ⚠️ 用「完全相同」而不是模糊匹配：「归属人映射」那一列本身就是从联系人表的实际值里挑的
+   *    （`listMyFollowupOwners()`），模糊匹配只会把「刘老师」错配到「刘老师 | Yvonne」。
+   */
+  private async ownerOpenIdIndex(): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const sql = getSqlStore();
+    if (!sql) return out;
+    // ① 用户表：recordId → open_id
+    const openIdOfUser = new Map<string, string>();
+    let token: string | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const page = await sql.search(USER_TABLE.tableId, { pageSize: 500, ...(token ? { pageToken: token } : {}) });
+      for (const r of page.items ?? []) {
+        const rec = r as { id?: string; recordId?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        const rid = String(rec.recordId ?? rec.id ?? '');
+        const openId = String(f['飞书 Open ID'] ?? '').trim();
+        if (rid && openId) openIdOfUser.set(rid, openId);
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    // ② 归属人映射：归属人文本 → open_id
+    token = undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const page = await sql.search(TABLES.ownerMapping.tableId, { pageSize: 200, ...(token ? { pageToken: token } : {}) });
+      for (const r of page.items ?? []) {
+        const rec = r as { id?: string; recordId?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        const owner = String(f['卫瓴归属人'] ?? '').trim();
+        const uid = linkIds(f['ACMS用户'])[0] ?? '';
+        const openId = openIdOfUser.get(uid) ?? '';
+        if (owner && openId) out.set(owner, openId);
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return out;
+  }
+
+  /**
+   * 给「本次新建立关联」的学生补 `招生负责老师`。
+   *
+   * 🔴 三条硬口径（都会静默出错，所以写在这里）：
+   *  1. **只补空**：`招生负责老师` 已有值就跳过 —— 老师可以自由改，不覆盖用户在 UI 上的选择；
+   *  2. **自动同步只在新建立关联时补**（调用方保证）：否则老师手工清空后，下次同步会**自己回来**
+   *     —— 「补招生负责老师」那个显式维护动作才走 `always`；
+   *  3. 学生的 open_id 已等于该值时不写库（避免每次同步都产生一批无意义的 `updated_at`）。
+   *
+   * 同一学生被多个联系人指向时，取**置信度最高**的那条（候选表里已按 score 选过），
+   * 并列时取先遇到的那条 —— 保证结果确定、可复现。
+   */
+  private async fillRecruiter(
+    candidates: Map<string, { openId: string; score: number; contactId: string }>,
+  ): Promise<number> {
+    const sql = getSqlStore();
+    if (!sql || candidates.size === 0) return 0;
+    let filled = 0;
+    for (const [studentId, hit] of candidates) {
+      try {
+        const stu = (await sql.get(TABLES.studentProfile.tableId, studentId)) as
+          | { fields?: Record<string, unknown> }
+          | null;
+        if (!stu) continue;
+        const f = (stu.fields ?? {}) as Record<string, unknown>;
+        const cur = String(f['招生负责老师'] ?? '').trim();
+        if (cur) continue; // 只补空
+        if (cur === hit.openId) continue;
+        await sql.update(TABLES.studentProfile.tableId, studentId, { 招生负责老师: hit.openId });
+        filled += 1;
+      } catch (e) {
+        this.logger.warn(`补招生负责老师失败 ${studentId}：${(e as Error).message.slice(0, 100)}`);
+      }
+    }
+    return filled;
   }
 
   /** 拉学生档案用于匹配的字段（一次性建索引，学生数通常几十到几百） */
@@ -1363,4 +1485,33 @@ function safeParseOptions(v: unknown): { label: string; value: string }[] {
     }
   }
   return [];
+}
+
+// ─────────────────────────────────────────────────────────────
+// 「招生负责老师」默认值的候选挑选（纯函数，便于单测）
+// ─────────────────────────────────────────────────────────────
+
+export interface RecruiterCandidate {
+  /** 该联系人归属人映射出的 ACMS 用户 open_id（= 要写进学生档案的值） */
+  openId: string;
+  /** 该联系人与学生的匹配置信度 */
+  score: number;
+  /** 联系人 record id（只用于并列时定序） */
+  contactId: string;
+}
+
+/**
+ * 同一学生被多个联系人指向时，该不该用 `next` 换掉 `prev`。
+ *
+ * 为什么要定序：一个学生的父母可能各是一条线索（两个联系人），两张联系人挂同一个学生 ——
+ * 谁先被扫到就谁生效的话，**每次同步结果都可能不同**（分页顺序变了就变），
+ * 用户会看到「招生负责老师自己变了」。所以：置信度高者胜；并列时 contactId 小者胜（稳定）。
+ */
+export function preferRecruiterCandidate(
+  prev: RecruiterCandidate | undefined,
+  next: RecruiterCandidate,
+): boolean {
+  if (!prev) return true;
+  if (next.score !== prev.score) return next.score > prev.score;
+  return next.contactId < prev.contactId;
 }

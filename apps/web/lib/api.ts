@@ -901,6 +901,18 @@ export const api = {
   /** 重算「跟进次数」缓存（与跟进记录表对齐；同步快照漂移时用） */
   recountWeilingFollows: () =>
     request<{ scanned: number; fixed: number }>('/weiling/recount-follows', { method: 'POST' }),
+  /**
+   * 补「招生负责老师」（2026-09-26）。
+   *
+   * 口径：联系人已匹配到学生 → 该联系人的「归属人」经「归属人映射」得到的 ACMS 用户
+   * 就是招生老师 ⇒ 学生的「招生负责老师」为空就填上，已有值不动（老师可自由改）。
+   * 幂等：重复点只补新增的空值。
+   */
+  fillWeilingRecruiter: () =>
+    request<{ ok: boolean; matched: number; total: number; filled: number; message?: string }>(
+      '/weiling/fill-recruiter',
+      { method: 'POST' },
+    ),
   syncWeilingLost: () =>
     request<{ ok: boolean; started: boolean; message?: string }>('/weiling/sync-lost', { method: 'POST' }),
   weilingAnalyze: (params: { from?: string; to?: string; owner?: string; channel?: string; stage?: string; status?: string } = {}) => {

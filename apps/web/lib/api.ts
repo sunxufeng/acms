@@ -1833,9 +1833,18 @@ export const api = {
   examListBatches: () => request<ExamBatch[]>('/exam-grades/batches'),
   /** 该班可用科目（取成绩册列上「科目」的实际去重值，不读字典） */
   /** 该班可用科目。传批次的学年/学期 ⇒ 只列同期的列（不传 = 不限） */
-  examSubjects: (cls: string, year?: string, term?: string) =>
-    request<{ value: string; label: string; columns: number }[]>(
-      `/exam-grades/subjects${qs({ cls, year: year || undefined, term: term || undefined })}`,
+  /**
+   * 科目候选。传 `batchId` 时会带上每个科目在**期末总评表**里的行数 `grades`
+   * （0 = 有列但还没结转 ⇒ 选中会是空列表，下拉据此标注「暂无总评」）。
+   */
+  examSubjects: (cls: string, year?: string, term?: string, batchId?: string) =>
+    request<{ value: string; label: string; columns: number; grades: number }[]>(
+      `/exam-grades/subjects${qs({
+        cls,
+        year: year || undefined,
+        term: term || undefined,
+        batchId: batchId || undefined,
+      })}`,
     ),
   /** 结转**预览**（不落库） */
   examPreview: (batchId: string, cls: string, subject = '') =>
@@ -1872,7 +1881,9 @@ export const api = {
     if (opts.cls) q.set('cls', opts.cls);
     if (opts.subject) q.set('subject', opts.subject);
     if (opts.onlyMissingComment) q.set('onlyMissingComment', '1');
-    return request<{ rows: TermGradeListItem[] }>(`/exam-grades/term-grades?${q.toString()}`);
+    return request<{ rows: TermGradeListItem[]; students: TermGradeStudentRef[] }>(
+      `/exam-grades/term-grades?${q.toString()}`,
+    );
   },
   /** 批量保存评语（失焦即存，每次一条也没问题） */
   examSaveComments: (rows: { id: string; comment: string; status?: string }[]) =>
@@ -2417,6 +2428,21 @@ export interface TermGradeListItem {
   commentStatus: string;
   excusedCount: number;
   absentCount: number;
+}
+
+/**
+ * 期末总评的**学生维度**清单（同一份数据的另一种粒度）。
+ *
+ * 🔴 成绩单左侧「已有总评的学生」必须用它，**不能**直接渲染 `rows`：
+ *    行粒度是 `批次 × 学生 × 科目`，一个学生有几科就有几行 ⇒ 直接渲染会重复
+ *    （2026-09-26 峰哥报障「已有总评的学生是重复的」）。
+ */
+export interface TermGradeStudentRef {
+  studentId: string;
+  studentName: string;
+  cls: string;
+  /** 有几科（含「未分科目」那一行） */
+  subjectCount: number;
 }
 export interface ExamAnomalyRow {
   entryId: string;

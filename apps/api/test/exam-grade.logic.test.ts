@@ -9,7 +9,9 @@ import {
   parseScoreInput,
   pickMode,
   rankTermGrades,
+  countGradesBySubject,
   roundBy,
+  studentsFromRows,
   termGradeKey,
   type LevelDef,
   type TermGradeItem,
@@ -393,5 +395,81 @@ describe('termGradeKey', () => {
   it('批次 + 学生 + 科目', () => {
     expect(termGradeKey('b1', 's1', '数学')).toBe('b1__s1__数学');
     expect(termGradeKey('b1', 's1', '')).toBe('b1__s1__');
+  });
+});
+
+// ─────────────── 2026-09-26：学生维度去重 / 科目总评计数 ───────────────
+//
+// 背景（峰哥报障）：
+//   ① 「成绩单里已有总评的学生是重复的」—— 总评表的行粒度是 `批次 × 学生 × 科目`，
+//      左列表直接渲染行 ⇒ 一个学生有几科就出现几次（生产实测 2 人 6 行，各 3 次）。
+//   ② 「批量评语用科目筛选之后没数据」—— 科目候选来自**成绩册的列**、
+//      列表数据来自**期末总评表**，两者不同源 ⇒ 有列但没结转的科目选中就是空。
+
+describe('studentsFromRows（学生维度去重）', () => {
+  const row = (studentId: string, studentName: string, cls = '一班', subject = '') => ({
+    studentId,
+    studentName,
+    cls,
+    subject,
+  });
+
+  it('🔴 同一学生多科目行 → 压成一条，subjectCount 记科目数（生产实测：2 人 6 行）', () => {
+    const rows = [
+      row('s1', '冯梓杰', '全球领航计划', '数学'),
+      row('s1', '冯梓杰', '全球领航计划', '英语'),
+      row('s1', '冯梓杰', '全球领航计划', ''),
+      row('s2', '张紫慧', '全球领航计划', '数学'),
+      row('s2', '张紫慧', '全球领航计划', '英语'),
+      row('s2', '张紫慧', '全球领航计划', ''),
+    ];
+    const out = studentsFromRows(rows);
+    expect(out.map((x) => x.studentName)).toEqual(['冯梓杰', '张紫慧']);   // 各一次，不再重复
+    expect(out.map((x) => x.subjectCount)).toEqual([3, 3]);
+    expect(out.map((x) => x.studentId)).toEqual(['s1', 's2']);
+  });
+
+  it('保持首次出现的顺序（调用方已按名次排序，去重不许打乱）', () => {
+    const out = studentsFromRows([
+      row('s9', '甲'), row('s1', '乙'), row('s9', '甲'), row('s3', '丙'),
+    ]);
+    expect(out.map((x) => x.studentId)).toEqual(['s9', 's1', 's3']);
+    expect(out.map((x) => x.subjectCount)).toEqual([2, 1, 1]);
+  });
+
+  it('姓名 / 班级取第一个非空值（防历史脏行让整条丢名字）', () => {
+    const out = studentsFromRows([
+      row('s1', '', ''), row('s1', '冯梓杰', '全球领航计划'),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].studentName).toBe('冯梓杰');
+    expect(out[0].cls).toBe('全球领航计划');
+  });
+
+  it('studentId 为空的行丢弃（无法定位学生，点开也取不到成绩单）', () => {
+    const out = studentsFromRows([row('', '无学生'), row('s1', '正常')]);
+    expect(out.map((x) => x.studentId)).toEqual(['s1']);
+  });
+
+  it('空输入 → 空输出', () => {
+    expect(studentsFromRows([])).toEqual([]);
+  });
+});
+
+describe('countGradesBySubject（某科目在总评表里有多少行）', () => {
+  it('空科目归到 noneKey；计数与生产形态一致（数学 2 / 英语 2 / 未填 2）', () => {
+    const rows = [
+      { 科目: '数学' }, { 科目: '英语' }, { 科目: '' },
+      { 科目: '数学' }, { 科目: '英语' }, { 科目: null },
+    ];
+    const m = countGradesBySubject(rows, (f) => String(f['科目'] ?? ''), '__none__');
+    expect(m.get('数学')).toBe(2);
+    expect(m.get('英语')).toBe(2);
+    expect(m.get('__none__')).toBe(2);
+    expect(m.get('生物学')).toBeUndefined();   // 成绩册有列、总评表没有 ⇒ 页面标注「暂无总评」
+  });
+
+  it('空表 → 空 Map（下拉里所有科目都会标注「暂无总评」）', () => {
+    expect(countGradesBySubject([], () => '', '__none__').size).toBe(0);
   });
 });

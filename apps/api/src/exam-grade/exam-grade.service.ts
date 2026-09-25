@@ -11,9 +11,11 @@ import {
   ROUND_MODES,
   computeGpa,
   computeTermGrade,
+  countGradesBySubject,
   detectAnomalies,
   pickMode,
   rankTermGrades,
+  studentsFromRows,
   termGradeKey,
   type AbsentMode,
   type AnomalyHit,
@@ -21,6 +23,7 @@ import {
   type CellStatus,
   type ExcusedMode,
   type RoundMode,
+  type StudentRef,
   type TermGradeItem,
 } from './exam-grade.logic.js';
 
@@ -465,12 +468,21 @@ export class ExamGradeService implements OnModuleInit {
    * 🔴 取自该班成绩册列上「科目」的**实际去重值** —— **不读字典**。
    *    ACMS 的字典与实际数据常年不符（校区、年级都踩过），
    *    读字典会出现「选了筛出 0 条」。
+   *
+   * 传了 `batchId` 时，额外带上该科目在**期末总评表**里的行数 `grades`
+   * （`0` = 成绩册有列但还没结转出总评）。前端用它在下拉里标注「暂无总评」。
+   *
+   * 🔴 为什么需要 `grades`（2026-09-26 峰哥报障「用科目筛选之后没数据了」）：
+   *    候选来自**成绩册的列**、列表数据来自**期末总评表**，两者不同源 ⇒
+   *    下拉里会出现「有列但没结转」的科目（生产实测：「生物学」有 1 列、总评表 0 行），
+   *    选中它自然是空列表，而界面只有一句「暂无总评」，看不出是"没结转"还是"坏了"。
    */
   async subjectOptions(
     cls: string,
     year = '',
     term = '',
-  ): Promise<{ value: string; label: string; columns: number }[]> {
+    batchId = '',
+  ): Promise<{ value: string; label: string; columns: number; grades: number }[]> {
     // 按批次同期的列算科目：否则科目下拉里会混进别的学年的科目，
     // 选了那个科目 ⇒ 结转挑不到列，界面只会说"该批次范围内没有可结转的考核列"（难查）。
     const grid = await this.markbook.getGrid(cls, year, term);
@@ -480,8 +492,26 @@ export class ExamGradeService implements OnModuleInit {
       const s = c.subject || SUBJECT_NONE;
       m.set(s, (m.get(s) ?? 0) + 1);
     }
+
+    // 总评表的行数：只统计「本批次 × 本班」，与列表的筛选口径一致
+    let grades = new Map<string, number>();
+    if (batchId) {
+      const all = await this.readAll(TABLES.termGrade.tableId);
+      const mine = all.filter(
+        (x) =>
+          String(this.linkIds(x.f['批次'])[0] ?? '') === batchId &&
+          (!cls || String(x.f['班级'] ?? '') === cls),
+      );
+      grades = countGradesBySubject(mine.map((x) => x.f), (f) => String(f['科目'] ?? ''), SUBJECT_NONE);
+    }
+
     return [...m.entries()]
-      .map(([value, columns]) => ({ value, label: value === SUBJECT_NONE ? '未填科目' : value, columns }))
+      .map(([value, columns]) => ({
+        value,
+        label: value === SUBJECT_NONE ? '未填科目' : value,
+        columns,
+        grades: grades.get(value) ?? 0,
+      }))
       .sort((a, b) =>
         a.value === SUBJECT_NONE ? 1 : b.value === SUBJECT_NONE ? -1 : a.label.localeCompare(b.label, 'zh-CN'),
       );
@@ -996,7 +1026,18 @@ export class ExamGradeService implements OnModuleInit {
     return { saved, locked };
   }
 
-  /** 期末总评列表（评语页 / 成绩单页用；可按批次 + 班级 + 科目 + 只看未写筛） */
+  /**
+   * 期末总评列表（评语页 / 成绩单页用；可按批次 + 班级 + 科目 + 只看未写筛）。
+   *
+   * 返回两个视角（**同一份数据，两种粒度**）：
+   *   - `rows`     —— `批次 × 学生 × 科目` 粒度：批量评语按它写（每条评语属于某一科）
+   *   - `students` —— **学生**粒度（去重）：成绩单左侧列表按它渲染
+   *
+   * 🔴 为什么必须给 `students`（2026-09-26 峰哥报障「已有总评的学生是重复的」）：
+   *    一个学生有几科就有几行，成绩单左列表直接渲染 `rows` ⇒ 同一学生出现 N 次
+   *    （生产实测 2 个学生 6 行，每个学生各 3 次：数学 / 英语 / 未分科目）。
+   *    去重规则收在 `studentsFromRows()`（纯函数、有单测），别在页面里再写一份。
+   */
   async listTermGrades(opts: {
     batchId: string;
     cls?: string;
@@ -1019,6 +1060,7 @@ export class ExamGradeService implements OnModuleInit {
       excusedCount: number;
       absentCount: number;
     }[];
+    students: StudentRef[];
   }> {
     const all = await this.readAll(TABLES.termGrade.tableId);
     const wantSubject = opts.subject === SUBJECT_NONE ? '' : (opts.subject ?? '');
@@ -1044,7 +1086,7 @@ export class ExamGradeService implements OnModuleInit {
       }))
       .filter((r) => !opts.onlyMissingComment || !r.comment.trim());
     rows.sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999) || a.studentName.localeCompare(b.studentName, 'zh-CN'));
-    return { rows };
+    return { rows, students: studentsFromRows(rows) };
   }
 
   /** 班主任总评语（学生 × 批次，存在成绩单表） */
@@ -1313,14 +1355,11 @@ export class ExamGradeService implements OnModuleInit {
     skipped: number;
   }> {
     const { rows } = await this.listTermGrades({ batchId, cls, subject });
-    const uniq = new Map<string, { studentId: string; studentName: string; cls: string }>();
-    for (const r of rows) {
-      if (!r.studentId) continue;
-      if (!uniq.has(r.studentId)) {
-        uniq.set(r.studentId, { studentId: r.studentId, studentName: r.studentName, cls: r.cls });
-      }
-    }
-    const students = [...uniq.values()].sort((a, b) => a.studentName.localeCompare(b.studentName, 'zh-CN'));
+    // 去重规则与页面左列表**共用同一个纯函数**（原来这里手写了一份 Map 去重，
+    // 两处规则迟早会漂 —— 判据/规则只写一处）。
+    const students = studentsFromRows(rows)
+      .map((s) => ({ studentId: s.studentId, studentName: s.studentName, cls: s.cls }))
+      .sort((a, b) => a.studentName.localeCompare(b.studentName, 'zh-CN'));
 
     const data: ReportCardData[] = [];
     let skipped = 0;

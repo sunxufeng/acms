@@ -14,6 +14,7 @@ import {
   type TermGradeListItem,
   type TermGradePreview,
   type TermGradeRow,
+  type TermGradeStudentRef,
 } from '../../lib/api';
 // 筛选下拉统一走全站组件（2026-09-22 第二批：本页原本是原生 select + 手写「全部科目」）
 import { FilterSelect } from '../../components/FilterSelect';
@@ -49,7 +50,7 @@ export default function ExamGradesPage() {
   const [batchId, setBatchId] = useState('');
   const [classes, setClasses] = useState<MarkbookClassOption[]>([]);
   const [cls, setCls] = useState('');
-  const [subjects, setSubjects] = useState<{ value: string; label: string; columns: number }[]>([]);
+  const [subjects, setSubjects] = useState<{ value: string; label: string; columns: number; grades: number }[]>([]);
   const [subject, setSubject] = useState('');
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,7 +61,8 @@ export default function ExamGradesPage() {
   const [showPreview, setShowPreview] = useState(false);
 
   // 成绩单
-  const [cardStudents, setCardStudents] = useState<TermGradeListItem[]>([]);
+  /** 成绩单左侧列表：**学生维度**（去重），由后端 term-grades 的 `students` 给出 */
+  const [cardStudents, setCardStudents] = useState<TermGradeStudentRef[]>([]);
   const [cardStudentId, setCardStudentId] = useState('');
   const [card, setCard] = useState<ExamReportCard | null>(null);
   const [summaryDraft, setSummaryDraft] = useState('');
@@ -103,6 +105,11 @@ export default function ExamGradesPage() {
    * 为什么要带批次的学年/学期：成绩册的列现在带学年/学期归属，而结转只取与批次同期的列。
    * 不筛的话下拉里会出现别的学年的科目 —— 选中它 ⇒ 结转挑不到列，
    * 界面只会说「该批次范围内没有可结转的考核列」，很难查。
+   *
+   * 🔴 还要带 `batchId`（2026-09-26）：候选来自**成绩册的列**，而列表数据来自**期末总评表**，
+   *    两者不同源 ⇒ 下拉里会有「有列但还没结转」的科目，选中它必然是空列表。
+   *    传 batchId 后后端给出每科的总评行数，下面据此标注「暂无总评」，
+   *    用户就不会把「还没结转」当成「功能坏了」。
    */
   useEffect(() => {
     if (!cls) {
@@ -112,7 +119,7 @@ export default function ExamGradesPage() {
     }
     const b = batches.find((x) => x.id === batchId);
     void api
-      .examSubjects(cls, b?.year, b?.term)
+      .examSubjects(cls, b?.year, b?.term, batchId)
       .then((s) => {
         setSubjects(s);
         setSubject((cur) => (cur && s.some((x) => x.value === cur) ? cur : ''));
@@ -174,10 +181,13 @@ export default function ExamGradesPage() {
       }
       try {
         const r = await api.examTermGradeList({ batchId, cls, subject, onlyMissingComment: onlyMissing });
-        setCardStudents(r.rows);
+        // 🔴 两个视角别混用：`students` 是**学生维度**（成绩单左列表，去重），
+        //    `rows` 是 `学生 × 科目` 行（批量评语按科目写评语）。
+        //    曾把 rows 直接给左列表 ⇒ 一个学生有几科就显示几次（2026-09-26 报障）。
+        setCardStudents(r.students ?? []);
         setCommentRows(r.rows);
         setCommentDraft({});
-        setCardStudentId((cur) => (cur && r.rows.some((x) => x.studentId === cur) ? cur : (r.rows[0]?.studentId ?? '')));
+        setCardStudentId((cur) => (cur && r.students.some((x) => x.studentId === cur) ? cur : (r.students[0]?.studentId ?? '')));
       } catch {
         setCardStudents([]);
         setCommentRows([]);
@@ -532,7 +542,16 @@ export default function ExamGradesPage() {
             value={subject}
             onChange={setSubject}
             options={subjects.map((s) => s.value)}
-            optionLabels={Object.fromEntries(subjects.map((s) => [s.value, `${s.label}（${s.columns}）`]))}
+            // 标注「暂无总评」：有成绩册列但该批次下还没结转出总评的科目，
+            // 选中它必然是空列表（2026-09-26）。让用户事先知道，而不是选了才发现。
+            optionLabels={Object.fromEntries(
+              subjects.map((s) => [
+                s.value,
+                s.grades === 0
+                  ? t('subjectOptionNoGrades', { label: s.label, n: s.columns })
+                  : t('subjectOptionWithGrades', { label: s.label, n: s.columns, g: s.grades }),
+              ]),
+            )}
           />
           {batch && (
             <span className="mb-meta">
@@ -689,13 +708,21 @@ export default function ExamGradesPage() {
                   <span className="dept-card-meta">{cardStudents.length}</span>
                 </div>
                 <div style={{ maxHeight: 520, overflow: 'auto' }}>
-                  {cardStudents.length === 0 && <div className="dept-loading">{t('noTermGradesShort')}</div>}
+                  {cardStudents.length === 0 && (
+                    <div className="dept-loading">
+                      {subject ? t('noTermGradesForSubject') : t('noTermGradesShort')}
+                    </div>
+                  )}
                   {cardStudents.map((s) => (
-                    <div key={s.id} className={`dept-row${s.studentId === cardStudentId ? ' dept-row-active' : ''}`}>
+                    <div key={s.studentId} className={`dept-row${s.studentId === cardStudentId ? ' dept-row-active' : ''}`}>
                       <button type="button" className="dept-name" onClick={() => setCardStudentId(s.studentId)}>
                         <span className="dept-name-text">{s.studentName}</span>
                       </button>
-                      <span className="dept-count">{s.rank == null ? '—' : `#${s.rank}`}</span>
+                      {/* 徽标显示**科目数**而不是名次：名次是**分科目**的（同一个学生数学第 1、英语第 2），
+                          在"学生"这一层显示单个名次会误导 —— 名次在右侧成绩单里按科目逐行给出。 */}
+                      <span className="dept-count" title={t('subjectCountHint')}>
+                        {t('subjectCount', { n: s.subjectCount })}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -869,7 +896,21 @@ export default function ExamGradesPage() {
             {commentRows.length === 0 ? (
               <div className="empty-state">
                 <div className="empty-state-icon">✍️</div>
-                <div className="empty-state-text">{t('noTermGradesForComment')}</div>
+                <div className="empty-state-text">
+                  {subject ? t('noTermGradesForSubject') : t('noTermGradesForComment')}
+                </div>
+                {/* 选错科目是最常见的原因（下拉里会有"有列但没结转"的科目）——
+                    给一个一键回到「全部科目」的出口，别让用户自己去找筛选框 */}
+                {subject && (
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    style={{ marginTop: 'var(--space-lg)' }}
+                    onClick={() => setSubject('')}
+                  >
+                    {t('clearSubjectFilter')}
+                  </button>
+                )}
               </div>
             ) : (
               <div className="card">
@@ -884,6 +925,10 @@ export default function ExamGradesPage() {
                     <thead>
                       <tr>
                         <th style={{ minWidth: 110 }}>{t('colStudent')}</th>
+                        {/* 🔴 「科目」列不能省：评语是**按科目**写的，一条总评 = 一个学生 × 一科。
+                            不显示科目时，选「全部科目」会看到同一学生多行、且分不清哪行是哪科
+                            （2026-09-26 与「学生重复」一起被误判为重复数据）。 */}
+                        <th style={{ minWidth: 92 }}>{t('colSubject')}</th>
                         <th style={{ minWidth: 62 }}>{t('colTotal')}</th>
                         <th style={{ minWidth: 62 }}>{t('colLevel')}</th>
                         <th style={{ minWidth: 360 }}>{t('colTeacherComment')}</th>
@@ -899,6 +944,13 @@ export default function ExamGradesPage() {
                           <tr key={r.id}>
                             <td>
                               <div className="dept-emp-name">{r.studentName}</div>
+                            </td>
+                            <td>
+                              {r.subject ? (
+                                r.subject
+                              ) : (
+                                <span className="muted">{t('subjectNone')}</span>
+                              )}
                             </td>
                             <td>{r.total == null ? '—' : r.total}</td>
                             <td>{r.level ? <span className={levelClass(r.level, r.total)}>{r.level}</span> : '—'}</td>

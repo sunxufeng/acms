@@ -3561,7 +3561,13 @@
     "setSwing": "异常审查：突变分差",
     "exportZip": "整班导出 ZIP",
     "zipFailed": "导出 ZIP 失败",
-    "applyFromLibrary": "套用常用评语…"
+    "applyFromLibrary": "套用常用评语…",
+    "noTermGradesForSubject": "该科目在本批次下还没有总评记录（成绩册里可能有列，但还没结转）。先到「期末总评」页点「一键结转」，或换一个科目。",
+    "subjectCount": "{n} 科",
+    "subjectCountHint": "当前筛选下该学生的科目数；点开看各科成绩与名次",
+    "subjectOptionWithGrades": "{label}（{n} 列 · 总评 {g} 条）",
+    "subjectOptionNoGrades": "{label}（{n} 列 · 暂无总评）",
+    "clearSubjectFilter": "清除科目筛选（看全部）"
   },
   "impersonate": {
     "eyebrow": "后台管理",

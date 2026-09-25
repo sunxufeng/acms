@@ -57,15 +57,20 @@ export class ExamGradeController {
    * `year` / `term` 传**当前批次的学年学期** ⇒ 科目只列同期的列；不传 = 不限（老行为）。
    * 不按同期筛的话，下拉里会出现别的学年的科目，选中后结转挑不到列。
    */
+  /**
+   * 传 `batchId` 时会额外算出每个科目在**期末总评表**里有多少行（`grades`）——
+   * 前端据此在下拉里标注「暂无总评」（有列但还没结转的科目，选中会是空列表）。
+   */
   @Get('subjects')
   subjects(
     @Req() req: { user: SessionUser },
     @Query('cls') cls: string,
     @Query('year') year?: string,
     @Query('term') term?: string,
+    @Query('batchId') batchId?: string,
   ) {
     requireModule(req.user, 'examGrades', 'read');
-    return this.svc.subjectOptions(cls ?? '', year ?? '', term ?? '');
+    return this.svc.subjectOptions(cls ?? '', year ?? '', term ?? '', batchId ?? '');
   }
 
   /** 结转预览（读，不落库） */

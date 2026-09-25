@@ -3561,7 +3561,13 @@
     "setSwing": "Anomaly: swing threshold",
     "exportZip": "Export class ZIP",
     "zipFailed": "ZIP export failed",
-    "applyFromLibrary": "Apply a saved comment…"
+    "applyFromLibrary": "Apply a saved comment…",
+    "noTermGradesForSubject": "No term grades for this subject in this batch yet (the markbook may have columns, but they have not been rolled up). Run \"Roll up\" on the Term grades tab, or pick another subject.",
+    "subjectCount": "{n} subj.",
+    "subjectCountHint": "Subjects under the current filter; open to see per-subject scores and ranks",
+    "subjectOptionWithGrades": "{label} ({n} cols · {g} grades)",
+    "subjectOptionNoGrades": "{label} ({n} cols · no grades yet)",
+    "clearSubjectFilter": "Clear subject filter (show all)"
   },
   "impersonate": {
     "eyebrow": "Administration",

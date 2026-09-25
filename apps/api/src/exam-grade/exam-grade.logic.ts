@@ -606,3 +606,84 @@ function fullMarkText(full: number): string {
 export function termGradeKey(batchId: string, studentId: string, subject: string): string {
   return `${batchId}__${studentId}__${subject || ''}`;
 }
+
+// ─────────────────────────────────────────────────────────────
+// 8. 「学生 × 科目」行 → 学生维度清单
+// ─────────────────────────────────────────────────────────────
+
+export interface StudentRef {
+  studentId: string;
+  studentName: string;
+  cls: string;
+  /** 该生出现在几行里 = 有几科（含「未分科目」那一行） */
+  subjectCount: number;
+}
+
+/**
+ * 把**期末总评表的行**压成**学生维度**的清单（成绩单左侧「已有总评的学生」列表用）。
+ *
+ * 🔴 为什么需要它（2026-09-26 峰哥报障「已有总评的学生是重复的」）：
+ *    总评表的行粒度是 **`批次 × 学生 × 科目`**（幂等键见 `termGradeKey`）——
+ *    一个学生有几科就有几行。而成绩单是**学生粒度**的东西（`buildReportCard(studentId, batchId)`
+ *    一次取该生全部科目），左列表直接渲染行 ⇒ 同一个学生出现 N 次（生产实测：2 个学生 6 行，
+ *    每个学生各 3 次：数学 / 英语 / 未分科目）。
+ *
+ * 规则（刻意简单，避免引入第二个真源）：
+ *   - 按 `studentId` 去重，**保持首次出现的顺序**（调用方的 rows 已按名次排好序，别打乱）；
+ *   - `subjectCount` = 该生出现在几行里；
+ *   - 姓名/班级取**第一个非空值**（防御历史脏行：某行姓名没写全时不至于整条丢名字）；
+ *   - `studentId` 为空的行**丢弃**（无法定位学生，点开也取不到成绩单）。
+ */
+export function studentsFromRows(
+  rows: readonly { studentId: string; studentName: string; cls: string }[],
+): StudentRef[] {
+  const out: StudentRef[] = [];
+  const idx = new Map<string, number>();
+  for (const r of rows) {
+    const id = String(r.studentId ?? '').trim();
+    if (!id) continue;
+    const hit = idx.get(id);
+    if (hit === undefined) {
+      idx.set(id, out.length);
+      out.push({
+        studentId: id,
+        studentName: String(r.studentName ?? ''),
+        cls: String(r.cls ?? ''),
+        subjectCount: 1,
+      });
+      continue;
+    }
+    const cur = out[hit]!;
+    cur.subjectCount += 1;
+    if (!cur.studentName && r.studentName) cur.studentName = String(r.studentName);
+    if (!cur.cls && r.cls) cur.cls = String(r.cls);
+  }
+  return out;
+}
+
+/**
+ * 「某科目在总评表里有多少行」的计数器（成绩单 / 批量评语的科目下拉标注用）。
+ *
+ * 🔴 为什么需要它（2026-09-26 峰哥报障「用科目筛选之后没数据了」）：
+ *    科目下拉的候选来自**成绩册的列**（那个班在批次同期有哪些科目），
+ *    而列表数据来自**期末总评表**。两者不同源 ⇒ 下拉里会出现「有列但还没结转出总评」的科目
+ *    （生产实测：「生物学」在成绩册里有 1 列，但总评表里 0 行），选中它自然是空列表，
+ *    而界面上只有一句「暂无总评」，用户看不出是"没结转"还是"坏了"。
+ *    有了这个计数，下拉就能提前标注「暂无总评」，空态也能说清下一步。
+ *
+ * @param rows    期末总评表的行（只需 科目 字段）
+ * @param subjectOf 取「科目」字段的函数；空值统一归到 `noneKey`
+ */
+export function countGradesBySubject(
+  rows: readonly Record<string, unknown>[],
+  subjectOf: (row: Record<string, unknown>) => string,
+  noneKey: string,
+): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const r of rows) {
+    const s = subjectOf(r) || noneKey;
+    m.set(s, (m.get(s) ?? 0) + 1);
+  }
+  return m;
+}
+

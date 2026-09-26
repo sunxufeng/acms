@@ -2556,6 +2556,11 @@ export interface IdpStudentRow {
   id: string;
   studentId: string;
   studentName: string;
+  /**
+   * 英文名（学生档案「英文名」实时 join；取不到是空串）。
+   * 「学生」列按「中文名｜英文名」显示，英文名空则只显示中文名。
+   */
+  nameEn: string;
   cls: string;
   grade: string;
   teacherOpenId: string;

@@ -244,12 +244,24 @@ export class GetnoteController {
      * 「全部」/空 = 不限制；缺行（历史笔记）永远算「有效」。
      */
     @Query('状态') status?: string,
+    /**
+     * `mine=1` ⇒ 只返回**我自己的笔记**（本人凭证那一路）。见 `NoteListFilters.mine`：
+     * 「我的 IDP → 导入笔记」用这个口径（老师只看自己的；管理员不受影响，仍看全部）。
+     */
+    @Query('mine') mine?: string,
   ) {
     const user = (req as Request & { user: SessionUser }).user;
     this.assert(user, 'module:getnote:read');
     const size = Math.min(Math.max(Number(pageSize) || 20, 1), 100);
     // size 要传进 service：管理员走的是服务端快照分页，得知道每页切多少
-    const r = await this.svc.list(user, pageToken, q, size, { source, configName, owner, tag, status });
+    const r = await this.svc.list(user, pageToken, q, size, {
+      source,
+      configName,
+      owner,
+      tag,
+      status,
+      mine: mine === '1' || mine === 'true',
+    });
     const items = r.notes ?? [];
     const hasMore = Boolean(r.has_more);
     return {

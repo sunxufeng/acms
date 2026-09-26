@@ -291,6 +291,22 @@ export function commSummaryOf(c: { subject?: unknown; summary?: unknown }): stri
 /** IDP沟通 这个记录类型的字面量（学生记录的 `记录类型` 字段取值） */
 export const IDP_COMM_RECORD_TYPE = 'IDP沟通';
 
+/**
+ * IDP 列表「学生」列的展示文案 = **中文名｜英文名**（2026-09-26 峰哥要求）。
+ *
+ * 为什么抽成纯函数：这个格式被两个页面用（IDP 配置页 / 我的 IDP 页），
+ * 各写一份必然漂移 —— 以后要改成「中文名（英文名）」就得记得改两处，漏一处不报错。
+ *
+ * 英文名缺失（不少学生本来就没填）时**只出中文名**，不留「｜」这种空尾巴。
+ * 分隔符用全角「｜」，与系统里用户名的既有写法（`丁懿｜Kevin`）一致。
+ */
+export function idpStudentLabel(name: unknown, nameEn: unknown): string {
+  const cn = String(name ?? '').trim();
+  const en = String(nameEn ?? '').trim();
+  if (!cn) return en;
+  return en ? `${cn}｜${en}` : cn;
+}
+
 /** 学生记录里「记录类型」字段名（转出，避免各模块各写一份） */
 export const IDP_COMM_TYPE_FIELD = STUDENT_RECORD_TYPE_FIELD;
 

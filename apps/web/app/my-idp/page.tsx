@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useTranslations } from 'next-intl';
 import { api, type MyIdpGroup, type MyIdpResp, type IdpStudentRow } from '../../lib/api';
+import { idpStudentLabel } from '@acms/contracts';
 import IdpCommDrawer, { type IdpCommTarget } from '../../components/IdpCommDrawer';
 
 /**
@@ -63,7 +64,8 @@ export default function MyIdpPage() {
       ...g,
       students: g.students.filter((s) => {
         if (onlyPending && s.commCount > 0) return false;
-        if (keyword && !s.studentName.includes(keyword) && !s.cls.includes(keyword)) return false;
+        if (keyword && !s.studentName.includes(keyword) && !s.nameEn.includes(keyword) && !s.cls.includes(keyword))
+          return false;
         return true;
       }),
     }));
@@ -81,6 +83,8 @@ export default function MyIdpPage() {
       cls: s.cls,
       archived: g.archived,
       meName: data?.me.name ?? '',
+      // 「IDP学生」明细行 id —— 抽屉里「导入笔记」的关联目标（挂到这个学生的 IDP 上）
+      detailId: s.id,
     });
   };
 
@@ -182,7 +186,7 @@ export default function MyIdpPage() {
                           {g.students.map((s) => (
                             <tr key={s.id}>
                               <td>
-                                <div className="dept-emp-name">{s.studentName}</div>
+                                <div className="dept-emp-name">{idpStudentLabel(s.studentName, s.nameEn)}</div>
                               </td>
                               <td className="muted">{s.cls || '—'}</td>
                               <td>

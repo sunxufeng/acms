@@ -69,6 +69,15 @@ export interface IdpStudentRow {
   id: string;
   studentId: string;
   studentName: string;
+  /**
+   * 英文名（来自学生档案的「英文名」字段，**实时 join**，不是明细表里的快照）。
+   *
+   * 界面要求「学生」列显示「中文名｜英文名」（2026-09-26 峰哥要求）。
+   * 为什么实时取而不在明细表里加一个快照字段：改学生档案后**下一次打开就是新的**，
+   * 不用再拉一次学生（快照一旦有了就得维护"什么时候刷新"这个问题）。
+   * 取不到就是空串，界面只显示中文名（不少学生本来就没填英文名）。
+   */
+  nameEn: string;
   cls: string;
   grade: string;
   teacherOpenId: string;
@@ -390,12 +399,13 @@ export class IdpService {
     archived: boolean;
   }> {
     this.requireConfig(user, 'read');
-    const [cfgRows, details, years, comms, users] = await Promise.all([
+    const [cfgRows, details, years, comms, users, nameEn] = await Promise.all([
       this.readAll(TABLES.idpConfig.tableId),
       this.readAll(TABLES.idpStudent.tableId),
       this.readAll(TABLES.academicYear.tableId),
       this.commsByStudent(),
       this.userIndex(),
+      this.studentNameEnIndex(),
     ]);
     const cfg = cfgRows.find((c) => c.id === configId);
     if (!cfg) throw new NotFoundException('NOT_FOUND');
@@ -407,7 +417,7 @@ export class IdpService {
 
     const rows = details
       .filter((d) => idpLinkId(d.f[SF.所属配置]) === configId)
-      .map((d) => this.toStudentRow(d, comms, users.byOpenId, range))
+      .map((d) => this.toStudentRow(d, comms, users.byOpenId, range, nameEn))
       .sort((a, b) => (a.cls || '~').localeCompare(b.cls || '~', 'zh-CN') || a.studentName.localeCompare(b.studentName, 'zh-CN'));
 
     return {
@@ -514,12 +524,13 @@ export class IdpService {
   }> {
     this.requireMyIdp(user);
     const myOpenId = String(user.openId ?? '').trim();
-    const [cfgRows, details, years, comms, users] = await Promise.all([
+    const [cfgRows, details, years, comms, users, nameEn] = await Promise.all([
       this.readAll(TABLES.idpConfig.tableId),
       this.readAll(TABLES.idpStudent.tableId),
       this.readAll(TABLES.academicYear.tableId),
       this.commsByStudent(),
       this.userIndex(),
+      this.studentNameEnIndex(),
     ]);
     const yearName = new Map(years.map((y) => [y.id, String(y.f['学年名称'] ?? '')]));
 
@@ -544,7 +555,7 @@ export class IdpService {
         const range = y ? idpTermRange(y.f['开始日期'], y.f['结束日期'], term) : null;
         const status = String(cfg?.f[CF.状态] ?? '');
         const students = rows
-          .map((d) => this.toStudentRow(d, comms, users.byOpenId, range))
+          .map((d) => this.toStudentRow(d, comms, users.byOpenId, range, nameEn))
           .sort((a, b) => b.lastAt - a.lastAt || a.studentName.localeCompare(b.studentName, 'zh-CN'));
         return {
           configId,
@@ -755,6 +766,8 @@ export class IdpService {
     comms: Map<string, CommLite[]>,
     byOpenId: Map<string, string>,
     range: ReturnType<typeof idpTermRange>,
+    /** 学生档案 id → 英文名（见 `IdpStudentRow.nameEn` 的注释） */
+    nameEn: Map<string, string> = new Map(),
   ): IdpStudentRow {
     const sid = idpLinkId(d.f[SF.学生]);
     const teacherOpenId = String(d.f[SF.IDP老师] ?? '').trim();
@@ -765,6 +778,7 @@ export class IdpService {
       id: d.id,
       studentId: sid,
       studentName: String(d.f[SF.学生姓名] ?? ''),
+      nameEn: nameEn.get(sid) ?? '',
       cls: String(d.f[SF.班级] ?? ''),
       grade: String(d.f[SF.当前年级] ?? ''),
       teacherOpenId,
@@ -776,6 +790,24 @@ export class IdpService {
       lastSummary: stat.lastSummary,
       noTime: stat.noTime,
     };
+  }
+
+  /**
+   * 学生档案 id → 英文名。
+   *
+   * ⚠️ 用 `idpTextOf()` 而不是 `String()`：学生档案里这类文本字段偶尔是关联/富文本形态，
+   *    `String(对象)` 会得到 `"[object Object]"`（本模块「班级」列踩过一次，见 `studentCls`）。
+   * 同理用 `readAll` 全量读（不用 `students()`）—— 明细里可能有已毕业学生，
+   * 那批不在「在校」筛选里，但列表照样要显示他们的英文名。
+   */
+  private async studentNameEnIndex(): Promise<Map<string, string>> {
+    const rows = await this.readAll(TABLES.studentProfile.tableId);
+    const m = new Map<string, string>();
+    for (const r of rows) {
+      const en = idpTextOf(r.f['英文名']);
+      if (en) m.set(r.id, en);
+    }
+    return m;
   }
 }
 

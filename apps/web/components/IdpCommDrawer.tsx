@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { api, type MyIdpComms } from '../lib/api';
+import { api, type GetnoteLink, type MyIdpComms } from '../lib/api';
 import NotePanel from './NotePanel';
 
 /**
@@ -20,6 +21,27 @@ import NotePanel from './NotePanel';
  *
  * ⚠️ 附件字段名是「沟通附件清单」（**可写**）。学生记录 meta 的 `readonly` 里那条是
  *    「沟通附件」（少一个字，是另一个字段）—— 别搞混，写进 readonly 的会被静默丢弃。
+ *
+ * ## 「导入笔记」（2026-09-26 新增）
+ *
+ * 峰哥要的：老师把自己在「我的笔记」里记的笔记**批量**挂到这个学生的 IDP 上，
+ * 不用先搜索再一篇篇关联（`NotePanel` 那条路只有语义召回、一次只能加一篇）。
+ *
+ * 关联目标 = **本学生在本次配置里的 IDP 明细行**（`entityType='IDP学生'`、
+ * `entityId = target.detailId`）。为什么不挂「学生档案」：峰哥明确要的是「和学生的 IDP
+ * 关联」——挂明细行才表达得出"这篇笔记属于这个学生这一次 IDP"，
+ * 而且「已导入」的判据才精确（挂学生档案会把别的场景关联的笔记一并算进来）。
+ *
+ * 🔴 写入是**全量覆盖式**（`PUT /getnote/links`，与 NotePanel / 邮件归档同一范式）：
+ *    提交时必须带上**已有的全部关联**（`imported`），只发新增的会把旧的悄悄清掉。
+ *
+ * 🔴 权限与可见性（峰哥 2026-09-26 定的口径）：
+ *    · 写关联要 `module:getnote:update`，生产实测 Phase1~Phase8 只有 read ⇒ 已补；
+ *    · **候选列表只列老师自己的笔记**（`GET /getnote/notes?mine=1`，见 `NoteListFilters.mine`）——
+ *      默认口径会在"被关联到知识库配置"时列出该配置下所有人的笔记，那不是导入场景要的；
+ *      系统管理员不吃这个参数，仍然看得到全部（他本来就该看到全部）；
+ *    · 「已导入的笔记」是**协作可见**的（IDP 是共享对象，同事导入的也在），
+ *      所以每条标注导入人（`linkedBy`）—— 不标就分不清是谁挂上去的。
  */
 export interface IdpCommTarget {
   configId: string;
@@ -31,6 +53,11 @@ export interface IdpCommTarget {
   archived: boolean;
   /** 当前登录人姓名（新建时填「沟通人」） */
   meName?: string;
+  /**
+   * 「IDP学生」明细行的 record id —— 「导入笔记」的关联目标。
+   * 两个入口（IDP 配置页 / 我的 IDP 页）都能从行数据里拿到；拿不到时导入功能禁用。
+   */
+  detailId?: string;
 }
 
 /** 附件条目形态：与学生记录「沟通附件清单」的存储一致（CrudPage 也按这个结构读） */
@@ -62,6 +89,34 @@ function fmtTime(ms: number): string {
   if (!ms) return '—';
   const d = new Date(ms);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** 「我的笔记」列表行里我们要用到的字段（上游结构，其余忽略） */
+interface NoteItem {
+  noteId: string;
+  title: string;
+  createdAt: number;
+}
+
+/**
+ * 上游笔记 → 列表行。
+ * ⚠️ `note_id` 是 int64 的**字符串**形态，绝不能转 Number（丢精度后 id 就查不到了）。
+ */
+function toNoteItem(r: Record<string, unknown>): NoteItem {
+  const title = String(r.title ?? '').trim();
+  const snippet = String(r.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  return {
+    noteId: String(r.note_id ?? r.id ?? ''),
+    title: title || snippet,
+    createdAt: Number(r.created_at ?? 0) || 0,
+  };
+}
+
+/** 笔记时间只要日期：列表里带时分是噪音 */
+function fmtDay(ms: number): string {
+  if (!ms) return '';
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function errMsg(e: unknown): string {
@@ -96,6 +151,26 @@ export default function IdpCommDrawer({
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // ── 导入笔记 ──────────────────────────────────────────────
+  /** 右侧面板是否展开 */
+  const [importOpen, setImportOpen] = useState(false);
+  /** 已导入到本学生 IDP 的笔记（全量覆盖式写入的**基准**，见文件头注释） */
+  const [imported, setImported] = useState<GetnoteLink[]>([]);
+  /** 候选笔记（我的笔记，已过滤掉已导入的） */
+  const [cands, setCands] = useState<NoteItem[]>([]);
+  const [candsToken, setCandsToken] = useState('');
+  const [candsMore, setCandsMore] = useState(false);
+  const [candsLoading, setCandsLoading] = useState(false);
+  const [kw, setKw] = useState('');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [importing, setImporting] = useState(false);
+  /** 得到大脑凭证是否已配（没配就拉不到笔记，提前拦住并引导，别让用户撞 412） */
+  const [credOk, setCredOk] = useState<boolean | null>(null);
+  /** 一次性提示（导入成功） */
+  const [flash, setFlash] = useState('');
+
+  const detailId = target.detailId ?? '';
+
   const load = useCallback(async () => {
     setLoading(true);
     setErr('');
@@ -111,6 +186,155 @@ export default function IdpCommDrawer({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** 已导入的笔记 —— 打开面板时拉一次，导入/解除后重拉 */
+  const loadImported = useCallback(async () => {
+    if (!detailId) return;
+    try {
+      setImported(await api.listGetnoteLinks('IDP学生', detailId));
+    } catch (e) {
+      setErr(errMsg(e));
+    }
+  }, [detailId]);
+
+  /** 我的笔记 − 已导入 = 候选。`reset` 为假时按 `pageToken` 追加下一页。 */
+  const loadCands = useCallback(
+    async (reset: boolean) => {
+      setCandsLoading(true);
+      try {
+        // 🔴 `mine=1`：只列**我自己的**笔记。默认口径在"被关联到知识库配置"时会列出
+        //    该配置下的全部笔记（含同事的）—— 那是知识库页面的语义，不是导入场景要的。
+        const params: Record<string, string | undefined> = { pageSize: '100', mine: '1' };
+        if (kw.trim()) params.q = kw.trim();
+        if (!reset && candsToken) params.pageToken = candsToken;
+        const r = await api.listGetnote(params);
+        const linked = new Set(imported.map((l) => l.noteId));
+        const fresh = ((r.items ?? []) as Record<string, unknown>[])
+          .map(toNoteItem)
+          .filter((n) => n.noteId && !linked.has(n.noteId));
+        setCands((cur) =>
+          reset ? fresh : [...cur, ...fresh.filter((n) => !cur.some((x) => x.noteId === n.noteId))],
+        );
+        setCandsToken(r.pageToken ?? '');
+        setCandsMore(Boolean(r.hasMore));
+      } catch (e) {
+        setErr(errMsg(e));
+        if (reset) setCands([]);
+      } finally {
+        setCandsLoading(false);
+      }
+    },
+    [kw, candsToken, imported],
+  );
+
+  /**
+   * 打开面板：先拿「已导入」再拉候选。
+   * 🔴 顺序不能反 —— 候选要按已导入的 noteId 过滤，反了会把已导入的也列出来。
+   */
+  const openImport = async () => {
+    setFlash('');
+    setImportOpen(true);
+    setPicked(new Set());
+    setErr('');
+    setCredOk(null);
+    api
+      .getGetnoteCredential()
+      .then((c) => setCredOk(Boolean(c?.configured)))
+      .catch(() => setCredOk(false));
+
+    let linked: GetnoteLink[] = [];
+    if (detailId) {
+      try {
+        linked = await api.listGetnoteLinks('IDP学生', detailId);
+        setImported(linked);
+      } catch (e) {
+        setErr(errMsg(e));
+      }
+    }
+    setCandsLoading(true);
+    try {
+      // 同 `loadCands`：只列我自己的笔记（`mine=1`）
+      const r = await api.listGetnote({ pageSize: '100', mine: '1' });
+      const linkedIds = new Set(linked.map((l) => l.noteId));
+      const items = ((r.items ?? []) as Record<string, unknown>[])
+        .map(toNoteItem)
+        .filter((n) => n.noteId && !linkedIds.has(n.noteId));
+      setCands(items);
+      setCandsToken(r.pageToken ?? '');
+      setCandsMore(Boolean(r.hasMore));
+    } catch (e) {
+      setErr(errMsg(e));
+      setCands([]);
+    } finally {
+      setCandsLoading(false);
+    }
+  };
+
+  const closeImport = () => {
+    setImportOpen(false);
+    setPicked(new Set());
+    setKw('');
+  };
+
+  /**
+   * 关键词搜索（防抖 350ms，与 `NotePanel` 同节奏）。
+   *
+   * ⚠️ 依赖里刻意**不写** `loadCands`：它依赖 `candsToken`，翻页后就会变化，
+   *    写进去会在每次翻页后自己触发一次多余的重搜、把用户翻到的页冲掉。
+   *    这里唯一需要的语义是"关键词变了就重搜"。
+   */
+  useEffect(() => {
+    if (!importOpen) return;
+    const timer = setTimeout(() => {
+      void loadCands(true);
+    }, 350);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kw, importOpen]);
+
+  /** 全量覆盖式写入：`next` 必须是**最终完整名单**（传空数组即清空） */
+  const persistLinks = async (next: { noteId: string; title?: string }[]) => {
+    await api.replaceGetnoteLinks('IDP学生', detailId, target.studentName, next);
+    await loadImported();
+  };
+
+  const doImport = async () => {
+    if (!picked.size) return;
+    setImporting(true);
+    setErr('');
+    setFlash('');
+    try {
+      const add = [...picked].map((id) => ({
+        noteId: id,
+        title: cands.find((c) => c.noteId === id)?.title ?? '',
+      }));
+      // 🔴 必须带上已有的：接口是全量覆盖，只发新增会把旧的清掉
+      await persistLinks([...imported.map((l) => ({ noteId: l.noteId, title: l.title })), ...add]);
+      setFlash(t('importDone', { n: add.length }));
+      setPicked(new Set());
+      await loadCands(true);
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const unlinkNote = async (noteId: string) => {
+    setImporting(true);
+    setErr('');
+    setFlash('');
+    try {
+      await persistLinks(
+        imported.filter((l) => l.noteId !== noteId).map((l) => ({ noteId: l.noteId, title: l.title })),
+      );
+      await loadCands(true);
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const pickFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -170,7 +394,11 @@ export default function IdpCommDrawer({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="detail-modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(820px, 100%)' }}>
+      <div
+        className="detail-modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: importOpen ? 'min(1180px, 100%)' : 'min(820px, 100%)' }}
+      >
         <div className="detail-modal-head">
           <div>
             <h3 className="detail-modal-title">
@@ -188,7 +416,12 @@ export default function IdpCommDrawer({
           </button>
         </div>
 
-        <div className="detail-modal-body" style={{ whiteSpace: 'normal' }}>
+        <div
+          className="detail-modal-body"
+          style={{ whiteSpace: 'normal', display: importOpen ? 'flex' : 'block', gap: 18, alignItems: 'flex-start' }}
+        >
+          {/* ── 左栏：沟通记录 ─────────────────────────────────── */}
+          <div style={{ flex: 1, minWidth: 0 }}>
           {data && !data.rangeOk ? (
             <div className="notice notice-warn" style={{ marginBottom: 10 }}>
               {t('rangeBad')}
@@ -202,6 +435,11 @@ export default function IdpCommDrawer({
           {err ? (
             <div className="notice notice-error" style={{ marginBottom: 10 }}>
               {err}
+            </div>
+          ) : null}
+          {flash ? (
+            <div className="notice" style={{ marginBottom: 10 }}>
+              {flash}
             </div>
           ) : null}
 
@@ -285,15 +523,77 @@ export default function IdpCommDrawer({
               </div>
             </div>
           ) : (
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              style={{ marginBottom: 12 }}
-              onClick={() => setOpenForm(true)}
-            >
-              ＋ {t('addComm')}
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => setOpenForm(true)}
+              >
+                ＋ {t('addComm')}
+              </button>
+              {/* 「导入笔记」：批量把「我的笔记」挂到这个学生的 IDP 上（见文件头注释） */}
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={!detailId}
+                title={detailId ? undefined : t('importNoDetail')}
+                onClick={() => (importOpen ? closeImport() : void openImport())}
+              >
+                {importOpen ? t('close') : t('importNotes')}
+              </button>
+            </div>
           )}
+
+          {/* ── 已导入的笔记：导入结果必须看得见，否则"导进去了没"无从判断 ── */}
+          {detailId && imported.length > 0 ? (
+            <div className="card" style={{ padding: 10, marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{t('importedTitle')}</span>
+                <span className="muted" style={{ fontSize: 12 }}>{t('importedN', { n: imported.length })}</span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {imported.map((l) => (
+                  <span
+                    key={l.id}
+                    title={l.noteId}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '2px 6px',
+                      borderRadius: 6,
+                      background: 'var(--accent-muted)',
+                      color: 'var(--accent)',
+                      fontSize: 12.5,
+                    }}
+                  >
+                    {l.title || l.noteId}
+                    {/* 谁导的：IDP 是协作对象（同事导入的笔记也看得到），标出来才不含糊 */}
+                    {l.linkedBy ? (
+                      <span style={{ fontSize: 11, opacity: 0.7 }}>{l.linkedBy}</span>
+                    ) : null}
+                    <button
+                      type="button"
+                      title={t('unlinkNote')}
+                      disabled={importing}
+                      onClick={() => void unlinkNote(l.noteId)}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'inherit',
+                        cursor: 'pointer',
+                        fontSize: 13,
+                        lineHeight: 1,
+                        padding: 0,
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {/* ── 时间线（就是学生记录里那批，按本配置学年学期过滤） ── */}
           {loading ? (
@@ -343,6 +643,134 @@ export default function IdpCommDrawer({
             <div style={{ marginTop: 12 }}>
               <NotePanel entityType="IDP沟通" entityId={noteFor} entityName={target.studentName} />
             </div>
+          ) : null}
+          </div>
+
+          {/* ── 右栏：从「我的笔记」导入 ───────────────────────── */}
+          {importOpen ? (
+            <aside
+              style={{
+                width: 380,
+                flexShrink: 0,
+                borderLeft: '1px solid var(--border)',
+                paddingLeft: 16,
+                alignSelf: 'stretch',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 700 }}>{t('importTitle')}</span>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={closeImport}>
+                  {t('close')}
+                </button>
+              </div>
+              <p className="muted" style={{ fontSize: 12, margin: '0 0 8px' }}>
+                {t('importHint')}
+              </p>
+
+              {credOk === false ? (
+                <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+                  {t('importNeedCred')}{' '}
+                  <Link href="/getnote" style={{ color: 'var(--accent)' }}>
+                    {t('importNeedCredLink')}
+                  </Link>
+                </p>
+              ) : (
+                <>
+                  <input
+                    className="form-input"
+                    style={{ width: '100%', marginBottom: 8 }}
+                    placeholder={t('importSearch')}
+                    value={kw}
+                    onChange={(e) => setKw(e.target.value)}
+                  />
+
+                  <div
+                    style={{
+                      maxHeight: 340,
+                      overflowY: 'auto',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      padding: 6,
+                    }}
+                  >
+                    {candsLoading && cands.length === 0 ? (
+                      <div className="muted" style={{ fontSize: 12.5, padding: 6 }}>{t('importLoading')}</div>
+                    ) : cands.length === 0 ? (
+                      <div className="muted" style={{ fontSize: 12.5, padding: 6 }}>
+                        {kw.trim() ? t('importNoMatch') : t('importEmpty')}
+                      </div>
+                    ) : (
+                      cands.map((n) => {
+                        const on = picked.has(n.noteId);
+                        return (
+                          <label
+                            key={n.noteId}
+                            title={n.noteId}
+                            style={{
+                              display: 'flex',
+                              gap: 8,
+                              alignItems: 'flex-start',
+                              padding: '6px 6px',
+                              borderRadius: 6,
+                              cursor: 'pointer',
+                              background: on ? 'var(--accent-muted)' : 'transparent',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={(e) =>
+                                setPicked((cur) => {
+                                  const next = new Set(cur);
+                                  if (e.target.checked) next.add(n.noteId);
+                                  else next.delete(n.noteId);
+                                  return next;
+                                })
+                              }
+                              style={{ marginTop: 3 }}
+                            />
+                            <span style={{ minWidth: 0 }}>
+                              <span style={{ fontSize: 13, display: 'block', wordBreak: 'break-word' }}>
+                                {n.title || n.noteId}
+                              </span>
+                              {n.createdAt ? (
+                                <span className="muted" style={{ fontSize: 11.5 }}>{fmtDay(n.createdAt)}</span>
+                              ) : null}
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
+                    {candsMore ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        disabled={candsLoading}
+                        style={{ width: '100%', marginTop: 4 }}
+                        onClick={() => void loadCands(false)}
+                      >
+                        {t('importLoadMore')}
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                    <span className="muted" style={{ fontSize: 12.5 }}>
+                      {t('importSelectedN', { n: picked.size })}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      style={{ marginLeft: 'auto' }}
+                      disabled={importing || picked.size === 0}
+                      onClick={() => void doImport()}
+                    >
+                      {importing ? t('importing') : t('importConfirm')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </aside>
           ) : null}
         </div>
 

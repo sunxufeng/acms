@@ -121,6 +121,20 @@ const ENTITY_TAG: Record<string, string> = {
   // 学生实践（2026-09-26）：围绕实践类安排的沟通记录（注意不是「实践活动」模块，那是另一张表）
   学生实践: 'studentPractice',
   IDP计划: 'idp',
+  /**
+   * IDP学生（2026-09-26 新增）——「IDP配置 × 学生」的明细行。
+   *
+   * 用途：「我的 IDP」抽屉里的「导入笔记」把笔记挂到**这个学生的 IDP 条目**上
+   * （峰哥要的「和学生的 IDP 关联」，不是笼统地挂到学生档案）。
+   * 缺了这条映射也不会报错（`linkTag` 会退化成 `acms:IDP学生:recXXX`），
+   * 但打在远端笔记上的标签会变成中文，外部看比较别扭。
+   *
+   * ⚠️ 有意**不登记**到 `NOTE_ENTITY_TYPE_TO_PATH`：那张表是「学生详情页聚合面板」的来源解析，
+   *    而 IDP 模块的 read 权限（`module:idpPlans:read`）老师们并不持有 ⇒ 登记了只会让
+   *    聚合面板多出一条「因权限隐藏」的警告，反而让人以为丢了数据。
+   *    这些笔记在「我的 IDP」抽屉里能看到（那就是它们的归属地）。
+   */
+  IDP学生: 'idpStudent',
   学业成绩: 'grade',
   学生考勤: 'attendance',
   实践活动: 'activity',
@@ -1439,6 +1453,30 @@ export class GetnoteService implements OnModuleInit {
     // 管理员：跨所有启用配置聚合（走快照分页，不用上游 cursor）
     if (this.isAdmin(user))
       return this.listAllForAdmin(user, cursor ?? '', q ?? '', size, filters, statusMap);
+
+    /**
+     * 「只看我自己的笔记」—— 只聚合**本人凭证**那一路（`mine=1` 才走这里）。
+     *
+     * 🔴 为什么必须单开一路：下面那条默认路径在「我被关联到知识库配置」时，
+     *    会用**配置自己的凭证**去拉该配置下的**全部**笔记（那是「我的笔记」页面的
+     *    正确语义：共享知识库要能协作）。但「把笔记导入到学生 IDP」是"把我的笔记
+     *    挂上去"的动作，列出同事的笔记既容易选错、也不符合峰哥的可见性口径
+     *    （2026-09-26：老师只能看到自己的笔记，管理员看到全部）。
+     *
+     * `collectAllNotes(user, [])` 里的**空数组是真值**：配置源全部跳过，
+     * 只留「本人凭证」那一路 —— 这正是"我的笔记"。
+     * 关键字按**标题包含**过滤（不走上游语义检索）：候选本来就在内存里，
+     * 且这里的语义是"在列表里找一篇"，不是"检索相关片段"。
+     */
+    if (filters.mine) {
+      const onlyMine = await this.collectAllNotes(user, []);
+      const key = (q ?? '').trim().toLowerCase();
+      const byTitle = key
+        ? onlyMine.filter((n) => String(n.title ?? '').toLowerCase().includes(key))
+        : onlyMine;
+      const { kept, hidden } = this.splitByStatus(byTitle, filters.status, statusMap);
+      return this.slicePool(kept, cursor ?? '', size, hidden);
+    }
 
     // 非管理员：**被关联到知识库配置时**，只看到这些配置的笔记 —— 与管理员同一条
     // 数据来源（每条配置用自己的凭证去拉），只是配置集合被收窄到「我能看到的那几条」。

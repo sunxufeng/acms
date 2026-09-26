@@ -11,6 +11,7 @@ import {
   type IdpStudentRow,
   type IdpTeacher,
 } from '../../lib/api';
+import { idpStudentLabel } from '@acms/contracts';
 import IdpCommDrawer, { type IdpCommTarget } from '../../components/IdpCommDrawer';
 
 /**
@@ -183,7 +184,7 @@ export default function IdpConfigsPage() {
     return list.filter((r) => {
       if (teacherFilter === '__none__' && r.teacherOpenId) return false;
       if (teacherFilter && teacherFilter !== '__none__' && r.teacherOpenId !== teacherFilter) return false;
-      if (kw && !r.studentName.includes(kw) && !r.cls.includes(kw)) return false;
+      if (kw && !r.studentName.includes(kw) && !r.nameEn.includes(kw) && !r.cls.includes(kw)) return false;
       return true;
     });
   }, [detail, q, teacherFilter]);
@@ -400,7 +401,7 @@ export default function IdpConfigsPage() {
                             />
                           </td>
                           <td>
-                            <div className="dept-emp-name">{r.studentName}</div>
+                            <div className="dept-emp-name">{idpStudentLabel(r.studentName, r.nameEn)}</div>
                           </td>
                           <td className="muted">{r.grade || '—'}</td>
                           <td>
@@ -440,6 +441,8 @@ export default function IdpConfigsPage() {
                                   studentName: r.studentName,
                                   cls: r.cls,
                                   archived: active.archived,
+                                  // 「IDP学生」明细行 id —— 抽屉里「导入笔记」的关联目标
+                                  detailId: r.id,
                                 })
                               }
                             >

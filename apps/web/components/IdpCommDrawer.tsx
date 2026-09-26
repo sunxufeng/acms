@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { api, type GetnoteLink, type MyIdpComms } from '../lib/api';
-import NotePanel from './NotePanel';
+import { IDP_COMM_RECORD_TYPE } from '@acms/contracts';
+import Markdown from './Markdown';
 
 /**
  * IDP 沟通抽屉（老师端与管理员端共用）。
@@ -16,32 +17,32 @@ import NotePanel from './NotePanel';
  *   · 写：`POST /student-records`（**复用学生记录的完整能力**：附件、录音、AI 总结、
  *         关联笔记、闭环状态……所以峰哥要的「学生记录里已关联的 IDP 记录自动出现在这里」
  *         天生成立 —— 本来就是一个池子，不存在"同步"问题）
- *   · 「手动再添加笔记里的 IDP 记录」= 下面每条的「关联笔记」面板（`NotePanel`），
- *     它与学生记录详情页用的是**同一个组件**（标签 + 映射表双写机制已具备）。
+ *   · 「关联笔记」= 点时间线整行打开的**记录详情弹窗**：里面列出这条记录关联的笔记，
+ *     标题可点开看「总结 / 原始记录」（与「我的笔记」页的详情弹窗同一形态）。
  *
  * ⚠️ 附件字段名是「沟通附件清单」（**可写**）。学生记录 meta 的 `readonly` 里那条是
  *    「沟通附件」（少一个字，是另一个字段）—— 别搞混，写进 readonly 的会被静默丢弃。
  *
- * ## 「导入笔记」（2026-09-26 新增）
+ * ## 「导入笔记」（2026-09-26 新增，当日按峰哥反馈重做了一版）
  *
- * 峰哥要的：老师把自己在「我的笔记」里记的笔记**批量**挂到这个学生的 IDP 上，
- * 不用先搜索再一篇篇关联（`NotePanel` 那条路只有语义召回、一次只能加一篇）。
+ * 老师把自己在「我的笔记」里记的笔记**批量**导入进来。
  *
- * 关联目标 = **本学生在本次配置里的 IDP 明细行**（`entityType='IDP学生'`、
- * `entityId = target.detailId`）。为什么不挂「学生档案」：峰哥明确要的是「和学生的 IDP
- * 关联」——挂明细行才表达得出"这篇笔记属于这个学生这一次 IDP"，
- * 而且「已导入」的判据才精确（挂学生档案会把别的场景关联的笔记一并算进来）。
- *
- * 🔴 写入是**全量覆盖式**（`PUT /getnote/links`，与 NotePanel / 邮件归档同一范式）：
- *    提交时必须带上**已有的全部关联**（`imported`），只发新增的会把旧的悄悄清掉。
+ * 🔴 导入 = **每条笔记各建一条「IDP沟通」学生记录**，并把笔记挂到那条记录上
+ *    （主题 = 笔记主题、时间 = 笔记时间、沟通方式 = 面谈、沟通人 = 当前登录人）。
+ *    为什么不是"只挂个关联"：导进来的笔记要能在时间线上直接看到，附件也挂在记录上 ——
+ *    笔记于是成了这条沟通的来源。**不再**挂到「IDP学生」明细行（一处内容两个地方）。
+ *    「已导入」的判据因此变成：`data.linkedNoteIds`（后端按 `实体类型=IDP沟通` +
+ *    该生记录 id 现算），候选列表用它过滤 —— 必须与写入侧同一判据。
+ *    ⚠️ 写 `PUT /getnote/links` 是**全量覆盖式**：改关联时要么带上已有的，要么明确写空。
  *
  * 🔴 权限与可见性（峰哥 2026-09-26 定的口径）：
- *    · 写关联要 `module:getnote:update`，生产实测 Phase1~Phase8 只有 read ⇒ 已补；
+ *    · 建记录 / 改记录要学生记录的 create / update（老师们两个来源任一即有，已实测）；
+ *      写笔记关联要 `module:getnote:update`，生产实测 Phase1~Phase8 只有 read ⇒ 已补；
  *    · **候选列表只列老师自己的笔记**（`GET /getnote/notes?mine=1`，见 `NoteListFilters.mine`）——
- *      默认口径会在"被关联到知识库配置"时列出该配置下所有人的笔记，那不是导入场景要的；
- *      系统管理员不吃这个参数，仍然看得到全部（他本来就该看到全部）；
- *    · 「已导入的笔记」是**协作可见**的（IDP 是共享对象，同事导入的也在），
- *      所以每条标注导入人（`linkedBy`）—— 不标就分不清是谁挂上去的。
+ *      判据 = 本人凭证 + **归属人是自己**的知识库配置（只认「关联用户含我」会把同事账号的
+ *      笔记带进来；只认个人凭证文件又会让"凭证挂在配置上"的老师（如曹德强）恒为 0 条）；
+ *      系统管理员不吃这个参数，仍然看得到全部；
+ *    · 附件是**挂在这条记录上**的，同一条时间线行里就能加 / 删 / 下载。
  */
 export interface IdpCommTarget {
   configId: string;
@@ -53,18 +54,17 @@ export interface IdpCommTarget {
   archived: boolean;
   /** 当前登录人姓名（新建时填「沟通人」） */
   meName?: string;
-  /**
-   * 「IDP学生」明细行的 record id —— 「导入笔记」的关联目标。
-   * 两个入口（IDP 配置页 / 我的 IDP 页）都能从行数据里拿到；拿不到时导入功能禁用。
-   */
-  detailId?: string;
 }
+
+/** 附件条目形态}
 
 /** 附件条目形态：与学生记录「沟通附件清单」的存储一致（CrudPage 也按这个结构读） */
 interface Attach {
   file_token: string;
   name: string;
   size?: number;
+  /** 上传时间（ms）—— 界面要显示「附件名 + 时间」，历史附件没有则 0 */
+  at?: number;
 }
 
 const rowStyle: CSSProperties = {
@@ -139,24 +139,33 @@ export default function IdpCommDrawer({
   const [err, setErr] = useState('');
   const [openForm, setOpenForm] = useState(false);
   const [saving, setSaving] = useState(false);
-  /** 展开「关联笔记」面板的记录 id（一次只开一个，避免十几个面板同时拉数据） */
-  const [noteFor, setNoteFor] = useState('');
+  /**
+   * 打开的「记录详情」弹窗（记录 id）。
+   * 点时间线整行打开 —— 里面是该记录的基本信息 + 关联的笔记（标题可点，看总结/原始记录）。
+   */
+  const [commFor, setCommFor] = useState('');
+  /** 笔记查看弹窗（总结 / 原始记录 两个 Tab，与「我的笔记」页的详情弹窗同一形态） */
+  const [noteView, setNoteView] = useState<{ noteId: string; title: string } | null>(null);
 
   // 新建表单
   const [subject, setSubject] = useState('');
   const [when, setWhen] = useState(nowLocal);
+  const [way, setWay] = useState('面谈');
   const [summary, setSummary] = useState('');
   const [detail, setDetail] = useState('');
   const [atts, setAtts] = useState<Attach[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** 正在操作的记录 id（附件上传/删除时禁用该行按钮，避免连点写坏附件数组） */
+  const [busyAtt, setBusyAtt] = useState('');
+  const attRef = useRef<HTMLInputElement>(null);
+  /** 附件上传的目标记录 id（input 是复用的一个，点哪行就指向哪条记录） */
+  const attTargetRef = useRef('');
 
   // ── 导入笔记 ──────────────────────────────────────────────
   /** 右侧面板是否展开 */
   const [importOpen, setImportOpen] = useState(false);
-  /** 已导入到本学生 IDP 的笔记（全量覆盖式写入的**基准**，见文件头注释） */
-  const [imported, setImported] = useState<GetnoteLink[]>([]);
-  /** 候选笔记（我的笔记，已过滤掉已导入的） */
+  /** 候选笔记（我的笔记，已过滤掉「该生 IDP沟通 记录已关联」的） */
   const [cands, setCands] = useState<NoteItem[]>([]);
   const [candsToken, setCandsToken] = useState('');
   const [candsMore, setCandsMore] = useState(false);
@@ -168,8 +177,22 @@ export default function IdpCommDrawer({
   const [credOk, setCredOk] = useState<boolean | null>(null);
   /** 一次性提示（导入成功） */
   const [flash, setFlash] = useState('');
-
-  const detailId = target.detailId ?? '';
+  /**
+   * 沟通方式选项：读**字典** `沟通方式`（字典改了这里跟着变，别硬编码）。
+   * 还没加载完时先给「面谈」兜底 —— 这正是峰哥要的默认值。
+   */
+  const [ways, setWays] = useState<string[]>(['面谈']);
+  useEffect(() => {
+    api
+      .dictionaries()
+      .then((d) => {
+        const list = d?.['沟通方式'] ?? [];
+        if (list.length) setWays(list);
+      })
+      .catch(() => {
+        /* 读不到就只用「面谈」，不阻断新建 */
+      });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -187,28 +210,23 @@ export default function IdpCommDrawer({
     void load();
   }, [load]);
 
-  /** 已导入的笔记 —— 打开面板时拉一次，导入/解除后重拉 */
-  const loadImported = useCallback(async () => {
-    if (!detailId) return;
-    try {
-      setImported(await api.listGetnoteLinks('IDP学生', detailId));
-    } catch (e) {
-      setErr(errMsg(e));
-    }
-  }, [detailId]);
-
-  /** 我的笔记 − 已导入 = 候选。`reset` 为假时按 `pageToken` 追加下一页。 */
+  /**
+   * 候选笔记 = 我的笔记 − 「该生 IDP沟通 记录**已关联**的笔记」。
+   *
+   * 判据来自 `data.linkedNoteIds`（后端按 `实体类型=IDP沟通` + 该生记录 id 现算），
+   * 与写入时挂的那一侧**同一判据** —— 前端不能另算一套（必然漂移，
+   * 症状是"刚导入的又出现在候选里"）。
+   */
   const loadCands = useCallback(
-    async (reset: boolean) => {
+    async (reset: boolean, linkedIds?: Set<string>) => {
       setCandsLoading(true);
       try {
-        // 🔴 `mine=1`：只列**我自己的**笔记。默认口径在"被关联到知识库配置"时会列出
-        //    该配置下的全部笔记（含同事的）—— 那是知识库页面的语义，不是导入场景要的。
+        // `mine=1`：只列**我自己的**笔记（见 NoteListFilters.mine 的注释）
         const params: Record<string, string | undefined> = { pageSize: '100', mine: '1' };
         if (kw.trim()) params.q = kw.trim();
         if (!reset && candsToken) params.pageToken = candsToken;
         const r = await api.listGetnote(params);
-        const linked = new Set(imported.map((l) => l.noteId));
+        const linked = linkedIds ?? new Set(data?.linkedNoteIds ?? []);
         const fresh = ((r.items ?? []) as Record<string, unknown>[])
           .map(toNoteItem)
           .filter((n) => n.noteId && !linked.has(n.noteId));
@@ -224,12 +242,12 @@ export default function IdpCommDrawer({
         setCandsLoading(false);
       }
     },
-    [kw, candsToken, imported],
+    [kw, candsToken, data],
   );
 
   /**
-   * 打开面板：先拿「已导入」再拉候选。
-   * 🔴 顺序不能反 —— 候选要按已导入的 noteId 过滤，反了会把已导入的也列出来。
+   * 打开面板：先拿一次最新的沟通记录（要它的 `linkedNoteIds` 做过滤），再拉候选。
+   * 🔴 顺序不能反 —— 反了会把已导入的也列出来（用户会以为没导入成功）。
    */
   const openImport = async () => {
     setFlash('');
@@ -242,20 +260,12 @@ export default function IdpCommDrawer({
       .then((c) => setCredOk(Boolean(c?.configured)))
       .catch(() => setCredOk(false));
 
-    let linked: GetnoteLink[] = [];
-    if (detailId) {
-      try {
-        linked = await api.listGetnoteLinks('IDP学生', detailId);
-        setImported(linked);
-      } catch (e) {
-        setErr(errMsg(e));
-      }
-    }
     setCandsLoading(true);
     try {
-      // 同 `loadCands`：只列我自己的笔记（`mine=1`）
+      const cur = await api.myIdpComms(target.configId, target.studentId);
+      setData(cur);
+      const linkedIds = new Set(cur.linkedNoteIds ?? []);
       const r = await api.listGetnote({ pageSize: '100', mine: '1' });
-      const linkedIds = new Set(linked.map((l) => l.noteId));
       const items = ((r.items ?? []) as Record<string, unknown>[])
         .map(toNoteItem)
         .filter((n) => n.noteId && !linkedIds.has(n.noteId));
@@ -277,14 +287,26 @@ export default function IdpCommDrawer({
   };
 
   /**
-   * 关键词搜索（防抖 350ms，与 `NotePanel` 同节奏）。
+   * 关键词搜索（防抖 350ms）。
    *
+   * ⚠️ **打开面板后的首次不重搜**：`openImport` 已经拉过一次候选，这里再拉一次就是
+   *    白白多打一轮上游（QPS 2，用户还要多等 1~2 秒）。用 ref 记住上次的关键词，
+   *    只有真的变了才重搜。
    * ⚠️ 依赖里刻意**不写** `loadCands`：它依赖 `candsToken`，翻页后就会变化，
    *    写进去会在每次翻页后自己触发一次多余的重搜、把用户翻到的页冲掉。
-   *    这里唯一需要的语义是"关键词变了就重搜"。
    */
+  const kwRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!importOpen) return;
+    if (!importOpen) {
+      kwRef.current = null;
+      return;
+    }
+    if (kwRef.current === null) {
+      kwRef.current = kw; // 刚打开：openImport 已经拉过
+      return;
+    }
+    if (kwRef.current === kw) return;
+    kwRef.current = kw;
     const timer = setTimeout(() => {
       void loadCands(true);
     }, 350);
@@ -292,47 +314,122 @@ export default function IdpCommDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kw, importOpen]);
 
-  /** 全量覆盖式写入：`next` 必须是**最终完整名单**（传空数组即清空） */
-  const persistLinks = async (next: { noteId: string; title?: string }[]) => {
-    await api.replaceGetnoteLinks('IDP学生', detailId, target.studentName, next);
-    await loadImported();
+  /**
+   * 变更后刷新：沟通时间线 + 候选列表。
+   * 候选必须用**新的**已关联集合过滤（`myIdpComms` 现算），否则刚导入的还留在列表里。
+   */
+  const refreshAll = async () => {
+    const cur = await api.myIdpComms(target.configId, target.studentId);
+    setData(cur);
+    await loadCands(true, new Set(cur.linkedNoteIds ?? []));
   };
 
+  /**
+   * 导入 = **每条选中的笔记各建一条「IDP沟通」学生记录**，并把笔记挂到那条记录上。
+   *
+   * 为什么是"建记录"而不是只挂个关联（峰哥 2026-09-26 要求）：导进来的笔记要能在
+   * 「我的 IDP」时间线上**直接看到**（主题 = 笔记主题、时间 = 笔记时间、沟通人 = 我），
+   * 附件也挂在记录上 —— 笔记于是成了这条沟通的来源。
+   *
+   * 逐条独立 try：某条失败不影响其余，失败的照实报出来（不吞错）。
+   */
   const doImport = async () => {
     if (!picked.size) return;
     setImporting(true);
     setErr('');
     setFlash('');
+    const failed: string[] = [];
+    let ok = 0;
+    for (const noteId of picked) {
+      const note = cands.find((c) => c.noteId === noteId);
+      const title = note?.title ?? '';
+      try {
+        const rec = await api.createStudentRecord({
+          记录类型: IDP_COMM_RECORD_TYPE,
+          // 「关联学生编号」在 meta 的 readonly 里 ⇒ 靠 linkBackfill 按姓名回填
+          关联学生: target.studentName,
+          沟通主题: title || t('noSubject'),
+          // 毫秒时间戳（meta 的 dateFields 会按它转）；笔记没有时间就退回"现在"
+          沟通时间: note?.createdAt || Date.now(),
+          沟通方式: way,
+          沟通人: target.meName ?? '',
+        });
+        const rid = String((rec as { id?: string } | null)?.id ?? '');
+        if (!rid) throw new Error('NO_RECORD_ID');
+        // 新建的记录此前必然没有关联 ⇒ 直接覆盖式写入这一篇（覆盖式接口只认最终名单）
+        await api.replaceGetnoteLinks(IDP_COMM_RECORD_TYPE, rid, title, [{ noteId, title }]);
+        ok += 1;
+      } catch {
+        failed.push(title || noteId);
+      }
+    }
+    setPicked(new Set());
     try {
-      const add = [...picked].map((id) => ({
-        noteId: id,
-        title: cands.find((c) => c.noteId === id)?.title ?? '',
-      }));
-      // 🔴 必须带上已有的：接口是全量覆盖，只发新增会把旧的清掉
-      await persistLinks([...imported.map((l) => ({ noteId: l.noteId, title: l.title })), ...add]);
-      setFlash(t('importDone', { n: add.length }));
-      setPicked(new Set());
-      await loadCands(true);
+      await refreshAll();
+      onSaved?.();
+    } catch (e) {
+      setErr(errMsg(e));
+    }
+    setFlash(
+      failed.length
+        ? t('importDonePartial', { n: ok, failed: failed.length, list: failed.slice(0, 3).join('、') })
+        : t('importDone', { n: ok }),
+    );
+    setImporting(false);
+  };
+
+  /** 解除某条记录与笔记的关联（只删关联，不删记录） */
+  const unlinkNote = async (recordId: string) => {
+    setBusyAtt(recordId);
+    setErr('');
+    try {
+      await api.replaceGetnoteLinks(IDP_COMM_RECORD_TYPE, recordId, target.studentName, []);
+      await refreshAll();
     } catch (e) {
       setErr(errMsg(e));
     } finally {
-      setImporting(false);
+      setBusyAtt('');
     }
   };
 
-  const unlinkNote = async (noteId: string) => {
-    setImporting(true);
+  /**
+   * 给某条 IDP沟通 记录加附件。
+   *
+   * 🔴 「合并已有 + 本次新增」再整字段写回：`沟通附件清单` 是**数组字段**，
+   *    `PUT` 是合并语义但数组会整体替换 —— 只传新上传的那几个会把旧附件抹掉。
+   */
+  const addAttach = async (recordId: string, files: FileList | null, already: Attach[]) => {
+    if (!files?.length) return;
+    setBusyAtt(recordId);
     setErr('');
-    setFlash('');
     try {
-      await persistLinks(
-        imported.filter((l) => l.noteId !== noteId).map((l) => ({ noteId: l.noteId, title: l.title })),
-      );
-      await loadCands(true);
+      const added: Attach[] = [];
+      for (const f of Array.from(files)) {
+        const up = await api.uploadFile(f);
+        added.push({ file_token: up.file_token, name: up.name, at: Date.now() });
+      }
+      await api.updateStudentRecord(recordId, { 沟通附件清单: [...already, ...added] });
+      await load();
     } catch (e) {
       setErr(errMsg(e));
     } finally {
-      setImporting(false);
+      setBusyAtt('');
+      if (attRef.current) attRef.current.value = '';
+    }
+  };
+
+  const removeAttach = async (recordId: string, fileToken: string, already: Attach[]) => {
+    setBusyAtt(recordId);
+    setErr('');
+    try {
+      await api.updateStudentRecord(recordId, {
+        沟通附件清单: already.filter((a) => a.file_token !== fileToken),
+      });
+      await load();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusyAtt('');
     }
   };
 
@@ -364,12 +461,13 @@ export default function IdpCommDrawer({
     setErr('');
     try {
       await api.createStudentRecord({
-        记录类型: 'IDP沟通',
+        记录类型: IDP_COMM_RECORD_TYPE,
         // 「关联学生编号」在 meta 的 readonly 里 ⇒ 显式传也会被过滤；靠 linkBackfill
         // 按姓名回填（见 lifecycle.meta 的 linkBackfill 注释）
         关联学生: target.studentName,
         沟通主题: subject.trim(),
         沟通时间: when,
+        沟通方式: way,
         沟通总结: summary,
         沟通明细: detail,
         沟通附件清单: atts,
@@ -379,6 +477,7 @@ export default function IdpCommDrawer({
       setSummary('');
       setDetail('');
       setAtts([]);
+      setWay('面谈');
       setWhen(nowLocal());
       setOpenForm(false);
       await load();
@@ -389,6 +488,10 @@ export default function IdpCommDrawer({
       setSaving(false);
     }
   };
+
+  /** 某条记录当前已有的附件（写回时必须带上，否则数组字段会被整体替换掉） */
+  const filesOfRecord = (id: string): Attach[] =>
+    ((data?.rows ?? []).find((x) => x.id === id)?.files ?? []) as Attach[];
 
   const count = data?.rows.length ?? 0;
 
@@ -450,6 +553,18 @@ export default function IdpCommDrawer({
             </div>
           ) : openForm ? (
             <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+              {/* 沟通类型 / 学生 / 记录人：都由上下文决定，不给改（改类型要回「学生记录」页） */}
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, marginBottom: 8 }}>
+                <span className="muted">
+                  {t('fType')}：<b style={{ color: 'var(--fg)' }}>{IDP_COMM_RECORD_TYPE}</b>
+                </span>
+                <span className="muted">
+                  {t('fStudent')}：<b style={{ color: 'var(--fg)' }}>{target.studentName}</b>
+                </span>
+                <span className="muted">
+                  {t('fPerson')}：<b style={{ color: 'var(--fg)' }}>{target.meName || '—'}</b>
+                </span>
+              </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <input
                   className="form-input"
@@ -458,6 +573,19 @@ export default function IdpCommDrawer({
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
                 />
+                {/* 沟通方式：默认「面谈」，选项读字典（字典改了这里跟着变） */}
+                <select
+                  className="form-input"
+                  style={{ width: 130 }}
+                  value={way}
+                  onChange={(e) => setWay(e.target.value)}
+                >
+                  {ways.map((w) => (
+                    <option key={w} value={w}>
+                      {w}
+                    </option>
+                  ))}
+                </select>
                 <input
                   className="form-input"
                   style={{ width: 190 }}
@@ -531,12 +659,10 @@ export default function IdpCommDrawer({
               >
                 ＋ {t('addComm')}
               </button>
-              {/* 「导入笔记」：批量把「我的笔记」挂到这个学生的 IDP 上（见文件头注释） */}
+              {/* 「导入笔记」：批量把「我的笔记」建成 IDP沟通 记录并挂上笔记（见文件头注释） */}
               <button
                 type="button"
                 className="btn btn-outline btn-sm"
-                disabled={!detailId}
-                title={detailId ? undefined : t('importNoDetail')}
                 onClick={() => (importOpen ? closeImport() : void openImport())}
               >
                 {importOpen ? t('close') : t('importNotes')}
@@ -545,56 +671,6 @@ export default function IdpCommDrawer({
           )}
 
           {/* ── 已导入的笔记：导入结果必须看得见，否则"导进去了没"无从判断 ── */}
-          {detailId && imported.length > 0 ? (
-            <div className="card" style={{ padding: 10, marginBottom: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{t('importedTitle')}</span>
-                <span className="muted" style={{ fontSize: 12 }}>{t('importedN', { n: imported.length })}</span>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {imported.map((l) => (
-                  <span
-                    key={l.id}
-                    title={l.noteId}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      padding: '2px 6px',
-                      borderRadius: 6,
-                      background: 'var(--accent-muted)',
-                      color: 'var(--accent)',
-                      fontSize: 12.5,
-                    }}
-                  >
-                    {l.title || l.noteId}
-                    {/* 谁导的：IDP 是协作对象（同事导入的笔记也看得到），标出来才不含糊 */}
-                    {l.linkedBy ? (
-                      <span style={{ fontSize: 11, opacity: 0.7 }}>{l.linkedBy}</span>
-                    ) : null}
-                    <button
-                      type="button"
-                      title={t('unlinkNote')}
-                      disabled={importing}
-                      onClick={() => void unlinkNote(l.noteId)}
-                      style={{
-                        border: 'none',
-                        background: 'transparent',
-                        color: 'inherit',
-                        cursor: 'pointer',
-                        fontSize: 13,
-                        lineHeight: 1,
-                        padding: 0,
-                      }}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
           {/* ── 时间线（就是学生记录里那批，按本配置学年学期过滤） ── */}
           {loading ? (
             <div className="muted">{t('loading')}</div>
@@ -606,44 +682,75 @@ export default function IdpCommDrawer({
           ) : (
             <div>
               {(data?.rows ?? []).map((r) => (
-                <div key={r.id} style={rowStyle}>
+                /* 整行可点：打开该记录的详情弹窗（关联的笔记 + 附件都在里面）。
+                   行内刻意不再放「关联笔记 / 打开记录」两个按钮 —— 弹窗里能做的事不在列表上再摆一份。 */
+                <div
+                  key={r.id}
+                  style={{ ...rowStyle, cursor: 'pointer' }}
+                  title={t('openCommHint')}
+                  onClick={() => setCommFor(r.id)}
+                >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600 }}>{r.subject || t('noSubject')}</div>
+                    {/* 只留元信息这一行：沟通总结（「### 📑 智能总结…」那一大段）不在列表里铺开 */}
                     <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
                       {fmtTime(r.time)}
                       {r.person ? ` · ${r.person}` : ''}
                       {r.attachments ? ` · 📎 ${r.attachments}` : ''}
                       {r.status ? ` · ${r.status}` : ''}
                     </div>
-                    {r.summary ? (
-                      <div style={{ fontSize: 13, marginTop: 4, color: 'var(--fg-secondary)' }}>
-                        {r.summary.length > 120 ? `${r.summary.slice(0, 120)}…` : r.summary}
+                    {/* 附件：名称 + 上传时间，可点开下载、可删（挂在记录上） */}
+                    {r.files.length > 0 ? (
+                      <div
+                        style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 4 }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {r.files.map((f) => (
+                          <span
+                            key={f.file_token}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5 }}
+                          >
+                            <a
+                              href={`/api/v1/files/${encodeURIComponent(f.file_token)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ color: 'var(--accent)' }}
+                            >
+                              📎 {f.name || f.file_token}
+                            </a>
+                            {f.at ? <span className="muted">{fmtDay(f.at)}</span> : null}
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              disabled={busyAtt === r.id || target.archived}
+                              title={t('removeAttach')}
+                              onClick={() => void removeAttach(r.id, f.file_token, r.files as Attach[])}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
                       </div>
                     ) : null}
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    {/* 「手动再添加笔记里的 IDP 记录」：与详情页同一个面板（标签 + 映射表双写） */}
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => setNoteFor((cur) => (cur === r.id ? '' : r.id))}
+                      className="btn btn-outline btn-sm"
+                      disabled={busyAtt === r.id || target.archived}
+                      onClick={() => {
+                        attTargetRef.current = r.id;
+                        attRef.current?.click();
+                      }}
                     >
-                      {t('notes')}
+                      ＋ {t('addAttach')}
                     </button>
-                    <a className="btn btn-ghost btn-sm" href={`/student-records/${r.id}`} target="_blank" rel="noreferrer">
-                      {t('open')}
-                    </a>
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          {noteFor ? (
-            <div style={{ marginTop: 12 }}>
-              <NotePanel entityType="IDP沟通" entityId={noteFor} entityName={target.studentName} />
-            </div>
-          ) : null}
           </div>
 
           {/* ── 右栏：从「我的笔记」导入 ───────────────────────── */}
@@ -774,6 +881,39 @@ export default function IdpCommDrawer({
           ) : null}
         </div>
 
+        {/* 附件上传：一个复用的隐藏 input，`attTargetRef` 指向目标记录 */}
+        <input
+          ref={attRef}
+          type="file"
+          multiple
+          style={{ display: 'none' }}
+          onChange={(e) => void addAttach(attTargetRef.current, e.target.files, filesOfRecord(attTargetRef.current))}
+        />
+
+        {/* 记录详情弹窗：点时间线整行打开 */}
+        {commFor
+          ? (() => {
+              const rec = (data?.rows ?? []).find((x) => x.id === commFor);
+              return rec ? (
+                <RecordDetailModal
+                  record={rec}
+                  studentName={target.studentName}
+                  archived={target.archived}
+                  onClose={() => setCommFor('')}
+                  onChanged={async () => {
+                    await load();
+                  }}
+                  onOpenNote={(noteId, title) => setNoteView({ noteId, title })}
+                />
+              ) : null;
+            })()
+          : null}
+
+        {/* 笔记查看弹窗：总结 / 原始记录 两个 Tab */}
+        {noteView ? (
+          <NoteViewerModal noteId={noteView.noteId} title={noteView.title} onClose={() => setNoteView(null)} />
+        ) : null}
+
         <div className="detail-modal-foot">
           <span className="muted" style={{ marginRight: 'auto', fontSize: 12 }}>
             {t('footerHint')}
@@ -781,6 +921,329 @@ export default function IdpCommDrawer({
           <button type="button" className="btn btn-outline btn-sm" onClick={onClose}>
             {t('close')}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * 记录详情弹窗（点时间线整行打开）。
+ *
+ * 内容 = 这条记录本身 + 它关联的笔记：
+ *  · 笔记标题是**链接**，点开看「总结 / 原始记录」（`NoteViewerModal`）；
+ *  · 「解除」只删这条记录与笔记的关联（不删记录、不删笔记）；
+ *  · 附件在这里同样能加 / 删 / 下载（与时间线行共用同一套写入口）。
+ *
+ * 为什么自建而不是复用 `NotePanel`：那个面板是"搜索并关联一篇"的形态（语义召回 + chip），
+ * 这里要的是"看这条记录带来的笔记"，两者的主操作不同；同样的 `idpStudentLabel` 教训 ——
+ * 两套并存会让同一份数据在两处长得不一样。
+ */
+function RecordDetailModal({
+  record,
+  studentName,
+  archived,
+  onClose,
+  onChanged,
+  onOpenNote,
+}: {
+  record: MyIdpComms['rows'][number];
+  studentName: string;
+  archived: boolean;
+  onClose: () => void;
+  onChanged: () => Promise<void> | void;
+  onOpenNote: (noteId: string, title: string) => void;
+}) {
+  const t = useTranslations('myIdp');
+  const [links, setLinks] = useState<GetnoteLink[]>([]);
+  const [files, setFiles] = useState<Attach[]>(record.files as Attach[]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const loadLinks = useCallback(async () => {
+    try {
+      setLinks(await api.listGetnoteLinks(IDP_COMM_RECORD_TYPE, record.id));
+    } catch (e) {
+      setErr(errMsg(e));
+    }
+  }, [record.id]);
+
+  useEffect(() => {
+    void loadLinks();
+  }, [loadLinks]);
+
+  const upload = async (list: FileList | null) => {
+    if (!list?.length) return;
+    setBusy(true);
+    setErr('');
+    try {
+      const added: Attach[] = [];
+      for (const f of Array.from(list)) {
+        const up = await api.uploadFile(f);
+        added.push({ file_token: up.file_token, name: up.name, at: Date.now() });
+      }
+      // 🔴 合并已有 + 新增：数组字段是整体替换，只传新的会抹掉旧附件
+      const next = [...files, ...added];
+      await api.updateStudentRecord(record.id, { 沟通附件清单: next });
+      setFiles(next);
+      await onChanged();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  const drop = async (token: string) => {
+    setBusy(true);
+    setErr('');
+    try {
+      const next = files.filter((a) => a.file_token !== token);
+      await api.updateStudentRecord(record.id, { 沟通附件清单: next });
+      setFiles(next);
+      await onChanged();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unlink = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      await api.replaceGetnoteLinks(IDP_COMM_RECORD_TYPE, record.id, studentName, []);
+      setLinks([]);
+      await onChanged();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="modal-overlay"
+      style={{ zIndex: 60 }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div className="detail-modal" style={{ width: 'min(760px, 100%)' }} onClick={(e) => e.stopPropagation()}>
+        <div className="detail-modal-head">
+          <div>
+            <h3 className="detail-modal-title">{record.subject || t('noSubject')}</h3>
+            <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
+              {fmtTime(record.time)}
+              {record.person ? ` · ${record.person}` : ''}
+              {record.status ? ` · ${record.status}` : ''}
+            </div>
+          </div>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
+            {t('close')}
+          </button>
+        </div>
+
+        <div className="detail-modal-body" style={{ whiteSpace: 'normal' }}>
+          {err ? (
+            <div className="notice notice-error" style={{ marginBottom: 10 }}>
+              {err}
+            </div>
+          ) : null}
+
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{t('linkedNotes')}</div>
+          {links.length === 0 ? (
+            <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
+              {t('notLinked')}
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+              {links.map((l) => (
+                <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenNote(l.noteId, l.title)}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      padding: 0,
+                      color: 'var(--accent)',
+                      fontSize: 13,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    {l.title || l.noteId}
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void unlink()}>
+                    {t('unlinkNote')}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{t('attachments')}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+            {files.length === 0 ? <span className="muted" style={{ fontSize: 12.5 }}>{t('noAttach')}</span> : null}
+            {files.map((f) => (
+              <span key={f.file_token} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5 }}>
+                <a
+                  href={`/api/v1/files/${encodeURIComponent(f.file_token)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  📎 {f.name || f.file_token}
+                </a>
+                {f.at ? <span className="muted">{fmtDay(f.at)}</span> : null}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={busy || archived}
+                  onClick={() => void drop(f.file_token)}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={busy || archived}
+              onClick={() => inputRef.current?.click()}
+            >
+              ＋ {t('addAttach')}
+            </button>
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              style={{ display: 'none' }}
+              onChange={(e) => void upload(e.target.files)}
+            />
+          </div>
+        </div>
+
+        <div className="detail-modal-foot">
+          <a
+            className="btn btn-ghost btn-sm"
+            style={{ marginRight: 'auto' }}
+            href={`/student-records/${record.id}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t('openRecord')}
+          </a>
+          <button type="button" className="btn btn-outline btn-sm" onClick={onClose}>
+            {t('close')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 笔记查看弹窗：**总结 / 原始记录** 两个 Tab（与「我的笔记」页的详情弹窗同一形态）。
+ *
+ * 字段来源：`GET /getnote/notes/:id` 的 `content`（AI 智能总结）与 `rawRecord`
+ * （录音类笔记的说话人带时间戳转写全文）。两者都可能为空 —— 空就明说"没有"，
+ * 不要渲染一片空白让人以为是加载失败。
+ */
+function NoteViewerModal({
+  noteId,
+  title,
+  onClose,
+}: {
+  noteId: string;
+  title: string;
+  onClose: () => void;
+}) {
+  const t = useTranslations('myIdp');
+  const [tab, setTab] = useState<'summary' | 'raw'>('summary');
+  const [note, setNote] = useState<Record<string, unknown> | null>(null);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    setNote(null);
+    setErr('');
+    api
+      .getGetnote(noteId)
+      .then(setNote)
+      .catch((e) => setErr(errMsg(e)));
+  }, [noteId]);
+
+  const summary = String(note?.content ?? '');
+  const raw = String(note?.rawRecord ?? '');
+  const box: CSSProperties = {
+    maxHeight: '60vh',
+    overflow: 'auto',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    padding: '12px 16px',
+    background: 'var(--bg-subtle)',
+  };
+
+  return (
+    <div
+      className="modal-overlay"
+      style={{ zIndex: 70 }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div className="detail-modal" style={{ width: 'min(900px, 100%)' }} onClick={(e) => e.stopPropagation()}>
+        <div className="detail-modal-head">
+          <h3 className="detail-modal-title">{title || noteId}</h3>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
+            {t('close')}
+          </button>
+        </div>
+        <div className="detail-modal-body" style={{ whiteSpace: 'normal' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <button
+              type="button"
+              className={tab === 'summary' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+              onClick={() => setTab('summary')}
+            >
+              {t('noteSummary')}
+            </button>
+            <button
+              type="button"
+              className={tab === 'raw' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+              onClick={() => setTab('raw')}
+            >
+              {t('noteRaw')}
+            </button>
+          </div>
+          {err ? <div className="notice notice-error">{err}</div> : null}
+          {!note && !err ? <div className="muted">{t('loading')}</div> : null}
+          {note ? (
+            tab === 'summary' ? (
+              <div className="md" style={box}>
+                {summary.trim() ? <Markdown>{summary}</Markdown> : <span className="muted">{t('noteEmpty')}</span>}
+              </div>
+            ) : (
+              <div style={box}>
+                {raw.trim() ? (
+                  <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontFamily: 'inherit', fontSize: 13 }}>
+                    {raw}
+                  </pre>
+                ) : (
+                  <span className="muted">{t('noteEmpty')}</span>
+                )}
+              </div>
+            )
+          ) : null}
         </div>
       </div>
     </div>

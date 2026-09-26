@@ -2606,6 +2606,14 @@ export interface MyIdpResp {
   groups: MyIdpGroup[];
 }
 
+export interface IdpCommFile {
+  file_token: string;
+  name: string;
+  size: number;
+  /** 上传时间（ms）；历史附件为 0 = 不显示时间 */
+  at: number;
+}
+
 export interface MyIdpComms {
   studentId: string;
   studentName: string;
@@ -2613,6 +2621,8 @@ export interface MyIdpComms {
   rangeOk: boolean;
   /** 该生 IDP沟通 记录里时间读不出来的条数 */
   noTime: number;
+  /** 该生 IDP沟通 记录已关联的笔记 id（「导入笔记」过滤「已导入」用） */
+  linkedNoteIds: string[];
   rows: {
     id: string;
     subject: string;
@@ -2620,6 +2630,8 @@ export interface MyIdpComms {
     person: string;
     summary: string;
     attachments: number;
+    /** 附件明细：显示「名称 + 时间」并支持下载 / 删除 */
+    files: IdpCommFile[];
     status: string;
   }[];
 }

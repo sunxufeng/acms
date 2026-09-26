@@ -441,8 +441,6 @@ export default function IdpConfigsPage() {
                                   studentName: r.studentName,
                                   cls: r.cls,
                                   archived: active.archived,
-                                  // 「IDP学生」明细行 id —— 抽屉里「导入笔记」的关联目标
-                                  detailId: r.id,
                                 })
                               }
                             >

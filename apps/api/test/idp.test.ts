@@ -369,13 +369,17 @@ describe('B. 表格与页面接线（静态）', () => {
   });
 
   it('抽屉新建的沟通记录类型固定为 IDP沟通，并带上学生姓名（靠 linkBackfill 回填编号）', () => {
-    expect(drawer).toContain("记录类型: 'IDP沟通'");
+    // 类型用 contracts 常量（2026-09-26 改版）：类型名改了要跟着变，别写裸字符串
+    expect(drawer).toMatch(/记录类型:\s*IDP_COMM_RECORD_TYPE/);
     expect(drawer).toContain('关联学生: target.studentName');
   });
 
-  it('抽屉复用现成的「关联笔记」面板（不是自造一套笔记关联）', () => {
-    expect(drawer).toContain("from './NotePanel'");
-    expect(drawer).toContain('entityType="IDP沟通"');
+  it('抽屉自建「关联的笔记」列表（2026-09-26 改版：不再内联 NotePanel）', () => {
+    // 改版理由：这里要的是"看这条记录带来的笔记 + 点开看总结/原始记录"，
+    // 与 NotePanel 的"语义搜索并关联一篇"形态不同；两份并存会让同一数据两处长不一样。
+    expect(drawer).not.toContain("from './NotePanel'");
+    expect(drawer).toContain('listGetnoteLinks(IDP_COMM_RECORD_TYPE');
+    expect(drawer).toContain('NoteViewerModal');
   });
 
   it('我的 IDP 页：显示沟通次数与区间说明，未配置区间时给出提示', () => {

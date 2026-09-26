@@ -52,27 +52,43 @@ describe('IDP 学生列展示（中文名｜英文名）', () => {
   });
 });
 
-describe('「导入笔记」的关联目标接线', () => {
-  it('抽屉按「IDP学生」明细行关联，且用全量覆盖式写入', () => {
-    // 关联目标：entityType 必须是 IDP学生，entityId 必须是明细行 id
-    expect(drawer).toMatch(/replaceGetnoteLinks\(\s*'IDP学生'\s*,\s*detailId/);
-    expect(drawer).toMatch(/listGetnoteLinks\('IDP学生',\s*detailId\)/);
-    // 覆盖式：导入时必须把已有关联一并带上，否则旧关联被静默清掉
-    expect(drawer).toMatch(/imported\.map\(\(l\)\s*=>\s*\(\{\s*noteId:\s*l\.noteId/);
+describe('「导入笔记」的接线（2026-09-26 二次改版：建记录 + 挂笔记）', () => {
+  it('导入 = 逐条建「IDP沟通」记录，并把笔记挂到那条新记录上', () => {
+    // 记录类型必须是 IDP沟通（常量，不是裸字符串 —— 类型名改了要跟着变）
+    expect(drawer).toMatch(/记录类型:\s*IDP_COMM_RECORD_TYPE/);
+    expect(drawer).toMatch(/沟通方式:\s*way/);
+    // 关联目标是**新建记录**（不是 IDP 明细行）：entityType=IDP沟通、entityId=新记录 id
+    expect(drawer).toMatch(/replaceGetnoteLinks\(IDP_COMM_RECORD_TYPE,\s*rid/);
+    // 沟通时间用笔记时间（毫秒），没有就退回现在
+    expect(drawer).toMatch(/沟通时间:\s*note\?\.createdAt\s*\|\|\s*Date\.now\(\)/);
   });
 
-  it('两个入口都把明细行 id 传进抽屉（缺一个，那个入口的导入按钮就是灰的）', () => {
-    expect(idpConfigs).toMatch(/detailId:\s*r\.id/);
-    expect(myIdp).toMatch(/detailId:\s*s\.id/);
+  it('抽屉不再内联 NotePanel，也不再把笔记挂到「IDP学生」明细行', () => {
+    // 改版后：点整行 → 记录详情弹窗（自建列表），NotePanel 与 detailId 都应消失
+    expect(drawer).not.toMatch(/<NotePanel/);
+    expect(drawer).not.toMatch(/replaceGetnoteLinks\(\s*'IDP学生'/);
+    // 两个入口也不再传 detailId
+    expect(idpConfigs).not.toMatch(/detailId:/);
+    expect(myIdp).not.toMatch(/detailId:/);
   });
 
-  it('后端 ENTITY_TAG 登记了「IDP学生」（否则笔记标签退化成中文）', () => {
-    expect(getnoteSvc).toMatch(/IDP学生:\s*'idpStudent'/);
-  });
-
-  it('「已导入的不再列出」：候选列表要按已关联的 noteId 过滤', () => {
-    expect(drawer).toMatch(/linkedIds\s*=\s*new Set\(/);
+  it('「已导入的不再列出」：候选按后端现算的 linkedNoteIds 过滤', () => {
+    // 判据必须与写入侧同源（后端按 实体类型=IDP沟通 + 该生记录 id 算），前端不另算一套
+    expect(drawer).toMatch(/new Set\(cur\.linkedNoteIds\s*\?\?\s*\[\]\)/);
     expect(drawer).toMatch(/!linkedIds\.has\(n\.noteId\)/);
+    expect(getnoteSvc.length).toBeGreaterThan(0);
+  });
+
+  it('附件写回要**合并已有**（数组字段是整体替换，只发新的会抹掉旧附件）', () => {
+    expect(drawer).toMatch(/\[\.\.\.files,\s*\.\.\.added\]/);
+    expect(drawer).toMatch(/\[\.\.\.already,\s*\.\.\.added\]/);
+    expect(drawer).toMatch(/沟通附件清单/);
+  });
+
+  it('时间线不再铺开沟通总结（只留元信息那一行）', () => {
+    // 旧版有 `r.summary.length > 120 ? ... slice` 的预览段，改版后去掉
+    expect(drawer).not.toMatch(/r\.summary\.length > 120/);
+    expect(drawer).toMatch(/r\.files\.length > 0/);
   });
 
   it('候选列表限定「我自己的笔记」（mine=1，两处调用都要带）', () => {
@@ -85,7 +101,10 @@ describe('「导入笔记」的关联目标接线', () => {
     const mineAt = body.indexOf('if (filters.mine)');
     expect(adminAt).toBeGreaterThan(-1);
     expect(mineAt).toBeGreaterThan(adminAt);
-    // mine 分支必须真的用「只看本人凭证」的那一路（空数组是真值，见 collectAllNotes 注释）
-    expect(body.slice(mineAt, mineAt + 400)).toMatch(/collectAllNotes\(user,\s*\[\]\)/);
+    // 🔴 mine 的判据 = 本人凭证 + **归属人是我自己**的知识库配置。
+    //    只认同人凭证会让"凭证挂在配置上"的老师恒为 0 条（曹德强）；整个用可见配置又会
+    //    把同事账号的笔记带进来（sourceVisibleTo 还认"关联用户含我"）。
+    expect(body.slice(mineAt, mineAt + 900)).toMatch(/collectAllNotes\(user,\s*mineIds\)/);
+    expect(body.slice(mineAt, mineAt + 900)).toMatch(/e\.ownerOpenId === myOpenId/);
   });
 });

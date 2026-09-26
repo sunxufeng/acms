@@ -83,8 +83,6 @@ export default function MyIdpPage() {
       cls: s.cls,
       archived: g.archived,
       meName: data?.me.name ?? '',
-      // 「IDP学生」明细行 id —— 抽屉里「导入笔记」的关联目标（挂到这个学生的 IDP 上）
-      detailId: s.id,
     });
   };
 

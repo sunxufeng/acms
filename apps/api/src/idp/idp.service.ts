@@ -591,6 +591,8 @@ export class IdpService {
     rangeText: string;
     rangeOk: boolean;
     noTime: number;
+    /** 该生 IDP沟通 记录已关联的笔记 id（「导入笔记」过滤已导入用） */
+    linkedNoteIds: string[];
     rows: {
       id: string;
       subject: string;
@@ -598,6 +600,8 @@ export class IdpService {
       person: string;
       summary: string;
       attachments: number;
+      /** 附件明细：界面要显示「名称 + 上传时间」并支持下载 / 删除 */
+      files: IdpCommFile[];
       status: string;
     }[];
   }> {
@@ -631,12 +635,21 @@ export class IdpService {
       (d) => idpLinkId(d.f[SF.所属配置]) === configId && idpLinkId(d.f[SF.学生]) === studentId,
     );
 
+    /**
+     * 该生 IDP沟通 记录**已关联的笔记 id**（不过滤时间段：跨批次已导入过的也算，
+     * 否则同一个学期换个批次又能重复导入一遍）。
+     * 「导入笔记」用它做「已导入的不再列出」，与 `entityType='IDP沟通'` 同一判据。
+     */
+    const allMine = comms.get(studentId) ?? [];
+    const linkedNoteIds = await this.linkedNoteIdsOf(allMine.map((c) => c.id));
+
     return {
       studentId,
       studentName: String(row?.f[SF.学生姓名] ?? ''),
       rangeText: range ? rangeTextOf(range) : '',
       rangeOk: !!range,
       noTime,
+      linkedNoteIds,
       rows: inRange.map((c) => ({
         id: c.id,
         subject: c.subject,
@@ -644,9 +657,43 @@ export class IdpService {
         person: c.person,
         summary: c.summary,
         attachments: c.attachments,
+        files: c.files,
         status: c.status,
       })),
     };
+  }
+
+  /**
+   * 一批业务记录 id → 它们关联的笔记 id 集合（实体类型固定 `IDP沟通`）。
+   *
+   * 读的是「笔记关联」小表（全量翻页），与 `replaceLinks` 的写入判据同源
+   * （`实体类型` + `实体ID` 两个文本字段）。**不要**改成按 noteId 反查 ——
+   * 一处是 id 集合、一处是行，两套判据必然漂移。
+   */
+  private async linkedNoteIdsOf(recordIds: string[]): Promise<string[]> {
+    const sql = getSqlStore();
+    if (!sql || !recordIds.length) return [];
+    const want = new Set(recordIds);
+    const out = new Set<string>();
+    let token: string | undefined;
+    let guard = 0;
+    do {
+      const res = await sql.search(TABLES.noteLink.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const it of res.items ?? []) {
+        const rec = it as unknown as { fields?: Record<string, unknown> };
+        const f = (rec.fields ?? {}) as Record<string, unknown>;
+        // 一律走 `idpTextOf`（本模块读取字段的统一宽容口径，见 studentCls 的注释）
+        if (idpTextOf(f['实体类型']) !== IDP_COMM_RECORD_TYPE) continue;
+        if (!want.has(idpTextOf(f['实体ID']))) continue;
+        const nid = idpTextOf(f['笔记ID']);
+        if (nid) out.add(nid);
+      }
+      token = res.pageToken;
+    } while (token && guard++ < 40);
+    return [...out];
   }
 
   // ───────────────────────── 沟通次数（口径收口） ─────────────────────────
@@ -688,6 +735,7 @@ export class IdpService {
       const key = sid || `name:${String(r.f['关联学生'] ?? '').trim()}`;
       if (!key || key === 'name:') continue;
       const arr = out.get(key) ?? [];
+      const files = filesOf(r.f['沟通附件清单']);
       arr.push({
         id: r.id,
         time: idpTime(r.f['沟通时间']),
@@ -695,6 +743,7 @@ export class IdpService {
         summary: String(r.f['沟通总结'] ?? ''),
         person: String(r.f['沟通人'] ?? ''),
         attachments: countAttachments(r.f['沟通附件清单']),
+        files,
         status: String(r.f['闭环状态'] ?? ''),
       });
       out.set(key, arr);
@@ -820,7 +869,18 @@ interface CommLite {
   summary: string;
   person: string;
   attachments: number;
+  /** 附件明细（下载 / 删除 / 显示名称与时间用），与 `attachments` 同源解析 */
+  files: IdpCommFile[];
   status: string;
+}
+
+/** 一条附件（学生记录「沟通附件清单」的元素形态） */
+export interface IdpCommFile {
+  file_token: string;
+  name: string;
+  size: number;
+  /** 上传时间（ms）；历史附件为 0 = 不显示 */
+  at: number;
 }
 
 /** 时间宽容解析（与 contracts 的 `idpTimeMs` 同口径；这里只为少一次 import 循环） */
@@ -875,6 +935,34 @@ function countAttachments(v: unknown): number {
     return Array.isArray(arr) ? arr.filter(Boolean).length : 0;
   }
   return s.split(/[;\n]/).filter((x) => x.trim()).length;
+}
+
+/**
+ * 附件清单的**明细**解析（形态与 CrudPage / 学生记录一致：`[{file_token, name, size?}]`）。
+ *
+ * 为什么要明细而不只是条数：抽屉里要显示「附件名 + 上传时间」并支持下载/删除
+ * （2026-09-26 峰哥要求），只给 count 渲染不出来。
+ * 宽容处理与 `countAttachments` 同源：数组 / JSON 字符串都吃，脏项（缺 file_token）丢掉。
+ */
+function filesOf(v: unknown): IdpCommFile[] {
+  const pick = (arr: unknown[]): IdpCommFile[] =>
+    arr
+      .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object')
+      .map((x) => ({
+        file_token: String(x.file_token ?? ''),
+        name: String(x.name ?? ''),
+        size: Number(x.size ?? 0) || 0,
+        // 上传时间：新写入的附件会带 `at`；历史附件没有 ⇒ 0，界面不显示时间
+        at: Number(x.at ?? 0) || 0,
+      }))
+      .filter((x) => x.file_token);
+  if (Array.isArray(v)) return pick(v);
+  const s = String(v ?? '').trim();
+  if (s.startsWith('[')) {
+    const arr = safeJson(s);
+    return Array.isArray(arr) ? pick(arr) : [];
+  }
+  return [];
 }
 
 /** 范围描述（日志用） */

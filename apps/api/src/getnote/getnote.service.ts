@@ -1455,21 +1455,32 @@ export class GetnoteService implements OnModuleInit {
       return this.listAllForAdmin(user, cursor ?? '', q ?? '', size, filters, statusMap);
 
     /**
-     * 「只看我自己的笔记」—— 只聚合**本人凭证**那一路（`mine=1` 才走这里）。
+     * 「只看我自己的笔记」—— 本人凭证那一路 **＋ 归属人是我自己的知识库配置**（`mine=1`）。
      *
-     * 🔴 为什么必须单开一路：下面那条默认路径在「我被关联到知识库配置」时，
-     *    会用**配置自己的凭证**去拉该配置下的**全部**笔记（那是「我的笔记」页面的
-     *    正确语义：共享知识库要能协作）。但「把笔记导入到学生 IDP」是"把我的笔记
-     *    挂上去"的动作，列出同事的笔记既容易选错、也不符合峰哥的可见性口径
-     *    （2026-09-26：老师只能看到自己的笔记，管理员看到全部）。
+     * 🔴 为什么不能只走「本人凭证」（2026-09-26 修，峰哥报「曹德强一条都看不到」）：
+     *    老师们的凭证大多**不是**向导页手填的，而是挂在「知识库配置」上 ——
+     *    曹德强就是这样：凭证在「Daniel Cao Get Note」里、归属人是他，而个人凭证文件里没有他。
+     *    于是只认同人凭证时他的列表恒为 **0 条**，而默认口径（`credFor` 会回落到可见配置）
+     *    反而是 115 条 —— 症状就是"别人能看到、他看不到"，且不报错。
+     *    ⇒ 判据必须与 `credFor` / `credentialStatus` 同源。
      *
-     * `collectAllNotes(user, [])` 里的**空数组是真值**：配置源全部跳过，
-     * 只留「本人凭证」那一路 —— 这正是"我的笔记"。
+     * ⚠️ 但**不能**直接用「可见配置」全集（`sourceVisibleTo` 还认「关联用户含我」）——
+     *    那会把别人账号的笔记带进来（如赵光宇被列在归属孙旭峰的配置里，是"能看"不是"归他"）。
+     *    这里只收 `ownerOpenId === 我` 的配置，语义是「凭证是我的，笔记就是我的」。
+     *
      * 关键字按**标题包含**过滤（不走上游语义检索）：候选本来就在内存里，
      * 且这里的语义是"在列表里找一篇"，不是"检索相关片段"。
      */
     if (filters.mine) {
-      const onlyMine = await this.collectAllNotes(user, []);
+      const entries = await listEnabledSourceCreds(this.base, TABLES.getnoteSource.tableId, {
+        maxPages: 5,
+      });
+      const myOpenId = String(user.openId ?? '').trim();
+      const mineIds = myOpenId
+        ? entries.filter((e) => e.cred?.key && e.ownerOpenId === myOpenId).map((e) => e.recordId)
+        : [];
+      // 空数组也是合法入参（= 只有本人凭证那一路），别写成 `mineIds.length ? ... : ...`
+      const onlyMine = await this.collectAllNotes(user, mineIds);
       const key = (q ?? '').trim().toLowerCase();
       const byTitle = key
         ? onlyMine.filter((n) => String(n.title ?? '').toLowerCase().includes(key))

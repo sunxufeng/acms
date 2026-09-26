@@ -901,6 +901,11 @@ export interface IdpCommFile {
   size: number;
   /** 上传时间（ms）；历史附件为 0 = 不显示 */
   at: number;
+  /**
+   * MIME（如 `audio/ogg`）。界面靠它辨认**录音**（`isAudioFile`，MIME 优先 + 扩展名兜底）
+   * —— 录音要渲染成播放按钮且不允许删除（它是这条记录的原始素材）。
+   */
+  type: string;
 }
 
 /** 时间宽容解析（与 contracts 的 `idpTimeMs` 同口径；这里只为少一次 import 循环） */
@@ -974,6 +979,8 @@ function filesOf(v: unknown): IdpCommFile[] {
         size: Number(x.size ?? 0) || 0,
         // 上传时间：新写入的附件会带 `at`；历史附件没有 ⇒ 0，界面不显示时间
         at: Number(x.at ?? 0) || 0,
+        // 界面靠它辨认录音（音频不排序也要能播、且不给删除）
+        type: String(x.type ?? ''),
       }))
       .filter((x) => x.file_token);
   if (Array.isArray(v)) return pick(v);

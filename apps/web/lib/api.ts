@@ -2612,6 +2612,8 @@ export interface IdpCommFile {
   size: number;
   /** 上传时间（ms）；历史附件为 0 = 不显示时间 */
   at: number;
+  /** MIME（如 audio/ogg）—— 界面靠它辨认**录音**（渲染成播放按钮、不允许删除） */
+  type: string;
 }
 
 export interface MyIdpComms {

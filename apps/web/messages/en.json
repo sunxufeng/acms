@@ -3826,6 +3826,11 @@
     "notePrev": "Previous",
     "noteNext": "Next",
     "importPanelHint": "Check the notes to import: each one creates an “IDP communication” record (subject = note title, time = note time, channel = face-to-face) and links the note to it. Already-imported ones are hidden.",
+    "play": "Play",
+    "stop": "Stop",
+    "playAudioN": "({n} recordings)",
+    "audioNoDelete": "The recording is part of this record and cannot be removed",
+    "audio": "Recording",
     "footerHint": "Sessions live in Student Records (type = IDP communication) — same data as there."
   },
   "idpConfig": {

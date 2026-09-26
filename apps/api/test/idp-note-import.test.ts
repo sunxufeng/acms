@@ -90,8 +90,9 @@ describe('「导入笔记」的接线（2026-09-26 二次改版：建记录 + �
     // 旧版有 `r.summary.length > 120 ? ... slice` 的预览段，改版后去掉
     expect(drawer).not.toMatch(/r\.summary\.length > 120/);
     // 附件（名称 · 时间 · 删除）挂在元信息行**最右侧**：渲染在 rightCluster 那一簇里，
-    // 不再单独占一行（峰哥 2026-09-26：红框那行不要了）
-    expect(drawer).toMatch(/<span style=\{rightClusterStyle\}>[\s\S]{0,240}\(r\.files as Attach\[\]\)\.map/);
+    // 不再单独占一行（峰哥 2026-09-26：红框那行不要了）。
+    // 录音那一支排在它前面（播放按钮），见下面「录音附件」那组断言
+    expect(drawer).toMatch(/<span style=\{rightClusterStyle\}>[\s\S]{0,900}plainFilesOf\(r\)\.map/);
   });
 
   it('候选列表限定「我自己的笔记」（mine=1，两处调用都要带）', () => {
@@ -169,5 +170,43 @@ describe('「我的 IDP」行内展开（2026-09-26 三次改版）', () => {
     expect(svc).toMatch(/const linkedNoteIds = \[\.\.\.new Set\(\[\.\.\.linkMap\.values\(\)\]\.flat\(\)\)\]/);
     // 行级 / 并集必须来自**同一次**读表：分两次读会漂移（一边有、一边没有）
     expect(svc.match(/new Map<string, string\[\]>\(\)/g) ?? []).toHaveLength(1);
+  });
+});
+
+/**
+ * 录音附件（2026-09-26 深夜 追加）。
+ *
+ * 背景：IDP 沟通记录里的 `.ogg` 是**录音**（「我的笔记」转出或老师上传时写进
+ * 「沟通附件清单」的）。峰哥的要求：显示成**播放按钮**、**不允许删除**，
+ * 并且点标题弹出的框里也要能播。
+ *
+ * 漏了的症状：只给一个 📎 下载链接 + × —— 同事得下载到本地用播放器听，还容易手滑删掉
+ * 这条记录唯一的原始素材。
+ */
+describe('录音附件：播放按钮 + 不可删除', () => {
+  it('附件带 type，行内播放与学生记录列表用**同一套**判据与 hook', () => {
+    const svc = read('api', 'src', 'idp', 'idp.service.ts');
+    expect(svc).toMatch(/type: String\(x\.type \?\? ''\)/);
+    expect(drawer).toMatch(/import \{[^}]*isAudioFile[^}]*\} from '\.\.\/lib\/rowAudio'/);
+    expect(drawer).toMatch(/useRowAudio\(audioSrcOf\)/);
+    // 播放地址走通用附件接口（录音文件是 loc_ 存的，不是笔记专用接口）
+    expect(drawer).toMatch(/attachmentAudioSrc\(/);
+  });
+
+  it('录音只渲染播放按钮，**不允许删除**；普通附件照旧可删', () => {
+    const audioBlock = drawer.slice(
+      drawer.indexOf('audiosOf(r).length'),
+      drawer.indexOf('plainFilesOf(r)'),
+    );
+    expect(audioBlock).toContain('toggleAudio');
+    expect(audioBlock).not.toContain('removeAttach');
+    // 普通附件那一支仍要能删（别把整行的删除一起去掉了）
+    expect(drawer).toMatch(/plainFilesOf\(r\)\.map[\s\S]{0,900}removeAttach/);
+  });
+
+  it('点标题的弹窗（无关联笔记那条路径）里也有播放器', () => {
+    const recBlock = drawer.slice(drawer.indexOf('function RecordSummaryModal'));
+    expect(recBlock).toMatch(/<audio/);
+    expect(recBlock).toMatch(/attachmentAudioSrc\(audio\.file_token\)/);
   });
 });

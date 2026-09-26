@@ -7,6 +7,8 @@ import { api, type GetnoteLink, type MyIdpComms } from '../lib/api';
 import { IDP_COMM_RECORD_TYPE } from '@acms/contracts';
 import MarkdownField from './MarkdownField';
 import GetnoteNoteModal from './GetnoteNoteModal';
+// 行内播放 / 音频判据：与学生记录列表**同一套**（单 Audio 实例 + ▶/⏸ 切换，不给每行挂 audio 元素）
+import { attachmentAudioSrc, isAudioFile, useRowAudio } from '../lib/rowAudio';
 
 /**
  * IDP 沟通抽屉（老师端与管理员端共用）。
@@ -72,6 +74,8 @@ interface Attach {
   size?: number;
   /** 上传时间（ms）—— 界面要显示「附件名 + 时间」，历史附件没有则 0 */
   at?: number;
+  /** MIME（如 `audio/ogg`）—— 靠它辨认录音（见 `isAudioFile`） */
+  type?: string;
 }
 
 /** 时间线一条记录：标题 + 元信息行（附件在元信息行最右侧） */
@@ -569,6 +573,27 @@ export default function IdpCommDrawer({
   const filesOfRecord = (id: string): Attach[] =>
     ((data?.rows ?? []).find((x) => x.id === id)?.files ?? []) as Attach[];
 
+  /**
+   * 行内播放：附件里的**录音**。
+   *
+   * 为什么要这一步：录音是「我的笔记」转出 / 老师上传时作为附件写进「沟通附件清单」的。
+   * 只给一个下载链接的话，同事还得下载到本地用播放器听 —— 而这条录音正是这条沟通记录的
+   * 原始素材（峰哥 2026-09-26：显示成播放按钮就行、**不可删除**）。
+   * 判据 `isAudioFile` 与学生记录列表用的是**同一份**（MIME 优先 + 扩展名兜底）。
+   */
+  const audioSrcOf = useCallback((row: Record<string, unknown>) => {
+    const first = ((row.files as Attach[]) ?? []).find((f) => isAudioFile(f));
+    return first?.file_token ? attachmentAudioSrc(first.file_token) : null;
+  }, []);
+  const { playingId, toggle: toggleAudio } = useRowAudio(audioSrcOf);
+
+  /** 一条记录里的录音（渲染成播放按钮；**不给删除**，见 `audioNoDelete`） */
+  const audiosOf = (r: MyIdpComms['rows'][number]): Attach[] =>
+    ((r.files as Attach[]) ?? []).filter((f) => isAudioFile(f));
+  /** 其余的普通附件（下载 / 显示时间 / 可删除） */
+  const plainFilesOf = (r: MyIdpComms['rows'][number]): Attach[] =>
+    ((r.files as Attach[]) ?? []).filter((f) => !isAudioFile(f));
+
   const count = data?.rows.length ?? 0;
 
   /**
@@ -896,7 +921,24 @@ export default function IdpCommDrawer({
                   {r.linkedNoteIds?.length ? ` · 🔗 ${t('linkedNotesN', { n: r.linkedNoteIds.length })}` : ''}
                 </span>
                 <span style={rightClusterStyle}>
-                  {(r.files as Attach[]).map((f) => (
+                  {/* 录音 → 播放按钮（与学生记录列表同一形态），**不给删除**：
+                      它是这条记录自带的原始素材（峰哥 2026-09-26 定） */}
+                  {audiosOf(r).length ? (
+                    <button
+                      type="button"
+                      className={playingId === r.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+                      title={
+                        `${playingId === r.id ? t('stop') : t('play')}：${audiosOf(r)[0].name || ''}` +
+                        (audiosOf(r).length > 1 ? t('playAudioN', { n: audiosOf(r).length }) : '') +
+                        ` · ${t('audioNoDelete')}`
+                      }
+                      onClick={() => toggleAudio({ id: r.id, files: r.files })}
+                    >
+                      {playingId === r.id ? `⏸ ${t('stop')}` : `▶ ${t('play')}`}
+                    </button>
+                  ) : null}
+
+                  {plainFilesOf(r).map((f) => (
                     <span key={f.file_token} style={attChipStyle}>
                       <a
                         href={`/api/v1/files/${encodeURIComponent(f.file_token)}`}
@@ -1064,6 +1106,13 @@ function RecordSummaryModal({
   const [fields, setFields] = useState<Record<string, unknown> | null>(null);
   const [err, setErr] = useState('');
 
+  /**
+   * 这条记录自带的录音（附件里的音频）。
+   * 弹窗里用**原生 controls 播放器**（与笔记详情弹窗同一个样子，进度条可拖）——
+   * 行内那个 ▶ 只是个开关，听细节还得能拖进度。
+   */
+  const audio = ((record.files ?? []) as Attach[]).find((f) => isAudioFile(f));
+
   useEffect(() => {
     let alive = true;
     setFields(null);
@@ -1120,6 +1169,31 @@ function RecordSummaryModal({
           </button>
         </div>
         <div className="detail-modal-body" style={{ whiteSpace: 'normal' }}>
+          {/* 录音播放器：这条记录的声音就在这儿（附件里的音频，走通用附件接口） */}
+          {audio ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                marginBottom: 12,
+                padding: '8px 12px',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+              }}
+            >
+              <span style={{ fontSize: 12, color: 'var(--fg-tertiary)', whiteSpace: 'nowrap' }}>
+                🎧 {t('audio')}
+              </span>
+              <audio
+                controls
+                preload="none"
+                style={{ flex: 1, height: 32 }}
+                src={attachmentAudioSrc(audio.file_token)}
+              />
+            </div>
+          ) : null}
+
           <div style={{ display: 'flex', gap: 8, marginBottom: 11 }}>
             <button
               type="button"

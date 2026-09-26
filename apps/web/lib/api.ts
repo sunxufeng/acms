@@ -1465,6 +1465,9 @@ export const api = {
   // 🔴 沟通记录**不走这里** —— 就是「学生记录」里 记录类型=IDP沟通 的那批，
   //    读走 studentRecords 的列表接口、写走它的 create/update（附件/录音/AI 总结全都现成）。
   /** 配置清单（管理员/院级；带学生数与区间可用性） */
+  /** 知识库（Get笔记）同步：检查所有启用配置是否到期（与定时调度同一执行体） */
+  syncAllNoteSources: () =>
+    request<{ synced: number; skipped: number }>('/getnote-sources/sync-all', { method: 'POST' }),
   idpOverview: () => request<IdpConfigOverview[]>('/idp-overview'),
   /** 新建配置的可选项：学年 / 学期 / 年级 / 班级 */
   idpOptions: () => request<IdpOptions>('/idp-options'),

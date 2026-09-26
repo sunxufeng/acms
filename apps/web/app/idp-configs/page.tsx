@@ -373,7 +373,8 @@ export default function IdpConfigsPage() {
                           />
                         </th>
                         <th style={{ minWidth: 110 }}>{t('colStudent')}</th>
-                        <th style={{ minWidth: 100 }}>{t('colClass')}</th>
+                        {/* 「班级」列刻意不显示：学生档案里「当前班级」是空关联，
+                            唯一有值的是「当前年级」⇒ 两列会显示同一个值。见 idp.service 的 studentCls 注释。 */}
                         <th style={{ minWidth: 90 }}>{t('colGrade')}</th>
                         <th style={{ minWidth: 160 }}>{t('colTeacher')}</th>
                         <th style={{ minWidth: 70 }}>{t('colCommCount')}</th>
@@ -401,7 +402,6 @@ export default function IdpConfigsPage() {
                           <td>
                             <div className="dept-emp-name">{r.studentName}</div>
                           </td>
-                          <td className="muted">{r.cls || '—'}</td>
                           <td className="muted">{r.grade || '—'}</td>
                           <td>
                             <select

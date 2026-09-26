@@ -336,3 +336,36 @@ export function idpLinkIds(v: unknown): string[] {
 export function idpLinkId(v: unknown): string {
   return idpLinkIds(v)[0] ?? '';
 }
+
+/**
+ * 字段值 → 可读文本（**宽容**，四种形态都吃）。
+ *
+ * 🔴 为什么不能用 `String(v)`：关联字段的空壳值是对象 `{"link_record_ids": null}`，
+ *    `String()` 会得到字符串 **`"[object Object]"`** —— 不抛错、不写日志，
+ *    只是数据被悄悄写坏（IDP 明细首版 82 行的「班级」列全是它，
+ *    直到上传飞书导师数据对照班级时才发现）。
+ *
+ * 解析顺序：字符串/数字直接用 → 数组取第一个非空 → 对象取 `text` / `name` / `value`
+ * → **都没有就返回空串**（空壳 `{"link_record_ids": null}` 属于这一类，是"空关联"不是"有值"）。
+ */
+export function idpTextOf(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) {
+    for (const x of v) {
+      const t = idpTextOf(x);
+      if (t) return t;
+    }
+    return '';
+  }
+  if (typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    for (const k of ['text', 'name', 'value'] as const) {
+      const t = idpTextOf(o[k]);
+      if (t) return t;
+    }
+    return '';
+  }
+  return '';
+}

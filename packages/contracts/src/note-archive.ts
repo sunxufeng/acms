@@ -101,7 +101,17 @@ export const ARCHIVE_JOB_FIELDS = {
 } as const;
 
 /** 任务类型（决定「到点了执行什么」） */
-export const JOB_KINDS = ['笔记归档', '卫瓴联系人同步', '邮件收取'] as const;
+/**
+ * 任务类型（决定**谁来执行**，不只是显示名）。
+ *
+ * ⚠️ 加一个类型要**三处一起改**，漏一处就是"任务到点跑了但什么都没发生"：
+ *   ① 这里（清单）
+ *   ② `ScheduledTasksRunner.dispatch()`（后端分发）
+ *   ③ `apps/web/app/scheduled-tasks/page.tsx` 的「运行」按钮（手动跑要能对应上）
+ *   另：种子（`NOTE_ARCHIVE_JOB_SEEDS`）+ 生产任务行（`seedJobs()` 只在空表时播种，
+ *   存量表要手工补行）。
+ */
+export const JOB_KINDS = ['笔记归档', '卫瓴联系人同步', '邮件收取', '知识库同步'] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 /** 缺省类型：存量任务都是笔记归档（**兼容老数据**，别改成空串） */
 export const JOB_KIND_DEFAULT: JobKind = '笔记归档';
@@ -182,6 +192,24 @@ export const NOTE_ARCHIVE_JOB_SEEDS: NoteArchiveJobDef[] = [
     label: '邮件收取',
     enabled: true,
     kind: '邮件收取',
+    freq: '每15分钟',
+    hour: 0,
+    minute: 0,
+    weekdays: [],
+    rootFolderToken: '',
+    titleMustInclude: '',
+    kinds: [],
+    groupByOwner: false,
+    catchUpHours: 6,
+  },
+  {
+    // 2026-09-26 新增：替代 getnote sources.module 里硬编码的 `*/15 * * * *`
+    //（与「邮件收取」同模型：这里只决定**多久检查一次**，每条知识库配置自己的
+    //  「收取频率」仍然生效 —— 节流在 `GetnoteSourceService.syncAllDue` 内）
+    key: 'getnoteSync',
+    label: '知识库同步',
+    enabled: true,
+    kind: '知识库同步',
     freq: '每15分钟',
     hour: 0,
     minute: 0,

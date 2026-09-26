@@ -3758,7 +3758,7 @@
     "rangeBad": "学年日期缺失或学期与学年对不上，沟通次数无法统计 —— 请让管理员检查该批次的学年 / 学期。",
     "noMatch": "当前筛选下没有学生。",
     "colStudent": "学生",
-    "colClass": "班级",
+    "colClass": "年级",
     "colCommCount": "沟通次数",
     "colLast": "最近沟通",
     "colLastSummary": "最新摘要",

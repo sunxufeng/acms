@@ -13,6 +13,7 @@ import { runAs, systemActor } from '../shared/actor-context.js';
 import { NoteArchiveService } from '../note-archive/note-archive.service.js';
 import { WeilingService } from '../weiling/weiling.service.js';
 import { MailArchiveService } from '../mail-archive/mail-archive.service.js';
+import { GetnoteSourceService } from '../getnote/sources.service.js';
 
 /**
  * 「定时任务」的统一调度器（2026-09-24，方案 A）。
@@ -22,7 +23,7 @@ import { MailArchiveService } from '../mail-archive/mail-archive.service.js';
  *   · 每日音频抓取：同上
  *   · 卫瓴联系人同步：`setInterval(24h)`（**错的**：蓝绿部署每次重启都把 24 小时计时清零，
  *     时间点会一直往后漂；实测一天部署 4 次就跑了 4 次，而且用户改不了）
- *   · 邮件收取：`mail-archive.module` 里硬编码的「每 15 分钟」cron 表达式
+ *   · 知识库同步：`getnote/sources.module` 里硬编码的「每 15 分钟」cron 表达式
  * 现在统一由本调度器驱动：任务行里配「任务类型 + 频率 + 执行时间 + 执行日」，
  * 用户自己在「定时任务」页改，不需要发版。
  *
@@ -47,6 +48,7 @@ export class ScheduledTasksRunner implements OnModuleInit {
     private readonly notes: NoteArchiveService,
     private readonly weiling: WeilingService,
     private readonly mail: MailArchiveService,
+    private readonly getnoteSources: GetnoteSourceService,
   ) {}
 
   onModuleInit(): void {
@@ -109,6 +111,15 @@ export class ScheduledTasksRunner implements OnModuleInit {
       // ⚠️ 这里只是"触发检查"：每个账户是否真去收，仍由该账户自己的「收取频率」决定
       //    （节流在 `MailArchiveService.syncAll` 内）。所以改了任务时间不会绕过账户频率。
       await this.writeRunResult(job, `检查后触发 ${r.synced} 个账户收取`);
+      return;
+    }
+    if (job.kind === '知识库同步') {
+      // 与「邮件收取」同模型：这里只决定**多久检查一次**，每条知识库配置自己的
+      // 「收取频率」仍然生效（节流在 `GetnoteSourceService.syncAllDue` 内）。
+      const r = await runAs(systemActor('scheduled-tasks', '系统 · 定时任务'), () =>
+        this.getnoteSources.syncAllDue(),
+      );
+      await this.writeRunResult(job, `检查后触发 ${r.synced} 个知识库同步，跳过 ${r.skipped} 个`);
       return;
     }
     // 笔记归档：执行体自己是异步的（立刻返回进度），「上次运行」由它回写

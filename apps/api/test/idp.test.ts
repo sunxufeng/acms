@@ -27,6 +27,7 @@ import {
   idpLinkIds,
   idpStudentKey,
   idpSummarizeComms,
+  idpTextOf,
   idpTermRange,
   myIdpMenuVisible,
   modulePermission,
@@ -159,6 +160,35 @@ describe('A. 关联字段宽容解析（idpLinkIds）', () => {
 
   it('非法 JSON 串不抛异常，返回空', () => {
     expect(idpLinkIds('[not json')).toEqual([]);
+  });
+});
+
+describe('A. 文本宽容解析（idpTextOf）—— [object Object] 的教训', () => {
+  it('🔴 关联字段的空壳值必须解析成**空串**，不能变成 "[object Object]"', () => {
+    // 生产实测：学生表「当前班级」是关联字段且值为空壳
+    // ⇒ `String(v)` 得到 "[object Object]"，82 行的「班级」列全被写坏（不报错、不写日志）
+    expect(idpTextOf({ link_record_ids: null })).toBe('');
+    expect(idpTextOf({ link_record_ids: [] })).toBe('');
+    expect(String({ link_record_ids: null })).toBe('[object Object]'); // 反例：这就是不能这么写的原因
+  });
+
+  it('字符串 / 数字直接返回（并去空格）', () => {
+    expect(idpTextOf('Pre-1')).toBe('Pre-1');
+    expect(idpTextOf('  Pre-1 ')).toBe('Pre-1');
+    expect(idpTextOf(7)).toBe('7');
+  });
+
+  it('对象优先取 text / name / value（关联字段带出的可读值）', () => {
+    expect(idpTextOf({ text: 'Pre-1' })).toBe('Pre-1');
+    expect(idpTextOf({ name: '未来企业家班' })).toBe('未来企业家班');
+    expect(idpTextOf([{ text: 'Pre-2' }])).toBe('Pre-2');
+  });
+
+  it('取不到可读值的对象（结构未知）返回空串，而不是把结构 stringify 出去', () => {
+    expect(idpTextOf({ foo: 'bar' })).toBe('');
+    expect(idpTextOf({})).toBe('');
+    expect(idpTextOf(null)).toBe('');
+    expect(idpTextOf(undefined)).toBe('');
   });
 });
 
@@ -302,6 +332,23 @@ describe('B. 后端服务接线（静态）', () => {
     const i = svc.indexOf('private semesterDict');
     expect(i).toBeGreaterThan(-1);
     expect(svc.slice(i, i + 900)).toContain('catch');
+  });
+});
+
+describe('B. 学生快照字段的读写（静态）', () => {
+  const svc = read('apps/api/src/idp/idp.service.ts');
+
+  it('🔴 班级 / 年级必须走 idpTextOf（用 String() 会把关联空壳写成 "[object Object]"）', () => {
+    expect(svc).toContain('idpTextOf(f[k])');
+    // 断言"代码里别再出现用 String() 取字段值"的形态（注释里提到那个反例字符串是允许的 ——
+    // 所以用调用形态正则，而不是 not.toContain 字面量）
+    expect(svc).not.toMatch(/String\(\s*f\[k\]\s*\?\?\s*''\s*\)/);
+    expect(svc).not.toMatch(/String\(\s*(f|fields)\[/);
+  });
+
+  it('班级候选顺序与成绩册一致（当前班级 → 当前年级）', () => {
+    expect(svc).toContain("const STUDENT_CLASS_FIELDS = ['当前班级', '当前年级']");
+    expect(svc).toContain("const STUDENT_GRADE_FIELDS = ['当前年级', '入学年级']");
   });
 });
 

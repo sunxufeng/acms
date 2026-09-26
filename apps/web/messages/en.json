@@ -3758,7 +3758,7 @@
     "rangeBad": "Academic year dates are missing or the term does not match the year, so session counts cannot be computed.",
     "noMatch": "No students match the filter.",
     "colStudent": "Student",
-    "colClass": "Class",
+    "colClass": "Grade",
     "colCommCount": "Sessions",
     "colLast": "Last session",
     "colLastSummary": "Latest summary",

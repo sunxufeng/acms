@@ -247,6 +247,12 @@ export default function ScheduledTasksPage() {
       } else if (kind === '邮件收取') {
         const r = await api.syncAllMail();
         setNotice({ tone: 'ok', text: `已触发 ${r.synced} 个账户收取（各账户仍按自己的「收取频率」节流）` });
+      } else if (kind === '知识库同步') {
+        const r = await api.syncAllNoteSources();
+        setNotice({
+          tone: 'ok',
+          text: `已检查知识库配置：触发 ${r.synced} 个，跳过 ${r.skipped} 个（每条配置仍按自己的「收取频率」节流）`,
+        });
       } else {
         const p = await api.runNoteArchiveJob(id);
         setProgress((m) => ({ ...m, [id]: p }));

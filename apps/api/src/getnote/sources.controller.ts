@@ -5,6 +5,7 @@ import type { Request } from 'express';
 import type { SessionUser } from '@acms/contracts';
 import { SessionGuard } from '../auth/session.guard.js';
 import { GetnoteSourceService } from './sources.service.js';
+import { requireModule } from '../shared/require-module.js';
 
 /**
  * 知识库配置（getnote_source）控制器。
@@ -60,6 +61,24 @@ export class GetnoteSourceController {
   }
 
   // ── 同步动作（必须在 :id 之前）─────────────────────────────────────
+
+  /**
+   * 全部启用的知识库「检查一次是否到期」（2026-09-26 新增）。
+   *
+   * 用途：① 「定时任务」页的「知识库同步」任务点「运行」立刻跑一次；
+   *      ② 排查时手动触发。
+   * 与定时调度**同一个执行体**（`syncAllDue`）⇒ 每条配置自己的「收取频率」照旧生效
+   * （不是"强制全部立刻拉一遍"）。
+   *
+   * 权限：`module:getnoteSources:update` —— 本接口会触发**所有人**的知识库同步，
+   * 属维护动作，不能只要求登录（既有的 `:id/sync` 只针对单条，保持原样不动）。
+   */
+  @Post('sync-all')
+  syncAll(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    requireModule(user, 'getnoteSources', 'update');
+    return this.svc.syncAllDue();
+  }
 
   /** 测试连通性：按笔记类型分发。得到大脑调真实 API，其他类型返回 501 提示未接入 */
   @Post(':id/test')

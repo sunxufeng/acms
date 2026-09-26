@@ -47,6 +47,7 @@ import {
   idpLinkId,
   idpSummarizeComms,
   idpTermRange,
+  idpTextOf,
   myIdpMenuVisible,
   type IdpScope,
   type SessionUser,
@@ -148,9 +149,19 @@ export class IdpService {
     return out;
   }
 
+  /**
+   * 学生表的「班级」维度 —— 与成绩册 `MarkbookService.CLASS_FIELDS` 同口径：
+   * 先看「当前班级」，没有就退回「当前年级」。
+   *
+   * 🔴 **必须用 contracts 的 `idpTextOf()` 宽容解析，绝不能用 `String(v)`**：
+   *    生产实测「当前班级」是**关联字段**且值为空壳 `{"link_record_ids": null}`，
+   *    `String(那个对象)` 得到的是字符串 `"[object Object]"` —— 不报错、不抛异常，
+   *    只是 82 行的「班级」列全变成 `[object Object]`（本模块首版就这么写坏过一次，
+   *    是上传飞书导师数据时对照班级才发现的）。
+   */
   private studentCls(f: Record<string, unknown>): string {
     for (const k of STUDENT_CLASS_FIELDS) {
-      const v = String(f[k] ?? '').trim();
+      const v = idpTextOf(f[k]);
       if (v) return v;
     }
     return '';
@@ -158,7 +169,7 @@ export class IdpService {
 
   private studentGrade(f: Record<string, unknown>): string {
     for (const k of STUDENT_GRADE_FIELDS) {
-      const v = String(f[k] ?? '').trim();
+      const v = idpTextOf(f[k]);
       if (v) return v;
     }
     return '';

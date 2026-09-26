@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   ARCHIVE_JOB_FIELDS,
+  JOB_KINDS,
   archiveJobScheduleText,
   jobSlotKey,
   parseArchiveJobRow,
@@ -17,7 +18,7 @@ import {
  *
  * 背景：原来三家各写各的定时器 —— 笔记归档与音频抓取用「每小时醒一次判到点」（正确），
  * 卫瓴联系人同步用 `setInterval(24h)`（错：部署重启就清零，时间点一直漂），
- * 邮件收取是 mail-archive.module 里硬编码的「每 15 分钟」cron 表达式。用户完全改不了。
+ * 邮件收取 / 知识库同步是各自模块里硬编码的「每 15 分钟」cron 表达式。用户完全改不了。
  * 现在统一由任务行（任务类型 + 频率 + 执行时间 + 执行日）驱动。
  *
  * 下面两类断言：
@@ -31,7 +32,12 @@ const runner = read('api', 'src', 'scheduled-tasks', 'scheduled-tasks.runner.ts'
 const notes = read('api', 'src', 'note-archive', 'note-archive.service.ts');
 const weiling = read('api', 'src', 'weiling', 'weiling.service.ts');
 const mailModule = read('api', 'src', 'mail-archive', 'mail-archive.module.ts');
+const sourcesModule = read('api', 'src', 'getnote', 'sources.module.ts');
+const aiRouteModule = read('api', 'src', 'ai-route', 'ai-route.module.ts');
+const sourcesController = read('api', 'src', 'getnote', 'sources.controller.ts');
 const appModule = read('api', 'src', 'app.module.ts');
+const page = read('web', 'app', 'scheduled-tasks', 'page.tsx');
+const api = read('web', 'lib', 'api.ts');
 
 function job(over: Partial<NoteArchiveJobDef> = {}): NoteArchiveJobDef {
   return {
@@ -145,14 +151,54 @@ describe('定时任务 · 源码级守卫（防止定时器又散回各模块）
     expect(mailModule).not.toContain('new Cron');
   });
 
-  it('调度器按「任务类型」分发到三个执行体，且错峰（不 await 阻塞别的任务）', () => {
+  it('调度器按「任务类型」分发到**四个**执行体，且错峰（不 await 阻塞别的任务）', () => {
     expect(runner).toContain('卫瓴联系人同步');
     expect(runner).toContain('邮件收取');
+    expect(runner).toContain('知识库同步');
     expect(runner).toContain('this.notes.start(job');
     expect(runner).toContain('this.weiling.syncAll');
     expect(runner).toContain('this.mail.syncAll');
+    expect(runner).toContain('this.getnoteSources.syncAllDue');
     expect(runner).toContain('shouldRunArchiveJob'); // 判据只写一处（contracts 纯函数）
     expect(runner).toContain('jobSlotKey');
+  });
+
+  it('🔴 `JOB_KINDS` 每多一个类型，分发与前端「运行」都必须跟上（漏一处 = 到点跑了但什么都没发生）', () => {
+    expect([...JOB_KINDS]).toEqual(['笔记归档', '卫瓴联系人同步', '邮件收取', '知识库同步']);
+    // 后端：每个类型都要有分支
+    for (const k of JOB_KINDS) {
+      if (k === '笔记归档') continue; // 归档是兜底分支（else），不写字符串比较
+      expect(runner, `runner 缺少「${k}」分支`).toContain(k);
+    }
+    // 前端：「运行」按钮同样要能手动触发
+    for (const k of JOB_KINDS) {
+      if (k === '笔记归档') continue;
+      expect(page, `定时任务页缺少「${k}」的运行分支`).toContain(k);
+    }
+  });
+
+  it('🔴 知识库同步不能再自建 cron（否则同一同步被调度两次）', () => {
+    expect(sourcesModule).not.toMatch(/new Cron\s*\(/);
+    expect(sourcesModule).not.toContain("from 'croner'");
+    expect(sourcesModule).toContain('exports: [GetnoteSourceService]'); // 调度器要注入它
+  });
+
+  it('⚠️ ai-route 的两个 cron **故意保留**（它们是模块内部维护动作，不是让用户设时间的业务任务）', () => {
+    // ① 上游健康巡检：*/10 —— 与业务数据无关的可用性探测
+    // ② 每分钟重算调度状态：冷却到期、额度跨天归零、账号过期 —— 改成小时级会让状态不准
+    // ⇒ 不进「定时任务」页。这条断言的作用是**留个说明**：以后看到它们别当成漏改。
+    expect(aiRouteModule).toContain('healthCheckAll');
+    expect(aiRouteModule).toContain('refreshScheduleStates');
+  });
+
+  it('手动「运行」知识库同步走 /getnote-sources/sync-all（幂等：内部按各配置的收取频率节流）', () => {
+    expect(sourcesController).toContain("@Post('sync-all')");
+    expect(sourcesController).toContain('syncAllDue');
+    expect(api).toContain("'/getnote-sources/sync-all'");
+    // 🔴 静态路由必须排在 :id 之前，否则 'sync-all' 会被 @Post(':id/...') 之类的通配吃掉
+    expect(sourcesController.indexOf("@Post('sync-all')")).toBeLessThan(
+      sourcesController.indexOf("@Post(':id/test')"),
+    );
   });
 
   it('调度器已注册进 app.module，且排在三个被注入的模块之后', () => {

@@ -4,11 +4,22 @@
  *  - idp-communications：IDP 沟通记录（子表，必须挂在某个 IDP 方案下，不进 360 聚合）
  * 字段严格对应飞书实际字段（recreate_idp_tables.mjs 建表）。
  */
-import { TABLES } from '@acms/contracts';
+import { TABLES, modulePermission } from '@acms/contracts';
 import type { RecordMeta } from '../shared/generic-crud.module.js';
 
 const PERM_R = 'student:read';
 const PERM_W = 'student:write';
+
+/**
+ * IDP 重构（2026-09-26）的新两张表权限：**复用「IDP 配置」那个模块权限点**
+ * （由原 `idpPlans` 改名而来，`module:idpPlans:*`）。
+ *
+ * 生产实测（2026-09-26）持有情况：`module:idpPlans:read/update` = 系统管理员 + 院级管理；
+ * `module:idpPlans:enter` 另有 student / parent（他们本来也能看到原「IDP管理」菜单，不是本次变化）。
+ * ⇒ 「IDP 配置」页只有管理员/院级能用，与设计口径一致，**一个角色配置都不用改**。
+ */
+const IDP_R = modulePermission('idpPlans', 'read');
+const IDP_W = modulePermission('idpPlans', 'update');
 
 export const IDP_PLAN_META: RecordMeta = {
   path: 'idp-plans',
@@ -60,3 +71,59 @@ export const IDP_COMM_META: RecordMeta = {
   searchField: '关联IDP方案',
   sortField: '沟通日期',
 };
+
+// ─────────────────────────────────────────────────────────────
+// 2026-09-26 重构：IDP配置（批次）+ IDP学生（明细）
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * `IDP配置` —— 一行 = 一个「学年 × 学期」批次。
+ *
+ * 字段：配置名称 / 学年（关联 `学年表`）/ 学期（字典）/ 状态 / 学生范围（留痕）/ 说明 /
+ *       创建人 / 创建时间（ms 时间戳）。
+ *
+ * 🔴 「创建时间」用 **number（ms）** 而不是日期字段：日期字段（type=5）读出来会**丢时分秒**
+ *    （套件记过这个坑），而这里要按时间倒序排批次，只到天会并列。
+ */
+export const IDP_CONFIG_META: RecordMeta = {
+  path: 'idp-configs',
+  tableId: TABLES.idpConfig.tableId,
+  readPerm: IDP_R,
+  writePerm: IDP_W,
+  numbers: ['创建时间'],
+  linkFields: [{ field: '学年', table: TABLES.academicYear.tableId, nameField: '学年名称' }],
+  statusField: '状态',
+  defaultStatus: '进行中',
+  searchField: '配置名称',
+  sortField: '创建时间',
+};
+
+/**
+ * `IDP学生` —— 一行 = 配置 × 学生。
+ *
+ * 字段：所属配置 / 学生（关联 `学生档案`）/ 学生姓名 / 班级 / 当前年级 /
+ *       IDP老师（**存用户表的 open_id 文本**，与「招生负责老师」同一形态）/
+ *       状态 / 备注 / 沟通次数 / 最近沟通时间 / 最近沟通摘要。
+ *
+ * 🔴 「学生姓名 / 班级 / 当前年级」是**冗余快照**：明细列表要显示它们，
+ *    实时 join 学生表（82 行）不是问题，但**跨表 join 在 SqlStore 里做不到**
+ *    （关联字段存的是 id 数组，不能用等值 filter —— 套件老坑），只能全量读+内存 join。
+ *    留快照让列表在只读这一张表时也能显示（且学生改名后仍能看到当时的名字）。
+ *    快照由 `pullStudents()` 写入，学生改班级/年级后重拉即刷新（幂等，只补不覆盖老师）。
+ */
+export const IDP_STUDENT_META: RecordMeta = {
+  path: 'idp-students',
+  tableId: TABLES.idpStudent.tableId,
+  readPerm: IDP_R,
+  writePerm: IDP_W,
+  numbers: ['沟通次数', '最近沟通时间'],
+  linkFields: [
+    { field: '所属配置', table: TABLES.idpConfig.tableId, nameField: '配置名称' },
+    { field: '学生', table: TABLES.studentProfile.tableId, nameField: '学生姓名' },
+  ],
+  searchField: '学生姓名',
+  sortField: '学生姓名',
+};
+
+/** 供 `GenericCrudModule.registerAll` 注册的两张新表元数据 */
+export const IDP_METAS: RecordMeta[] = [IDP_CONFIG_META, IDP_STUDENT_META];

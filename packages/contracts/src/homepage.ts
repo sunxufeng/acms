@@ -333,7 +333,15 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     // 写死 `module:studentRecords:enter` 会让合并前的主力角色（生产实测 24 人的 Phase1
     // 只持有 module:studentObservations:*）看不到这个菜单，等于把功能藏起来。
     { key: 'studentRecords', label: '学生记录', enLabel: 'Student Records', href: '/student-records', icon: 'notifications', section: '学生闭环', order: 60, perm: '' },
-    { key: 'idpPlans', label: 'IDP管理', enLabel: 'IDP Plans', href: '/idp-plans', icon: 'target', section: '学生闭环', order: 75, perm: 'idp:read' },
+    // 我的 IDP（2026-09-26 新增）：老师端入口 —— 按学年学期看我自己的 IDP 学生 + 沟通记录。
+    //
+    // `perm` 留空是有意的：它**不持有独立权限点**。可见性判据收口在 contracts 的
+    // `myIdpMenuVisible`（与「学生记录」同源：任一记录类型的 read 或合并入口 read），
+    // 见 AppShell.canSeeItem 里对应的分支。
+    // 🔴 千万别给它挂 `idpPlans`（= 现在「IDP配置」那个点）：生产实测只有
+    //    系统管理员/院级管理/student/parent 持有，Phase1~9（老师们实际角色）都没有 ⇒
+    //    复用它等于「上线后除管理员谁都看不到菜单」。
+    { key: 'myIdp', label: '我的IDP', enLabel: 'My IDP', href: '/my-idp', icon: 'target', section: '学生闭环', order: 70, perm: '' },
     { key: 'stageEvaluations', label: '阶段评价', enLabel: 'Stage Evaluations', href: '/stage-evaluations', icon: 'students', section: '学生闭环', order: 80, perm: 'evaluation:read' },
     { key: 'alumniFollowups', label: '校友跟进', enLabel: 'Alumni Follow-ups', href: '/alumni-followups', icon: 'students', section: '学生闭环', order: 90, perm: 'alumni:read' },
 
@@ -383,6 +391,12 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'getnoteSources', label: '知识库配置', enLabel: 'Knowledge Sources', href: '/getnote/sources', icon: 'config', section: '知识库', order: 20, perm: 'getnote:write' },
 
     { key: 'dictionary', label: '字典数据', enLabel: 'Dictionaries', href: '/dictionaries', icon: 'dictionary', section: '后台管理', order: 10, perm: 'config:read' },
+    // IDP 配置（2026-09-26 重构）：原「IDP管理」菜单（key 仍是 idpPlans，**故意不改 key** ——
+    // 角色菜单白名单里存的就是它，改 key 会让开了白名单的角色静默看不到菜单）。
+    // 改的只有：label（IDP管理 → IDP配置）、href（/idp-plans → /idp-configs）、section（学生闭环 → 后台管理）。
+    // 权限点原样复用 `module:idpPlans:*` ⇒ 管理员/院级管理一个角色配置都不用改。
+    // 旧的 /idp-plans 走 301 重定向（书签不失效）。
+    { key: 'idpPlans', label: 'IDP配置', enLabel: 'IDP Setup', href: '/idp-configs', icon: 'target', section: '后台管理', order: 25, perm: 'idp:read' },
     // 数据密级（2026-09-18）：字段级密级的配置页。adminOnly —— 全站脱敏口径，风险等同用户/角色管理。
     { key: 'dataLevels', label: '数据密级', enLabel: 'Data Levels', href: '/data-levels', icon: 'shield', section: '后台管理', order: 35, adminOnly: true },
     { key: 'export', label: '数据导出', enLabel: 'Export', href: '/export', icon: 'reports', section: '后台管理', order: 20, perm: 'export:run' },

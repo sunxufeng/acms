@@ -197,7 +197,15 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   // （同属组织管理，10 个教职工角色持有），抬 v5 后自动继承；`legacyWrite: null` ⇒ 同步只给管理员。
   // 见文件头 v5 的说明。
   { key: 'meetingRooms', label: '会议室助手', path: '/meeting-rooms', legacyRead: 'module:meetingMinutes:read', legacyWrite: null, menuPermission: 'module:meetingMinutes:read', actions: [...READ, 'update'], genericCrud: false },
-  { key: 'idpPlans', label: 'IDP管理', path: '/idp-plans', aliases: ['/idp-communications', '/export/idpPlan', '/export/idpCommunication'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'idp:read', actions: RECORD },
+  /**
+   * IDP 配置（2026-09-26 重构）：原「IDP管理」复用而来 —— **key 与权限点一个字都没改**
+   * （`module:idpPlans:*`），只改了展示名与主路径 —— 所以管理员/院级管理**零配置改动**。
+   *
+   * 页面从「IDP 方案列表」变成「IDP 配置（学年学期批次）+ 学生明细」，底层的两张旧表
+   * （IDP方案 / IDP沟通记录，生产实测各 0 行）已停用；沟通记录改用「学生记录·IDP沟通」。
+   * `/idp-plans` 进 aliases：旧的 API 路径与书签仍映射到本模块（前端再做一次 301）。
+   */
+  { key: 'idpPlans', label: 'IDP配置', path: '/idp-configs', aliases: ['/idp-plans', '/idp-communications', '/export/idpPlan', '/export/idpCommunication'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'idp:read', actions: RECORD },
   { key: 'stageEvaluations', label: '阶段评价', path: '/stage-evaluations', aliases: ['/export/stageEvaluation'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'evaluation:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'alumniFollowups', label: '校友跟进', path: '/alumni-followups', aliases: ['/export/alumniFollowup'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'alumni:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'openPlatformApps', label: '开放平台', path: '/open-platform', legacyRead: 'openplatform:read', legacyWrite: 'openplatform:write', menuPermission: 'openplatform:read', actions: RECORD, genericCrud: true },

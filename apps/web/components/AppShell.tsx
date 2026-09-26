@@ -7,7 +7,13 @@ import { useLocale, useTranslations } from 'next-intl';
 import { api } from '../lib/api';
 import LocaleSwitcher from './LocaleSwitcher';
 import { useRoleLabels } from './RoleLabels';
-import { modulePermission, moduleByMenuKey, studentRecordMenuVisible } from '@acms/contracts';
+import {
+  MY_IDP_MENU_KEY,
+  modulePermission,
+  moduleByMenuKey,
+  myIdpMenuVisible,
+  studentRecordMenuVisible,
+} from '@acms/contracts';
 import { loadPermissions, resetPermissions } from '../lib/permissions';
 import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuGroup, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
 
@@ -414,6 +420,12 @@ export default function AppShell({
     // ⚠️ 这里只决定「菜单显不显示」；进去后**能看哪些类型**仍由后端逐类型过滤。
     if (item.key === 'studentRecords') {
       return studentRecordMenuVisible({ perms: myPerms, menus: myMenus });
+    }
+    // 「我的 IDP」（2026-09-26）：与「学生记录」**同源**判据（同一个 contracts 函数族）——
+    // 它没有独立权限点，因为 `idpPlans` 老师全都不持有（复用它 = 上线即无人可见）。
+    // 判据收口在 `myIdpMenuVisible`，别在这里再写一遍。
+    if (item.key === MY_IDP_MENU_KEY) {
+      return myIdpMenuVisible({ perms: myPerms, menus: myMenus });
     }
     const enterPerm = modRes ? modulePermission(modRes.key, 'enter') : item.perm;
     if (enterPerm && !(myPerms || []).includes(enterPerm)) return false;

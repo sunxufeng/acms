@@ -1460,6 +1460,57 @@ export const api = {
   getMailAttachmentUrl: (id: string, fileToken: string) =>
     request<{ url: string }>(`/mail-archive/${id}/attachment-url?file_token=${encodeURIComponent(fileToken)}`),
 
+  // ── IDP（个人发展计划，2026-09-26 重构）─────────────────────────────────
+  // 数据模型：IDP配置（学年×学期批次）→ IDP学生（明细，含 IDP 老师）
+  // 🔴 沟通记录**不走这里** —— 就是「学生记录」里 记录类型=IDP沟通 的那批，
+  //    读走 studentRecords 的列表接口、写走它的 create/update（附件/录音/AI 总结全都现成）。
+  /** 配置清单（管理员/院级；带学生数与区间可用性） */
+  idpOverview: () => request<IdpConfigOverview[]>('/idp-overview'),
+  /** 新建配置的可选项：学年 / 学期 / 年级 / 班级 */
+  idpOptions: () => request<IdpOptions>('/idp-options'),
+  /** IDP 老师候选（openId → 姓名；只列有 open_id 的用户） */
+  idpTeachers: () => request<IdpTeacher[]>('/idp-teachers'),
+  /** 配置的明细列表（含**实时**沟通次数与老师姓名） */
+  idpConfigStudents: (id: string) => request<IdpConfigStudents>(`/idp-configs/${id}/students`),
+  /** 按范围拉学生进明细（**幂等**：不重复插入、不覆盖已分配的 IDP 老师） */
+  idpPullStudents: (id: string, scope: IdpScopePayload) =>
+    request<{ added: number; refreshed: number; skipped: number; total: number; scanned: number }>(
+      `/idp-configs/${id}/pull-students`,
+      { method: 'POST', body: JSON.stringify({ scope }) },
+    ),
+  /** 批量分配 / 更换 IDP 老师 */
+  idpAssignTeachers: (id: string, studentIds: string[], teacherOpenId: string) =>
+    request<{ updated: number; skipped: number }>(`/idp-configs/${id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ studentIds, teacherOpenId }),
+    }),
+  /** 改单个明细（老师 / 状态 / 备注） */
+  idpPatchStudent: (id: string, patch: { teacherOpenId?: string; status?: string; note?: string }) =>
+    request<unknown>(`/idp-students/${encodeURIComponent(id)}/patch`, {
+      method: 'POST',
+      body: JSON.stringify(patch),
+    }),
+  /** 重算「沟通次数 / 最近沟通」快照（导出与排序用；界面数字是实时算的） */
+  idpRecount: (configId?: string) =>
+    request<{ scanned: number; updated: number; noTime: number; badRange: string[] }>('/idp-recount', {
+      method: 'POST',
+      body: JSON.stringify({ configId }),
+    }),
+  /** 新建配置（走通用 CRUD；建完通常紧接着调 idpPullStudents） */
+  idpCreateConfig: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/idp-configs', { method: 'POST', body: JSON.stringify(data) }),
+  idpUpdateConfig: (id: string, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/idp-configs/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  idpDeleteConfig: (id: string) =>
+    request<{ ok: boolean }>(`/idp-configs/${id}`, { method: 'DELETE' }),
+  /** 我的 IDP（老师端；只看 IDP老师 = 我 的学生） */
+  myIdp: () => request<MyIdpResp>('/my-idp'),
+  /** 某学生在本配置学年学期内的 IDP 沟通时间线 */
+  myIdpComms: (configId: string, studentId: string) => {
+    const q = new URLSearchParams({ configId, studentId });
+    return request<MyIdpComms>(`/my-idp/comms?${q.toString()}`);
+  },
+
   // ── 得到大脑（Get笔记）知识库 ──────────────────────────────────────────
   // ⚠️ 凭证模型（2026-09-05 二次修正）：Client ID 与 API Key **都是每人一份**。
   //    官方「创建应用 → 获取 Client ID 和 API Key」是成对拿到的，所以用户能完全
@@ -2456,6 +2507,115 @@ export interface TermGradeStudentRef {
   /** 有几科（含「未分科目」那一行） */
   subjectCount: number;
 }
+// ── IDP（个人发展计划，2026-09-26 重构）────────────────────────────────
+/** 拉学生的范围：全部在校生 / 按年级 / 按班级 */
+export type IdpScopePayload =
+  | { kind: 'all' }
+  | { kind: 'grades'; values: string[] }
+  | { kind: 'classes'; values: string[] };
+
+export interface IdpConfigOverview {
+  id: string;
+  name: string;
+  yearId: string;
+  yearName: string;
+  term: string;
+  status: string;
+  /** 归档后：只读（不能再拉学生 / 改老师 / 记沟通） */
+  archived: boolean;
+  scopeText: string;
+  note: string;
+  createdAt: number;
+  /** 学年学期区间不可用时给出原因（非空即有问题） */
+  rangeText: string;
+  rangeOk: boolean;
+  studentCount: number;
+}
+
+export interface IdpOptions {
+  years: { id: string; name: string; current: boolean; status: string }[];
+  terms: string[];
+  grades: { value: string; count: number }[];
+  classes: { value: string; count: number }[];
+  allLabel: string;
+}
+
+export interface IdpTeacher {
+  id: string;
+  name: string;
+  /** 明细表存的就是它（用户表的「飞书 Open ID」） */
+  openId: string;
+  roles: string[];
+}
+
+export interface IdpStudentRow {
+  /** 明细行 id（与 studentId 不同：一行 = 配置 × 学生） */
+  id: string;
+  studentId: string;
+  studentName: string;
+  cls: string;
+  grade: string;
+  teacherOpenId: string;
+  teacherName: string;
+  status: string;
+  note: string;
+  /** 沟通次数：**实时算**（口径 = 本配置学年学期区间内、类型为 IDP沟通 的记录数） */
+  commCount: number;
+  /** 最近一次沟通时间（ms）；0 = 没有 */
+  lastAt: number;
+  lastSummary: string;
+  /** 沟通时间读不出来、因此没被计入的记录数（「读不到 ≠ 0」） */
+  noTime: number;
+}
+
+export interface IdpConfigStudents {
+  rows: IdpStudentRow[];
+  /** 统计区间（人话），用于界面提示「这个数字是按哪段时间算的」 */
+  rangeText: string;
+  rangeOk: boolean;
+  configName: string;
+  archived: boolean;
+}
+
+export interface MyIdpGroup {
+  configId: string;
+  configName: string;
+  yearName: string;
+  term: string;
+  status: string;
+  archived: boolean;
+  rangeText: string;
+  rangeOk: boolean;
+  /** 我的学生数 */
+  total: number;
+  /** 我的学生里已有沟通记录的人数 */
+  talked: number;
+  students: IdpStudentRow[];
+}
+
+export interface MyIdpResp {
+  me: { openId: string; name: string };
+  groups: MyIdpGroup[];
+}
+
+export interface MyIdpComms {
+  studentId: string;
+  studentName: string;
+  rangeText: string;
+  rangeOk: boolean;
+  /** 该生 IDP沟通 记录里时间读不出来的条数 */
+  noTime: number;
+  rows: {
+    id: string;
+    subject: string;
+    time: number;
+    person: string;
+    summary: string;
+    attachments: number;
+    status: string;
+  }[];
+}
+
 export interface ExamAnomalyRow {
   entryId: string;
   rule: string;

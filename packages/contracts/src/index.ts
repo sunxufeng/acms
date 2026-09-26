@@ -19,3 +19,6 @@ export * from './student-note-sources.js';
 export * from './student-enroll.js';
 // 笔记归档到飞书云盘的口径（命名/文件夹归一/到点判据，定时任务与报告共用一份）
 export * from './note-archive.js';
+// IDP（个人发展计划）重构：幂等键 / 学年学期区间 / 沟通次数口径 / 「我的 IDP」菜单判据
+// —— 都是「几处共用一份」的判据，别在 service 或页面里再写一遍
+export * from './idp.js';

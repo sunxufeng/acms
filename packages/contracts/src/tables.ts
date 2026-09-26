@@ -43,6 +43,17 @@ export const TABLES = {
   // IDP 管理（2026-08-24 按 doc 精确字段重建）
   idpPlan: { tableId: 'tblMs4DTUTk0QgT5', name: 'IDP方案' },
   idpCommunication: { tableId: 'tbluU16XfgJJh3Rf', name: 'IDP沟通记录' },
+  // IDP 重构（2026-09-26 峰哥需求）：上面两张旧表**各 0 行**、停用（入口已下掉，表保留备查）。
+  // 新的两段式模型：
+  //   IDP配置 = 一行一个「学年 × 学期」批次（管理员建）
+  //   IDP学生 = 配置 × 学生 的明细（含该生这一期的 IDP 老师 + 沟通次数缓存）
+  // 🔴 沟通记录**不在这两张表里** —— 就是「学生记录」里 记录类型=IDP沟通 的那批
+  //    （附件/录音/AI 总结/关联笔记全都现成）。新建一张沟通表必然要迁移 + 双向同步，
+  //    而峰哥要的「学生记录里已关联的 IDP 记录自动出现在这里」本来就是一个池子。
+  /** IDP 配置：一行 = 一个「学年 × 学期」批次（幂等键：学年 + 学期） */
+  idpConfig: { tableId: 'tblidpconfig0001', name: 'IDP配置' },
+  /** IDP 学生明细：一行 = 配置 × 学生（幂等键：所属配置 + 学生），含 IDP 老师与沟通次数缓存 */
+  idpStudent: { tableId: 'tblidpstudent001', name: 'IDP学生' },
   // 生命周期域关联目标表（link 字段跨表解析用，2026-08-17 经 listFields 核对）
   academicYear: { tableId: 'tblp9jbG7WMw609S', name: '学年表' },
   classLink: { tableId: 'tblsgoryRptizqBL', name: '班级表' },

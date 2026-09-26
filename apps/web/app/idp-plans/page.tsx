@@ -1,49 +1,19 @@
-'use client';
-
-import CrudPage from '../../components/CrudPage';
-import { api } from '../../lib/api';
-import { COLUMNS, parseIdpFromSummary } from './columns';
-import PlanForm from '../../components/idp/PlanForm';
+import { redirect } from 'next/navigation';
 
 /**
- * IDP方案（父表）。
+ * 「IDP 管理」已下线（2026-09-26 重构）。
  *
- * 🔴 2026-09-21：**移除了行级的「沟通记录 / 新增沟通」两个动作**。
- *    IDP 沟通已并入「学生记录」（记录类型 = IDP沟通，内容与日常跟进完全相同）——
- *    原来这里的两个按钮 + 方案详情页内嵌的沟通列表 = **第三个入口**，
- *    继续留着就会出现「同一件事一半记在这、一半记在那」，而学生全景 / 搜索 / AI 各读一处。
+ * 峰哥口径：「系统中原有的 IDP 管理功能可以不要了」⇒ 旧页面（方案列表 / 方案详情 /
+ * 方案下的沟通记录）全部删除，只留下这个**临时重定向**（307，不是 308 —— 永久重定向会被
+ * 浏览器长期缓存，以后再改就麻烦），已收藏/已分享的链接不失效。
  *
- *    为什么是「学生记录」而不是继续挂在方案下：
- *      · 一处入口，不必先建方案才能记沟通；
- *      · 学生全景、搜索、AI 汇总、导出天然都能看到（它们都读学生记录）；
- *      · 权限沿用「日常跟进」，一个角色配置都不用改。
+ * 为什么指向「我的 IDP」而不是新的「IDP 配置」：
+ *   · 旧地址最可能被**老师**误点到（他们的书签 / 外部通知里的链接），而老师要看的是「我的 IDP」；
+ *   · 管理员到了「我的 IDP」页面也能从菜单一步切到「IDP 配置」（后台管理里）。
  *
- *    数据：那张独立的 IDP沟通表当时是 **0 行**，所以收起入口没有丢任何数据。
- *    要恢复：`git log -- apps/web/app/idp-plans` 找回本文件与 [id]/page.tsx 的对应片段，
- *    以及 `components/idp/CommunicationManager.tsx`（组件未删，只是不再被挂载）。
+ * 底下两张旧表（IDP方案 / IDP沟通记录）**保留不删**：生产实测各 0 行，
+ * 留着备查的代价是零，删表则是不可逆的。
  */
-export default function IdpPlansPage() {
-  return (
-    <CrudPage
-      moduleKey="idpPlans"
-      title="IDP管理"
-      subtitle="IDP管理"
-      search={{ placeholder: '搜索学生…' }}
-      columns={COLUMNS}
-        enrichPrefill={parseIdpFromSummary}
-      statusField="状态"
-      inlineEdit
-      standaloneForm
-      renderForm={({ row, onDone }) => (
-        <PlanForm planId={row?.id != null ? String(row.id) : undefined} onDone={onDone} />
-      )}
-      detailHref={(id) => `/idp-plans/${id}`}
-      api={{
-        list: (p) => api.listIdpPlans(p),
-        create: (d) => api.createIdpPlan(d),
-        update: (id, d) => api.updateIdpPlan(id, d),
-        archive: (id) => api.archiveIdpPlan(id),
-      }}
-    />
-  );
+export default function IdpPlansRedirect() {
+  redirect('/my-idp');
 }

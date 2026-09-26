@@ -289,6 +289,20 @@ describe('B. 后端服务接线（静态）', () => {
     expect(svc).toContain('IDP_COMM_RECORD_TYPE');
     expect(svc).not.toContain('TABLES.idpCommunication');
   });
+
+  it('🔴 学期候选必须来自**字典**（`学期`）—— 首版误读 systemConfig 的 `semester` 导致线上 /idp-options 500', () => {
+    // 生产实测：systemConfig 的 `semester` 是「**当前**学期」的单个文本值
+    // （值是「2026-2027学年第一学期」），不是学期清单 ⇒ JSON.parse 失败 → null → `.map` 崩。
+    expect(svc).toContain("getAllLabels()['学期']");
+    expect(svc).not.toMatch(/配置键['"]\s*\)\s*!==\s*['"]semester/);
+    expect(svc).not.toContain("=== 'semester'");
+  });
+
+  it('学期字典读不到也不阻断（返回空数组，弹窗仍能打开）', () => {
+    const i = svc.indexOf('private semesterDict');
+    expect(i).toBeGreaterThan(-1);
+    expect(svc.slice(i, i + 900)).toContain('catch');
+  });
 });
 
 describe('B. 表格与页面接线（静态）', () => {

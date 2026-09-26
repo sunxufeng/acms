@@ -27,6 +27,7 @@ import { BaseClient } from '@acms/base-adapter';
 import { BASE_CLIENT, baseClientProvider, getSqlStore } from '../base.provider.js';
 import { AuditService } from '../audit/audit.service.js';
 import { SessionGuard } from '../auth/session.guard.js';
+import { DictModule } from '../dictionary/dict.module.js';
 import { BaseRecordService, GenericCrudModule } from '../shared/generic-crud.module.js';
 import { FieldMaskService } from '../shared/field-mask.service.js';
 import { IDP_PLAN_META, IDP_COMM_META, IDP_CONFIG_META, IDP_STUDENT_META } from './idp.meta.js';
@@ -188,7 +189,12 @@ function userOf(req: Request): SessionUser {
 }
 
 @Module({
-  imports: [GenericCrudModule.registerAll([IDP_COMM_META, IDP_CONFIG_META, IDP_STUDENT_META])],
+  imports: [
+    GenericCrudModule.registerAll([IDP_COMM_META, IDP_CONFIG_META, IDP_STUDENT_META]),
+    // 学期候选来自字典（`学期`）—— 首版误读 systemConfig 的 `semester`（那是"当前学期"的
+    // 单个文本值），线上 /idp-options 直接 500。见 IdpService.semesterDict 的注释。
+    DictModule,
+  ],
   controllers: [IdpPlanController, IdpAggController, MyIdpController],
   providers: [IdpPlanService, IdpService, baseClientProvider],
   /** 供学生全景等模块注入（本次未接，但导出语义上属于「本模块提供的能力」） */

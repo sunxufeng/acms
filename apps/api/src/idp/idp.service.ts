@@ -25,7 +25,14 @@
  * 🔴 「我的 IDP」**不用** `idpPlans`：生产实测 Phase1~9 **全部不持有**它 ⇒ 复用它 = 上线即无人可见。
  *    **数据面**靠「IDP老师 = 我的 openId」这个条件卡（不是靠权限点）：老师之间互相看不到。
  */
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   IDP_ARCHIVED,
   IDP_COMM_RECORD_TYPE,
@@ -46,6 +53,7 @@ import {
 } from '@acms/contracts';
 import { permissionsOf, type Principal } from '@acms/domain';
 import { getSqlStore } from '../base.provider.js';
+import { DictService } from '../dictionary/dict.service.js';
 
 /** 学生表里「班级」的候选字段（与成绩册 `MarkbookService.CLASS_FIELDS` 同口径） */
 const STUDENT_CLASS_FIELDS = ['当前班级', '当前年级'] as const;
@@ -91,6 +99,8 @@ export interface IdpConfigRow {
 @Injectable()
 export class IdpService {
   private readonly logger = new Logger('Idp');
+
+  constructor(@Inject(DictService) private readonly dict: DictService) {}
 
   // ───────────────────────── 权限 ─────────────────────────
 
@@ -225,7 +235,7 @@ export class IdpService {
       this.readAll(TABLES.academicYear.tableId),
       this.students(),
     ]);
-    const terms = await this.semesterDict();
+    const terms = this.semesterDict();
     const g = new Map<string, number>();
     const c = new Map<string, number>();
     for (const s of students) {
@@ -266,19 +276,23 @@ export class IdpService {
     return teachers;
   }
 
-  /** 学期字典（供配置弹窗；读不到时退回两个空值，不阻断创建） */
-  private async semesterDict(): Promise<string[]> {
-    const rows = await this.readAll(TABLES.systemConfig.tableId);
-    for (const r of rows) {
-      if (String(r.f['配置键'] ?? '') !== 'semester') continue;
-      const raw = r.f['配置值'];
-      const arr = Array.isArray(raw) ? raw : typeof raw === 'string' ? safeJson(raw) : [];
-      const list = (arr as unknown[])
-        .map((x) => (typeof x === 'string' ? x : String((x as { key?: string })?.key ?? '')))
-        .filter(Boolean);
-      if (list.length) return list;
+  /**
+   * 学期候选 —— 来自**字典** `学期`（DictService）。
+   *
+   * 🔴 不要去读 `systemConfig` 的 `semester` 配置项：那是「**当前**学期」的**单个文本值**
+   *    （生产实测值是「2026-2027学年第一学期」），拿它当清单解析必然失败。
+   *    本模块首版就是这么写的 ⇒ 线上 `/idp-options` 直接 500
+   *    （`Cannot read properties of null (reading 'map')`，JSON.parse 失败返回 null 后又当数组用）。
+   *
+   * 读不到也不阻断：返回空数组，前端下拉为空但页面可用（不因为字典缺项就整个弹窗打不开）。
+   */
+  private semesterDict(): string[] {
+    try {
+      const labels = this.dict.getAllLabels()['学期'] ?? [];
+      return labels.map((x) => String(x).trim()).filter(Boolean);
+    } catch {
+      return [];
     }
-    return [];
   }
 
   // ───────────────────────── 学生（拉取） ─────────────────────────

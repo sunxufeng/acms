@@ -374,12 +374,15 @@ describe('B. 表格与页面接线（静态）', () => {
     expect(drawer).toContain('关联学生: target.studentName');
   });
 
-  it('抽屉自建「关联的笔记」列表（2026-09-26 改版：不再内联 NotePanel）', () => {
-    // 改版理由：这里要的是"看这条记录带来的笔记 + 点开看总结/原始记录"，
-    // 与 NotePanel 的"语义搜索并关联一篇"形态不同；两份并存会让同一数据两处长不一样。
+  it('笔记详情用**全站公用**组件（2026-09-26 三次改版：自造弹窗已删）', () => {
+    // 改版理由：「我的笔记」页与「我的 IDP」都要看同一篇笔记的详情，
+    // 各写一份必然漂移（形态、字段、空态各不相同）。
+    // 与 NotePanel 的分工仍然成立：那个是"语义搜索并关联一篇"，不是"看已关联的"。
     expect(drawer).not.toContain("from './NotePanel'");
-    expect(drawer).toContain('listGetnoteLinks(IDP_COMM_RECORD_TYPE');
-    expect(drawer).toContain('NoteViewerModal');
+    expect(drawer).toContain("from './GetnoteNoteModal'");
+    expect(drawer).toContain('<GetnoteNoteModal');
+    // 旧的页面内自造弹窗必须消失
+    expect(drawer).not.toContain('function NoteViewerModal');
   });
 
   it('我的 IDP 页：显示沟通次数与区间说明，未配置区间时给出提示', () => {

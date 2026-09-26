@@ -67,9 +67,10 @@ describe('「导入笔记」的接线（2026-09-26 二次改版：建记录 + �
     // 改版后：点整行 → 记录详情弹窗（自建列表），NotePanel 与 detailId 都应消失
     expect(drawer).not.toMatch(/<NotePanel/);
     expect(drawer).not.toMatch(/replaceGetnoteLinks\(\s*'IDP学生'/);
-    // 两个入口也不再传 detailId
-    expect(idpConfigs).not.toMatch(/detailId:/);
-    expect(myIdp).not.toMatch(/detailId:/);
+    // 两个入口也不再传 detailId（关联目标改成「新记录」了，不再挂 IDP 明细行）
+    // ⚠️ 只查「传给抽屉的那一处的值」——`detailId: string` 这种形参声明不该被判成违规
+    expect(idpConfigs).not.toMatch(/detailId:\s*r\.id/);
+    expect(myIdp).not.toMatch(/detailId:\s*s\.id/);
   });
 
   it('「已导入的不再列出」：候选按后端现算的 linkedNoteIds 过滤', () => {
@@ -80,7 +81,7 @@ describe('「导入笔记」的接线（2026-09-26 二次改版：建记录 + �
   });
 
   it('附件写回要**合并已有**（数组字段是整体替换，只发新的会抹掉旧附件）', () => {
-    expect(drawer).toMatch(/\[\.\.\.files,\s*\.\.\.added\]/);
+    // 全站只剩这一处写附件（记录详情弹窗已删）⇒ `[...files, ...added]` 那种写法不该再出现
     expect(drawer).toMatch(/\[\.\.\.already,\s*\.\.\.added\]/);
     expect(drawer).toMatch(/沟通附件清单/);
   });
@@ -88,7 +89,9 @@ describe('「导入笔记」的接线（2026-09-26 二次改版：建记录 + �
   it('时间线不再铺开沟通总结（只留元信息那一行）', () => {
     // 旧版有 `r.summary.length > 120 ? ... slice` 的预览段，改版后去掉
     expect(drawer).not.toMatch(/r\.summary\.length > 120/);
-    expect(drawer).toMatch(/r\.files\.length > 0/);
+    // 附件（名称 · 时间 · 删除）挂在元信息行**最右侧**：渲染在 rightCluster 那一簇里，
+    // 不再单独占一行（峰哥 2026-09-26：红框那行不要了）
+    expect(drawer).toMatch(/<span style=\{rightClusterStyle\}>[\s\S]{0,240}\(r\.files as Attach\[\]\)\.map/);
   });
 
   it('候选列表限定「我自己的笔记」（mine=1，两处调用都要带）', () => {
@@ -106,5 +109,65 @@ describe('「导入笔记」的接线（2026-09-26 二次改版：建记录 + �
     //    把同事账号的笔记带进来（sourceVisibleTo 还认"关联用户含我"）。
     expect(body.slice(mineAt, mineAt + 900)).toMatch(/collectAllNotes\(user,\s*mineIds\)/);
     expect(body.slice(mineAt, mineAt + 900)).toMatch(/e\.ownerOpenId === myOpenId/);
+  });
+});
+
+/**
+ * 「我的 IDP」行内展开（2026-09-26 三次改版）。
+ *
+ * 这次改动的每一条都是"漏了不报错、只是长得不对"的类别：
+ *  · 展开区用错变体 ⇒ 内容嵌在表格行里却套了一层全屏遮罩，别处点不动；
+ *  · 行 key 不带 configId ⇒ 同一学生在两个批次展开会互相串（收一个另一个也动）；
+ *  · 点标题的判据用错层级（顶层并集 vs 行级）⇒ 点 A 记录弹出 B 记录的笔记；
+ *  · 关闭按钮回退成文字 ⇒ 全站弹窗定式又被破坏。
+ */
+describe('「我的 IDP」行内展开（2026-09-26 三次改版）', () => {
+  it('学生行可展开，展开区用 inline 变体（不再弹抽屉）', () => {
+    expect(myIdp).toMatch(/variant="inline"/);
+    expect(myIdp).toMatch(/<IdpCommDrawer/);
+    // 「继续操作 · 继续沟通」整列已去掉：同一个入口不摆两处
+    expect(myIdp).not.toContain("t('colOps')");
+    expect(myIdp).not.toContain("t('continueComm')");
+    expect(myIdp).not.toContain("t('startComm')");
+  });
+
+  it('展开行的 key 带 configId（同一学生会在多个批次出现，只用明细 id 会串）', () => {
+    expect(myIdp).toMatch(/stuKey\s*=\s*\(configId: string, detailId: string\)/);
+    expect(myIdp).toMatch(/`\$\{configId\}::\$\{detailId\}`/);
+  });
+
+  it('点标题：有关联笔记 ⇒ 笔记详情；没有 ⇒ 这条记录自己的总结 / 明细', () => {
+    // 判据是**行级** linkedNoteIds（后端按记录现算），不是整个学生的并集
+    expect(drawer).toMatch(/recNotes\s*=\s*rec\?\.linkedNoteIds\s*\?\?\s*\[\]/);
+    expect(drawer).toMatch(/rec && noteId \?/);
+    expect(drawer).toContain('RecordSummaryModal');
+  });
+
+  it('总结 / 明细用**全站统一**的 Markdown 组件（可录入、可浏览、可从 .md 导入）', () => {
+    expect(drawer).toMatch(/from '\.\/MarkdownField'/);
+    // 表单 2 处（可编辑）+ 查看弹窗 1 处（只读浏览）
+    expect(drawer.match(/<MarkdownField/g) ?? []).toHaveLength(3);
+    expect(drawer).toMatch(/label=\{t\('fSummary'\)\}[\s\S]{0,140}onChange=\{setSummary\}/);
+    expect(drawer).toMatch(/label=\{t\('fDetail'\)\}[\s\S]{0,140}onChange=\{setDetail\}/);
+  });
+
+  it('关闭一律用右上角的 ×（全站弹窗定式），不再有文字「关闭」按钮', () => {
+    expect(drawer).not.toMatch(/>\s*\{t\('close'\)\}\s*</);
+  });
+
+  it('笔记详情弹窗只有**一份实现**：「我的笔记」页与 IDP 共用同一个组件', () => {
+    const getnotePage = read('web', 'app', 'getnote', 'page.tsx');
+    expect(getnotePage).toContain("from '../../components/GetnoteNoteModal'");
+    expect(getnotePage).toContain('<GetnoteNoteModal');
+    expect(drawer).toContain("from './GetnoteNoteModal'");
+  });
+
+  it('后端按**记录**给关联笔记（行级），并集仍留给「已导入」过滤', () => {
+    const svc = read('api', 'src', 'idp', 'idp.service.ts');
+    expect(svc).toMatch(/private async linkedNoteMapOf\(/);
+    expect(svc).toMatch(/linkedNoteIds:\s*linkMap\.get\(c\.id\)\s*\?\?\s*\[\]/);
+    expect(svc).toMatch(/const linkedNoteIds = \[\.\.\.new Set\(\[\.\.\.linkMap\.values\(\)\]\.flat\(\)\)\]/);
+    // 行级 / 并集必须来自**同一次**读表：分两次读会漂移（一边有、一边没有）
+    expect(svc.match(/new Map<string, string\[\]>\(\)/g) ?? []).toHaveLength(1);
   });
 });

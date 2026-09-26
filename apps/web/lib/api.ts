@@ -2628,11 +2628,15 @@ export interface MyIdpComms {
     subject: string;
     time: number;
     person: string;
+    /** 沟通方式（面谈 / 电话 …，取字典值） */
+    way: string;
     summary: string;
     attachments: number;
     /** 附件明细：显示「名称 + 时间」并支持下载 / 删除 */
     files: IdpCommFile[];
     status: string;
+    /** 这条记录**自己**关联的笔记 id（点标题弹哪一篇、行内显示「🔗 n 篇笔记」） */
+    linkedNoteIds: string[];
   }[];
 }
 

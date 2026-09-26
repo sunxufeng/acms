@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { api, type GetnoteLink, type MyIdpComms } from '../lib/api';
 import { IDP_COMM_RECORD_TYPE } from '@acms/contracts';
-import Markdown from './Markdown';
+import MarkdownField from './MarkdownField';
+import GetnoteNoteModal from './GetnoteNoteModal';
 
 /**
  * IDP 沟通抽屉（老师端与管理员端共用）。
@@ -17,8 +18,16 @@ import Markdown from './Markdown';
  *   · 写：`POST /student-records`（**复用学生记录的完整能力**：附件、录音、AI 总结、
  *         关联笔记、闭环状态……所以峰哥要的「学生记录里已关联的 IDP 记录自动出现在这里」
  *         天生成立 —— 本来就是一个池子，不存在"同步"问题）
- *   · 「关联笔记」= 点时间线整行打开的**记录详情弹窗**：里面列出这条记录关联的笔记，
- *     标题可点开看「总结 / 原始记录」（与「我的笔记」页的详情弹窗同一形态）。
+ *   · 「关联笔记」= 每条沟通记录**自己的**关联笔记。点**标题**打开：
+ *     有笔记 ⇒ 直接是那篇笔记的详情（总结 / 原始记录，与「我的笔记」页同一个组件）；
+ *     没有笔记 ⇒ 这条记录自己的「沟通总结 / 沟通明细」。
+ *     附件（名称 · 时间，可下载 / 删除 / 加）在标题下面那行的**最右侧**。
+ *
+ * ## 两种形态共用一套内容（2026-09-26 峰哥定）
+ *
+ * `variant='modal'`（IDP 配置页）与 `variant='inline'`（我的 IDP 行内展开）渲染的是
+ * 同一份 `cards` + 同一批子弹窗 —— 两处各写一份必然漂移（本项目反复踩过）。
+ * 行内形态里没有 modal 外壳，所以「关闭」由宿主（表格行的箭头 / 收起按钮）负责。
  *
  * ⚠️ 附件字段名是「沟通附件清单」（**可写**）。学生记录 meta 的 `readonly` 里那条是
  *    「沟通附件」（少一个字，是另一个字段）—— 别搞混，写进 readonly 的会被静默丢弃。
@@ -56,8 +65,6 @@ export interface IdpCommTarget {
   meName?: string;
 }
 
-/** 附件条目形态}
-
 /** 附件条目形态：与学生记录「沟通附件清单」的存储一致（CrudPage 也按这个结构读） */
 interface Attach {
   file_token: string;
@@ -67,12 +74,88 @@ interface Attach {
   at?: number;
 }
 
+/** 时间线一条记录：标题 + 元信息行（附件在元信息行最右侧） */
 const rowStyle: CSSProperties = {
-  display: 'flex',
-  gap: 10,
-  alignItems: 'baseline',
-  padding: '10px 0',
+  padding: '11px 0',
   borderTop: '1px solid var(--border)',
+};
+
+/** 标题做成链接的样子（用 button 而不是 a：这里只弹窗，不跳页） */
+const titleBtnStyle: CSSProperties = {
+  background: 'transparent',
+  border: 0,
+  padding: 0,
+  font: 'inherit',
+  fontSize: 14,
+  fontWeight: 600,
+  color: 'var(--accent)',
+  cursor: 'pointer',
+  textAlign: 'left',
+  borderBottom: '1px dashed rgba(14,155,142,.45)',
+  wordBreak: 'break-word',
+};
+
+const metaRowStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 10,
+  flexWrap: 'wrap',
+  marginTop: 5,
+};
+
+const rightClusterStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  flexWrap: 'wrap',
+  justifyContent: 'flex-end',
+};
+
+/** 附件 chip：名称 · 时间 × */
+const attChipStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  fontSize: 12.5,
+  padding: '1px 3px 1px 8px',
+  border: '1px solid var(--border)',
+  borderRadius: 999,
+  background: 'var(--bg-subtle)',
+};
+
+/** 行内展开时的外壳（「我的 IDP」把整套内容挂在表格行的展开区里） */
+const inlinePanelStyle: CSSProperties = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderLeft: '3px solid var(--accent)',
+  borderRadius: 10,
+  padding: '13px 15px',
+  boxShadow: 'var(--shadow-sm)',
+};
+
+/** 行内展开时的顶部一行：次数 / 区间 + 收起 */
+const panelMetaStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 10,
+  flexWrap: 'wrap',
+  paddingBottom: 10,
+  marginBottom: 10,
+  borderBottom: '1px dashed var(--border)',
+};
+
+/** 导入候选：全宽网格（原来是右侧栏里的单列） */
+const candBoxStyle: CSSProperties = {
+  maxHeight: 260,
+  overflowY: 'auto',
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+  padding: 6,
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+  gap: 2,
 };
 
 function pad(n: number): string {
@@ -127,11 +210,18 @@ export default function IdpCommDrawer({
   target,
   onClose,
   onSaved,
+  variant = 'modal',
 }: {
   target: IdpCommTarget;
   onClose: () => void;
   /** 新建成功后的回调（父页面用它刷新沟通次数） */
   onSaved?: () => void;
+  /**
+   * 呈现方式（两种宿主共用这一份内容与全部写入口）：
+   *  · `modal`（默认）—— 弹窗形态，「IDP 配置」页用
+   *  · `inline` —— 只出内容卡片，「我的 IDP」把它挂在表格行展开区里
+   */
+  variant?: 'modal' | 'inline';
 }) {
   const t = useTranslations('myIdp');
   const [data, setData] = useState<MyIdpComms | null>(null);
@@ -140,12 +230,12 @@ export default function IdpCommDrawer({
   const [openForm, setOpenForm] = useState(false);
   const [saving, setSaving] = useState(false);
   /**
-   * 打开的「记录详情」弹窗（记录 id）。
-   * 点时间线整行打开 —— 里面是该记录的基本信息 + 关联的笔记（标题可点，看总结/原始记录）。
+   * 点标题打开的那条记录（记录 id）。
+   * 有关联笔记 ⇒ 直接看**笔记详情**；没有笔记 ⇒ 看这条记录的「沟通总结 / 明细」。
    */
-  const [commFor, setCommFor] = useState('');
-  /** 笔记查看弹窗（总结 / 原始记录 两个 Tab，与「我的笔记」页的详情弹窗同一形态） */
-  const [noteView, setNoteView] = useState<{ noteId: string; title: string } | null>(null);
+  const [openRecId, setOpenRecId] = useState('');
+  /** 一条记录关联多篇笔记时，当前看第几篇（0 起） */
+  const [noteIdx, setNoteIdx] = useState(0);
 
   // 新建表单
   const [subject, setSubject] = useState('');
@@ -378,20 +468,6 @@ export default function IdpCommDrawer({
     setImporting(false);
   };
 
-  /** 解除某条记录与笔记的关联（只删关联，不删记录） */
-  const unlinkNote = async (recordId: string) => {
-    setBusyAtt(recordId);
-    setErr('');
-    try {
-      await api.replaceGetnoteLinks(IDP_COMM_RECORD_TYPE, recordId, target.studentName, []);
-      await refreshAll();
-    } catch (e) {
-      setErr(errMsg(e));
-    } finally {
-      setBusyAtt('');
-    }
-  };
-
   /**
    * 给某条 IDP沟通 记录加附件。
    *
@@ -495,13 +571,439 @@ export default function IdpCommDrawer({
 
   const count = data?.rows.length ?? 0;
 
+  /**
+   * 点沟通标题要打开的那条记录（'' = 没打开）。
+   *
+   * 打开什么由**数据**决定：
+   *  · 这条记录挂着得到大脑笔记 ⇒ 直接弹**笔记详情**（峰哥 2026-09-26 指定：
+   *    不要再中间夹一层「记录详情」）
+   *  · 没有笔记 ⇒ 弹这条记录自己的「沟通总结 / 沟通明细」
+   * 判据是后端现算的 `linkedNoteIds`，与导入侧写关联时用的**同一份**（不会一边有一边没有）。
+   */
+  const rec = (data?.rows ?? []).find((x) => x.id === openRecId) ?? null;
+  const recNotes = rec?.linkedNoteIds ?? [];
+  const noteIdxSafe = recNotes.length ? Math.min(noteIdx, recNotes.length - 1) : 0;
+  const noteId = recNotes.length ? recNotes[noteIdxSafe] : '';
+
+  const openRecordOf = (id: string) => {
+    setOpenRecId(id);
+    setNoteIdx(0);
+  };
+  const closeRecord = () => {
+    setOpenRecId('');
+    setNoteIdx(0);
+  };
+
+  /** 两种宿主（弹窗 / 行内展开）共用的内容 */
+  const cards = (
+    <>
+      {data && !data.rangeOk ? (
+        <div className="notice notice-warn" style={{ marginBottom: 10 }}>
+          {t('rangeBad')}
+        </div>
+      ) : null}
+      {data && data.noTime > 0 ? (
+        <div className="notice" style={{ marginBottom: 10 }}>
+          {t('noTimeWarn', { n: data.noTime })}
+        </div>
+      ) : null}
+      {err ? (
+        <div className="notice notice-error" style={{ marginBottom: 10 }}>
+          {err}
+        </div>
+      ) : null}
+      {flash ? (
+        <div className="notice" style={{ marginBottom: 10 }}>
+          {flash}
+        </div>
+      ) : null}
+
+      {/* 行内展开时，学生名 / 班级已经在表格行上 ⇒ 这里只补一句区间与次数，顺带给个收起 */}
+      {variant === 'inline' ? (
+        <div style={panelMetaStyle}>
+          <span className="muted" style={{ fontSize: 12.5 }}>
+            {t('commCountIs', { n: count })}
+            {data?.rangeOk && data.rangeText ? ` · ${t('rangeIs', { range: data.rangeText })}` : ''}
+          </span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
+            {t('collapse')} ▲
+          </button>
+        </div>
+      ) : null}
+
+      {/* ── 记录一次沟通：走学生记录的 create（附件 / 录音 / AI 总结全都共用现成能力） ── */}
+      {target.archived ? (
+        <div className="muted" style={{ marginBottom: 10, fontSize: 12.5 }}>
+          {t('archivedReadonly')}
+        </div>
+      ) : openForm ? (
+        <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+          {/* 沟通类型 / 学生 / 记录人：都由上下文决定，不给改（改类型要回「学生记录」页） */}
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, marginBottom: 8 }}>
+            <span className="muted">
+              {t('fType')}：<b style={{ color: 'var(--fg)' }}>{IDP_COMM_RECORD_TYPE}</b>
+            </span>
+            <span className="muted">
+              {t('fStudent')}：<b style={{ color: 'var(--fg)' }}>{target.studentName}</b>
+            </span>
+            <span className="muted">
+              {t('fPerson')}：<b style={{ color: 'var(--fg)' }}>{target.meName || '—'}</b>
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              className="form-input"
+              style={{ flex: '1 1 240px' }}
+              placeholder={t('fSubject')}
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+            />
+            {/* 沟通方式：默认「面谈」，选项读字典（字典改了这里跟着变） */}
+            <select
+              className="form-input"
+              style={{ width: 130 }}
+              value={way}
+              onChange={(e) => setWay(e.target.value)}
+            >
+              {ways.map((w) => (
+                <option key={w} value={w}>
+                  {w}
+                </option>
+              ))}
+            </select>
+            <input
+              className="form-input"
+              style={{ width: 190 }}
+              type="datetime-local"
+              value={when}
+              onChange={(e) => setWhen(e.target.value)}
+            />
+          </div>
+
+          {/* 总结 / 明细：**全站统一的 Markdown 组件**（MD / 浏览双 Tab + MD 导入），
+              与学生记录那边同一种录入体验 —— 可录入、可浏览校对、可从 .md 文件导入 */}
+          <div style={{ marginTop: 10 }}>
+            <MarkdownField label={t('fSummary')} value={summary} onChange={setSummary} height={150} />
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <MarkdownField label={t('fDetail')} value={detail} onChange={setDetail} height={190} />
+          </div>
+
+          {/* 附件：上传后写进「沟通附件清单」（与 CrudPage 的 attachment 字段同结构） */}
+          <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={uploading}
+              onClick={() => fileRef.current?.click()}
+            >
+              {uploading ? t('uploading') : t('uploadAttachment')}
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              style={{ display: 'none' }}
+              onChange={(e) => void pickFiles(e.target.files)}
+            />
+            {atts.map((a) => (
+              <span key={a.file_token} className="tag">
+                {a.name}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setAtts((cur) => cur.filter((x) => x.file_token !== a.file_token))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={saving} onClick={() => void submit()}>
+              {saving ? t('saving') : t('save')}
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpenForm(false)}>
+              {t('cancel')}
+            </button>
+            <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>
+              {t('fullFormHint')}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {/* 顺序与底色（峰哥 2026-09-26 定）：导入在前、实心主色；手记在后、描边 */}
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => (importOpen ? closeImport() : void openImport())}
+          >
+            {importOpen ? t('collapse') : t('importNotes')}
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() => {
+              // 两个面板互斥：开表单时把导入面板收掉（同时铺开两块会互相挤，也看不清在干啥）
+              closeImport();
+              setOpenForm(true);
+            }}
+          >
+            ＋ {t('addComm')}
+          </button>
+        </div>
+      )}
+
+      {/* ── 从「我的笔记」导入：**全宽面板**（行内展开时右侧放不下 380px 的栏） ── */}
+      {importOpen ? (
+        <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 13.5, fontWeight: 700 }}>{t('importTitle')}</span>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={closeImport}>
+              {t('collapse')}
+            </button>
+          </div>
+          <p className="muted" style={{ fontSize: 12, margin: '0 0 8px' }}>
+            {t('importHint')}
+          </p>
+
+          {credOk === false ? (
+            <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+              {t('importNeedCred')}{' '}
+              <Link href="/getnote" style={{ color: 'var(--accent)' }}>
+                {t('importNeedCredLink')}
+              </Link>
+            </p>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                <input
+                  className="form-input"
+                  style={{ flex: '1 1 260px' }}
+                  placeholder={t('importSearch')}
+                  value={kw}
+                  onChange={(e) => setKw(e.target.value)}
+                />
+                <span className="muted" style={{ fontSize: 12.5 }}>
+                  {t('importSelectedN', { n: picked.size })}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={importing || picked.size === 0}
+                  onClick={() => void doImport()}
+                >
+                  {importing ? t('importing') : t('importConfirm')}
+                </button>
+              </div>
+
+              <div style={candBoxStyle}>
+                {candsLoading && cands.length === 0 ? (
+                  <div className="muted" style={{ fontSize: 12.5, padding: 6 }}>
+                    {t('importLoading')}
+                  </div>
+                ) : cands.length === 0 ? (
+                  <div className="muted" style={{ fontSize: 12.5, padding: 6 }}>
+                    {kw.trim() ? t('importNoMatch') : t('importEmpty')}
+                  </div>
+                ) : (
+                  cands.map((n) => {
+                    const on = picked.has(n.noteId);
+                    return (
+                      <label
+                        key={n.noteId}
+                        title={n.noteId}
+                        style={{
+                          display: 'flex',
+                          gap: 8,
+                          alignItems: 'flex-start',
+                          padding: '6px 6px',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                          background: on ? 'var(--accent-muted)' : 'transparent',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={(e) =>
+                            setPicked((cur) => {
+                              const next = new Set(cur);
+                              if (e.target.checked) next.add(n.noteId);
+                              else next.delete(n.noteId);
+                              return next;
+                            })
+                          }
+                          style={{ marginTop: 3 }}
+                        />
+                        <span style={{ minWidth: 0 }}>
+                          <span style={{ fontSize: 13, display: 'block', wordBreak: 'break-word' }}>
+                            {n.title || n.noteId}
+                          </span>
+                          {n.createdAt ? (
+                            <span className="muted" style={{ fontSize: 11.5 }}>
+                              {fmtDay(n.createdAt)}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+
+              {candsMore ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={candsLoading}
+                  style={{ width: '100%', marginTop: 4 }}
+                  onClick={() => void loadCands(false)}
+                >
+                  {t('importLoadMore')}
+                </button>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {/* ── 时间线（就是学生记录里那批，按本配置学年学期过滤） ── */}
+      {loading ? (
+        <div className="muted">{t('loading')}</div>
+      ) : count === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">🗒️</div>
+          <div className="empty-state-text">{t('noComm')}</div>
+        </div>
+      ) : (
+        <div>
+          {(data?.rows ?? []).map((r) => (
+            <div key={r.id} style={rowStyle}>
+              {/* 标题就是入口：有关联笔记 ⇒ 笔记详情；没有 ⇒ 这条记录的总结 / 明细 */}
+              <button type="button" style={titleBtnStyle} title={t('openCommHint')} onClick={() => openRecordOf(r.id)}>
+                {r.subject || t('noSubject')}
+              </button>
+
+              {/* 元信息一行打尽，附件挂在**最右侧**（峰哥 2026-09-26：别再单占一行） */}
+              <div style={metaRowStyle}>
+                <span className="muted" style={{ fontSize: 12.5 }}>
+                  {fmtTime(r.time)}
+                  {r.way ? ` · ${r.way}` : ''}
+                  {r.person ? ` · ${r.person}` : ''}
+                  {r.status ? ` · ${r.status}` : ''}
+                  {r.linkedNoteIds?.length ? ` · 🔗 ${t('linkedNotesN', { n: r.linkedNoteIds.length })}` : ''}
+                </span>
+                <span style={rightClusterStyle}>
+                  {(r.files as Attach[]).map((f) => (
+                    <span key={f.file_token} style={attChipStyle}>
+                      <a
+                        href={`/api/v1/files/${encodeURIComponent(f.file_token)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'var(--accent)' }}
+                      >
+                        📎 {f.name || f.file_token}
+                      </a>
+                      {f.at ? <span className="muted">{fmtDay(f.at)}</span> : null}
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        disabled={busyAtt === r.id || target.archived}
+                        title={t('removeAttach')}
+                        onClick={() => void removeAttach(r.id, f.file_token, r.files as Attach[])}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    disabled={busyAtt === r.id || target.archived}
+                    onClick={() => {
+                      attTargetRef.current = r.id;
+                      attRef.current?.click();
+                    }}
+                  >
+                    ＋ {t('addAttach')}
+                  </button>
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
+  /** 子弹窗 + 复用的隐藏附件 input（两种宿主共用） */
+  const popups = (
+    <>
+      {rec && noteId ? (
+        <GetnoteNoteModal
+          noteId={noteId}
+          onClose={closeRecord}
+          switcher={
+            recNotes.length > 1 ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 6 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  title={t('notePrev')}
+                  disabled={noteIdxSafe <= 0}
+                  onClick={() => setNoteIdx(noteIdxSafe - 1)}
+                >
+                  ‹
+                </button>
+                <span className="muted" style={{ fontSize: 12.5 }}>
+                  {`${noteIdxSafe + 1}/${recNotes.length}`}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  title={t('noteNext')}
+                  disabled={noteIdxSafe >= recNotes.length - 1}
+                  onClick={() => setNoteIdx(noteIdxSafe + 1)}
+                >
+                  ›
+                </button>
+              </span>
+            ) : null
+          }
+        />
+      ) : rec ? (
+        <RecordSummaryModal record={rec} onClose={closeRecord} />
+      ) : null}
+
+      {/* 附件上传：一个复用的隐藏 input，`attTargetRef` 指向目标记录 */}
+      <input
+        ref={attRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => void addAttach(attTargetRef.current, e.target.files, filesOfRecord(attTargetRef.current))}
+      />
+    </>
+  );
+
+  /**
+   * 行内展开（「我的 IDP」用）：只出内容卡片，不带 modal 外壳 ——
+   * 展开区嵌在表格行里，再套一层遮罩就点不动别处了。
+   */
+  if (variant === 'inline') {
+    return (
+      <>
+        <div style={inlinePanelStyle}>{cards}</div>
+        {popups}
+      </>
+    );
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="detail-modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: importOpen ? 'min(1180px, 100%)' : 'min(820px, 100%)' }}
-      >
+      <div className="detail-modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(880px, 100%)' }}>
         <div className="detail-modal-head">
           <div>
             <h3 className="detail-modal-title">
@@ -514,412 +1016,24 @@ export default function IdpCommDrawer({
               {` · ${t('commCountIs', { n: count })}`}
             </div>
           </div>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
-            {t('close')}
+          {/* 关闭一律用右上角的 ×（全站弹窗统一这个定式，不再放文字「关闭」按钮） */}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} title={t('close')} aria-label={t('close')}>
+            ×
           </button>
         </div>
 
-        <div
-          className="detail-modal-body"
-          style={{ whiteSpace: 'normal', display: importOpen ? 'flex' : 'block', gap: 18, alignItems: 'flex-start' }}
-        >
-          {/* ── 左栏：沟通记录 ─────────────────────────────────── */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-          {data && !data.rangeOk ? (
-            <div className="notice notice-warn" style={{ marginBottom: 10 }}>
-              {t('rangeBad')}
-            </div>
-          ) : null}
-          {data && data.noTime > 0 ? (
-            <div className="notice" style={{ marginBottom: 10 }}>
-              {t('noTimeWarn', { n: data.noTime })}
-            </div>
-          ) : null}
-          {err ? (
-            <div className="notice notice-error" style={{ marginBottom: 10 }}>
-              {err}
-            </div>
-          ) : null}
-          {flash ? (
-            <div className="notice" style={{ marginBottom: 10 }}>
-              {flash}
-            </div>
-          ) : null}
-
-          {/* ── 新建一次沟通：走学生记录的 create（附件/录音/AI 总结全都共用现成能力） ── */}
-          {target.archived ? (
-            <div className="muted" style={{ marginBottom: 10, fontSize: 12.5 }}>
-              {t('archivedReadonly')}
-            </div>
-          ) : openForm ? (
-            <div className="card" style={{ padding: 12, marginBottom: 12 }}>
-              {/* 沟通类型 / 学生 / 记录人：都由上下文决定，不给改（改类型要回「学生记录」页） */}
-              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, marginBottom: 8 }}>
-                <span className="muted">
-                  {t('fType')}：<b style={{ color: 'var(--fg)' }}>{IDP_COMM_RECORD_TYPE}</b>
-                </span>
-                <span className="muted">
-                  {t('fStudent')}：<b style={{ color: 'var(--fg)' }}>{target.studentName}</b>
-                </span>
-                <span className="muted">
-                  {t('fPerson')}：<b style={{ color: 'var(--fg)' }}>{target.meName || '—'}</b>
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <input
-                  className="form-input"
-                  style={{ flex: '1 1 240px' }}
-                  placeholder={t('fSubject')}
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                />
-                {/* 沟通方式：默认「面谈」，选项读字典（字典改了这里跟着变） */}
-                <select
-                  className="form-input"
-                  style={{ width: 130 }}
-                  value={way}
-                  onChange={(e) => setWay(e.target.value)}
-                >
-                  {ways.map((w) => (
-                    <option key={w} value={w}>
-                      {w}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className="form-input"
-                  style={{ width: 190 }}
-                  type="datetime-local"
-                  value={when}
-                  onChange={(e) => setWhen(e.target.value)}
-                />
-              </div>
-              <textarea
-                className="form-input"
-                style={{ marginTop: 8, minHeight: 64 }}
-                placeholder={t('fSummary')}
-                value={summary}
-                onChange={(e) => setSummary(e.target.value)}
-              />
-              <textarea
-                className="form-input"
-                style={{ marginTop: 8, minHeight: 90 }}
-                placeholder={t('fDetail')}
-                value={detail}
-                onChange={(e) => setDetail(e.target.value)}
-              />
-              {/* 附件：上传后写进「沟通附件清单」（与 CrudPage 的 attachment 字段同结构） */}
-              <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm"
-                  disabled={uploading}
-                  onClick={() => fileRef.current?.click()}
-                >
-                  {uploading ? t('uploading') : t('uploadAttachment')}
-                </button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  multiple
-                  style={{ display: 'none' }}
-                  onChange={(e) => void pickFiles(e.target.files)}
-                />
-                {atts.map((a) => (
-                  <span key={a.file_token} className="tag">
-                    {a.name}
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => setAtts((cur) => cur.filter((x) => x.file_token !== a.file_token))}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-                <button type="button" className="btn btn-primary btn-sm" disabled={saving} onClick={() => void submit()}>
-                  {saving ? t('saving') : t('save')}
-                </button>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpenForm(false)}>
-                  {t('cancel')}
-                </button>
-                <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>
-                  {t('fullFormHint')}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => setOpenForm(true)}
-              >
-                ＋ {t('addComm')}
-              </button>
-              {/* 「导入笔记」：批量把「我的笔记」建成 IDP沟通 记录并挂上笔记（见文件头注释） */}
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                onClick={() => (importOpen ? closeImport() : void openImport())}
-              >
-                {importOpen ? t('close') : t('importNotes')}
-              </button>
-            </div>
-          )}
-
-          {/* ── 已导入的笔记：导入结果必须看得见，否则"导进去了没"无从判断 ── */}
-          {/* ── 时间线（就是学生记录里那批，按本配置学年学期过滤） ── */}
-          {loading ? (
-            <div className="muted">{t('loading')}</div>
-          ) : count === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">🗒️</div>
-              <div className="empty-state-text">{t('noComm')}</div>
-            </div>
-          ) : (
-            <div>
-              {(data?.rows ?? []).map((r) => (
-                /* 整行可点：打开该记录的详情弹窗（关联的笔记 + 附件都在里面）。
-                   行内刻意不再放「关联笔记 / 打开记录」两个按钮 —— 弹窗里能做的事不在列表上再摆一份。 */
-                <div
-                  key={r.id}
-                  style={{ ...rowStyle, cursor: 'pointer' }}
-                  title={t('openCommHint')}
-                  onClick={() => setCommFor(r.id)}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600 }}>{r.subject || t('noSubject')}</div>
-                    {/* 只留元信息这一行：沟通总结（「### 📑 智能总结…」那一大段）不在列表里铺开 */}
-                    <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
-                      {fmtTime(r.time)}
-                      {r.person ? ` · ${r.person}` : ''}
-                      {r.attachments ? ` · 📎 ${r.attachments}` : ''}
-                      {r.status ? ` · ${r.status}` : ''}
-                    </div>
-                    {/* 附件：名称 + 上传时间，可点开下载、可删（挂在记录上） */}
-                    {r.files.length > 0 ? (
-                      <div
-                        style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 4 }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {r.files.map((f) => (
-                          <span
-                            key={f.file_token}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5 }}
-                          >
-                            <a
-                              href={`/api/v1/files/${encodeURIComponent(f.file_token)}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{ color: 'var(--accent)' }}
-                            >
-                              📎 {f.name || f.file_token}
-                            </a>
-                            {f.at ? <span className="muted">{fmtDay(f.at)}</span> : null}
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
-                              disabled={busyAtt === r.id || target.archived}
-                              title={t('removeAttach')}
-                              onClick={() => void removeAttach(r.id, f.file_token, r.files as Attach[])}
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      disabled={busyAtt === r.id || target.archived}
-                      onClick={() => {
-                        attTargetRef.current = r.id;
-                        attRef.current?.click();
-                      }}
-                    >
-                      ＋ {t('addAttach')}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          </div>
-
-          {/* ── 右栏：从「我的笔记」导入 ───────────────────────── */}
-          {importOpen ? (
-            <aside
-              style={{
-                width: 380,
-                flexShrink: 0,
-                borderLeft: '1px solid var(--border)',
-                paddingLeft: 16,
-                alignSelf: 'stretch',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 700 }}>{t('importTitle')}</span>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={closeImport}>
-                  {t('close')}
-                </button>
-              </div>
-              <p className="muted" style={{ fontSize: 12, margin: '0 0 8px' }}>
-                {t('importHint')}
-              </p>
-
-              {credOk === false ? (
-                <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
-                  {t('importNeedCred')}{' '}
-                  <Link href="/getnote" style={{ color: 'var(--accent)' }}>
-                    {t('importNeedCredLink')}
-                  </Link>
-                </p>
-              ) : (
-                <>
-                  <input
-                    className="form-input"
-                    style={{ width: '100%', marginBottom: 8 }}
-                    placeholder={t('importSearch')}
-                    value={kw}
-                    onChange={(e) => setKw(e.target.value)}
-                  />
-
-                  <div
-                    style={{
-                      maxHeight: 340,
-                      overflowY: 'auto',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      padding: 6,
-                    }}
-                  >
-                    {candsLoading && cands.length === 0 ? (
-                      <div className="muted" style={{ fontSize: 12.5, padding: 6 }}>{t('importLoading')}</div>
-                    ) : cands.length === 0 ? (
-                      <div className="muted" style={{ fontSize: 12.5, padding: 6 }}>
-                        {kw.trim() ? t('importNoMatch') : t('importEmpty')}
-                      </div>
-                    ) : (
-                      cands.map((n) => {
-                        const on = picked.has(n.noteId);
-                        return (
-                          <label
-                            key={n.noteId}
-                            title={n.noteId}
-                            style={{
-                              display: 'flex',
-                              gap: 8,
-                              alignItems: 'flex-start',
-                              padding: '6px 6px',
-                              borderRadius: 6,
-                              cursor: 'pointer',
-                              background: on ? 'var(--accent-muted)' : 'transparent',
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={on}
-                              onChange={(e) =>
-                                setPicked((cur) => {
-                                  const next = new Set(cur);
-                                  if (e.target.checked) next.add(n.noteId);
-                                  else next.delete(n.noteId);
-                                  return next;
-                                })
-                              }
-                              style={{ marginTop: 3 }}
-                            />
-                            <span style={{ minWidth: 0 }}>
-                              <span style={{ fontSize: 13, display: 'block', wordBreak: 'break-word' }}>
-                                {n.title || n.noteId}
-                              </span>
-                              {n.createdAt ? (
-                                <span className="muted" style={{ fontSize: 11.5 }}>{fmtDay(n.createdAt)}</span>
-                              ) : null}
-                            </span>
-                          </label>
-                        );
-                      })
-                    )}
-                    {candsMore ? (
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        disabled={candsLoading}
-                        style={{ width: '100%', marginTop: 4 }}
-                        onClick={() => void loadCands(false)}
-                      >
-                        {t('importLoadMore')}
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
-                    <span className="muted" style={{ fontSize: 12.5 }}>
-                      {t('importSelectedN', { n: picked.size })}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      style={{ marginLeft: 'auto' }}
-                      disabled={importing || picked.size === 0}
-                      onClick={() => void doImport()}
-                    >
-                      {importing ? t('importing') : t('importConfirm')}
-                    </button>
-                  </div>
-                </>
-              )}
-            </aside>
-          ) : null}
+        <div className="detail-modal-body" style={{ whiteSpace: 'normal' }}>
+          {cards}
         </div>
 
-        {/* 附件上传：一个复用的隐藏 input，`attTargetRef` 指向目标记录 */}
-        <input
-          ref={attRef}
-          type="file"
-          multiple
-          style={{ display: 'none' }}
-          onChange={(e) => void addAttach(attTargetRef.current, e.target.files, filesOfRecord(attTargetRef.current))}
-        />
-
-        {/* 记录详情弹窗：点时间线整行打开 */}
-        {commFor
-          ? (() => {
-              const rec = (data?.rows ?? []).find((x) => x.id === commFor);
-              return rec ? (
-                <RecordDetailModal
-                  record={rec}
-                  studentName={target.studentName}
-                  archived={target.archived}
-                  onClose={() => setCommFor('')}
-                  onChanged={async () => {
-                    await load();
-                  }}
-                  onOpenNote={(noteId, title) => setNoteView({ noteId, title })}
-                />
-              ) : null;
-            })()
-          : null}
-
-        {/* 笔记查看弹窗：总结 / 原始记录 两个 Tab */}
-        {noteView ? (
-          <NoteViewerModal noteId={noteView.noteId} title={noteView.title} onClose={() => setNoteView(null)} />
-        ) : null}
+        {popups}
 
         <div className="detail-modal-foot">
           <span className="muted" style={{ marginRight: 'auto', fontSize: 12 }}>
             {t('footerHint')}
           </span>
-          <button type="button" className="btn btn-outline btn-sm" onClick={onClose}>
-            {t('close')}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} title={t('close')} aria-label={t('close')}>
+            ×
           </button>
         </div>
       </div>
@@ -929,268 +1043,50 @@ export default function IdpCommDrawer({
 
 
 /**
- * 记录详情弹窗（点时间线整行打开）。
+ * 「这条记录**没有**关联笔记」时点标题看到的内容：沟通总结 / 沟通明细。
  *
- * 内容 = 这条记录本身 + 它关联的笔记：
- *  · 笔记标题是**链接**，点开看「总结 / 原始记录」（`NoteViewerModal`）；
- *  · 「解除」只删这条记录与笔记的关联（不删记录、不删笔记）；
- *  · 附件在这里同样能加 / 删 / 下载（与时间线行共用同一套写入口）。
+ * 为什么按 id 再拉一次详情，而不是让列表接口把明细一起带回来：
+ * 沟通明细可能是逐字稿（生产实测最长 3.8 万字），20 条一起返回就是几十万字 ——
+ * 打开一次面板的代价会高到不可接受。点开哪条才拉哪条，代价刚好。
  *
- * 为什么自建而不是复用 `NotePanel`：那个面板是"搜索并关联一篇"的形态（语义召回 + chip），
- * 这里要的是"看这条记录带来的笔记"，两者的主操作不同；同样的 `idpStudentLabel` 教训 ——
- * 两套并存会让同一份数据在两处长得不一样。
+ * 查看用**只读**的 Markdown 组件（不传 onChange ⇒ 只有「浏览」一个 Tab）：
+ * 能改的那一份在「记录一次沟通」表单里，两边都是同一个组件 → 呈现与录入一致。
  */
-function RecordDetailModal({
+function RecordSummaryModal({
   record,
-  studentName,
-  archived,
   onClose,
-  onChanged,
-  onOpenNote,
 }: {
   record: MyIdpComms['rows'][number];
-  studentName: string;
-  archived: boolean;
-  onClose: () => void;
-  onChanged: () => Promise<void> | void;
-  onOpenNote: (noteId: string, title: string) => void;
-}) {
-  const t = useTranslations('myIdp');
-  const [links, setLinks] = useState<GetnoteLink[]>([]);
-  const [files, setFiles] = useState<Attach[]>(record.files as Attach[]);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const loadLinks = useCallback(async () => {
-    try {
-      setLinks(await api.listGetnoteLinks(IDP_COMM_RECORD_TYPE, record.id));
-    } catch (e) {
-      setErr(errMsg(e));
-    }
-  }, [record.id]);
-
-  useEffect(() => {
-    void loadLinks();
-  }, [loadLinks]);
-
-  const upload = async (list: FileList | null) => {
-    if (!list?.length) return;
-    setBusy(true);
-    setErr('');
-    try {
-      const added: Attach[] = [];
-      for (const f of Array.from(list)) {
-        const up = await api.uploadFile(f);
-        added.push({ file_token: up.file_token, name: up.name, at: Date.now() });
-      }
-      // 🔴 合并已有 + 新增：数组字段是整体替换，只传新的会抹掉旧附件
-      const next = [...files, ...added];
-      await api.updateStudentRecord(record.id, { 沟通附件清单: next });
-      setFiles(next);
-      await onChanged();
-    } catch (e) {
-      setErr(errMsg(e));
-    } finally {
-      setBusy(false);
-      if (inputRef.current) inputRef.current.value = '';
-    }
-  };
-
-  const drop = async (token: string) => {
-    setBusy(true);
-    setErr('');
-    try {
-      const next = files.filter((a) => a.file_token !== token);
-      await api.updateStudentRecord(record.id, { 沟通附件清单: next });
-      setFiles(next);
-      await onChanged();
-    } catch (e) {
-      setErr(errMsg(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const unlink = async () => {
-    setBusy(true);
-    setErr('');
-    try {
-      await api.replaceGetnoteLinks(IDP_COMM_RECORD_TYPE, record.id, studentName, []);
-      setLinks([]);
-      await onChanged();
-    } catch (e) {
-      setErr(errMsg(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div
-      className="modal-overlay"
-      style={{ zIndex: 60 }}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClose();
-      }}
-    >
-      <div className="detail-modal" style={{ width: 'min(760px, 100%)' }} onClick={(e) => e.stopPropagation()}>
-        <div className="detail-modal-head">
-          <div>
-            <h3 className="detail-modal-title">{record.subject || t('noSubject')}</h3>
-            <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
-              {fmtTime(record.time)}
-              {record.person ? ` · ${record.person}` : ''}
-              {record.status ? ` · ${record.status}` : ''}
-            </div>
-          </div>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
-            {t('close')}
-          </button>
-        </div>
-
-        <div className="detail-modal-body" style={{ whiteSpace: 'normal' }}>
-          {err ? (
-            <div className="notice notice-error" style={{ marginBottom: 10 }}>
-              {err}
-            </div>
-          ) : null}
-
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{t('linkedNotes')}</div>
-          {links.length === 0 ? (
-            <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
-              {t('notLinked')}
-            </p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-              {links.map((l) => (
-                <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenNote(l.noteId, l.title)}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      padding: 0,
-                      color: 'var(--accent)',
-                      fontSize: 13,
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      textDecoration: 'underline',
-                    }}
-                  >
-                    {l.title || l.noteId}
-                  </button>
-                  <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void unlink()}>
-                    {t('unlinkNote')}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{t('attachments')}</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-            {files.length === 0 ? <span className="muted" style={{ fontSize: 12.5 }}>{t('noAttach')}</span> : null}
-            {files.map((f) => (
-              <span key={f.file_token} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5 }}>
-                <a
-                  href={`/api/v1/files/${encodeURIComponent(f.file_token)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ color: 'var(--accent)' }}
-                >
-                  📎 {f.name || f.file_token}
-                </a>
-                {f.at ? <span className="muted">{fmtDay(f.at)}</span> : null}
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  disabled={busy || archived}
-                  onClick={() => void drop(f.file_token)}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            <button
-              type="button"
-              className="btn btn-outline btn-sm"
-              disabled={busy || archived}
-              onClick={() => inputRef.current?.click()}
-            >
-              ＋ {t('addAttach')}
-            </button>
-            <input
-              ref={inputRef}
-              type="file"
-              multiple
-              style={{ display: 'none' }}
-              onChange={(e) => void upload(e.target.files)}
-            />
-          </div>
-        </div>
-
-        <div className="detail-modal-foot">
-          <a
-            className="btn btn-ghost btn-sm"
-            style={{ marginRight: 'auto' }}
-            href={`/student-records/${record.id}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {t('openRecord')}
-          </a>
-          <button type="button" className="btn btn-outline btn-sm" onClick={onClose}>
-            {t('close')}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * 笔记查看弹窗：**总结 / 原始记录** 两个 Tab（与「我的笔记」页的详情弹窗同一形态）。
- *
- * 字段来源：`GET /getnote/notes/:id` 的 `content`（AI 智能总结）与 `rawRecord`
- * （录音类笔记的说话人带时间戳转写全文）。两者都可能为空 —— 空就明说"没有"，
- * 不要渲染一片空白让人以为是加载失败。
- */
-function NoteViewerModal({
-  noteId,
-  title,
-  onClose,
-}: {
-  noteId: string;
-  title: string;
   onClose: () => void;
 }) {
   const t = useTranslations('myIdp');
-  const [tab, setTab] = useState<'summary' | 'raw'>('summary');
-  const [note, setNote] = useState<Record<string, unknown> | null>(null);
+  const [tab, setTab] = useState<'summary' | 'detail'>('summary');
+  const [fields, setFields] = useState<Record<string, unknown> | null>(null);
   const [err, setErr] = useState('');
 
   useEffect(() => {
-    setNote(null);
+    let alive = true;
+    setFields(null);
     setErr('');
     api
-      .getGetnote(noteId)
-      .then(setNote)
-      .catch((e) => setErr(errMsg(e)));
-  }, [noteId]);
-
-  const summary = String(note?.content ?? '');
-  const raw = String(note?.rawRecord ?? '');
-  const box: CSSProperties = {
-    maxHeight: '60vh',
-    overflow: 'auto',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    padding: '12px 16px',
-    background: 'var(--bg-subtle)',
-  };
+      .getStudentRecord(record.id)
+      .then((r) => {
+        if (!alive) return;
+        // 详情可能把字段包在 fields 里，也可能直接铺平 —— 两种都认（免得维度一变就白屏）
+        const flat = (
+          r && typeof r === 'object' && 'fields' in (r as Record<string, unknown>)
+            ? (r as Record<string, unknown>).fields
+            : r
+        ) as Record<string, unknown> | undefined;
+        setFields(flat ?? {});
+      })
+      .catch((e) => {
+        if (alive) setErr(errMsg(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [record.id]);
 
   return (
     <div
@@ -1201,49 +1097,65 @@ function NoteViewerModal({
         onClose();
       }}
     >
-      <div className="detail-modal" style={{ width: 'min(900px, 100%)' }} onClick={(e) => e.stopPropagation()}>
+      <div className="detail-modal" style={{ width: 'min(860px, 100%)' }} onClick={(e) => e.stopPropagation()}>
         <div className="detail-modal-head">
-          <h3 className="detail-modal-title">{title || noteId}</h3>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
-            {t('close')}
+          <div>
+            <h3 className="detail-modal-title">{record.subject || t('noSubject')}</h3>
+            <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
+              {fmtTime(record.time)}
+              {record.way ? ` · ${record.way}` : ''}
+              {record.person ? ` · ${record.person}` : ''}
+              {record.status ? ` · ${record.status}` : ''}
+            </div>
+          </div>
+          {/* 关闭一律用右上角的 ×（全站弹窗统一这个定式） */}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={onClose}
+            title={t('close')}
+            aria-label={t('close')}
+          >
+            ×
           </button>
         </div>
         <div className="detail-modal-body" style={{ whiteSpace: 'normal' }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 11 }}>
             <button
               type="button"
               className={tab === 'summary' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
               onClick={() => setTab('summary')}
             >
-              {t('noteSummary')}
+              {t('tabSummary')}
             </button>
             <button
               type="button"
-              className={tab === 'raw' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
-              onClick={() => setTab('raw')}
+              className={tab === 'detail' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+              onClick={() => setTab('detail')}
             >
-              {t('noteRaw')}
+              {t('tabDetail')}
             </button>
           </div>
           {err ? <div className="notice notice-error">{err}</div> : null}
-          {!note && !err ? <div className="muted">{t('loading')}</div> : null}
-          {note ? (
-            tab === 'summary' ? (
-              <div className="md" style={box}>
-                {summary.trim() ? <Markdown>{summary}</Markdown> : <span className="muted">{t('noteEmpty')}</span>}
-              </div>
-            ) : (
-              <div style={box}>
-                {raw.trim() ? (
-                  <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontFamily: 'inherit', fontSize: 13 }}>
-                    {raw}
-                  </pre>
-                ) : (
-                  <span className="muted">{t('noteEmpty')}</span>
-                )}
-              </div>
-            )
+          {!fields && !err ? <div className="muted">{t('loading')}</div> : null}
+          {fields ? (
+            <MarkdownField
+              value={String((tab === 'summary' ? fields['沟通总结'] : fields['沟通明细']) ?? '')}
+              height={300}
+              emptyText={tab === 'summary' ? t('noSummary') : t('noDetail')}
+            />
           ) : null}
+        </div>
+        <div className="detail-modal-foot">
+          <a
+            className="btn btn-outline btn-sm"
+            style={{ marginRight: 'auto' }}
+            href={`/student-records/${record.id}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t('openRecord')}
+          </a>
         </div>
       </div>
     </div>

@@ -1,16 +1,28 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useTranslations } from 'next-intl';
 import { api, type MyIdpGroup, type MyIdpResp, type IdpStudentRow } from '../../lib/api';
 import { idpStudentLabel } from '@acms/contracts';
-import IdpCommDrawer, { type IdpCommTarget } from '../../components/IdpCommDrawer';
+import IdpCommDrawer from '../../components/IdpCommDrawer';
 
 /**
- * 我的 IDP（老师端，2026-09-26 新增）。
+ * 我的 IDP（老师端，2026-09-26 新增；当日再改为**行内展开**）。
  *
  * 显示范围：`IDP老师 = 我` 的行（服务端按登录人的 open_id 过滤，前端不参与判定）。
  * 分组：按「学年 · 学期」的 IDP 配置。
+ *
+ * ## 学生行展开（2026-09-26 峰哥定）
+ *
+ * 学生名前的箭头展开后，直接把沟通面板铺在表格行里：
+ *  · 列出该生在本配置学年学期内的 IDP 沟通记录（时间 · 沟通人 · 方式 · 状态 · 附件）
+ *  · 点**标题**看这条记录（有关联笔记 ⇒ 笔记详情；没有 ⇒ 沟通总结 / 明细）
+ *  · 附件挂在记录上，可直接下载 / 删除 / 新增
+ *  · 可「从我的笔记导入」，也可「记录一次沟通」
+ * ⇒ 原来那一列「继续操作 · 继续沟通」弹窗因此**整列去掉**了（同一个东西不摆两处）。
+ *
+ * 展开区用的是 `IdpCommDrawer` 的 **inline 变体** —— 与「IDP 配置」页的弹窗
+ * 共用同一份内容与写入口，不另写一套。
  *
  * ## 权限口径（与「学生记录」同源，不是 idpPlans）
  *
@@ -31,9 +43,13 @@ export default function MyIdpPage() {
   const [err, setErr] = useState('');
   /** 展开的配置（默认展开第一个：绝大多数老师只有一个） */
   const [open, setOpen] = useState<Set<string>>(new Set());
+  /**
+   * 展开了沟通面板的学生行。
+   * 🔴 key 必须带 configId：同一个学生在多个批次里都会出现，只用明细行 id 会串。
+   */
+  const [openStu, setOpenStu] = useState<Set<string>>(new Set());
   const [onlyPending, setOnlyPending] = useState(false);
   const [q, setQ] = useState('');
-  const [target, setTarget] = useState<IdpCommTarget | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,15 +90,17 @@ export default function MyIdpPage() {
   const totalMine = (data?.groups ?? []).reduce((n, g) => n + g.total, 0);
   const totalTalked = (data?.groups ?? []).reduce((n, g) => n + g.talked, 0);
 
-  const openDrawer = (g: MyIdpGroup, s: IdpStudentRow) => {
-    setTarget({
-      configId: g.configId,
-      configName: `${g.yearName} ${g.term}`.trim() || g.configName,
-      studentId: s.studentId,
-      studentName: s.studentName,
-      cls: s.cls,
-      archived: g.archived,
-      meName: data?.me.name ?? '',
+  const stuKey = (configId: string, detailId: string) => `${configId}::${detailId}`;
+
+  /** 切换某个学生行的展开状态；`force` 给「收起」按钮用 */
+  const toggleStu = (configId: string, detailId: string, force?: boolean) => {
+    setOpenStu((cur) => {
+      const k = stuKey(configId, detailId);
+      const next = new Set(cur);
+      const on = force ?? !next.has(k);
+      if (on) next.add(k);
+      else next.delete(k);
+      return next;
     });
   };
 
@@ -172,44 +190,79 @@ export default function MyIdpPage() {
                       <table className="data-table">
                         <thead>
                           <tr>
-                            <th style={{ minWidth: 110 }}>{t('colStudent')}</th>
-                            <th style={{ minWidth: 100 }}>{t('colClass')}</th>
-                            <th style={{ minWidth: 80 }}>{t('colCommCount')}</th>
-                            <th style={{ minWidth: 130 }}>{t('colLast')}</th>
+                            <th style={{ minWidth: 180 }}>{t('colStudent')}</th>
+                            <th style={{ minWidth: 90 }}>{t('colClass')}</th>
+                            <th style={{ minWidth: 86 }}>{t('colCommCount')}</th>
+                            <th style={{ minWidth: 120 }}>{t('colLast')}</th>
                             <th style={{ minWidth: 200 }}>{t('colLastSummary')}</th>
-                            <th style={{ minWidth: 100 }}>{t('colOps')}</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {g.students.map((s) => (
-                            <tr key={s.id}>
-                              <td>
-                                <div className="dept-emp-name">{idpStudentLabel(s.studentName, s.nameEn)}</div>
-                              </td>
-                              <td className="muted">{s.cls || '—'}</td>
-                              <td>
-                                {s.commCount > 0 ? (
-                                  <span style={{ fontWeight: 600 }}>{s.commCount}</span>
-                                ) : (
-                                  <span className="muted">{t('notYet')}</span>
-                                )}
-                                {s.noTime > 0 ? (
-                                  <span className="muted" style={{ fontSize: 11 }} title={t('noTimeHint')}>
-                                    {` +${s.noTime}?`}
-                                  </span>
+                          {g.students.map((s) => {
+                            const key = stuKey(g.configId, s.id);
+                            const rowOpen = openStu.has(key);
+                            return (
+                              // 一行 + 它的展开区：key 挂在外层 Fragment 上
+                              <Fragment key={s.id}>
+                                <tr
+                                  style={{
+                                    cursor: 'pointer',
+                                    // 展开中的行给个底色：一眼看出下面这块属于谁
+                                    background: rowOpen ? 'var(--accent-muted)' : undefined,
+                                  }}
+                                  onClick={() => toggleStu(g.configId, s.id)}
+                                >
+                                  <td>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                      <span style={{ fontSize: 11, color: 'var(--fg-tertiary)', width: 10 }}>
+                                        {rowOpen ? '▾' : '▸'}
+                                      </span>
+                                      <span className="dept-emp-name">{idpStudentLabel(s.studentName, s.nameEn)}</span>
+                                    </span>
+                                  </td>
+                                  <td className="muted">{s.cls || '—'}</td>
+                                  <td>
+                                    {s.commCount > 0 ? (
+                                      <span style={{ fontWeight: 600 }}>{s.commCount}</span>
+                                    ) : (
+                                      <span className="muted">{t('notYet')}</span>
+                                    )}
+                                    {s.noTime > 0 ? (
+                                      <span className="muted" style={{ fontSize: 11 }} title={t('noTimeHint')}>
+                                        {` +${s.noTime}?`}
+                                      </span>
+                                    ) : null}
+                                  </td>
+                                  <td className="muted">{s.lastAt ? fmtDate(s.lastAt) : '—'}</td>
+                                  <td className="muted" style={{ fontSize: 12.5 }}>
+                                    {s.lastSummary || '—'}
+                                  </td>
+                                </tr>
+
+                                {/* 展开区：沟通面板（inline 变体 —— 与「IDP 配置」页弹窗同一份内容） */}
+                                {rowOpen ? (
+                                  <tr>
+                                    <td colSpan={5} style={expandCellStyle}>
+                                      <IdpCommDrawer
+                                        variant="inline"
+                                        target={{
+                                          configId: g.configId,
+                                          configName: `${g.yearName} ${g.term}`.trim() || g.configName,
+                                          studentId: s.studentId,
+                                          studentName: s.studentName,
+                                          cls: s.cls,
+                                          archived: g.archived,
+                                          meName: data?.me.name ?? '',
+                                        }}
+                                        onClose={() => toggleStu(g.configId, s.id, false)}
+                                        onSaved={() => void load()}
+                                      />
+                                    </td>
+                                  </tr>
                                 ) : null}
-                              </td>
-                              <td className="muted">{s.lastAt ? fmtDate(s.lastAt) : '—'}</td>
-                              <td className="muted" style={{ fontSize: 12.5 }}>
-                                {s.lastSummary || '—'}
-                              </td>
-                              <td>
-                                <button type="button" className="btn btn-primary btn-sm" onClick={() => openDrawer(g, s)}>
-                                  {s.commCount > 0 ? t('continueComm') : t('startComm')}
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                              </Fragment>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -220,14 +273,6 @@ export default function MyIdpPage() {
           );
         })
       )}
-
-      {target ? (
-        <IdpCommDrawer
-          target={target}
-          onClose={() => setTarget(null)}
-          onSaved={() => void load()}
-        />
-      ) : null}
     </div>
   );
 }
@@ -253,6 +298,13 @@ const headBtnStyle: CSSProperties = {
   cursor: 'pointer',
   textAlign: 'left',
   color: 'var(--fg)',
+};
+
+/** 展开区所在的整行单元格：左边留出与「学生」列对齐的缩进 */
+const expandCellStyle: CSSProperties = {
+  padding: '0 12px 14px 30px',
+  background: 'var(--surface-hover)',
+  borderBottom: '1px solid var(--border)',
 };
 
 function fmtDate(ms: number): string {

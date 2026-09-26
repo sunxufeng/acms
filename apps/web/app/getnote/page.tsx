@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
-import Markdown from '../../components/Markdown';
+import GetnoteNoteModal from '../../components/GetnoteNoteModal';
+import { NOTE_TYPES, audioOf, audioPendingOf, audioSrc, fmtDuration } from '../../lib/getnoteNote';
 import { api, type GetnoteCredential, type GetnoteOAuthStart, type ApiRequestError, type RefetchAudioProgress } from '../../lib/api';
 import type { NoteConvertTarget, NoteConvertLogItem, NoteConfigMapItem } from '@acms/contracts';
 // 「来源 / 标签」的拆分规则与来源候选值都来自 contracts：后端做服务端筛选用的是同一份实现，
@@ -12,14 +13,12 @@ import type { NoteConvertTarget, NoteConvertLogItem, NoteConfigMapItem } from '@
 // 本页在「来源 / 配置名称」那条客户端内存筛选分支里也要判状态，
 // 各写一份必然漂移（症状：筛了来源之后状态筛选失灵）。
 import {
-  NOTE_SOURCE_TYPES,
   NOTE_STATUS_ACTIVE,
   NOTE_STATUS_ARCHIVED,
   NOTE_STATUS_FILTER_OPTIONS,
   hiddenArchivedCount,
   isArchivedNote,
   noteStatusMatches,
-  noteTagNames,
   splitNoteTags,
 } from '@acms/contracts';
 import { putConvertPayload, formatConvertLogs, totalConvertCount, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../../lib/noteConvert';
@@ -36,75 +35,14 @@ const OPENAPI_URL = 'https://www.biji.com/openapi';
 const CHECKOUT_URL = 'https://www.biji.com/checkout?product_alias=9Ab36BB3ZD';
 
 /**
- * 笔记来源的候选项 = 字典「笔记类型」。
- *
- * ⚠️ 存储位置：Get笔记 的 note 对象没有自定义字段，所以「来源」复用 **tags** 承载 ——
- *    命中这份字典的那个标签就是来源，其余标签才是普通标签。这样来源随笔记走、
- *    换浏览器也在，且不需要在 ACMS 侧再建映射表。
- *    toRow() 负责拆（来源 / 标签），toPayload() 负责合（提交时拼回 tags）。
- */
-/**
  * 来源候选与「来源 / 标签」的拆分规则**统一放在 contracts**：
  * 后端要用同一份规则做服务端筛选（`GetnoteService.applyNoteFilters`），
  * 两边各写一份必然漂移 —— 症状是「列里显示来源=得到大脑，按得到大脑筛却筛不到」。
- */
-// spread 成可变数组：列定义的 `options` 是 `string[]`，而 contracts 里是只读元组
-const NOTE_TYPES: string[] = [...NOTE_SOURCE_TYPES];
-
-function tagNames(n: Record<string, unknown>): string[] {
-  return noteTagNames(n.tags);
-}
-
-/**
- * 详情 / 列表行里「已落库的原始音频」元信息。
  *
- * 后端在**详情与列表**返回里都附 `_audio`（只有真下载落库过才有）。没有就返回 null ——
- * 详情弹窗据此**不渲染播放器**，列表行据此**不渲染播放按钮**，
- * 避免给用户一个点了报错的空壳控件。
- *
- * ⚠️ 播放地址是 `/api/v1/getnote/notes/:id/audio`，**不是**通用的 `/files/:token`：
- *    那个接口登录即可下载，而录音是私密内容；专用接口会做笔记级可见性校验。
+ * 2026-09-26：「来源/标签/音频」这几个纯函数连同**笔记详情弹窗**都抽到了公用件
+ * （`lib/getnoteNote.ts` + `components/GetnoteNoteModal.tsx`）——
+ * 「我的 IDP」里点沟通记录标题也要看同一篇笔记的详情，两处各写一份必然漂移。
  */
-interface NoteAudioMeta {
-  token?: string;
-  name?: string;
-  size?: number;
-  type?: string;
-  durationMs?: number;
-}
-
-function audioOf(n: Record<string, unknown> | null): NoteAudioMeta | null {
-  const a = n?._audio as NoteAudioMeta | null | undefined;
-  return a && a.token ? a : null;
-}
-
-/**
- * 「这条笔记**有录音、但音频还没抓下来**」（未抓 / 上次失败）—— 后端 `_audioPending`。
- *
- * 🔴 判据必须在**后端**，不能靠前端猜 `note_type`（2026-09-22 修）：
- *    原先操作列只看 `note_type === 'recorder_audio'`，而峰哥报障的那 8 条
- *    **笔记类型并不是 recorder_audio**（正文字段由同步写回，各来源不一）
- *    ⇒ 这些「有录音却没抓」的行在列表里**什么都不显示**，跟纯文本笔记长得一样，
- *    只能靠人工全库体检才发现。
- *    后端用的是正文表里更硬的证据：`附件数 > 0 或 录音卡SN 非空`，且音频未入库。
- */
-function audioPendingOf(n: Record<string, unknown> | null): boolean {
-  return Boolean(n?._audioPending);
-}
-
-/** 音频播放地址（专用接口，带笔记级可见性校验） */
-function audioSrc(noteId: string): string {
-  return `/api/v1/getnote/notes/${encodeURIComponent(noteId)}/audio`;
-}
-
-/** 毫秒 → `12:34`（音频播放器旁边显示时长用） */
-function fmtDuration(ms?: number): string {
-  const sec = Math.round((Number(ms) || 0) / 1000);
-  if (sec <= 0) return '';
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
 
 /**
  * 把 Get笔记 的 note 对象适配成 CrudPage 的行数据。
@@ -431,7 +369,7 @@ function makeColumns(
   ];
 }
 
-/** 笔记详情弹窗：遮罩 + 容器样式（复用 CrudPage 的 --bg-elevated / --shadow-modal 变量） */
+/** 弹窗遮罩（笔记详情弹窗已抽成 GetnoteNoteModal；这份留给「转换」等页面内弹窗复用） */
 const detailOverlay: Record<string, unknown> = {
   position: 'fixed',
   inset: 0,
@@ -442,16 +380,6 @@ const detailOverlay: Record<string, unknown> = {
   zIndex: 1000,
   padding: 24,
 };
-const detailModal: Record<string, unknown> = {
-  background: 'var(--bg-elevated)',
-  borderRadius: 12,
-  padding: 20,
-  width: 'min(880px, 100%)',
-  maxHeight: '90vh',
-  overflow: 'auto',
-  boxShadow: 'var(--shadow-modal)',
-};
-
 /** 「转换」候选模块弹窗：遮罩复用详情弹窗的，容器更窄一些 */
 const convertModal: Record<string, unknown> = {
   background: 'var(--bg-elevated)',
@@ -531,13 +459,9 @@ export default function GetnotePage() {
    */
   const [tagQuery, setTagQuery] = useState('');
 
-  // 笔记详情弹窗：点击列表标题拉取完整笔记内容（点标签检索互不影响）
+  // 笔记详情弹窗：只记「打开哪一篇」，内容由公用组件 GetnoteNoteModal 自己拉
+  //（原先这里还存 detailNote/loading/err/tab —— 那些随渲染一起搬进组件了）
   const [detailId, setDetailId] = useState('');
-  const [detailNote, setDetailNote] = useState<Record<string, unknown> | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailErr, setDetailErr] = useState('');
-  // 详情弹窗的 Tab：总结 / 原始记录
-  const [detailTab, setDetailTab] = useState<'summary' | 'raw'>('summary');
 
   /**
    * 「保存原始音频」任务进度。
@@ -770,21 +694,16 @@ export default function GetnotePage() {
       });
   }, []);
 
-  const openDetail = useCallback(async (id: string) => {
+  /**
+   * 打开某篇笔记的详情弹窗。
+   *
+   * 2026-09-26 起只负责「打开哪一篇」—— 拉取与渲染都交给公用组件 `GetnoteNoteModal`
+   * （「我的 IDP」点沟通记录标题用的是同一个组件）。这里**不再**预取正文，
+   * 避免「组件取一次、页面又取一次」发两遍上游请求（上游 QPS 只有 2）。
+   */
+  const openDetail = useCallback((id: string) => {
     setDetailId(id);
-    setDetailNote(null);
-    setDetailErr('');
-    setDetailTab('summary');
-    setDetailLoading(true);
-    try {
-      const n = await api.getGetnote(id);
-      setDetailNote(n);
-    } catch (e) {
-      setDetailErr(errorText(e, t));
-    } finally {
-      setDetailLoading(false);
-    }
-  }, [t]);
+  }, []);
 
   /**
    * 深链：`/getnote?note=<id>` 直接打开这篇笔记的详情。
@@ -1649,178 +1568,8 @@ export default function GetnotePage() {
       ]}
     />
 
-      {detailId && (
-        <div style={detailOverlay} onClick={() => setDetailId('')}>
-          <div style={detailModal} onClick={(e) => e.stopPropagation()}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 12,
-              }}
-            >
-              <h3 style={{ margin: 0, fontSize: 'var(--font-lg)', fontWeight: 700 }}>{t('noteDetail')}</h3>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => setDetailId('')}
-                title={tl('关闭')}
-                aria-label={tl('关闭')}
-              >
-                ×
-              </button>
-            </div>
-            {detailErr && (
-              <p style={{ color: 'var(--fg-error)', fontSize: 13, marginTop: 0, marginBottom: 8 }}>
-                {detailErr}
-              </p>
-            )}
-            {detailLoading && <p className="muted" style={{ fontSize: 13 }}>{t('loading')}</p>}
-            {detailNote && (
-              <div>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: 16,
-                    fontSize: 12,
-                    color: 'var(--fg-tertiary)',
-                    marginBottom: 12,
-                  }}
-                >
-                  <span>来源：{tagNames(detailNote).find((x) => NOTE_TYPES.includes(x)) ?? '得到大脑'}</span>
-                  <span>
-                    标签：{tagNames(detailNote).filter((x) => !NOTE_TYPES.includes(x)).join('、') || '—'}
-                  </span>
-                  <span>更新时间：{String(detailNote.updated_at ?? '')}</span>
-                </div>
-
-                {/* 原始音频（2026-09-17 起可落库）。只在真下载过时出现；
-                    播放走 /getnote/notes/:id/audio —— 该接口带笔记级可见性校验 */}
-                {audioOf(detailNote) ? (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      marginBottom: 12,
-                      padding: '8px 12px',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                    }}
-                  >
-                    <span style={{ fontSize: 12, color: 'var(--fg-tertiary)', whiteSpace: 'nowrap' }}>
-                      🎧 {t('audio')}
-                      {fmtDuration(audioOf(detailNote)?.durationMs)
-                        ? ` ${fmtDuration(audioOf(detailNote)?.durationMs)}`
-                        : ''}
-                    </span>
-                    <audio
-                      controls
-                      preload="none"
-                      style={{ flex: 1, height: 32 }}
-                      src={audioSrc(String(detailNote.id ?? detailId))}
-                    />
-                  </div>
-                ) : audioPendingOf(detailNote) ? (
-                  /**
-                   * 有录音、但音频还没抓下来（2026-09-22 补）。
-                   * 原先这里**什么都不渲染** —— 详情页看起来就是一篇普通笔记，
-                   * 谁也不会想到「这篇的录音躺在上游没搬过来」。
-                   */
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      marginBottom: 12,
-                      padding: '8px 12px',
-                      border: '1px dashed var(--border)',
-                      borderRadius: 8,
-                      fontSize: 12,
-                      color: 'var(--fg-tertiary)',
-                    }}
-                  >
-                    ⏳ {t('noAudioYet')}
-                  </div>
-                ) : null}
-
-                {/* 总结 / 原始记录 两个 Tab */}
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    marginBottom: 12,
-                    borderBottom: '1px solid var(--border)',
-                    paddingBottom: 8,
-                  }}
-                >
-                  <button
-                    type="button"
-                    className={detailTab === 'summary' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
-                    onClick={() => setDetailTab('summary')}
-                  >
-                    {t('summary')}
-                  </button>
-                  <button
-                    type="button"
-                    className={detailTab === 'raw' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
-                    onClick={() => setDetailTab('raw')}
-                  >
-                    {t('rawRecord')}
-                  </button>
-                </div>
-
-                {detailTab === 'summary' ? (
-                  <div
-                    className="md"
-                    style={{
-                      maxHeight: '60vh',
-                      overflow: 'auto',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      padding: '12px 16px',
-                      background: 'var(--bg-subtle)',
-                    }}
-                  >
-                    <Markdown>{String((detailNote.content as string) ?? '')}</Markdown>
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      maxHeight: '60vh',
-                      overflow: 'auto',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      padding: '12px 16px',
-                      background: 'var(--bg-subtle)',
-                    }}
-                  >
-                    {String((detailNote.rawRecord as string) ?? '').trim() ? (
-                      <pre
-                        style={{
-                          margin: 0,
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                          fontSize: 13,
-                          lineHeight: 1.7,
-                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                          color: 'var(--fg)',
-                        }}
-                      >
-                        {String(detailNote.rawRecord as string)}
-                      </pre>
-                    ) : (
-                      <p className="muted" style={{ fontSize: 13, margin: 0 }}>{t('noRawRecord')}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* 笔记详情弹窗：**公用组件**（「我的 IDP」点沟通记录标题也用它，见 GetnoteNoteModal） */}
+      <GetnoteNoteModal noteId={detailId} onClose={() => setDetailId('')} />
 
       {/* 「转换」候选模块弹窗：只列转换配置里 enabled 的菜单 */}
       {convertRow && (

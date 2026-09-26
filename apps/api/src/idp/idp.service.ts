@@ -598,11 +598,15 @@ export class IdpService {
       subject: string;
       time: number;
       person: string;
+      /** 沟通方式（面谈 / 电话 …） */
+      way: string;
       summary: string;
       attachments: number;
       /** 附件明细：界面要显示「名称 + 上传时间」并支持下载 / 删除 */
       files: IdpCommFile[];
       status: string;
+      /** 这条记录**自己**关联的笔记 id（点标题看哪一篇、行内显示「🔗 n 篇笔记」） */
+      linkedNoteIds: string[];
     }[];
   }> {
     this.requireMyIdp(user);
@@ -639,9 +643,12 @@ export class IdpService {
      * 该生 IDP沟通 记录**已关联的笔记 id**（不过滤时间段：跨批次已导入过的也算，
      * 否则同一个学期换个批次又能重复导入一遍）。
      * 「导入笔记」用它做「已导入的不再列出」，与 `entityType='IDP沟通'` 同一判据。
+     * ⚠️ 顶层是**并集**（导入过滤用）；每行还有各自的那一份（`rows[].linkedNoteIds`）——
+     *    界面按行显示「🔗 n 篇笔记」、点标题也只弹这条自己的那篇。
      */
     const allMine = comms.get(studentId) ?? [];
-    const linkedNoteIds = await this.linkedNoteIdsOf(allMine.map((c) => c.id));
+    const linkMap = await this.linkedNoteMapOf(allMine.map((c) => c.id));
+    const linkedNoteIds = [...new Set([...linkMap.values()].flat())];
 
     return {
       studentId,
@@ -655,26 +662,32 @@ export class IdpService {
         subject: c.subject,
         time: c.time,
         person: c.person,
+        way: c.way,
         summary: c.summary,
         attachments: c.attachments,
         files: c.files,
         status: c.status,
+        linkedNoteIds: linkMap.get(c.id) ?? [],
       })),
     };
   }
 
   /**
-   * 一批业务记录 id → 它们关联的笔记 id 集合（实体类型固定 `IDP沟通`）。
+   * 一批业务记录 id → **每条记录各自**关联的笔记 id（实体类型固定 `IDP沟通`）。
    *
    * 读的是「笔记关联」小表（全量翻页），与 `replaceLinks` 的写入判据同源
    * （`实体类型` + `实体ID` 两个文本字段）。**不要**改成按 noteId 反查 ——
    * 一处是 id 集合、一处是行，两套判据必然漂移。
+   *
+   * 2026-09-26：改成**按记录分组**返回 —— 界面上每条沟通记录要显示
+   * 「🔗 n 篇笔记」，点某条标题也只该弹**它自己**那篇。
+   * 「导入笔记」判「已导入」要的是跨批次**并集**，由调用方对 map.values() 展平即可。
    */
-  private async linkedNoteIdsOf(recordIds: string[]): Promise<string[]> {
+  private async linkedNoteMapOf(recordIds: string[]): Promise<Map<string, string[]>> {
     const sql = getSqlStore();
-    if (!sql || !recordIds.length) return [];
+    const out = new Map<string, string[]>();
+    if (!sql || !recordIds.length) return out;
     const want = new Set(recordIds);
-    const out = new Set<string>();
     let token: string | undefined;
     let guard = 0;
     do {
@@ -687,13 +700,17 @@ export class IdpService {
         const f = (rec.fields ?? {}) as Record<string, unknown>;
         // 一律走 `idpTextOf`（本模块读取字段的统一宽容口径，见 studentCls 的注释）
         if (idpTextOf(f['实体类型']) !== IDP_COMM_RECORD_TYPE) continue;
-        if (!want.has(idpTextOf(f['实体ID']))) continue;
+        const rid = idpTextOf(f['实体ID']);
+        if (!want.has(rid)) continue;
         const nid = idpTextOf(f['笔记ID']);
-        if (nid) out.add(nid);
+        if (!nid) continue;
+        const arr = out.get(rid) ?? [];
+        if (!arr.includes(nid)) arr.push(nid);
+        out.set(rid, arr);
       }
       token = res.pageToken;
     } while (token && guard++ < 40);
-    return [...out];
+    return out;
   }
 
   // ───────────────────────── 沟通次数（口径收口） ─────────────────────────
@@ -742,6 +759,7 @@ export class IdpService {
         subject: String(r.f['沟通主题'] ?? ''),
         summary: String(r.f['沟通总结'] ?? ''),
         person: String(r.f['沟通人'] ?? ''),
+        way: String(r.f['沟通方式'] ?? ''),
         attachments: countAttachments(r.f['沟通附件清单']),
         files,
         status: String(r.f['闭环状态'] ?? ''),
@@ -868,6 +886,8 @@ interface CommLite {
   subject: string;
   summary: string;
   person: string;
+  /** 沟通方式（面谈 / 电话 / 微信 …，取字典值；界面在元信息行里显示） */
+  way: string;
   attachments: number;
   /** 附件明细（下载 / 删除 / 显示名称与时间用），与 `attachments` 同源解析 */
   files: IdpCommFile[];

@@ -18,6 +18,9 @@ export interface MarkdownFieldProps {
   /** 是否显示「MD导入」按钮（默认跟随 editable）。与编辑权限分开控制，
    *  便于做到「可以手改但不许整篇导入覆盖」这类组合。 */
   canImport?: boolean;
+  /** 只读模式下「内容为空」时的提示语；不传则用 i18n 默认文案。
+   *  场景：IDP 里点沟通记录标题看「沟通总结 / 沟通明细」，空的时候要说清是哪个字段空。 */
+  emptyText?: string;
 }
 
 /**
@@ -36,6 +39,7 @@ export default function MarkdownField({
   label,
   placeholder,
   canImport,
+  emptyText,
 }: MarkdownFieldProps) {
   const t = useTranslations('common');
   // ⚠️ 无编辑权限时默认落在「浏览」：会议明细这类受控字段，用户先看渲染结果，
@@ -128,7 +132,7 @@ export default function MarkdownField({
             {value && value.trim() ? (
               <Markdown>{value}</Markdown>
             ) : (
-              <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>{t('mdEmpty')}</span>
+              <span style={{ color: 'var(--fg-tertiary)', fontSize: 'var(--font-sm)' }}>{emptyText ?? t('mdEmpty')}</span>
             )}
           </div>
         )}

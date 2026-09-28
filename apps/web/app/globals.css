@@ -1009,6 +1009,18 @@ a:hover { color: var(--accent-hover); }
 .crud-inline-form-actions {
   display: flex; justify-content: flex-end; gap: 10px; margin-top: var(--space-md);
 }
+/* 「我的笔记 → 转换」的就地表单（CrudPage 的 formOnly 模式）：无列表、无外框标题，只出表单本身 */
+.convert-form-only { padding: 0; }
+/* 「更多可选字段」折叠区：只是视觉收纳，字段照样渲染与提交 */
+.convert-more { margin-top: var(--space-md); }
+.convert-more > summary {
+  cursor: pointer; list-style: none;
+  font-size: var(--font-sm); color: var(--fg-secondary);
+  padding: 6px 0; border-top: 1px dashed var(--border);
+}
+.convert-more > summary::-webkit-details-marker { display: none; }
+.convert-more > summary::before { content: '▸ '; color: var(--fg-tertiary); }
+.convert-more[open] > summary::before { content: '▾ '; }
 .form-input {
   padding: 10px 14px; background: var(--surface-input);
   border: 1px solid var(--border); border-radius: var(--radius-md);

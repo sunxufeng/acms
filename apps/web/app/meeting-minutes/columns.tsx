@@ -164,7 +164,7 @@ export function buildMeetingColumns(ctx: MeetingColumnCtx = EMPTY_CTX): CrudColu
     // 列表列与表单字段都保留，仍可用顶部搜索框按关键字检索（q 走 searchFields）
     { key: '会议议题', label: '会议议题', width: '180px', form: true, required: true, listOrder: 3, section: SEC_BASE },
     // 筛选区去掉「会议地点」
-    { key: '会议地点', label: '会议地点', width: '120px', form: true, listOrder: 7, section: SEC_BASE },
+    { key: '会议地点', label: '会议地点', width: '120px', form: true, listOrder: 7, section: SEC_BASE, convertShow: true },
     {
       key: '会议时间',
       label: '会议时间',
@@ -184,6 +184,7 @@ export function buildMeetingColumns(ctx: MeetingColumnCtx = EMPTY_CTX): CrudColu
       type: 'datetime',
       listOrder: 5,
       section: SEC_TIME,
+      convertShow: true,
       render: (v) => fmtTime(v, true),
     },
     {
@@ -196,6 +197,7 @@ export function buildMeetingColumns(ctx: MeetingColumnCtx = EMPTY_CTX): CrudColu
       section: SEC_TIME,
       // 结束时间必须晚于开始时间（后端 meta.timeRange 也会校验，这里只是给录入提示）
       hint: '结束时间须晚于开始时间',
+      convertShow: true,
       render: (v) => fmtTime(v, true),
     },
     { key: '主持人', label: '主持人', width: '100px', form: true, type: 'person', listOrder: 8, section: SEC_TIME },
@@ -204,7 +206,7 @@ export function buildMeetingColumns(ctx: MeetingColumnCtx = EMPTY_CTX): CrudColu
     // 与单选的「主持人 / 记录人」同口径，便于互相对照；外部人员暂不支持，见 issue 说明）
     // 三者都改用「可搜索多选」控件：原先是把 28 个候选**全部铺成一堆复选框**，
     // 三列合计 84 个，表单被撑到三屏以上，选人只能一个个找。
-    { key: '参会人员', label: '参会人员', width: '160px', list: false, form: true, type: 'person', linkMulti: true, section: SEC_ATTEND, hint: '选择部门后会自动带出该部门（含下级）的成员，可再逐个取消',
+    { key: '参会人员', label: '参会人员', width: '160px', list: false, form: true, type: 'person', linkMulti: true, section: SEC_ATTEND, hint: '选择部门后会自动带出该部门（含下级）的成员，可再逐个取消', convertShow: true,
       /**
        * 记录「被手动删掉的人」—— 再改部门时不把他自动加回。
        * 算法：当前部门**本应**带出的人 − 现在名单里有的人 = 用户手工移除的。
@@ -217,8 +219,8 @@ export function buildMeetingColumns(ctx: MeetingColumnCtx = EMPTY_CTX): CrudColu
         return {};
       },
     },
-    { key: '缺席人员', label: '缺席人员', width: '160px', list: false, form: true, type: 'person', linkMulti: true, section: SEC_ATTEND },
-    { key: '列席人员', label: '列席人员', width: '160px', list: false, form: true, type: 'person', linkMulti: true, section: SEC_ATTEND },
+    { key: '缺席人员', label: '缺席人员', width: '160px', list: false, form: true, type: 'person', linkMulti: true, section: SEC_ATTEND, convertShow: true },
+    { key: '列席人员', label: '列席人员', width: '160px', list: false, form: true, type: 'person', linkMulti: true, section: SEC_ATTEND, convertShow: true },
     // 会议总结放在会议明细之前：先看清结论，再看原始记录
     { key: '会议总结', label: '会议总结（纪要）', list: false, form: true, type: 'markdown', section: SEC_CONTENT },
     {
@@ -255,6 +257,7 @@ export function buildMeetingColumns(ctx: MeetingColumnCtx = EMPTY_CTX): CrudColu
       dictKey: '会议状态',
       listOrder: 9,
       section: SEC_SCOPE,
+      convertShow: true,
     },
     {
       key: MEETING_VISIBILITY_FIELD,
@@ -265,6 +268,7 @@ export function buildMeetingColumns(ctx: MeetingColumnCtx = EMPTY_CTX): CrudColu
       type: 'select',
       listOrder: 10,
       section: SEC_SCOPE,
+      convertShow: true,
       /**
        * 🔴 这里用**静态 options**，不要改成字典。
        *
@@ -350,6 +354,7 @@ export function buildMeetingColumns(ctx: MeetingColumnCtx = EMPTY_CTX): CrudColu
       type: 'select',
       dictKey: '信息敏感级别',
       section: SEC_SCOPE,
+      convertShow: true,
     },
     ];
 }
@@ -395,13 +400,35 @@ const MEETING_SPEC: NoteAutoFillSpec = {
 
 export function parseMeetingFromSummary(
   values: Record<string, unknown>,
-  ctx?: { userName?: string; noteOwner?: string },
+  ctx?: { userName?: string; noteOwner?: string; noteTitle?: string; noteCreatedAt?: number },
 ): Record<string, unknown> {
+  /**
+   * 「会议议题 ← 笔记标题」「会议时间 ← 笔记创建时间」（2026-09-28 补齐，峰哥 2026-09-19 定的口径）。
+   *
+   * 招生跟进 / 学生记录早就是这两条口径了，会议纪要漏了 —— 后果是转换时「会议议题 / 会议时间」
+   * 两个**必填**字段空着，用户明明刚给笔记起过名字，还得再敲一遍（或者干脆被必填校验拦住）。
+   *
+   * 先塞进 values 再走 `enrichFromNotes`（而不是当 `defaults` 传）：`defaults` 是最低优先级
+   * （只在正文什么都没抽到时才填），而**笔记标题比正文里正则抽出来的碎片可靠**。
+   * 已存在的值一律不覆盖。
+   */
+  const seeded: Record<string, unknown> = { ...values };
+  const has = (k: string) => String(seeded[k] ?? '').trim() !== '';
+  if (!has('会议议题') && ctx?.noteTitle) seeded['会议议题'] = ctx.noteTitle;
+  if (!has('会议时间') && ctx?.noteCreatedAt) {
+    // 「会议时间」在表单里是 type='date'，**只填 YYYY-MM-DD**（带时刻会渲染成空框、等于白填）
+    const d = new Date(Number(ctx.noteCreatedAt));
+    if (!Number.isNaN(d.getTime())) {
+      const p = (n: number) => String(n).padStart(2, '0');
+      seeded['会议时间'] = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+  }
+
   // 「主持人 / 记录人」默认取**源笔记归属人**（会议纪要通常就是主持人或记录人自己录的），
   // 拿不到才回退登录用户 —— 管理员代转别人的笔记时，用登录用户会把这两个字段写成自己。
   // ⚠️ 只默认这两个**单人**字段：「参会 / 缺席 / 列席」是多人名单，默认塞一个人反而错。
   const owner = ctx?.noteOwner || ctx?.userName || '';
-  return enrichFromNotes(values, MEETING_SPEC, { 主持人: owner, 记录人: owner });
+  return enrichFromNotes(seeded, MEETING_SPEC, { 主持人: owner, 记录人: owner });
 }
 
 export function deptName(row: Record<string, unknown>): string {

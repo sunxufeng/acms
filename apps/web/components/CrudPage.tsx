@@ -111,6 +111,19 @@ export interface CrudColumn {
    */
   filterWidth?: number;
   form?: boolean;
+  /**
+   * 「我的笔记 → 转换」的**精简表单**里默认展开（不折进「更多可选字段」）。
+   *
+   * 转换表单默认只露「必填 ＋ 已自动填好」的字段，其余折起来 —— 因为转换时用户
+   * 主要在核对预填、补一两个必填项，把 20 个字段全铺开会把重点淹掉。
+   * 少数几个「转换时经常要顺手填」的字段用本标记提上来（峰哥 2026-09-28 逐个点名：
+   * 招生跟进的 活动类型/付款状态/家长/家长反馈态度、会议纪要的 会议地点/开始·结束时间/
+   * 参会·缺席·列席人员/状态/可见范围/敏感级别）。
+   *
+   * 🔴 写在**字段自己身上**，不要在转换面板里另列一份清单：字段一旦改名或增删，
+   *    列清单那边必然漂移（改名不报错，只是那个字段悄悄掉回折叠区，很难发现）。
+   */
+  convertShow?: boolean;
   /** 是否在列表表格中显示（默认 true；设为 false 仅保留在表单中，例如敏感列） */
   list?: boolean;
   /** 列表列排序权重（升序）；未设置的列排在已设置列之后，并保持原有相对顺序 */
@@ -288,7 +301,11 @@ export interface RangeFilter {
 }
 
 export interface CrudApi {
-  list: (params: Record<string, string | undefined>) => Promise<Page<Record<string, unknown>>>;
+  /**
+   * 拉列表。**可以不给**：`formOnly` 模式（「我的笔记 → 转换」的就地表单）只建记录、
+   * 不渲染列表，传一个不存在的 list 反而会诱使人去调它。
+   */
+  list?: (params: Record<string, string | undefined>) => Promise<Page<Record<string, unknown>>>;
   // ⚠️ 只读模块（如卫瓴联系人）只传 list：不传这三个就没有任何写入入口，
   // 配合 readonly / hideCreate 使用，避免被迫传空实现。
   create?: (data: Record<string, unknown>) => Promise<unknown>;
@@ -387,6 +404,46 @@ export interface CrudPageProps {
    * 所以这里按需补上第二个参数：既有调用方签名不变（少传参数 JS 不会报错）。
    */
   rowActionSlot?: (row: Record<string, unknown>, reload: () => void) => React.ReactNode;
+  /**
+   * 行**下方**的展开区（每行渲染一次）。返回 null / undefined 即该行不展开。
+   *
+   * 用途：「我的笔记」点「转换」后**就地**在这一行下面铺出转换表单 ——
+   * 不弹窗、不跳页，保存后仍停在当前列表（峰哥 2026-09-28 要求）。
+   * 展开区横跨整行（`colSpan` = 全部列），样式由调用方自己给。
+   */
+  expandedRow?: (row: Record<string, unknown>) => React.ReactNode;
+  /**
+   * 「只渲染表单」模式：**不渲染列表 / 筛选 / 工具栏 / 分页**，只渲染一个新建表单
+   * ＋ 保存 / 取消按钮，保存成功后调 `onSaved(created)` 而不刷新列表。
+   *
+   * 为什么加它而不是在调用方另写一份表单：目标模块的字段定义（`columns`）与**联动**
+   * （`onChangePatch` / `showIf` / 字典 / 关联候选项）都长在本组件里。
+   * 「我的笔记 → 转换」要做到「就地填、字段与各模块自己的新建表单完全一致」，
+   * 唯一不漂移的做法就是**复用同一份渲染与提交链路**。
+   *
+   * ⚠️ `initial` 只在**挂载时**用一次。同一个组件实例换目标模块请给新的 React `key`
+   *    （转换面板按「笔记 id + 目标模块 key」给 key），否则会拿旧初始值。
+   */
+  formOnly?: {
+    /** 预填值（目标模块字段名 → 值）；未知字段由 openCreate 丢弃 */
+    initial: Record<string, unknown>;
+    /** 保存成功回调，参数是后端返回的 created 对象（含新记录 id） */
+    onSaved?: (created: Record<string, unknown> | null) => void | Promise<void>;
+    /** 取消 */
+    onCancel?: () => void;
+    /** 表单上方的说明区（转换面板的「会带过去什么 / 转成哪种业务记录」） */
+    topSlot?: React.ReactNode;
+    /** 保存按钮文案（默认走 common.save） */
+    submitLabel?: string;
+  };
+  /**
+   * 表单值变化回调（每次 `form` 变更触发一次）。
+   *
+   * 用途：「我的笔记 → 转换」里，学生记录的字段措辞与显隐随「记录类型」变
+   * （沟通人 ↔ 观察人、家校沟通才有家长字段），而类型选择器就在表单里 ——
+   * 面板得知道自己该按哪个类型重建列定义。**只读回调，不参与渲染决策**。
+   */
+  onFormChange?: (form: Record<string, unknown>) => void;
   /** 表单（standalone / inline 弹窗）底部自定义操作按钮：run(values, close) 执行，
    *  需要当前表单字段值时用（如「测试连接」）。run 返回 { ok, text } 时 CrudPage 会在表单内展示结果 banner。 */
   formExtraActions?: {
@@ -503,6 +560,21 @@ export function studentLabel(name: string, englishName?: unknown): string {
 }
 
 /**
+ * 猜一条记录的可读标题：写「笔记 ↔ 业务记录」关联表时作为 `entityName`（仅供事后核对）。
+ *
+ * 各模块的标题字段名不统一，按常见度依次尝试，都没有就留空（不报错）。
+ * 🔴 必须只有一份实现：列表页保存后回填留痕、以及「我的笔记 → 转换」就地保存，
+ *    两处都要写这个 entityName —— 各写一份的话同一个字段会在一个流程里认得、另一个里丢掉。
+ */
+export function recordTitleOf(values: Record<string, unknown>): string {
+  for (const k of ['会议议题', '沟通主题', '标题', '名称', '学生姓名', '活动名称']) {
+    const v = values[k];
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
+/**
  * 学生档案里的「班级」——与后端 `MarkbookService.classOf` **同口径**：
  * **当前班级优先、空则回落当前年级**。
  *
@@ -600,7 +672,7 @@ let weilingContactCache: { value: string; label: string }[] | null = null;
  */
 let weilingContactStudentNameCache: Record<string, string> | null = null;
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, createDefaults, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, studentNameKeys, sidebar, extraParams, rowActionSlot }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, createDefaults, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, studentNameKeys, sidebar, extraParams, rowActionSlot, expandedRow, formOnly, onFormChange }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -901,6 +973,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   /** 拉取指定页（token 已知时直接拉；拉取后用返回 token 续填下一页游标） */
   const fetchPage = useCallback(
     async (target: number, token?: string) => {
+      // 没给 list 就是 formOnly 场景（只渲染表单、没有列表可拉），直接不做事
+      if (!apiRef.current.list) return;
       const seq = ++reqSeqRef.current;
       setLoading(true);
       setError(null);
@@ -944,7 +1018,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         return;
       }
       for (let p = tokenStack.current.length; p < target; p++) {
-        const data = await apiRef.current.list(buildParams(tokenStack.current[p - 1]));
+        const listFn = apiRef.current.list;
+        if (!listFn) return;
+        const data = await listFn(buildParams(tokenStack.current[p - 1]));
         tokenStack.current[p] = data.pageToken;
       }
       await fetchPage(target, tokenStack.current[target - 1]);
@@ -965,7 +1041,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
    */
   const extraKey = JSON.stringify(extraParams ?? {});
 
-  useEffect(() => { reload(); }, [filters, extraKey, reload]);
+  // formOnly（笔记转换的就地表单）没有列表，一次都不该去拉 —— 白打一次接口还会
+  // 让「我的笔记」在旁边多出一串无关请求。
+  useEffect(() => { if (!formOnly) reload(); }, [filters, extraKey, reload, formOnly]);
 
   /**
    * 自动刷新：只在「页面可见 + 没打开表单」时轮询。
@@ -982,6 +1060,8 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   /** 「全选所有结果」：按当前筛选把全部命中的行拉进已选（上限 500，够内部规模） */
   const selectAllResults = useCallback(async () => {
     try {
+      // 没给 list（formOnly 场景）就没有「全选所有结果」这件事，静默返回
+      if (!api.list) return;
       const res = await api.list({ ...buildParams(), pageSize: '500' });
       setSelectedRows((prev) => {
         const next = new Map(prev);
@@ -1433,16 +1513,36 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   }, []);
 
   /**
+   * `formOnly`（笔记转换的就地表单）：挂载时把预填值灌进表单并进入新建态。
+   *
+   * 🔴 `strictRequired = true`：转换时要**真的拦住**缺必填的提交。默认关闭这道校验
+   *    （普通新建允许服务端兜底必填），转换流程里用户看到的是一张「已帮你填好」的表，
+   *    缺什么必须当场说清，否则保存完才发现少字段、还得回头找那条记录。
+   *
+   * `formOnly.initial` 只在挂载时取一次 —— 换目标模块由调用方给新的 React `key` 触发重挂载
+   *（转换面板按「笔记 id + 模块 key」给 key，见 NoteConvertPanel）。
+   */
+  useEffect(() => {
+    if (!formOnly) return;
+    openCreate(formOnly.initial);
+    strictRequiredRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** 把表单当前值回吐给调用方（转换面板据此按「记录类型」重建列定义），只读、不影响渲染 */
+  useEffect(() => {
+    if (!formOnly) return;
+    onFormChange?.(form);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
+
+  /**
    * 猜一条记录的可读标题（写关联表时作为 entityName，仅用于事后核对）。
    * 各模块标题字段不统一，按常见度依次尝试，都没有就留空。
+   * 实现下沉到模块级（`recordTitleOf`）—— 「我的笔记 → 转换」写笔记关联时要用**同一份**，
+   * 两处各写一份的话，同一个字段在这个模块认得、在那个模块不认得。
    */
-  function titleOf(values: Record<string, unknown>): string {
-    for (const k of ['会议议题', '沟通主题', '标题', '名称', '学生姓名', '活动名称']) {
-      const v = values[k];
-      if (v != null && String(v).trim()) return String(v).trim();
-    }
-    return '';
-  }
+  const titleOf = recordTitleOf;
 
   function openEdit(row: Record<string, unknown>) {
     const init: Record<string, unknown> = {};
@@ -1561,6 +1661,14 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
         const created = api.create
           ? ((await api.create(payload)) as Record<string, unknown> | undefined)
           : undefined;
+        /**
+         * formOnly（笔记转换的就地表单）：不刷新列表、也不在这里写留痕 ——
+         * 把 created 交回调用方，由它去写「笔记转换记录」+「笔记 ↔ 业务记录」关联。
+         */
+        if (formOnly) {
+          await formOnly.onSaved?.(created ?? null);
+          return;
+        }
         // 转换场景：把生成的业务记录 id 回填留痕，日后能直接跳到「转成的那条记录」。
         // 回填失败不影响业务记录本身 —— 它已经存下来了，所以这里静默降级。
         const logId = convertLogIdRef.current;
@@ -1762,15 +1870,22 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
    */
   const shownCols = formCols.filter((c) => !c.showIf || c.showIf(form));
 
-  const formFields = (
+  /**
+   * 渲染一组字段（`form-grid` 两列布局）。
+   *
+   * 抽成函数是为了让「我的笔记 → 转换」的**精简表单**复用同一份渲染：那边要把它拆成
+   * 「主字段」与「更多可选字段（折叠）」两段。🔴 必须复用这一份 —— 另写一个渲染器的话，
+   * 以后新增一种字段类型（或调整某个控件的交互）就会只改一处，两边的表单长得不一样。
+   */
+  const formGridOf = (cols: CrudColumn[]) => (
     <div className="form-grid">
-      {shownCols.map((c, ci) => (
+      {cols.map((c, ci) => (
         <Fragment key={c.key}>
         {/* 分区标题：与上一列分区不同时插入一行（跨整行），让长表单分块可读
-            ⚠️ 比的是 `shownCols`（过滤后的实际渲染序列）而不是 `formCols`：
+            ⚠️ 比的是 `cols`（过滤后的实际渲染序列）而不是 `formCols`：
             拿 formCols[ci-1] 比会在有 showIf 隐藏字段时**索引错位** ——
             学生记录这类「同一份列定义按类型显隐」的模块会表现成标题重复或该有标题却没有 */}
-        {c.section && c.section !== shownCols[ci - 1]?.section ? (
+        {c.section && c.section !== cols[ci - 1]?.section ? (
           <div
             style={{
               gridColumn: '1 / -1',
@@ -2058,6 +2173,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     </div>
   );
 
+  /** 全部条件可见字段的渲染结果（列表页的 inline / standalone / 弹窗三种表单都用它） */
+  const formFields = formGridOf(shownCols);
+
   /** 左侧栏开关：进入独立表单页（新建/编辑）时让位给整宽表单 */
   const showSidebar = Boolean(sidebar) && !showingStandaloneForm;
 
@@ -2263,8 +2381,11 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             {rows.map((row) => {
               const st = statusField ? str(row[statusField]) : '';
               const allowed = transitions && st ? transitions[st] ?? [] : [];
+              const extra = expandedRow?.(row);
               return (
-                <tr key={String(row.id)}>
+                // 一行 + 它下方的展开区：key 挂在外层 Fragment 上（只有一个 key 才不告警）
+                <Fragment key={String(row.id)}>
+                <tr>
                   {selection && (
                     <td style={{ textAlign: 'center', width: '44px' }}>
                       <input
@@ -2405,6 +2526,16 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   </td>
                   )}
                 </tr>
+                {/* 行下方的展开区（「我的笔记」点「转换」就地铺出转换表单用）。
+                    整行横跨：`colSpan` 用 colCount（含多选列与操作列），少算一列表格会错位。 */}
+                {extra ? (
+                  <tr>
+                    <td colSpan={colCount} style={{ padding: 0, background: 'var(--surface-hover)' }}>
+                      {extra}
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
               );
             })}
             {items.length === 0 && !loading && (
@@ -2428,6 +2559,63 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
       </>)}
     </>
   );
+
+  /**
+   * `formOnly`（笔记转换的就地表单）：**只**渲染表单本身，不渲染列表 / 筛选 / 工具栏 / 分页。
+   *
+   * 字段分两段（峰哥 2026-09-28 定的规矩：只露「必填 ＋ 已自动填好」的，其余折起来）：
+   *   · 主字段 = 必填 ∨ 已自动填好 ∨ 显式标了 `convertShow` ∨ 条件字段（`showIf`）
+   *   · 其余进「更多可选字段」折叠区
+   *
+   * ⚠️ 折叠只是**视觉收纳**：两段都照常渲染、照常提交。必填校验与 payload 取的都是
+   *    `formCols`（全量），所以与列表页那三种表单形态的行为完全一致（见 `shownCols` 的说明）。
+   * ⚠️ 判「已自动填好」用的是**挂载时的初始值**（`formOnly.initial`），不是实时的 `form`：
+   *    用实时值的话，联动填上一个字段会让它当场从折叠区跳到主区，布局来回抖。
+   */
+  if (formOnly) {
+    const seed = formOnly.initial ?? {};
+    const hasSeed = (k: string) => {
+      const v = seed[k];
+      if (Array.isArray(v)) return v.length > 0;
+      return v != null && String(v).trim() !== '';
+    };
+    const isFoldable = (c: CrudColumn) => !c.required && !c.showIf && !c.convertShow && !hasSeed(c.key);
+    const mainCols = shownCols.filter((c) => !isFoldable(c));
+    const moreCols = shownCols.filter(isFoldable);
+    return (
+      <div className="convert-form-only">
+        {formOnly.topSlot}
+
+        {error && <p className="msg-error">{error}</p>}
+
+        <fieldset className="form-fieldset">
+          <legend className="form-legend">{tl(title)} {t('crud.info')}</legend>
+          {formGridOf(mainCols)}
+          {moreCols.length ? (
+            <details className="convert-more">
+              <summary>
+                {t('crud.moreFields', {
+                  n: moreCols.length,
+                  list: moreCols.map((c) => tl(c.label)).join(' / '),
+                })}
+              </summary>
+              <div style={{ marginTop: 10 }}>{formGridOf(moreCols)}</div>
+            </details>
+          ) : null}
+        </fieldset>
+
+        <div className="crud-inline-form-actions">
+          <button className="btn btn-ghost" onClick={() => formOnly.onCancel?.()} disabled={submitting}>
+            {t('common.cancel')}
+          </button>
+          <button className="btn btn-primary" onClick={submit} disabled={submitting}>
+            {submitting ? t('common.saving') : (formOnly.submitLabel ?? t('common.save'))}
+          </button>
+        </div>
+        {formActionMsg && <p className={formActionMsg.ok ? 'msg-ok' : 'msg-error'}>{formActionMsg.text}</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="page">

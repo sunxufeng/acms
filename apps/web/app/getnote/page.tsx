@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import GetnoteNoteModal from '../../components/GetnoteNoteModal';
+// 就地转换面板（点「转换」后铺在这一行下面的三段式表单）
+import NoteConvertPanel from '../../components/NoteConvertPanel';
 import { NOTE_TYPES, audioOf, audioPendingOf, audioSrc, fmtDuration } from '../../lib/getnoteNote';
 import { api, type GetnoteCredential, type GetnoteOAuthStart, type ApiRequestError, type RefetchAudioProgress } from '../../lib/api';
 import type { NoteConvertTarget, NoteConvertLogItem, NoteConfigMapItem } from '@acms/contracts';
@@ -369,26 +371,24 @@ function makeColumns(
   ];
 }
 
-/** 弹窗遮罩（笔记详情弹窗已抽成 GetnoteNoteModal；这份留给「转换」等页面内弹窗复用） */
-const detailOverlay: Record<string, unknown> = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 1000,
-  padding: 24,
+/**
+ * 转换面板所在行的展开单元格（左边留出与「标题」列对齐的缩进，与「我的 IDP」同款）。
+ * 2026-09-28 起转换不再弹窗，就地铺在这一行下面。
+ */
+const convertExpandStyle: React.CSSProperties = {
+  padding: '0 12px 14px 30px',
 };
-/** 「转换」候选模块弹窗：遮罩复用详情弹窗的，容器更窄一些 */
-const convertModal: Record<string, unknown> = {
-  background: 'var(--bg-elevated)',
-  borderRadius: 12,
-  padding: 20,
-  width: 'min(520px, 100%)',
-  maxHeight: '80vh',
-  overflow: 'auto',
-  boxShadow: 'var(--shadow-modal)',
+
+/** 留痕写不进去时的黄色提示（不阻断转换，但必须让用户看见） */
+const convertWarnStyle: React.CSSProperties = {
+  margin: '10px 0 0',
+  padding: '8px 12px',
+  borderRadius: 8,
+  fontSize: 12,
+  lineHeight: 1.6,
+  background: '#FAEEDA',
+  border: '1px solid #EF9F27',
+  color: '#854F0B',
 };
 
 /** 来源筛选时最多翻多少页（防止笔记极多时把请求打满） */
@@ -512,9 +512,12 @@ export default function GetnotePage() {
   );
   const { playingId, toggle: toggleRowAudio } = useRowAudio(rowAudioSrcOf);
 
-  // 笔记转换：候选目标模块 + 当前正在转换的笔记行
+  // 笔记转换：候选目标模块 + 当前正在转换的笔记行（展开区渲染在那一行下面）
   const [convertTargets, setConvertTargets] = useState<NoteConvertTarget[]>([]);
   const [convertRow, setConvertRow] = useState<Record<string, unknown> | null>(null);
+  /** 正在读「转换配置」（列表点开时拉一次）；不区分它会把「读取中」显示成「没有启用目标」 */
+  const [convertCfgBusy, setConvertCfgBusy] = useState(false);
+  /** 退回旧流程（跳到目标模块新建页）时的忙碌标记 */
   const [convertBusy, setConvertBusy] = useState(false);
   const [convertErr, setConvertErr] = useState('');
   /** 留痕写不进去时的黄色提示（不阻断转换，只是让用户知情） */
@@ -753,21 +756,29 @@ export default function GetnotePage() {
       }
       setConvertRow(row);
       setConvertTargets([]);
+      setConvertCfgBusy(true);
       try {
         const cfg = await api.getNoteConvert();
         setConvertTargets((cfg.items ?? []).filter((i) => i.enabled));
       } catch {
         setConvertErr(t('convertLoadFailed'));
+      } finally {
+        setConvertCfgBusy(false);
       }
     },
     [t],
   );
 
   /**
-   * 执行转换：拉详情取「总结 + 原始记录」→ 写留痕 → 暂存预填 → 跳目标模块。
+   * **兜底**转换路径：拉详情取「总结 + 原始记录」→ 写留痕 → 暂存预填 → 跳目标模块。
    *
-   * 顺序说明：留痕必须在跳转前做（跳走后就拿不到这篇笔记的上下文了），
-   * 所以留痕语义是「已发起转换」，重复转同一模块会累加成 ×2 / ×3。
+   * 2026-09-28 起主流程已改成就地展开（`NoteConvertPanel` + CrudPage 的 `formOnly`），
+   * 只有当目标模块**没有登记**页内表单（`lib/convertForm` 的 `convertFormFor` 返回 null，
+   * 比如以后在「转换配置」里新加的模块）时，才走这条老路：跳过去填。
+   *
+   * 顺序说明：这里的留痕必须在跳转前做（跳走后就拿不到这篇笔记的上下文了），
+   * 所以**这条路径**的留痕语义仍是「已发起转换」；就地那条是「保存成功才记」。
+   * 两条路径的差别是有意为之：跳页后这边拿不到「对方保存没保存」的回执。
    *
    * ⚠️ 留痕不写 Get笔记 标签：上游硬限制单篇笔记最多 5 个标签，system + ai
    *    标签常已占掉 4 个，一加就报 `tags length must be less than 5`。
@@ -1566,145 +1577,58 @@ export default function GetnotePage() {
           run: (row) => openConvert(row),
         },
       ]}
+      /**
+       * 转换面板**就地铺在这条笔记下面**（峰哥 2026-09-28：不要弹窗、不要跳页）。
+       * 只有「正在转换的那一行」返回内容，其余行返回 null。
+       */
+      expandedRow={(row) => {
+        if (!convertRow || String(convertRow.id ?? '') !== String(row.id ?? '')) return null;
+        const noteId = String(row.id ?? '');
+        return (
+          <div style={convertExpandStyle}>
+            {convertErr ? <p className="msg-error" style={{ marginTop: 10 }}>{convertErr}</p> : null}
+            {convertWarn ? (
+              <p style={convertWarnStyle}>{convertWarn}</p>
+            ) : null}
+            {convertCfgBusy ? (
+              <p className="muted" style={{ fontSize: 13, padding: '10px 0' }}>{t('convertReading')}</p>
+            ) : convertTargets.length === 0 ? (
+              <p className="muted" style={{ fontSize: 13, padding: '10px 0', lineHeight: 1.7 }}>
+                {t('convertNoTarget')}
+              </p>
+            ) : (
+              <NoteConvertPanel
+                // key 带 noteId：换一条笔记要整体重挂载（初始值只在挂载时读一次）
+                key={noteId}
+                noteId={noteId}
+                noteTitle={String(row.title ?? '')}
+                noteOwner={String(row._owner ?? '')}
+                noteCreatedAt={Number(row.created_at ?? 0) || 0}
+                targets={convertTargets}
+                logs={convertLogs[noteId] ?? []}
+                // 未登记页内表单的模块：退回旧流程（写预填 → 跳到它的新建页）
+                onFallback={(tg) => void doConvert(tg)}
+                onLogged={(item) =>
+                  setConvertLogs((prev) => ({
+                    ...prev,
+                    [noteId]: [
+                      ...(prev[noteId] ?? []).filter((i) => i.moduleKey !== item.moduleKey),
+                      item,
+                    ],
+                  }))
+                }
+                onClose={() => setConvertRow(null)}
+              />
+            )}
+          </div>
+        );
+      }}
     />
 
       {/* 笔记详情弹窗：**公用组件**（「我的 IDP」点沟通记录标题也用它，见 GetnoteNoteModal） */}
       <GetnoteNoteModal noteId={detailId} onClose={() => setDetailId('')} />
 
-      {/* 「转换」候选模块弹窗：只列转换配置里 enabled 的菜单 */}
-      {convertRow && (
-        <div
-          style={detailOverlay as React.CSSProperties}
-          onClick={() => { if (!convertBusy) { setConvertRow(null); setConvertErr(''); setConvertWarn(''); } }}
-        >
-          <div style={convertModal as React.CSSProperties} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <h3 style={{ margin: 0, fontSize: 'var(--font-lg)', fontWeight: 700 }}>
-                  {t('convertTitle')}
-                </h3>
-                <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--fg-tertiary)', lineHeight: 1.6 }}>
-                  {t('convertTip', { title: String(convertRow.title ?? '') })}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                disabled={convertBusy}
-                onClick={() => { setConvertRow(null); setConvertErr(''); setConvertWarn(''); }}
-              >
-                ×
-              </button>
-            </div>
-
-            {convertErr && <p className="msg-error" style={{ marginTop: 0 }}>{convertErr}</p>}
-
-            {/* 留痕写不进去时的黄色提示：转换照常继续，但必须让用户看见 */}
-            {convertWarn && (
-              <p
-                style={{
-                  marginTop: 0,
-                  marginBottom: 10,
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  fontSize: 12,
-                  lineHeight: 1.6,
-                  background: '#FAEEDA',
-                  border: '1px solid #EF9F27',
-                  color: '#854F0B',
-                }}
-              >
-                {convertWarn}
-              </p>
-            )}
-
-            {convertTargets.length === 0 ? (
-              <p className="muted" style={{ fontSize: 13, margin: '4px 0 0', lineHeight: 1.7 }}>
-                {t('convertNoTarget')}
-              </p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {convertTargets.map((tg) => {
-                  // 这篇笔记转过该模块几次（留痕来自 ACMS 转换记录表，不是 Get笔记 标签）
-                  const done = (convertLogs[String(convertRow?.id ?? '')] ?? []).find(
-                    (i) => i.moduleKey === tg.key,
-                  );
-                  return (
-                    <button
-                      key={tg.key}
-                      type="button"
-                      disabled={convertBusy}
-                      onClick={() => void doConvert(tg)}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'flex-start',
-                        gap: 4,
-                        padding: '10px 12px',
-                        borderRadius: 8,
-                        border: '1px solid var(--border)',
-                        background: 'var(--bg-subtle)',
-                        cursor: convertBusy ? 'default' : 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg)' }}>
-                        {tg.label}
-                        {tg.enLabel ? (
-                          <span style={{ fontWeight: 400, color: 'var(--fg-tertiary)', marginLeft: 6 }}>
-                            {tg.enLabel}
-                          </span>
-                        ) : null}
-                        {done?.count ? (
-                          <span
-                            title={t('convertedTimesTip', { label: tg.label, count: done.count })}
-                            style={{
-                              fontWeight: 400,
-                              fontSize: 11,
-                              marginLeft: 8,
-                              padding: '1px 8px',
-                              borderRadius: 999,
-                              background: 'var(--bg-elevated)',
-                              border: '1px solid var(--border)',
-                              color: 'var(--fg-tertiary)',
-                            }}
-                          >
-                            {t('convertedTimes', { count: done.count })}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span style={{ fontSize: 12, color: 'var(--fg-tertiary)' }}>
-                        {t('convertFieldMap', {
-                          summary: tg.summaryField || '—',
-                          raw: tg.rawField || '—',
-                        })}
-                        {/* 让人一眼看出「这次转换会不会带上录音」—— 有音频但目标模块没配
-                            audioField 时什么都不显示，用户自然会去「转换配置」里补字段 */}
-                        {audioOf(convertRow) && tg.audioField ? (
-                          <span style={{ marginLeft: 8, color: 'var(--accent)' }}>
-                            🎧 {t('audioWithConvert')}
-                          </span>
-                        ) : null}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button
-                type="button"
-                className="btn btn-sm"
-                disabled={convertBusy}
-                onClick={() => { setConvertRow(null); setConvertErr(''); setConvertWarn(''); }}
-              >
-                {t('cancel')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 转换面板已改成就地展开（`expandedRow` + NoteConvertPanel）：不再有弹窗 */}
     </>
   );
 }

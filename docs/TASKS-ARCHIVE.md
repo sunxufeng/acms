@@ -1,11 +1,75 @@
 # ACMS 任务归档
 
-> 时间跨度：2026-08-25 ~ 2026-09-26（33 个工作日）· 共 **1090 条**（已完成 1087 · 待处理 3）
+> 时间跨度：2026-08-25 ~ 2026-09-26（33 个工作日）· 共 **1116 条**（已完成 1113 · 待处理 3）
 >
 > ⚠️ 本文件是**执行过程**的归档（含"构建部署验证"这类操作性任务），用于回溯"做过什么"。
 > **项目计划**（要做什么、优先级、状态）见仓库根目录 [`PLAN.md`](../PLAN.md)。
 >
 > 由 AI 助手在每次工作后同步；`[x]` = 已完成，`[ ]` = 待处理。
+
+## 2026-09-28 深夜（26 条，完成 26）
+
+**「我的笔记 → 转换」改行内就地：不弹窗、不跳页、保存成功才留痕**
+
+### 一、CrudPage 新增 `formOnly` 模式（就地表单的宿主）
+
+- [x] 传了就**不渲染列表 / 筛选 / 工具栏 / 分页**，只渲染表单 + 保存/取消；
+      保存成功调 `onSaved(created)` 而不刷新列表
+- [x] 字段渲染抽成 `formGridOf(cols)`（**只有一份**），`formFields = formGridOf(shownCols)`
+      供原有 inline / standalone / 弹窗三种表单形态复用
+- [x] 新增 `expandedRow`（行下方展开区，`colSpan = colCount`）与
+      `onFormChange`（表单值回吐给调用方）
+- [x] `CrudApi.list` 改为可选（formOnly 没有列表），两处调用点补空守卫
+- [x] 🔴 不另写表单渲染：目标模块的字段定义与联动（`onChangePatch` / `showIf` / 字典 /
+      关联候选项）全长在 CrudPage 里，自己拼一份必然漂移且不报错
+
+### 二、「只露必填 + 已自动填好，其余折叠」
+
+- [x] 折叠判据：`!required && !showIf && !convertShow && 初值为空`
+- [x] 新增 `CrudColumn.convertShow`（**写在字段自己身上**）：招生跟进 5 处、会议纪要 9 处
+- [x] ⚠️ 判「已填」用挂载时的初值，不用实时 `form`（否则联动一填就跳区、布局抖）
+- [x] 折叠只是视觉收纳：两段都渲染、都提交（payload 仍取 `formCols` 全量）
+- [x] 「更多可选字段（N 项：字段名…）」的文案**从列定义生成**，不手写清单
+
+### 三、留痕改为**保存成功才记**
+
+- [x] 旧：点开转换就写留痕 ⇒「已转 N 次」虚高。新：`onSaved(created)` 之后才写
+      → `linkNoteConvert(logId, newId)` → `replaceGetnoteLinks(...)`
+- [x] 跳页兜底路径保持「跳转前写」（跳走拿不到回执），两条路径语义有意不同、注释写清
+- [x] 副作用：归档闸门从「点转换」挪到「保存时」；按钮层仍判、后端仍会拦 409
+
+### 四、新增文件
+
+- [x] `lib/convertForm.ts`：模块登记表 `menuKey → {columns, api, enrichPrefill, detailHref}`，
+      **只有「从哪拿」的信息、没有任何字段清单**；未登记的模块返回 null ⇒ 退回跳页流程
+- [x] `components/NoteConvertPanel.tsx`：三段式面板（①带过去什么 ②选目标 ③表单 ④结果态）
+- [x] `lib/useDeptMembers.ts`：从会议纪要页抽出的「部门→含下级成员」+「我所属部门」+
+      「手工删掉的人」，会议纪要页与本面板共用
+
+### 五、顺手补齐
+
+- [x] `parseMeetingFromSummary` 补「会议议题 ← 笔记标题 / 会议时间 ← 笔记创建日期」
+      （与招生跟进/学生记录同口径；原先漏了 ⇒ 两个**必填**字段空着）。时间只拼 `YYYY-MM-DD`
+- [x] 删除 getnote 页的 `convertModal` / `detailOverlay` 与自造弹窗样式
+
+### 六、验证与交付
+
+- [x] 新增守卫 `test/note-convert-inline.test.ts`（21 条）：formOnly 分支在列表之前 return /
+      `formGridOf` 只有一份 / 折叠判据 / 初值判据 / `expandedRow` 的 colSpan /
+      **留痕只在 onSaved 之后**（并断言 `pick` 里不出现 `logNoteConvert`）/ 面板里无目标模块字段名 /
+      登记表里无字段清单 / 会议纪要 9 个 `convertShow` / 会议议题·时间补齐
+- [x] 全量：**704 tests passed** · typecheck 全绿 · i18n lint 通过（539 条 tl 字面量）
+- [x] 线上产物核验：新面板 CSS（`convert-form-only` / `convert-more`）与页面 chunk 均在
+- [x] 页面 smoke（CrudPage 是全站组件）：`/getnote` · `/source-followups` · `/student-records` ·
+      `/meeting-minutes` · `/my-idp` 全部 HTTP 200、无 Application error
+- [x] 写链路往返（用**不存在的 noteId**，对真实笔记零副作用）：
+      `POST /student-records` 201 → `POST /getnote/convert-log` 201 → `PUT .../target` 200 →
+      `PUT /getnote/links` 200 → 读回关联 1 条、目标记录ID 已回填、转换次数=1
+- [x] 残留复核：探针三样标记（记录 id / 探针笔记 id / 完整标题）在 **public 全部 895 个列**上
+      扫描 **0 处命中**；学生记录表总行数回到 210、最后一条真实数据仍是 17:36
+- [x] 二次受控探针（建→按 id 直查→删）：表行数 **210 → 211 → 210**，含探针标记 0 行
+- [x] 交付链：`3940370` → 远端 `4e95942`（tree `c795cf6` 一致）→ 部署 BUILD_ID
+      `AAa71R4wg-zsyoX6pz6r8`（slot 3002/3102）
 
 ## 2026-09-28 晚（8 条，完成 8）
 

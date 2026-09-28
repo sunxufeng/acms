@@ -496,12 +496,26 @@ describe('C. IDP 统计（2026-09-29 新增）', () => {
   const shell = read('apps/web/components/AppShell.tsx');
   const mp = read('packages/contracts/src/module-permissions.ts');
 
-  it('🔴 权限版本抬到 6，且两个新资源都登记了引入版本（否则存量角色不会走增量迁移）', () => {
-    expect(mp).toContain('export const ROLE_PERMISSION_VERSION = 6;');
+  it('🔴 权限版本抬到 7，且两个新资源的引入版本都是 7（v6 迁移被整体跳过，靠 v7 重跑补齐）', () => {
+    expect(mp).toContain('export const ROLE_PERMISSION_VERSION = 7;');
     const i = mp.indexOf('MODULE_RESOURCE_INTRODUCED_VERSION');
-    const seg = mp.slice(i, i + 400);
-    expect(seg).toContain('myIdp: 6');
-    expect(seg).toContain('idpStats: 6');
+    const seg = mp.slice(i, i + 1200);
+    expect(seg).toContain('myIdp: 7');
+    expect(seg).toContain('idpStats: 7');
+  });
+
+  it('🔴 每个资源的引入版本都必须 ≤ 当前版本（否则 `v <= toVersion` 永远过滤掉 ⇒ 该资源永不迁移）', () => {
+    // 这条是 2026-09-29 的教训守卫：v6 上线后 Phase1~8 一个 idpStats 都没拿到，
+    // 根因就是"资源引入版本 == 角色已到达的版本"，迁移整体被跳过。
+    const cur = Number(/ROLE_PERMISSION_VERSION = (\d+)/.exec(mp)?.[1]);
+    expect(cur).toBeGreaterThan(0);
+    const i = mp.indexOf('MODULE_RESOURCE_INTRODUCED_VERSION');
+    const body = mp.slice(i, mp.indexOf('};', i));
+    const pairs = [...body.matchAll(/(\w+):\s*(\d+)/g)].map((m) => [m[1], Number(m[2])] as const);
+    expect(pairs.length).toBeGreaterThan(2);
+    for (const [key, v] of pairs) {
+      expect(v, `${key} 的引入版本 ${v} 超过当前版本 ${cur}`).toBeLessThanOrEqual(cur);
+    }
   });
 
   it('🔴 两个资源的继承源必须是 module:meetingMinutes:read（11 个教职工角色，学生家长不持有）', () => {

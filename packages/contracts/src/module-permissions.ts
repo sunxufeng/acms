@@ -56,8 +56,28 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *      而他们持有 `module:dailyFollowups:read`）—— 本次一并修掉，他们不再持有新点。
  *
  *   ⚠️ 两个都是**只读**模块：`legacyWrite: null`（没有写动作，也不该继承写权限）。
+ *
+ * v7（2026-09-29，**v6 没补全的补救**）：🔴 v6 上线后实测 —— **Phase1~Phase8 只拿到了
+ *   `module:myIdp:*`，一个 `module:idpStats:*` 都没有**（Phase9 / Phase10 反而正常）。
+ *
+ *   原因不在资源定义（两个资源同源、同动作，实测在服务器上直接调 `inheritModulePermissions`
+ *   会同时补上 4 条），而在**迁移本身是一次性的**：
+ *   `migratePermissions()` 只处理 `permissionVersion < ROLE_PERMISSION_VERSION` 的角色，
+ *   补完把角色的版本推到当前值。**角色的版本一旦被推到 6，v6 那批资源就再也不会补** ——
+ *   06:56 那次部署启动时，日志里**没有**「已完成角色权限 v6 一次性迁移」这一行，
+ *   说明迁移被整体跳过（部分角色在部署前已是 6），于是 `idpStats` 永久漏掉。
+ *
+ *   ⇒ 补救方式是**再抬一个版本**并把两个资源的引入版本一并标成 7：
+ *     这样 `resourceKeysIntroducedAfter(6)` 重新返回 `['myIdp', 'idpStats']`，
+ *     下一次启动的增量迁移会把两者补齐（对已有 `myIdp` 的角色是幂等叠加，
+ *     只补这两个资源、不会重算全量，因此不会踩 v5 注释里那两处"多发权限"的坑）。
+ *
+ *   🔴 教训（已写进套件文档）：
+ *   ① 抬版本 ≠ 一定补上。**必须用「代表性角色」的会话实测接口**（管理员 / 教职工 / 学生各一），
+ *      只看配置数组会得出"已经继承了"的错误结论 —— 本次就是靠这条探针抓出来的。
+ *   ② 迁移跑没跑，看日志那一行「已完成角色权限 vN 一次性迁移」；**没有这行 = 整个跳过**。
  */
-export const ROLE_PERMISSION_VERSION = 6;
+export const ROLE_PERMISSION_VERSION = 7;
 
 /**
  * 资源「从哪个版本开始存在」。
@@ -75,10 +95,15 @@ export const ROLE_PERMISSION_VERSION = 6;
  */
 export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
   meetingRooms: 5,
-  // v6（2026-09-29）：两个 IDP 只读页 —— 继承源都是 `module:meetingMinutes:read`
-  //（= 11 个教职工角色），见文件头 v6 的说明。
-  myIdp: 6,
-  idpStats: 6,
+  // v7（2026-09-29）：两个 IDP 只读页 —— 继承源都是 `module:meetingMinutes:read`
+  //（= 11 个教职工角色），见文件头 v7 的说明。
+  //
+  // 🔴 为什么从 6 改成 7：v6 那次迁移被整体跳过（角色版本已提前到 6），
+  //    `idpStats` 因此从未补进任何教职工角色。把引入版本标成 7 才能让
+  //    `(6, 7]` 区间的增量迁移重新覆盖到这两个资源。
+  //    以后再加资源，**引入版本必须等于当次抬的版本号**，且必须 ≤ ROLE_PERMISSION_VERSION。
+  myIdp: 7,
+  idpStats: 7,
 };
 
 /** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */

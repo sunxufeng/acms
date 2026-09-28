@@ -67,7 +67,7 @@ const COLUMNS: CrudColumn[] = [
     options: [...JOB_FREQS],
     filter: true,
     filterOptions: [...JOB_FREQS],
-    hint: '每天＝按「执行时间」的 HH:MM；每小时＝每小时的第 N 分（取「执行时间」的分钟）；每15分钟＝每小时 0/15/30/45 分',
+    hint: '每天＝按「执行时间」的 HH:MM 跑一次；每小时＝从「执行时间」的 HH:MM 起、每小时一次（填 07:15 ⇒ 07:15 / 08:15 / …，次日仍从 07:15 开始）；每15分钟＝每小时 0/15/30/45 分',
     listOrder: 5,
   },
   {
@@ -77,7 +77,7 @@ const COLUMNS: CrudColumn[] = [
     form: true,
     type: 'text',
     required: true,
-    hint: 'HH:MM，北京时间。频率=每小时时只用其中的「分钟」',
+    hint: 'HH:MM，北京时间。频率=每小时时它是**起始时刻**（那之前不跑，次日从这个点重新开始）',
     listOrder: 6,
   },
   {

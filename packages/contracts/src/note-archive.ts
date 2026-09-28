@@ -33,11 +33,19 @@ export interface NoteArchiveJobDef {
   label: string;
   /** 停用的任务不参与定时触发（但**仍可手动运行** —— 手动就是要立刻跑一次） */
   enabled: boolean;
-  /** 到点执行什么：笔记归档 / 卫瓴联系人同步 / 邮件收取 */
+  /** 到点执行什么：笔记归档 / 卫瓴联系人同步 / 邮件收取 / 知识库同步 */
   kind: JobKind;
-  /** 多久跑一次：每天（按 HH:MM）/ 每小时（按第 N 分）/ 每15分钟 */
+  /**
+   * 多久跑一次。
+   * · `每天` —— 按 HH:MM 跑一次
+   * · `每小时` —— 从 HH:MM **起算**每小时一次（见 `shouldRunArchiveJob`）
+   * · `每15分钟` —— 忽略 hour/minute
+   */
   freq: JobFreq;
-  /** 北京时间（服务器时区不可信，判据一律走 `beijingClock()`） */
+  /**
+   * 北京时间（服务器时区不可信，判据一律走 `beijingClock()`）。
+   * `每天` = 执行时刻的小时；`每小时` = **起始时刻**的小时（07:15 起每小时 ⇒ 7）。
+   */
   hour: number;
   minute: number;
   /**
@@ -87,7 +95,12 @@ export const ARCHIVE_JOB_FIELDS = {
    *    否则上线当天两条归档任务会被当成"未知类型"而**静默不跑**。
    */
   任务类型: '任务类型',
-  /** 频率：`每天`（用 执行时间 的 HH:MM）/ `每小时`（每小时的第 N 分，取 执行时间 的分钟）/ `每15分钟` */
+  /**
+   * 频率：
+   *  · `每天` —— 用 执行时间 的完整 HH:MM
+   *  · `每小时` —— **从 执行时间 的 HH:MM 起算**，每小时一次（07:15 ⇒ 07:15/08:15/…/23:15）
+   *  · `每15分钟` —— 执行时间不起作用
+   */
   频率: '频率',
   执行时间: '执行时间',
   执行日: '执行日',
@@ -379,7 +392,7 @@ export function validateArchiveJob(job: NoteArchiveJobDef): string[] {
     if (!Array.isArray(job.kinds) || !job.kinds.length) out.push('输出内容没选（明细/总结至少选一个）');
   }
   if (job.freq === '每小时' && !(job.minute >= 0 && job.minute <= 59)) {
-    out.push('「每小时」频率用的是执行时间的分钟（0–59）');
+    out.push('「每小时」用的是执行时间的 HH:MM（起始时刻 + 每小时一次）');
   }
   return out;
 }
@@ -539,7 +552,7 @@ export function jobKindLabel(kind: JobKind): string {
 }
 
 /**
- * 任务展示用的「执行安排」文案：`每天 01:00` / `每小时第 30 分` / `每15分钟`。
+ * 任务展示用的「执行安排」文案：`每天 01:00` / `07:15 起每小时` / `每 15 分钟`。
  * 给人看的，别拿它做判据（判据在 `shouldRunArchiveJob`）。
  */
 export function archiveJobScheduleText(job: NoteArchiveJobDef): string {
@@ -548,7 +561,10 @@ export function archiveJobScheduleText(job: NoteArchiveJobDef): string {
   // ⚠️ 频率=每小时/每15分钟时，`weekdaySummary([])` 会给出「每天」——
   //    拼起来变成「每天 每小时第 57 分」这种自相矛盾的文案（日志里一眼就看得见）。
   //    所以非「每天」频率下，只在**真的限定了星期**时才带前缀。
-  if (job.freq === '每小时') return job.weekdays.length ? `${days} 每小时第 ${job.minute} 分` : `每小时第 ${job.minute} 分`;
+  if (job.freq === '每小时') {
+    // 「HH:MM 起每小时」——hour 是**起始时刻**的小时（见 `shouldRunArchiveJob`）
+    return job.weekdays.length ? `${days} ${time} 起每小时` : `${time} 起每小时`;
+  }
   if (job.freq === '每15分钟') return job.weekdays.length ? `${days} 每 15 分钟` : '每 15 分钟';
   return `${days} ${time}`;
 }
@@ -601,8 +617,21 @@ export function shouldRunArchiveJob(
     return nowMinutes - Math.floor(nowMinutes / 15) * 15 <= 6;
   }
   if (job.freq === '每小时') {
-    // 每小时的第 N 分（N = 执行时间的分钟）。同样是「到点之后这一小时内都算到点」——
-    // 部署重启错过那一刻时，本小时内下一次 tick 能补上；槽位去重保证一小时只跑一次。
+    /**
+     * 每小时一次，从「执行时间」的 **HH:MM 起算**。
+     *
+     * 🔴 2026-09-28：`hour` 在这一档里表达**起始时刻**（峰哥要的「每天早晨 7:15 开始、
+     *    每小时跑一遍」）——`07:15` ⇒ 07:15 / 08:15 … 23:15，当天 07:14 之前不跑。
+     *
+     * ⚠️ 向后兼容：存量任务若把执行时间写成 `00:00`（或任何 `HH:MM`，如「每小时第 15 分」
+     *    习惯写 `00:15`），起始时刻就是 00:15，**与旧行为等价**（00:00–00:14 本来也不满足
+     *    `% 60 >= 15`）。所以这次收紧不会让任何既有任务"少跑一次"。
+     *
+     * 后半句仍是「到点之后这一小时内都算到点」：部署重启错过那一刻时，本小时内下一次
+     * tick 能补上；槽位去重保证一小时只跑一次。
+     */
+    const start = job.hour * 60 + job.minute;
+    if (nowMinutes < start) return false;
     return nowMinutes % 60 >= job.minute;
   }
   const start = job.hour * 60 + job.minute;

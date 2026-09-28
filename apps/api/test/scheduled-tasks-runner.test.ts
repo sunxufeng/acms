@@ -127,8 +127,50 @@ describe('定时任务 · 兼容性与按类型的校验', () => {
 
   it('执行安排文案能同时表达三种频率（页面/日志要看得懂）', () => {
     expect(archiveJobScheduleText(job({ freq: '每天', hour: 7, minute: 0 }))).toContain('07:00');
-    expect(archiveJobScheduleText(job({ freq: '每小时', minute: 30 }))).toContain('每小时第 30 分');
+    // 「每小时」的文案要带上**起始时刻**（2026-09-28 起 hour 在这一档表示起点）
+    expect(archiveJobScheduleText(job({ freq: '每小时', hour: 7, minute: 15 }))).toContain('07:15 起每小时');
     expect(archiveJobScheduleText(job({ freq: '每15分钟' }))).toContain('15');
+  });
+});
+
+/**
+ * 「每天 7:15 开始、每小时一次」（2026-09-28 峰哥要求）。
+ *
+ * 语义：从「执行时间」的 HH:MM 起算，每小时一次，直到当天结束；**次日重新从起点开始**
+ * （00:00–07:14 不跑）。这一档原先只看分钟 ⇒ 会全天 24 小时都跑。
+ */
+describe('定时任务 · 「每小时」从起始时刻起算', () => {
+  it('07:15 起每小时：起点前不跑，起点后每小时的 :15 跑', () => {
+    const j = job({ freq: '每小时', hour: 7, minute: 15 });
+    expect(shouldRunArchiveJob(j, 6 * 60, false)).toBe(false); // 06:00 还没到起点
+    expect(shouldRunArchiveJob(j, 7 * 60 + 14, false)).toBe(false); // 07:14 差一分钟
+    expect(shouldRunArchiveJob(j, 7 * 60 + 15, false)).toBe(true); // 07:15 第一次
+    expect(shouldRunArchiveJob(j, 7 * 60 + 59, false)).toBe(true); // 本小时槽内可补跑
+    expect(shouldRunArchiveJob(j, 8 * 60, false)).toBe(false); // 08:00 属于下一槽，等 08:15
+    expect(shouldRunArchiveJob(j, 8 * 60 + 15, false)).toBe(true); // 08:15 第二次
+    expect(shouldRunArchiveJob(j, 23 * 60 + 15, false)).toBe(true); // 23:15 当天最后一次
+    expect(shouldRunArchiveJob(j, 23 * 60 + 16, false)).toBe(true);
+  });
+
+  it('跨天要**回到起点重来**（凌晨那几小时不跑）', () => {
+    const j = job({ freq: '每小时', hour: 7, minute: 15 });
+    expect(shouldRunArchiveJob(j, 1 * 60 + 15, false)).toBe(false); // 次日 01:15 不该跑
+    expect(shouldRunArchiveJob(j, 7 * 60 + 15, false)).toBe(true); // 次日 07:15 才重新开始
+  });
+
+  it('🔴 向后兼容：起点写成 00:xx 时与旧行为**完全等价**（存量任务不会少跑）', () => {
+    // 旧口径 = 只看分钟：每小时第 15 分 ⇒ 00:15 / 01:15 / …
+    const j = job({ freq: '每小时', hour: 0, minute: 15 });
+    expect(shouldRunArchiveJob(j, 0 * 60 + 14, false)).toBe(false); // 旧口径也不跑（14 < 15）
+    expect(shouldRunArchiveJob(j, 0 * 60 + 15, false)).toBe(true);
+    expect(shouldRunArchiveJob(j, 1 * 60 + 15, false)).toBe(true);
+    expect(shouldRunArchiveJob(j, 23 * 60 + 15, false)).toBe(true);
+    // 起点 00:00（最常见的默认值）= 全天每小时整点起跑
+    // ⚠️ minute=0 时「本小时内都算到点」⇒ 3:00 与 3:01 都为 true —— 这是**旧口径就有的**行为
+    //    （`% 60 >= 0` 恒成立），不是本次改动引入的
+    const z = job({ freq: '每小时', hour: 0, minute: 0 });
+    expect(shouldRunArchiveJob(z, 3 * 60, false)).toBe(true);
+    expect(shouldRunArchiveJob(z, 3 * 60 + 1, false)).toBe(true);
   });
 });
 

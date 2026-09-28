@@ -1,11 +1,86 @@
 # ACMS 任务归档
 
-> 时间跨度：2026-08-25 ~ 2026-09-26（33 个工作日）· 共 **1130 条**（已完成 1127 · 待处理 3）
+> 时间跨度：2026-08-25 ~ 2026-09-29（34 个工作日）· 共 **1158 条**（已完成 1155 · 待处理 3）
 >
 > ⚠️ 本文件是**执行过程**的归档（含"构建部署验证"这类操作性任务），用于回溯"做过什么"。
 > **项目计划**（要做什么、优先级、状态）见仓库根目录 [`PLAN.md`](../PLAN.md)。
 >
 > 由 AI 助手在每次工作后同步；`[x]` = 已完成，`[ ]` = 待处理。
+
+## 2026-09-29 凌晨（IDP 统计页 + 权限另造 + 笔记判据修复，38 条，完成 38）
+
+**新页面「IDP 统计」（/idp-stats）+「我的 IDP」/「IDP 统计」改独立权限点**
+
+### 一、新页面（峰哥给的格式逐项落地）
+
+- [x] 结构：老师卡（共 N 学生 / 本月沟通 M 学生·K 次 / 未沟通 X / 最近一次）→ 学生行
+      （次数 · 最近一次 · 两次相隔 · 距今）→ 每条沟通（日期 · 主题 · **笔记** · 附件）
+- [x] 后端 `GET /idp-stats?configId&month`（`IdpService.stats`）：本月 = 自然月；
+      「相隔」按**自然日**差（`idpGapDaysAsc`）；「距今」（`idpDaysAgo`）；
+      归属 = **学生的 IDP 老师**（不是"谁谈的"），沟通人 ≠ 该生老师时标 `byOtherCount` +
+      卡片汇总 `coveringCount`；没分配老师的学生单独在 `unassigned` 里报出来
+- [x] 前端：筛选（学年学期 / 月份 / 排序 / 搜索）+ 概览四格 + 老师卡可收起 + 学生明细可展开
+      + 未沟通学生**列名字** + 导出 CSV；笔记详情**复用公用组件** `GetnoteNoteModal`
+- [x] 数据范围：`module:idpPlans:read`（系统管理员 / 院级管理）看全部，其余只看自己
+      （判据 `idpStatsSeeAll`，后端收敛）
+- [x] 新增纯函数（contracts，前后端共用 + 单测）：`idpMonthKey`（北京时间月份）、
+      `idpDayIndex` / `idpGapDaysAsc` / `idpDaysAgo`（自然日口径）、`idpStatsSeeAll`、
+      `idpMenuVisible({perms, menus}, key)`
+
+### 二、权限另造（峰哥：「我的 IDP 和 IDP 统计都另造权限，有权限的人才能看到这个菜单」）
+
+- [x] 新增两个独立权限点 `module:myIdp:read` / `module:idpStats:read`（两个资源，
+      `legacyRead: 'module:meetingMinutes:read'`、`legacyWrite: null`、`actions: READ`）
+- [x] 判据收口在 contracts 的 `idpMenuVisible({perms, menus}, key)`（前端菜单与后端守卫同一份），
+      菜单白名单兼容合并前的学生记录旧 key（Phase1 白名单里有 `studentObservations`，
+      严格只认新 key 会把招生老师整体挡在门外）
+- [x] 顺带修掉旧问题：改造前判据是「任一记录类型 read」，student / parent 也看得到老师端菜单
+- [x] 菜单注册：`nav_menu_config` 写 DB（81 项，插在「我的IDP」之后，跑 dry-run → 备份 →
+      PUT → 逐项 diff 回读：原有 80 项**零改动**、无重复 key、顺序保持）
+- [x] 🔴 **权限版本 6 → 7 的补救**（详见下）
+
+### 三、🔴 权限迁移「抬版本 ≠ 一定补上」——本次真实踩到
+
+- [x] 现象：IDP 统计页上线后 **Phase1~Phase8 访问 /idp-stats 全部 403**，
+      而 Phase9 / Phase10 / 院级管理 / 系统管理员正常
+- [x] 逐角色核对（v6 时）：系统管理员/院级/Phase9/Phase10 两个点都有；
+      **Phase1~8 只有 `myIdp`、一个 `idpStats` 都没有**；student/parent 只有 `enter`
+- [x] 根因：**权限迁移是一次性的** —— `migratePermissions()` 只处理
+      `permissionVersion < ROLE_PERMISSION_VERSION` 的角色，补完把角色版本推到当前值；
+      **版本一旦到达 6，v6 这批资源就再也不会补**。证据：06:56 那次部署的启动日志里
+      **没有**「已完成角色权限 v6 一次性迁移」这一行 ⇒ 迁移被整体跳过
+- [x] 排除项（都实测过）：资源定义错（服务器上直调 `inheritModulePermissions` 会一次补 4 条）/
+      产物旧（服务器 dist 含 idpStats）/ sanitize 过滤（`PERMISSIONS` 含 `...MODULE_PERMISSIONS`）/
+      菜单白名单（`idpMenuVisible` 兼容 `studentObservations`）
+- [x] 补救：`ROLE_PERMISSION_VERSION` 6 → 7，两个资源的 `MODULE_RESOURCE_INTRODUCED_VERSION`
+      一并标成 7 ⇒ `resourceKeysIntroducedAfter(6)` 重新返回两者，增量迁移补齐
+      （只补这两个资源、不重算全量 ⇒ 不会重演 v5 注释里"多发权限"的坑）
+- [x] 迁移前**备份角色配置**（`/opt/acms/backups/role_permission_config_before_v7_*.json`）
+- [x] 结果：全部 14 个角色 v=7，Phase1~8 都拿到 `idpStats`
+
+### 四、顺带发现的既有 bug：IDP 沟通记录的「笔记」**一条都读不出来**
+
+- [x] 现象：统计页与「我的 IDP」时间线的「笔记」列恒空，**且不报错**
+- [x] 实测事实（生产库，本月 13 条 IDP沟通 记录）：
+      `实体类型=学生记录 → 13 行`、`实体类型=IDP沟通 → 0 行`
+- [x] 根因：写侧（「我的笔记 → 转换」留痕 + `PUT /getnote/links`）用的是**模块标签**
+      （`target.label` = 「学生记录」），而 IDP 读取侧硬编码按**记录类型**（`IDP沟通`）过滤
+- [x] 修法：**放宽读取侧**（不动写侧 —— 改写侧会让已有 13 条历史关联全部对不上）：
+      contracts 新增 `IDP_COMM_NOTE_ENTITY_TYPES = [IDP_COMM_RECORD_TYPE, '学生记录']`，
+      `linkedNotesOf` 与复用它的 `linkedNoteMapOf` 都走它
+- [x] ⚠️ 只放宽「关联行」的判据；**筛 IDP沟通 记录**那条仍用单一值（放宽会串到别的记录类型）
+- [x] 结果：本月 13 条记录 **13 条都带上了笔记**
+
+### 五、验证与交付链
+
+- [x] 守卫：`apps/api/test/idp.test.ts` A/A2/C/C2 四段（权限闸门「其它权限点一律不能放行」/
+      统计口径纯函数 / 接线 / 🔴「每个资源的引入版本必须 ≤ 当前版本」/ 笔记判据常量）
+- [x] 全量：**724 tests passed** · typecheck 全绿 · i18n lint 通过（539 条）
+- [x] 线上：页面 smoke 6 个全 200；三方会话实测 —— 管理员 `seeAll=True` 23 老师/78 学生/11 人 13 次、
+      Phase1 老师 `seeAll=False` 1 老师/3 学生、student/parent 仍 403（线上无该角色用户，按判据推证）
+- [x] 产物核验：141 个 chunk 里 `idp-stats` / `idpStats` / `notTalkedLine` / `gapShort` 命中
+- [x] 交付链：功能 `124b55b` → 权限修复 `feb1644` → 笔记修复 `7af80b4`
+      → 部署 BUILD_ID `keBtTJr7jtG56TpwmQJEw`（slot 3002/3102）
 
 ## 2026-09-28 深夜（续，14 条，完成 14）
 

@@ -257,9 +257,12 @@ describe('A. IDP 菜单判据（idpMenuVisible，2026-09-29 改独立权限点�
     expect(hp).toContain(`key: '${IDP_STATS_MENU_KEY}'`);
   });
 
-  it('🔴 「IDP 统计」看全部老师 = 持有 idpPlans:read（系统管理员 / 院级管理）', () => {
-    expect(idpStatsSeeAll([modulePermission('idpPlans', 'read')])).toBe(true);
+  it('🔴 「IDP 统计」看全部老师 = 持有 idpStatsAll:read（专用点，不连带 IDP配置）', () => {
+    expect(idpStatsSeeAll([modulePermission('idpStatsAll', 'read')])).toBe(true);
+    // 只有页面权限 ≠ 能看全部
     expect(idpStatsSeeAll([modulePermission('idpStats', 'read')])).toBe(false);
+    // 🔴 反向：光有「IDP配置」的读权限**不再**等于能看全部（2026-09-29 v8 解绑）
+    expect(idpStatsSeeAll([modulePermission('idpPlans', 'read')])).toBe(false);
     expect(idpStatsSeeAll([])).toBe(false);
     expect(idpStatsSeeAll(null)).toBe(false);
   });
@@ -496,10 +499,11 @@ describe('C. IDP 统计（2026-09-29 新增）', () => {
   const shell = read('apps/web/components/AppShell.tsx');
   const mp = read('packages/contracts/src/module-permissions.ts');
 
-  it('🔴 权限版本抬到 7，且两个新资源的引入版本都是 7（v6 迁移被整体跳过，靠 v7 重跑补齐）', () => {
-    expect(mp).toContain('export const ROLE_PERMISSION_VERSION = 7;');
+  it('🔴 两个 IDP 只读页的引入版本是 7（v6 迁移被整体跳过，靠 v7 重跑补齐）', () => {
+    // 「当前版本号」由 C3 段钉住（现为 8），这里只钉这两个资源的引入版本 ——
+    // 它们必须停在 7：改成 8 会让下一次迁移把它们当成"新资源"再发一遍。
     const i = mp.indexOf('MODULE_RESOURCE_INTRODUCED_VERSION');
-    const seg = mp.slice(i, i + 1200);
+    const seg = mp.slice(i, i + 1600);
     expect(seg).toContain('myIdp: 7');
     expect(seg).toContain('idpStats: 7');
   });
@@ -603,5 +607,43 @@ describe('C2. 笔记关联的实体类型判据（2026-09-29 实测修正）', (
   it('只放宽「关联行」的判据，**记录类型**的判据仍必须是单一值', () => {
     // 997 行附近：筛 IDP沟通 记录用的还是 IDP_COMM_RECORD_TYPE（放宽这里会串到别的记录类型）
     expect(svc).toContain('value: [IDP_COMM_RECORD_TYPE]');
+  });
+});
+
+describe('C3. 「看全部」是专用权限点 idpStatsAll（2026-09-29 v8 与 IDP配置解绑）', () => {
+  const mp = read('packages/contracts/src/module-permissions.ts');
+
+  it('🔴 版本抬到 8，且 idpStatsAll 的引入版本也是 8', () => {
+    expect(mp).toContain('export const ROLE_PERMISSION_VERSION = 8;');
+    const i = mp.indexOf('MODULE_RESOURCE_INTRODUCED_VERSION');
+    const seg = mp.slice(i, i + 1600);
+    expect(seg).toContain('idpStatsAll: 8');
+  });
+
+  it('🔴 legacyRead 必须是 null —— 这个开关**绝不能**随版本迁移自动发放（否则人人看全部）', () => {
+    const i = mp.indexOf("key: 'idpStatsAll'");
+    expect(i).toBeGreaterThan(-1);
+    const block = mp.slice(i, mp.indexOf('genericCrud', i) + 40);
+    expect(block).toContain('legacyRead: null');
+    expect(block).toContain('legacyWrite: null');
+    expect(block).toContain('menuPermission: null');
+    // 只给 read：它没有自己的页面，不存在「进入菜单」
+    expect(block).toContain("actions: ['read']");
+    // 🔴 必须挂到「IDP 统计」菜单下：不填 subOf，权限矩阵里生不出这一行，
+    //    管理员**找不到勾选的地方** ⇒ 功能等于不可用
+    expect(block).toContain("subOf: 'idpStats'");
+  });
+
+  it('🔴 解绑的核心断言：光有「IDP配置」读权限**不再**等于能看全部', () => {
+    expect(idpStatsSeeAll([modulePermission('idpPlans', 'read')])).toBe(false);
+    expect(idpStatsSeeAll([modulePermission('idpStatsAll', 'read')])).toBe(true);
+  });
+
+  it('idpStatsAll 不是「IDP配置」的别名，也不会抢 /idp-stats 的路由匹配', () => {
+    const c = read('packages/contracts/src/module-permissions.ts');
+    const i = c.indexOf("key: 'idpStatsAll'");
+    const block = c.slice(i, c.indexOf('genericCrud', i) + 40);
+    expect(block).toContain("path: '/idp-stats/all'");
+    expect(block).not.toContain("path: '/idp-stats',");
   });
 });

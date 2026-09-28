@@ -76,8 +76,26 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *   ① 抬版本 ≠ 一定补上。**必须用「代表性角色」的会话实测接口**（管理员 / 教职工 / 学生各一），
  *      只看配置数组会得出"已经继承了"的错误结论 —— 本次就是靠这条探针抓出来的。
  *   ② 迁移跑没跑，看日志那一行「已完成角色权限 vN 一次性迁移」；**没有这行 = 整个跳过**。
+ *
+ * v8（2026-09-29）：新增 **`idpStatsAll`**（「IDP 统计 · 看全部」）—— 把「看全部老师」的开关
+ *   从 `module:idpPlans:read` 里**独立出来**。
+ *
+ *   🔴 为什么必须独立：`idpStatsSeeAll` 原先借 `module:idpPlans:read` 当判据，而那个点是
+ *      **「IDP配置」页（/idp-configs）的入口**。峰哥要给刘佳音开「看全部老师统计」，
+ *      借 idpPlans 会连带让她看到 IDP 配置页 —— 那是两件事，不该绑在一起。
+ *      另外生产实测 `idpPlans:read` 还被 **student / parent** 持有（历史遗留：学生看自己的
+ *      IDP 计划用），一旦哪天给他们 `idpStats:read`，他们就会看到**全部老师**的统计。
+ *
+ *   ⚠️ 这个资源**刻意 `legacyRead: null`**：它是「只给特定角色」的开关，
+ *      **绝不能随版本迁移发给所有持有某个旧点的角色**（那正是本次要修掉的毛病）。
+ *      迁移后只有**系统管理员**（`healLockedRoles()` 用代码全量权限自愈）持有；
+ *      「院级管理」与具体负责人**由管理员在角色矩阵里手工勾选**。
+ *   ⚠️ `actions: ['read']` 是**故意只给 read**：它没有自己的页面，不存在"进入菜单"，
+ *      不给 `enter` ⇒ `normalizeRolePermissions` 也不会自补一个语义不通的 `:enter`。
+ *   ⚠️ `subOf: 'idpStats'` ⇒ 权限矩阵里渲染成「IDP 统计」菜单下的**缩进子行**
+ *      （不填的话矩阵里生不出这一行，管理员**找不到勾选的地方**，等于功能不可用）。
  */
-export const ROLE_PERMISSION_VERSION = 7;
+export const ROLE_PERMISSION_VERSION = 8;
 
 /**
  * 资源「从哪个版本开始存在」。
@@ -104,6 +122,9 @@ export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
   //    以后再加资源，**引入版本必须等于当次抬的版本号**，且必须 ≤ ROLE_PERMISSION_VERSION。
   myIdp: 7,
   idpStats: 7,
+  // v8（2026-09-29）：「IDP 统计 · 看全部」开关。`legacyRead: null` ⇒ 迁移**不发给任何人**
+  //（只有系统管理员靠代码全量权限自愈持有），院级管理与具体负责人由管理员手工勾选。
+  idpStatsAll: 8,
 };
 
 /** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */
@@ -269,10 +290,34 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
    * 「IDP 统计」（2026-09-29 新增）：按 IDP 老师统计名下学生某个月的沟通情况。
    *
    * 权限与「我的 IDP」同源（同一批人该看到）⇒ 同一个继承源，一次迁移两页同时生效。
-   * **数据范围**另有一道判据：持有 `module:idpPlans:read`（系统管理员 / 院级管理）看全部老师，
+   * **数据范围**另有一道判据：持有 `module:idpStatsAll:read`（见下面那条资源）看全部老师，
    * 其余人只看自己名下（后端 `IdpService.stats` 收敛，见 contracts 的 `idpStatsSeeAll`）。
    */
   { key: 'idpStats', label: 'IDP 统计', path: '/idp-stats', legacyRead: 'module:meetingMinutes:read', legacyWrite: null, menuPermission: null, actions: READ, genericCrud: false },
+  /**
+   * 「IDP 统计 · 看全部」（2026-09-29 新增）：**没有自己的页面**，只是「看全部老师」的开关。
+   *
+   * 🔴 为什么单独造一个点：原先 `idpStatsSeeAll` 借 `module:idpPlans:read` 当判据，
+   *    而那是**「IDP配置」页的入口** ⇒ 想让人"看全部统计"就必然连带让他看到 IDP 配置页。
+   *    峰哥 2026-09-29：「改成专用权限点，不连带 IDP配置」。
+   *
+   * ⚠️ `legacyRead: null` **是刻意的**：这是"只给特定角色"的开关，
+   *    **不能**随版本迁移发给所有持有某个旧点的角色（否则等于人人看全部）。
+   * ⚠️ `actions: ['read']` 只给 read：没有独立页面 ⇒ 不需要 enter/refresh。
+   * ⚠️ `subOf: 'idpStats'`：权限矩阵里挂到「IDP 统计」菜单下作为缩进子行
+   *    —— 不填就在矩阵里生不出这一行，管理员就没地方勾。
+   */
+  {
+    key: 'idpStatsAll',
+    label: 'IDP 统计 · 看全部',
+    path: '/idp-stats/all',
+    legacyRead: null,
+    legacyWrite: null,
+    menuPermission: null,
+    actions: ['read'],
+    subOf: 'idpStats',
+    genericCrud: false,
+  },
   { key: 'stageEvaluations', label: '阶段评价', path: '/stage-evaluations', aliases: ['/export/stageEvaluation'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'evaluation:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'alumniFollowups', label: '校友跟进', path: '/alumni-followups', aliases: ['/export/alumniFollowup'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'alumni:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'openPlatformApps', label: '开放平台', path: '/open-platform', legacyRead: 'openplatform:read', legacyWrite: 'openplatform:write', menuPermission: 'openplatform:read', actions: RECORD, genericCrud: true },

@@ -227,15 +227,22 @@ export function idpMenuVisible(
 /**
  * 「IDP 统计」的**数据范围**判据：`true` = 看全部老师，`false` = 只看自己名下。
  *
- * 用 `module:idpPlans:read`（IDP 配置的读权限）作依据：生产实测只有
- * **系统管理员 / 院级管理**（以及 student / parent，但他们拿不到 `idpStats` 这个点）
- * 持有它 ⇒ 等价于「管理员看全员、老师看自己」。
+ * 判据 = 持有 `module:idpStatsAll:read`（2026-09-29 v8 起**专用**，矩阵里显示为
+ * 「IDP 统计 · 看全部」，挂在「IDP 统计」菜单下的缩进子行）。
+ *
+ * 🔴 为什么不能借 `module:idpPlans:read`（原实现）：那是**「IDP配置」页的入口**，
+ *    借它等于"想看全部统计就必须同时能看到 IDP 配置页"—— 两件事绑在一起了。
+ *    而且生产实测 `idpPlans:read` 还被 **student / parent** 持有（历史遗留），
+ *    哪天给他们 `idpStats:read`，他们就会看到**全部老师**的统计。
+ *
+ * ⚠️ 该点 `legacyRead: null` ⇒ **不会**随版本迁移自动发放（否则等于人人看全部）；
+ *    持有它 = 系统管理员（代码全量自愈）+ 管理员在角色矩阵里手工勾选的角色。
  *
  * ⚠️ 不要改成「角色名里含管理员」之类的字面判断：角色是**配置数据**，可以改名、可以新增，
  *    写死角色名的那天就是漏授权的那天。权限点才是真源。
  */
 export function idpStatsSeeAll(perms: readonly string[] | undefined | null): boolean {
-  return Boolean(perms?.includes(modulePermission('idpPlans', 'read')));
+  return Boolean(perms?.includes(modulePermission('idpStatsAll', 'read')));
 }
 
 // ─────────────────────────────────────────────────────────────

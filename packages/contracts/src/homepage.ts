@@ -341,7 +341,8 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     // 而是收口在 contracts 的 `idpMenuVisible({perms, menus}, 'myIdp')`（见 AppShell.canSeeItem）。
     { key: 'myIdp', label: '我的IDP', enLabel: 'My IDP', href: '/my-idp', icon: 'target', section: '学生闭环', order: 70, perm: '' },
     // IDP 统计（2026-09-29 新增）：管理员/院级 + 老师看「名下学生本月沟通」。
-    // 独立权限点 `module:idpStats:read`；**看全部老师**另需 `module:idpPlans:read`
+    // 独立权限点 `module:idpStats:read`；**看全部老师**另需 `module:idpStatsAll:read`
+    //（矩阵里挂在下面那行缩进子项，2026-09-29 v8 起与「IDP配置」解绑）
     //（判据 `idpStatsSeeAll`，后端收敛数据范围、前端据此决定显不显示老师筛选）。
     { key: 'idpStats', label: 'IDP统计', enLabel: 'IDP Stats', href: '/idp-stats', icon: 'chart', section: '学生闭环', order: 71, perm: '' },
     { key: 'stageEvaluations', label: '阶段评价', enLabel: 'Stage Evaluations', href: '/stage-evaluations', icon: 'students', section: '学生闭环', order: 80, perm: 'evaluation:read' },

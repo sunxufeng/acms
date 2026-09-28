@@ -19,7 +19,7 @@ import GetnoteNoteModal from '../../components/GetnoteNoteModal';
  *
  * - **能不能进这页** = `module:idpStats:read`（独立权限点，与「我的 IDP」各一个开关；
  *   抬 v6 时从 `module:meetingMinutes:read` 继承给 11 个教职工角色）。
- * - **能看多少** = 后端按 `module:idpPlans:read`（系统管理员 / 院级管理）决定 `seeAll`：
+ * - **能看多少** = 后端按 `module:idpStatsAll:read`（系统管理员 / 院级管理 / 手工授权）决定 `seeAll`：
  *   `seeAll=false` 时接口只返回**我自己**那一组，前端不额外过滤（判据只有后端一份）。
  *
  * ## 两个显示口径（都与后端同一份纯函数，别在这里重算）

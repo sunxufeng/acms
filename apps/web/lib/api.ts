@@ -1515,7 +1515,7 @@ export const api = {
   },
   /**
    * IDP 统计（2026-09-29 新增）：按 IDP 老师统计名下学生某个月的沟通情况。
-   * 权限 `module:idpStats:read`；数据范围由后端按 `module:idpPlans:read` 收敛
+   * 权限 `module:idpStats:read`；数据范围由后端按 `module:idpStatsAll:read` 收敛
    *（`seeAll` 字段告诉前端该显示「全部老师」还是只有自己）。
    */
   idpStats: (params?: { configId?: string; month?: string }) => {
@@ -2708,7 +2708,7 @@ export interface IdpStatsTeacher {
 
 export interface IdpStatsResp {
   me: { openId: string; name: string };
-  /** 是否能看全部老师（持有 `module:idpPlans:read` = 系统管理员 / 院级管理） */
+  /** 是否能看全部老师（持有 `module:idpStatsAll:read` = 系统管理员 / 手工授权） */
   seeAll: boolean;
   config: { id: string; name: string; yearName: string; term: string } | null;
   rangeText: string;

@@ -189,7 +189,7 @@ class MyIdpController {
  * 「IDP 统计」接口（2026-09-29 新增）。
  *
  * 🔴 可见性判据是 **`module:idpStats:read`**（独立权限点，同上一并抬到 v6）。
- * **数据范围**另有一道：`module:idpPlans:read`（系统管理员 / 院级管理）看全部老师，
+ * **数据范围**另有一道：`module:idpStatsAll:read`（系统管理员 / 手工授权）看全部老师，
  * 其余人只看自己名下 —— 判据收口在 contracts 的 `idpStatsSeeAll`，前端「要不要显示老师切换器」
  * 用的是同一份，两边不会漂移。
  */

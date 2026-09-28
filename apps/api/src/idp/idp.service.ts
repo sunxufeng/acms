@@ -23,7 +23,8 @@
  * |---|---|---|
  * | IDP 配置（读/写） | `module:idpPlans:read` / `:update` | 系统管理员 + 院级管理 |
  * | 我的 IDP（读） | `module:myIdp:read` | 系统管理员 + 院级管理 + Phase1~9 |
- * | IDP 统计（读） | `module:idpStats:read` | 同上；**看全员**另需 `module:idpPlans:read` |
+ * | IDP 统计（读） | `module:idpStats:read` | 同上 |
+ * | IDP 统计（看全部） | `module:idpStatsAll:read` | 系统管理员 + 手工授权的角色 |
  *
  * 🔴 两个 IDP 页面在 2026-09-29 之前**没有独立权限点**（「我的 IDP」的判据曾是"任一记录类型
  *    read"）。峰哥要求「另造权限，有权限的人才能看到这个菜单」后各自独立，抬 v6 并继承
@@ -143,7 +144,7 @@ export class IdpService {
    * 「IDP 统计」接口的可见性 + 数据范围。
    *
    * 可见性 = `module:idpStats:read`（独立权限点，2026-09-29 起）。
-   * 返回 `seeAll`：持有 `module:idpPlans:read`（系统管理员 / 院级管理）看**全部老师**，
+   * 返回 `seeAll`：持有 `module:idpStatsAll:read`（系统管理员 / 手工授权）看**全部老师**，
    * 其余人只看**自己名下**（`IDP老师 = 我的 openId`）—— 判据收口在 contracts 的 `idpStatsSeeAll`，
    * 与前端「要不要显示老师切换器」用的是同一份。
    */
@@ -723,7 +724,7 @@ export class IdpService {
    *
    * ## 数据范围
    *
-   * `idpStatsSeeAll(perms)` = 持有 `module:idpPlans:read`（系统管理员 / 院级管理）⇒ 看全部老师；
+   * `idpStatsSeeAll(perms)` = 持有 `module:idpStatsAll:read`（系统管理员 / 手工授权）⇒ 看全部老师；
    * 否则只看自己那一组（老师端）。
    */
   async stats(
@@ -1212,7 +1213,7 @@ export interface IdpStatsTeacher {
 
 export interface IdpStatsResp {
   me: { openId: string; name: string };
-  /** 是否能看全部老师（持有 `module:idpPlans:read` = 系统管理员 / 院级管理） */
+  /** 是否能看全部老师（持有 `module:idpStatsAll:read` = 系统管理员 / 手工授权） */
   seeAll: boolean;
   config: { id: string; name: string; yearName: string; term: string } | null;
   rangeText: string;

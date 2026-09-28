@@ -1,29 +1,36 @@
 /**
  * IDP（个人发展计划）重构 —— 聚合服务（2026-09-26 峰哥需求）。
  *
- * ## 三个视角，一套数据
+ * ## 四个视角，一套数据
  *
  * ```
  * 管理员：IDP 配置（学年×学期批次）→ 学生明细 → 分配 IDP 老师
  * 老师  ：我的 IDP（只看 IDP老师 = 我 的行）→ 学生 → 继续沟通
+ * 管理侧：IDP 统计（2026-09-29 新增）→ 老师 → 名下学生 → 本月沟通次数 / 间隔 / 每条记录
  * 沟通  ：就是「学生记录」里 记录类型=IDP沟通 的那批（不另建表，见 contracts/idp.ts 的说明）
  * ```
  *
  * ## 判据一律来自 contracts（别在这里重写）
  *
  * `idpTermRange`（学年学期→区间）、`idpSummarizeComms`（沟通次数口径）、`idpIsEnrolled`（在校）、
- * `myIdpMenuVisible`（菜单/接口可见性）、`idpLinkIds`（关联字段宽容解析）。
- * 这些都被前端与单测共用；在 service 里再写一份必然漂移。
+ * `idpMenuVisible`（菜单/接口可见性）、`idpStatsSeeAll`（统计页看全员还是看自己）、
+ * `idpGapDaysAsc` / `idpDaysAgo` / `idpMonthKey`（统计的间隔与月份口径）、
+ * `idpLinkIds`（关联字段宽容解析）。这些都被前端与单测共用；在 service 里再写一份必然漂移。
  *
- * ## 权限（生产实测 2026-09-26）
+ * ## 权限（生产实测 2026-09-29）
  *
  * | 页面 | 判据 | 谁持有 |
  * |---|---|---|
  * | IDP 配置（读/写） | `module:idpPlans:read` / `:update` | 系统管理员 + 院级管理 |
- * | 我的 IDP（读） | `myIdpMenuVisible`（= 任一记录类型 read） | 系统管理员 + Phase1~9 + 院级/学生/家长 |
+ * | 我的 IDP（读） | `module:myIdp:read` | 系统管理员 + 院级管理 + Phase1~9 |
+ * | IDP 统计（读） | `module:idpStats:read` | 同上；**看全员**另需 `module:idpPlans:read` |
  *
- * 🔴 「我的 IDP」**不用** `idpPlans`：生产实测 Phase1~9 **全部不持有**它 ⇒ 复用它 = 上线即无人可见。
- *    **数据面**靠「IDP老师 = 我的 openId」这个条件卡（不是靠权限点）：老师之间互相看不到。
+ * 🔴 两个 IDP 页面在 2026-09-29 之前**没有独立权限点**（「我的 IDP」的判据曾是"任一记录类型
+ *    read"）。峰哥要求「另造权限，有权限的人才能看到这个菜单」后各自独立，抬 v6 并继承
+ *    `module:meetingMinutes:read`（= 11 个教职工角色，见 module-permissions.ts 文件头 v6）。
+ *    ⚠️ 别再退回"复用某个宽判据"：那样学生 / 家长角色（持有 `module:dailyFollowups:read`）
+ *    也会看到老师端菜单 —— 这正是本次修掉的问题。
+ *    **数据面**另有卡口：「我的 IDP」靠「IDP老师 = 我的 openId」，「IDP 统计」靠 `idpStatsSeeAll`。
  */
 import {
   BadRequestException,
@@ -39,16 +46,23 @@ import {
   IDP_CONFIG_FIELDS as CF,
   IDP_CONFIG_STATUSES,
   IDP_SCOPE_ALL,
+  IDP_STATS_MENU_KEY,
   IDP_STUDENT_FIELDS as SF,
+  MY_IDP_MENU_KEY,
   STUDENT_RECORD_TYPE_FIELD,
   TABLES,
   USER_TABLE,
+  idpDayIndex,
+  idpDaysAgo,
+  idpGapDaysAsc,
   idpIsEnrolled,
   idpLinkId,
+  idpMenuVisible,
+  idpMonthKey,
+  idpStatsSeeAll,
   idpSummarizeComms,
   idpTermRange,
   idpTextOf,
-  myIdpMenuVisible,
   type IdpScope,
   type SessionUser,
 } from '@acms/contracts';
@@ -118,10 +132,26 @@ export class IdpService {
     return { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
   }
 
-  /** 「我的 IDP」接口的可见性 —— 与前端菜单同一个判据函数（`myIdpMenuVisible`） */
+  /** 「我的 IDP」接口的可见性 —— 与前端菜单同一个判据函数（`idpMenuVisible`） */
   private requireMyIdp(user: SessionUser): void {
     const perms = [...permissionsOf(this.toPrincipal(user))];
-    if (!myIdpMenuVisible({ perms })) throw new ForbiddenException('FORBIDDEN:my-idp');
+    if (!idpMenuVisible({ perms }, MY_IDP_MENU_KEY)) throw new ForbiddenException('FORBIDDEN:module:myIdp:read');
+  }
+
+  /**
+   * 「IDP 统计」接口的可见性 + 数据范围。
+   *
+   * 可见性 = `module:idpStats:read`（独立权限点，2026-09-29 起）。
+   * 返回 `seeAll`：持有 `module:idpPlans:read`（系统管理员 / 院级管理）看**全部老师**，
+   * 其余人只看**自己名下**（`IDP老师 = 我的 openId`）—— 判据收口在 contracts 的 `idpStatsSeeAll`，
+   * 与前端「要不要显示老师切换器」用的是同一份。
+   */
+  private requireIdpStats(user: SessionUser): { seeAll: boolean } {
+    const perms = [...permissionsOf(this.toPrincipal(user))];
+    if (!idpMenuVisible({ perms }, IDP_STATS_MENU_KEY)) {
+      throw new ForbiddenException(`FORBIDDEN:module:${IDP_STATS_MENU_KEY}:read`);
+    }
+    return { seeAll: idpStatsSeeAll(perms) };
   }
 
   /** IDP 配置的读/写（管理员/院级）。**不叠加菜单白名单**：白名单只收敛菜单，不做接口鉴权 */
@@ -672,20 +702,229 @@ export class IdpService {
     };
   }
 
+  // ───────────────────────── IDP 统计（2026-09-29 新增） ─────────────────────────
+
   /**
-   * 一批业务记录 id → **每条记录各自**关联的笔记 id（实体类型固定 `IDP沟通`）。
+   * 「IDP 统计」主接口：按 **IDP 老师** 统计其名下学生某个月的沟通情况。
    *
-   * 读的是「笔记关联」小表（全量翻页），与 `replaceLinks` 的写入判据同源
-   * （`实体类型` + `实体ID` 两个文本字段）。**不要**改成按 noteId 反查 ——
-   * 一处是 id 集合、一处是行，两套判据必然漂移。
+   * ## 口径（每一处都在 contracts 里有对应的纯函数，别在这里另算一遍）
    *
-   * 2026-09-26：改成**按记录分组**返回 —— 界面上每条沟通记录要显示
-   * 「🔗 n 篇笔记」，点某条标题也只该弹**它自己**那篇。
-   * 「导入笔记」判「已导入」要的是跨批次**并集**，由调用方对 map.values() 展平即可。
+   * - **月份**：自然月（北京时间）。不传 = 当前月；返回的 `months` 是「有 IDP沟通 记录的月份」倒序，
+   *   供页面做月份下拉（当月没记录时也补进来，否则下拉变成空的）。
+   * - **「名下学生」**：本配置（学年学期批次）里 `IDP老师 = 该老师` 的明细行。
+   *   没分配老师的学生不进任何老师卡，单独在 `unassigned` 里报出来（否则总数对不上）。
+   * - **「本月沟通」**：`记录类型=IDP沟通` ∧ 时间落在这个自然月 **∧ 落在配置的学年学期区间内**
+   *   （区间口径沿用 `idpSummarizeComms` 的那一套，避免"跨学期记录混进来"）。
+   * - **「相隔 / 距今」**：都按**自然日**差（`idpGapDaysAsc` / `idpDaysAgo`）——
+   *   多次沟通才有"相隔"（<2 次为 null），"距今"总是有。
+   * - **「代谈」**：记录挂在**学生的 IDP 老师**名下（这是"老师名下学生"的统计），
+   *   但沟通人不是该老师时标 `byOther`，页面打标签；老师卡上再用 `coveringCount` 汇总一句。
+   *
+   * ## 数据范围
+   *
+   * `idpStatsSeeAll(perms)` = 持有 `module:idpPlans:read`（系统管理员 / 院级管理）⇒ 看全部老师；
+   * 否则只看自己那一组（老师端）。
    */
-  private async linkedNoteMapOf(recordIds: string[]): Promise<Map<string, string[]>> {
+  async stats(
+    user: SessionUser,
+    opts: { configId?: string; month?: string } = {},
+  ): Promise<IdpStatsResp> {
+    const { seeAll } = this.requireIdpStats(user);
+    const myOpenId = String(user.openId ?? '').trim();
+    const nowMs = Date.now();
+    const today = idpDayIndex(nowMs);
+
+    const [cfgRows, details, years, comms, users, nameEn] = await Promise.all([
+      this.readAll(TABLES.idpConfig.tableId),
+      this.readAll(TABLES.idpStudent.tableId),
+      this.readAll(TABLES.academicYear.tableId),
+      this.commsByStudent(),
+      this.userIndex(),
+      this.studentNameEnIndex(),
+    ]);
+    const yearName = new Map(years.map((y) => [y.id, String(y.f['学年名称'] ?? '')]));
+
+    // ── 选配置：传了就用传的；没传就取**未归档**里最新的那个（当前生产只有 1 个） ──
+    const pickable = cfgRows
+      .filter((c) => String(c.f[CF.状态] ?? '') !== IDP_ARCHIVED)
+      .sort((a, b) => Number(b.f[CF.创建时间] ?? 0) - Number(a.f[CF.创建时间] ?? 0));
+    const cfg = opts.configId
+      ? cfgRows.find((c) => c.id === opts.configId)
+      : pickable[0];
+    const yearId = idpLinkId(cfg?.f[CF.学年]);
+    const term = String(cfg?.f[CF.学期] ?? '');
+    const y = years.find((x) => x.id === yearId);
+    const range = y ? idpTermRange(y.f['开始日期'], y.f['结束日期'], term) : null;
+
+    // ── 全部 IDP沟通 记录（已按"学生 + 时间在区间内"过滤），用于月份候选与本月的取数 ──
+    const allInRange: { key: string; c: CommLite }[] = [];
+    const monthSet = new Set<string>();
+    for (const [key, list] of comms) {
+      for (const c of list) {
+        if (!c.time) continue;
+        if (range && (c.time < range.from || c.time > range.to)) continue;
+        allInRange.push({ key, c });
+        monthSet.add(idpMonthKey(c.time));
+      }
+    }
+    const thisMonth = idpMonthKey(nowMs);
+    monthSet.add(thisMonth); // 当月无记录也要能选中（默认态）
+    const months = [...monthSet].sort((a, b) => b.localeCompare(a));
+    const month = /^\d{4}-\d{2}$/.test(String(opts.month ?? '')) ? String(opts.month) : thisMonth;
+    const monthRecs = allInRange.filter((x) => idpMonthKey(x.c.time) === month);
+
+    // ── 本月的记录 → 关联笔记（标题 + id）。只查本月用到的那些 id ──
+    const noteMap = await this.linkedNotesOf(monthRecs.map((x) => x.c.id));
+
+    // ── 师生分配：该配置下的明细，按老师分组 ──
+    const inConfig = details.filter((d) => {
+      const cid = idpLinkId(d.f[SF.所属配置]);
+      return cfg ? cid === cfg.id : true;
+    });
+    /** 学生 key（id 优先，退化到姓名）→ 该生在本配置的 IDP 老师 openId */
+    const teacherByKey = new Map<string, string>();
+    for (const d of inConfig) {
+      const key = this.studentKeyOf(d.f);
+      const t = String(d.f[SF.IDP老师] ?? '').trim();
+      if (key && t) teacherByKey.set(key, t);
+    }
+
+    const byTeacher = new Map<string, Row[]>();
+    const unassigned: { studentId: string; studentName: string; cls: string }[] = [];
+    for (const d of inConfig) {
+      const t = String(d.f[SF.IDP老师] ?? '').trim();
+      if (!t) {
+        unassigned.push({
+          studentId: idpLinkId(d.f[SF.学生]),
+          studentName: String(d.f[SF.学生姓名] ?? ''),
+          cls: this.studentCls(d.f),
+        });
+        continue;
+      }
+      if (!seeAll && t !== myOpenId) continue; // 老师只看自己那一组
+      const arr = byTeacher.get(t) ?? [];
+      arr.push(d);
+      byTeacher.set(t, arr);
+    }
+
+    const teachers: IdpStatsTeacher[] = [];
+    for (const [openId, rows] of byTeacher) {
+      const tName = users.byOpenId.get(openId) ?? '（未知老师）';
+      const students: IdpStatsStudent[] = [];
+      const notTalked: { studentId: string; studentName: string; cls: string }[] = [];
+      let commsCount = 0;
+      let lastAt = 0;
+
+      for (const d of rows) {
+        const key = this.studentKeyOf(d.f);
+        const mine = monthRecs.filter((x) => x.key === key).map((x) => x.c).sort((a, b) => a.time - b.time);
+        const base = {
+          studentId: idpLinkId(d.f[SF.学生]),
+          studentName: String(d.f[SF.学生姓名] ?? ''),
+          nameEn: nameEn.get(String(d.f[SF.学生姓名] ?? '')) ?? '',
+          cls: this.studentCls(d.f),
+        };
+        if (!mine.length) {
+          notTalked.push({ studentId: base.studentId, studentName: base.studentName, cls: base.cls });
+          continue;
+        }
+        const times = mine.map((c) => c.time);
+        const gaps = idpGapDaysAsc(times);
+        const last = times[times.length - 1] ?? 0;
+        commsCount += mine.length;
+        if (last > lastAt) lastAt = last;
+        students.push({
+          ...base,
+          count: mine.length,
+          lastAt: last,
+          gapDays: times.length >= 2 ? (gaps[gaps.length - 1] ?? null) : null,
+          daysAgo: idpDaysAgo(last, nowMs),
+          byOtherCount: mine.filter((c) => c.person && c.person !== tName).length,
+          rows: mine.map((c) => ({
+            id: c.id,
+            subject: c.subject,
+            time: c.time,
+            person: c.person,
+            way: c.way,
+            files: c.files,
+            notes: noteMap.get(c.id) ?? [],
+          })),
+        });
+      }
+
+      students.sort(
+        (a, b) => b.count - a.count || b.lastAt - a.lastAt || a.studentName.localeCompare(b.studentName, 'zh-CN'),
+      );
+
+      /** 「代谈」：他本人谈的、但学生不属于他（学生的 IDP 老师是别人） */
+      const coveringCount = monthRecs.filter(
+        (x) => x.c.person && x.c.person === tName && teacherByKey.get(x.key) !== openId,
+      ).length;
+
+      teachers.push({
+        openId,
+        name: tName,
+        studentCount: rows.length,
+        talked: students.length,
+        comms: commsCount,
+        lastAt,
+        students,
+        notTalked,
+        coveringCount,
+      });
+    }
+
+    teachers.sort((a, b) => b.comms - a.comms || a.name.localeCompare(b.name, 'zh-CN'));
+
+    return {
+      me: { openId: myOpenId, name: String(user.name ?? '') },
+      seeAll,
+      config: cfg
+        ? {
+            id: cfg.id,
+            name:
+              String(cfg.f[CF.配置名称] ?? '') ||
+              `${yearName.get(yearId) ?? ''} ${term}`.trim(),
+            yearName: yearName.get(yearId) ?? '',
+            term,
+          }
+        : null,
+      rangeText: range ? rangeTextOf(range) : '',
+      rangeOk: !!range,
+      months,
+      month,
+      overview: {
+        teachers: teachers.length,
+        students: teachers.reduce((n, t) => n + t.studentCount, 0),
+        talkedStudents: teachers.reduce((n, t) => n + t.talked, 0),
+        comms: teachers.reduce((n, t) => n + t.comms, 0),
+        notTalked: teachers.reduce((n, t) => n + t.notTalked.length, 0),
+      },
+      unassigned,
+      teachers,
+      today,
+    };
+  }
+
+  /** 一行 IDP学生 明细 → 沟通记录的归属 key（与 `commsByStudent` 的 key 规则**必须一致**） */
+  private studentKeyOf(f: Record<string, unknown>): string {
+    const sid = idpLinkId(f[SF.学生]);
+    // 字段取值一律走 `idpTextOf`（本模块的统一宽容口径，见 studentCls 的注释）
+    return sid || `name:${idpTextOf(f[SF.学生姓名])}`;
+  }
+
+  /**
+   * 一批业务记录 id → 它们关联的笔记（**id + 标题**）。
+   *
+   * 读的是「笔记关联」小表（全量翻页），与 `linkedNoteMapOf` 同一套判据 —— 区别只是
+   * 这里**多带一个标题**（统计页要显示"笔记 A"这一列，只给 id 前端还得再查一次）。
+   * 两处不要各写一份读表逻辑：`linkedNoteMapOf` 现在就是复用它。
+   */
+  private async linkedNotesOf(
+    recordIds: string[],
+  ): Promise<Map<string, { noteId: string; title: string }[]>> {
     const sql = getSqlStore();
-    const out = new Map<string, string[]>();
+    const out = new Map<string, { noteId: string; title: string }[]>();
     if (!sql || !recordIds.length) return out;
     const want = new Set(recordIds);
     let token: string | undefined;
@@ -698,18 +937,40 @@ export class IdpService {
       for (const it of res.items ?? []) {
         const rec = it as unknown as { fields?: Record<string, unknown> };
         const f = (rec.fields ?? {}) as Record<string, unknown>;
-        // 一律走 `idpTextOf`（本模块读取字段的统一宽容口径，见 studentCls 的注释）
         if (idpTextOf(f['实体类型']) !== IDP_COMM_RECORD_TYPE) continue;
         const rid = idpTextOf(f['实体ID']);
         if (!want.has(rid)) continue;
         const nid = idpTextOf(f['笔记ID']);
         if (!nid) continue;
         const arr = out.get(rid) ?? [];
-        if (!arr.includes(nid)) arr.push(nid);
+        if (!arr.some((x) => x.noteId === nid)) {
+          arr.push({ noteId: nid, title: idpTextOf(f['笔记标题']) || '（无标题笔记）' });
+        }
         out.set(rid, arr);
       }
       token = res.pageToken;
     } while (token && guard++ < 40);
+    return out;
+  }
+
+  /**
+   * 一批业务记录 id → **每条记录各自**关联的笔记 id（实体类型固定 `IDP沟通`）。
+   *
+   * 读的是「笔记关联」小表（全量翻页），与 `replaceLinks` 的写入判据同源
+   * （`实体类型` + `实体ID` 两个文本字段）。**不要**改成按 noteId 反查 ——
+   * 一处是 id 集合、一处是行，两套判据必然漂移。
+   *
+   * 2026-09-26：改成**按记录分组**返回 —— 界面上每条沟通记录要显示
+   * 「🔗 n 篇笔记」，点某条标题也只该弹**它自己**那篇。
+   * 「导入笔记」判「已导入」要的是跨批次**并集**，由调用方对 map.values() 展平即可。
+   *
+   * 2026-09-29：实现下沉到 `linkedNotesOf`（那边多带标题），这里只做 id 投影 ——
+   * 两处读同一张表的逻辑只留一份。
+   */
+  private async linkedNoteMapOf(recordIds: string[]): Promise<Map<string, string[]>> {
+    const rich = await this.linkedNotesOf(recordIds);
+    const out = new Map<string, string[]>();
+    for (const [rid, list] of rich) out.set(rid, list.map((x) => x.noteId));
     return out;
   }
 
@@ -895,6 +1156,76 @@ interface CommLite {
 }
 
 /** 一条附件（学生记录「沟通附件清单」的元素形态） */
+/** 「IDP 统计」里的一条沟通记录（= 统计页最里层那一行） */
+export interface IdpStatsRow {
+  id: string;
+  subject: string;
+  time: number;
+  person: string;
+  way: string;
+  files: IdpCommFile[];
+  /** 这条记录关联的笔记（id + 标题；当前线上每条最多 1 篇） */
+  notes: { noteId: string; title: string }[];
+}
+
+/** 「IDP 统计」里的一个学生（老师卡下面的一行 + 展开后的记录明细） */
+export interface IdpStatsStudent {
+  studentId: string;
+  studentName: string;
+  nameEn: string;
+  cls: string;
+  /** 本月沟通次数 */
+  count: number;
+  /** 本月最近一次沟通时间（ms）；0 = 本月无沟通 */
+  lastAt: number;
+  /** 与上一次（本月）相隔的自然日数；**本月不足 2 次时为 null** */
+  gapDays: number | null;
+  /** 最近一次距今的自然日数；本月无沟通时为 null */
+  daysAgo: number | null;
+  /** 其中沟通人 ≠ 该生 IDP 老师的条数（界面标「代谈」） */
+  byOtherCount: number;
+  rows: IdpStatsRow[];
+}
+
+/** 「IDP 统计」里的一位老师（老师卡） */
+export interface IdpStatsTeacher {
+  openId: string;
+  name: string;
+  /** 名下学生总数（含本月未沟通的） */
+  studentCount: number;
+  /** 本月有沟通的学生数 */
+  talked: number;
+  /** 本月沟通总次数 */
+  comms: number;
+  /** 本月最近一次沟通时间（ms）；0 = 本月无 */
+  lastAt: number;
+  /** 本月有沟通的学生（含明细） */
+  students: IdpStatsStudent[];
+  /** 本月未沟通的学生（老师卡底部「谁还没谈」） */
+  notTalked: { studentId: string; studentName: string; cls: string }[];
+  /** 他本人谈的、但学生不属于他的条数（"代谈"） */
+  coveringCount: number;
+}
+
+export interface IdpStatsResp {
+  me: { openId: string; name: string };
+  /** 是否能看全部老师（持有 `module:idpPlans:read` = 系统管理员 / 院级管理） */
+  seeAll: boolean;
+  config: { id: string; name: string; yearName: string; term: string } | null;
+  rangeText: string;
+  rangeOk: boolean;
+  /** 可选的月份（有 IDP沟通 记录的月份，倒序；含当前月） */
+  months: string[];
+  /** 本次统计的月份 `YYYY-MM` */
+  month: string;
+  overview: { teachers: number; students: number; talkedStudents: number; comms: number; notTalked: number };
+  /** 本配置里**没分配 IDP 老师**的学生 —— 统计口径之外，但必须报出来（否则总数对不上） */
+  unassigned: { studentId: string; studentName: string; cls: string }[];
+  teachers: IdpStatsTeacher[];
+  /** 服务端「今天」的自然日序号（前端算距离天数时用同一把尺子） */
+  today: number;
+}
+
 export interface IdpCommFile {
   file_token: string;
   name: string;

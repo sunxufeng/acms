@@ -37,8 +37,27 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *   抬版本后一次性继承，**零手工配置**；学生 / 家长角色不持有 ⇒ 不会拿到（符合预期）。
  *   ⚠️ 「同步飞书会议室」是写动作，`legacyWrite: null` ⇒ 不继承给任何角色，
  *      只有系统管理员（`healLockedRoles()` 用代码全量权限自愈）持有。
+ *
+ * v6（2026-09-29）：新增 **「我的 IDP」/「IDP 统计」两个独立权限点**。
+ *   峰哥要求：「我的 IDP 和 IDP 统计都另造权限，有权限的人才能看到这个菜单」。
+ *
+ *   🔴 为什么必须抬版本、且必须继承：`myIdp` 一旦进 `MODULE_RESOURCES`，
+ *      `moduleByPath('/my-idp')` 就会命中新 key ⇒ 鉴权**从原来的「学生记录 read」
+ *      自动切到 `module:myIdp:*`**。不继承的话，升级瞬间所有老师的「我的 IDP」
+ *      接口直接 403（页面还在、数据全空）—— 这是 v4 注释里写过的同一个坑。
+ *
+ *   继承源选 `module:meetingMinutes:read`（会议纪要读权限）：生产实测它正好被
+ *   **系统管理员 + 院级管理 + Phase1~9 共 11 个教职工角色**持有，学生 / 家长不持有。
+ *   ⇒ 一次性继承 = 「教职工可见、学生家长不可见」，与改造前老师能看到的范围一致，
+ *     **零手工配置、零报障**。之后要收谁，在「角色管理」里取消勾选即可（这正是
+ *     「另造权限」换来的能力）。
+ *
+ *   ⚠️ 改造前 student / parent **也能**看到「我的 IDP」（判据是"任一记录类型 read"，
+ *      而他们持有 `module:dailyFollowups:read`）—— 本次一并修掉，他们不再持有新点。
+ *
+ *   ⚠️ 两个都是**只读**模块：`legacyWrite: null`（没有写动作，也不该继承写权限）。
  */
-export const ROLE_PERMISSION_VERSION = 5;
+export const ROLE_PERMISSION_VERSION = 6;
 
 /**
  * 资源「从哪个版本开始存在」。
@@ -56,6 +75,10 @@ export const ROLE_PERMISSION_VERSION = 5;
  */
 export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
   meetingRooms: 5,
+  // v6（2026-09-29）：两个 IDP 只读页 —— 继承源都是 `module:meetingMinutes:read`
+  //（= 11 个教职工角色），见文件头 v6 的说明。
+  myIdp: 6,
+  idpStats: 6,
 };
 
 /** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */
@@ -206,6 +229,25 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
    * `/idp-plans` 进 aliases：旧的 API 路径与书签仍映射到本模块（前端再做一次 301）。
    */
   { key: 'idpPlans', label: 'IDP配置', path: '/idp-configs', aliases: ['/idp-plans', '/idp-communications', '/export/idpPlan', '/export/idpCommunication'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'idp:read', actions: RECORD },
+  /**
+   * 「我的 IDP」（老师端，2026-09-26 上线；**2026-09-29 改为独立权限点**）。
+   *
+   * 改造前它的可见性判据是「**任一记录类型 read**」（`myIdpMenuVisible`）——
+   * 好处是老师天然可见，坏处是 student / parent 也持有 `module:dailyFollowups:read`
+   * ⇒ 他们同样能看到老师端菜单。峰哥 2026-09-29 要求「另造权限，有权限的人才能看到」。
+   *
+   * 🔴 继承源 `module:meetingMinutes:read` = 系统管理员 + 院级管理 + Phase1~9（11 个教职工角色，
+   *    学生 / 家长不持有）。见文件头 v6 的说明。`legacyWrite: null` —— 这个页面全是只读。
+   */
+  { key: 'myIdp', label: '我的 IDP', path: '/my-idp', legacyRead: 'module:meetingMinutes:read', legacyWrite: null, menuPermission: null, actions: READ, genericCrud: false },
+  /**
+   * 「IDP 统计」（2026-09-29 新增）：按 IDP 老师统计名下学生某个月的沟通情况。
+   *
+   * 权限与「我的 IDP」同源（同一批人该看到）⇒ 同一个继承源，一次迁移两页同时生效。
+   * **数据范围**另有一道判据：持有 `module:idpPlans:read`（系统管理员 / 院级管理）看全部老师，
+   * 其余人只看自己名下（后端 `IdpService.stats` 收敛，见 contracts 的 `idpStatsSeeAll`）。
+   */
+  { key: 'idpStats', label: 'IDP 统计', path: '/idp-stats', legacyRead: 'module:meetingMinutes:read', legacyWrite: null, menuPermission: null, actions: READ, genericCrud: false },
   { key: 'stageEvaluations', label: '阶段评价', path: '/stage-evaluations', aliases: ['/export/stageEvaluation'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'evaluation:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'alumniFollowups', label: '校友跟进', path: '/alumni-followups', aliases: ['/export/alumniFollowup'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'alumni:read', actions: RECORD_IMPORT, genericCrud: true },
   { key: 'openPlatformApps', label: '开放平台', path: '/open-platform', legacyRead: 'openplatform:read', legacyWrite: 'openplatform:write', menuPermission: 'openplatform:read', actions: RECORD, genericCrud: true },

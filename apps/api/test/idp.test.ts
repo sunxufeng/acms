@@ -29,7 +29,12 @@ import {
   idpSummarizeComms,
   idpTextOf,
   idpTermRange,
-  myIdpMenuVisible,
+  IDP_STATS_MENU_KEY,
+  idpDaysAgo,
+  idpGapDaysAsc,
+  idpMenuVisible,
+  idpMonthKey,
+  idpStatsSeeAll,
   modulePermission,
 } from '@acms/contracts';
 
@@ -200,37 +205,94 @@ describe('A. 幂等键', () => {
   });
 });
 
-describe('A. 「我的 IDP」菜单判据（myIdpMenuVisible）', () => {
-  it('🔴 有 studentRecords:read ⇒ 可见（老师们的实际权限）', () => {
-    expect(myIdpMenuVisible({ perms: [modulePermission('studentRecords', 'read')] })).toBe(true);
+describe('A. IDP 菜单判据（idpMenuVisible，2026-09-29 改独立权限点）', () => {
+  const myIdp = (perms: string[] | null, menus?: string[]) =>
+    idpMenuVisible({ perms, menus }, MY_IDP_MENU_KEY);
+  const stats = (perms: string[] | null, menus?: string[]) =>
+    idpMenuVisible({ perms, menus }, IDP_STATS_MENU_KEY);
+
+  it('🔴 硬闸门：持有本菜单自己的权限点才可见', () => {
+    expect(myIdp([modulePermission('myIdp', 'read')])).toBe(true);
+    expect(stats([modulePermission('idpStats', 'read')])).toBe(true);
+    // 两个点互不通用（各有各的开关）
+    expect(myIdp([modulePermission('idpStats', 'read')])).toBe(false);
+    expect(stats([modulePermission('myIdp', 'read')])).toBe(false);
   });
 
-  it('只有某一记录类型的 read（合并前的老角色）⇒ 也可见', () => {
-    expect(myIdpMenuVisible({ perms: [modulePermission('dailyFollowups', 'read')] })).toBe(true);
-    expect(myIdpMenuVisible({ perms: [modulePermission('studentObservations', 'read')] })).toBe(true);
+  it('🔴 其它权限点**一律不能**放行（这正是"另造权限"的意义）', () => {
+    // 改造前的判据是「任一记录类型 read」⇒ student / parent 也持有 dailyFollowups:read
+    // ⇒ 他们能看到老师端菜单。现在必须都不能放行。
+    for (const p of [
+      modulePermission('studentRecords', 'read'),
+      modulePermission('dailyFollowups', 'read'),
+      modulePermission('studentObservations', 'read'),
+      modulePermission('idpPlans', 'read'),
+      modulePermission('meetingMinutes', 'read'),
+    ]) {
+      expect(myIdp([p]), p).toBe(false);
+      expect(stats([p]), p).toBe(false);
+    }
   });
 
-  it('🔴 只有 idpPlans:read ⇒ **不可见**（这正是不能复用它当判据的原因）', () => {
-    expect(myIdpMenuVisible({ perms: [modulePermission('idpPlans', 'read')] })).toBe(false);
+  it('一个权限都没有 / undefined ⇒ 不可见', () => {
+    expect(myIdp([])).toBe(false);
+    expect(myIdp(null)).toBe(false);
+    expect(stats([])).toBe(false);
+    expect(stats(undefined)).toBe(false);
   });
 
-  it('一个记录权限都没有 ⇒ 不可见（家长/学生若不持记录权限也看不到）', () => {
-    expect(myIdpMenuVisible({ perms: [] })).toBe(false);
-    expect(myIdpMenuVisible({ perms: null })).toBe(false);
+  it('角色菜单白名单：含本菜单 key / studentRecords / 合并前旧 key 都放行', () => {
+    const perms = [modulePermission('myIdp', 'read')];
+    expect(idpMenuVisible({ perms, menus: [MY_IDP_MENU_KEY] }, MY_IDP_MENU_KEY)).toBe(true);
+    expect(idpMenuVisible({ perms, menus: ['studentRecords'] }, MY_IDP_MENU_KEY)).toBe(true);
+    // 生产实测：Phase1 的 13 项白名单里就有 studentObservations（不含 myIdp）
+    expect(idpMenuVisible({ perms, menus: ['studentObservations'] }, MY_IDP_MENU_KEY)).toBe(true);
+    // 白名单里明确列了别的菜单、没有兼容 key ⇒ 收敛生效（管理员可以刻意不给）
+    expect(idpMenuVisible({ perms, menus: ['dashboard', 'students'] }, MY_IDP_MENU_KEY)).toBe(false);
   });
 
-  it('角色菜单白名单：含 myIdp 或 studentRecords 或合并前的旧 key 都放行', () => {
-    const perms = [modulePermission('studentRecords', 'read')];
-    expect(myIdpMenuVisible({ perms, menus: [MY_IDP_MENU_KEY] })).toBe(true);
-    expect(myIdpMenuVisible({ perms, menus: ['studentRecords'] })).toBe(true);
-    expect(myIdpMenuVisible({ perms, menus: ['dailyFollowups'] })).toBe(true);
-    // 白名单里明确列出了别的菜单、没有它 ⇒ 收敛生效（管理员可以刻意不给）
-    expect(myIdpMenuVisible({ perms, menus: ['dashboard', 'students'] })).toBe(false);
-  });
-
-  it('菜单 key 常量与 homepage 里的一致（改名了要一起改）', () => {
+  it('两个菜单 key 常量都被 homepage 用上（改名了要一起改）', () => {
     const hp = read('packages/contracts/src/homepage.ts');
     expect(hp).toContain(`key: '${MY_IDP_MENU_KEY}'`);
+    expect(hp).toContain(`key: '${IDP_STATS_MENU_KEY}'`);
+  });
+
+  it('🔴 「IDP 统计」看全部老师 = 持有 idpPlans:read（系统管理员 / 院级管理）', () => {
+    expect(idpStatsSeeAll([modulePermission('idpPlans', 'read')])).toBe(true);
+    expect(idpStatsSeeAll([modulePermission('idpStats', 'read')])).toBe(false);
+    expect(idpStatsSeeAll([])).toBe(false);
+    expect(idpStatsSeeAll(null)).toBe(false);
+  });
+});
+
+describe('A2. 统计口径的纯函数（月份 / 自然日间隔）', () => {
+  const ms = (s: string) => new Date(s + '+08:00').getTime();
+
+  it('月份按**北京时间**取，不看服务器本地时区', () => {
+    expect(idpMonthKey(ms('2026-09-30T23:30:00'))).toBe('2026-09');
+    // 北京时间 10-01 00:30 = UTC 09-30 16:30 ⇒ 必须算 10 月
+    expect(idpMonthKey(ms('2026-10-01T00:30:00'))).toBe('2026-10');
+    expect(idpMonthKey(0)).toBe('');
+  });
+
+  it('「相隔几天」按**自然日**差算，不是 24 小时差', () => {
+    // 09-14 13:53 → 09-17 13:57（线上真实的两条）
+    expect(idpGapDaysAsc([ms('2026-09-14T13:53:00'), ms('2026-09-17T13:57:00')])).toEqual([null, 3]);
+    // 只差 2 小时但跨了自然日 ⇒ 算 1 天（用 24h 差会算成 0，明显反直觉）
+    expect(idpGapDaysAsc([ms('2026-09-14T23:00:00'), ms('2026-09-15T01:00:00')])).toEqual([null, 1]);
+    // 同一天两次 ⇒ 0 天
+    expect(idpGapDaysAsc([ms('2026-09-14T09:00:00'), ms('2026-09-14T18:00:00')])).toEqual([null, 0]);
+  });
+
+  it('「距今天数」：当天 = 0；本月无沟通 = null', () => {
+    expect(idpDaysAgo(ms('2026-09-29T09:00:00'), ms('2026-09-29T23:00:00'))).toBe(0);
+    expect(idpDaysAgo(ms('2026-09-17T13:57:00'), ms('2026-09-29T00:15:00'))).toBe(12);
+    expect(idpDaysAgo(0, ms('2026-09-29T00:15:00'))).toBe(null);
+  });
+
+  it('间隔函数的输入顺序 = 调用方排好的升序（传反了会得到负数 —— 断言这个"约定"）', () => {
+    const g = idpGapDaysAsc([ms('2026-09-17T13:57:00'), ms('2026-09-14T13:53:00')]);
+    expect(g[1]).toBeLessThan(0);
   });
 });
 
@@ -303,12 +365,17 @@ describe('B. 后端服务接线（静态）', () => {
     expect(seg).toContain('SF.IDP老师');
   });
 
-  it('可见性判据用 myIdpMenuVisible（与前端菜单同一个函数），不用 idpPlans', () => {
+  it('🔴 可见性判据用 idpMenuVisible + 本菜单自己的权限点（不用宽判据、不用 idpPlans）', () => {
     const i = svc.indexOf('private requireMyIdp');
     expect(i).toBeGreaterThan(-1);
-    const seg = svc.slice(i, i + 260);
-    expect(seg).toContain('myIdpMenuVisible');
-    expect(seg).not.toContain('idpPlans');
+    const seg = svc.slice(i, i + 400);
+    expect(seg).toContain('idpMenuVisible({ perms }, MY_IDP_MENU_KEY)');
+    expect(seg).not.toContain('anyStudentRecordPerm');
+    const j = svc.indexOf('private requireIdpStats');
+    expect(j).toBeGreaterThan(-1);
+    const seg2 = svc.slice(j, j + 600);
+    expect(seg2).toContain('idpMenuVisible({ perms }, IDP_STATS_MENU_KEY)');
+    expect(seg2).toContain('idpStatsSeeAll(perms)');
   });
 
   it('配置侧权限点用 module:idpPlans:*（管理员/院级现成持有，零角色改动）', () => {
@@ -419,5 +486,83 @@ describe('B. 字段常量自洽', () => {
     expect(IDP_STUDENT_FIELDS.IDP老师).toBe('IDP老师');
     expect(IDP_STUDENT_FIELDS.所属配置).toBe('所属配置');
     expect(IDP_CONFIG_FIELDS.学期).toBe('学期');
+  });
+});
+
+describe('C. IDP 统计（2026-09-29 新增）', () => {
+  const svc = read('apps/api/src/idp/idp.service.ts');
+  const mod = read('apps/api/src/idp/idp.module.ts');
+  const page = read('apps/web/app/idp-stats/page.tsx');
+  const shell = read('apps/web/components/AppShell.tsx');
+  const mp = read('packages/contracts/src/module-permissions.ts');
+
+  it('🔴 权限版本抬到 6，且两个新资源都登记了引入版本（否则存量角色不会走增量迁移）', () => {
+    expect(mp).toContain('export const ROLE_PERMISSION_VERSION = 6;');
+    const i = mp.indexOf('MODULE_RESOURCE_INTRODUCED_VERSION');
+    const seg = mp.slice(i, i + 400);
+    expect(seg).toContain('myIdp: 6');
+    expect(seg).toContain('idpStats: 6');
+  });
+
+  it('🔴 两个资源的继承源必须是 module:meetingMinutes:read（11 个教职工角色，学生家长不持有）', () => {
+    for (const key of ['myIdp', 'idpStats']) {
+      const i = mp.indexOf(`{ key: '${key}'`);
+      expect(i, key).toBeGreaterThan(-1);
+      const line = mp.slice(i, mp.indexOf('\n', i));
+      expect(line, key).toContain("legacyRead: 'module:meetingMinutes:read'");
+      // 只读页：不给写权限继承
+      expect(line, key).toContain('legacyWrite: null');
+    }
+  });
+
+  it('后端：/idp-stats 控制器 + service.stats 用 requireIdpStats（含数据范围）', () => {
+    expect(mod).toContain("@Controller('idp-stats')");
+    expect(mod).toContain('IdpStatsController');
+    expect(mod).toContain('this.svc.stats(userOf(req)');
+    expect(svc).toContain('async stats(');
+    expect(svc).toContain('this.requireIdpStats(user)');
+    // 数据范围收口在 contracts 的判据上
+    expect(svc).toContain('idpStatsSeeAll(perms)');
+  });
+
+  it('🔴 「名下学生」的归属 key 必须与 commsByStudent 的 key 规则同源（否则老师卡挂不上记录）', () => {
+    expect(svc).toContain('private studentKeyOf(');
+    // 明细侧：编号优先、退化成姓名（姓名那一支走 idpTextOf 的统一宽容口径）
+    const k = svc.indexOf('private studentKeyOf(');
+    const segK = svc.slice(k, k + 320);
+    expect(segK).toContain('idpLinkId(f[SF.学生])');
+    expect(segK).toContain('idpTextOf(f[SF.学生姓名])');
+    // 记录侧：同样两个分支
+    const i = svc.indexOf('private async commsByStudent');
+    const seg = svc.slice(i, i + 2600);
+    expect(seg).toContain("const sid = idpLinkId(r.f['关联学生编号']);");
+    expect(seg).toContain('name:');
+  });
+
+  it('统计的月份 / 间隔全走 contracts 纯函数（不许在 service 里另算一遍）', () => {
+    for (const fn of ['idpMonthKey', 'idpGapDaysAsc', 'idpDaysAgo']) {
+      expect(svc, fn).toContain(fn);
+    }
+    // 自己写 hours/24 的日期减法 = 两套口径漂移的开始
+    expect(svc).not.toContain('/ 86400000');
+    expect(svc).not.toContain('/ (24 * 3600');
+  });
+
+  it('前端页面：调 api.idpStats、复用笔记详情弹窗、两个间隔口径都显示', () => {
+    expect(page).toContain('api.idpStats(');
+    expect(page).toContain('<GetnoteNoteModal');
+    // 「相隔」与「距今」都显示（峰哥样例里"只 1 次也有相隔"⇒ 口径待他挑，两个都摆出来）
+    expect(page).toContain("t('gapShort'");
+    expect(page).toContain("t('daysAgoShort'");
+    // 未沟通的学生要列名字（这页最有用的信息）
+    expect(page).toContain("t('notTalkedLine'");
+  });
+
+  it('🔴 菜单可见性：两个 key 都走 idpMenuVisible（不是单一模块权限点，也不是宽判据）', () => {
+    const i = shell.indexOf('item.key === MY_IDP_MENU_KEY || item.key === IDP_STATS_MENU_KEY');
+    expect(i).toBeGreaterThan(-1);
+    const seg = shell.slice(i, i + 500);
+    expect(seg).toContain('idpMenuVisible(');
+    expect(seg).toContain('IDP_STATS_MENU_KEY');
   });
 });

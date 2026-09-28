@@ -22,8 +22,8 @@ import {
   STUDENT_RECORD_ENTRY_KEY,
   STUDENT_RECORD_LEGACY_MENU_KEYS,
   STUDENT_RECORD_TYPE_FIELD,
-  anyStudentRecordPerm,
 } from './student-records.js';
+import { modulePermission } from './module-permissions.js';
 
 // ─────────────────────────────────────────────────────────────
 // 字段名（写库/读库都用这一份，别在别处硬写字符串）
@@ -186,69 +186,107 @@ export function idpTermRangeText(range: IdpTermRange | null): string {
 /** 「我的 IDP」菜单 key（homepage 与角色菜单白名单共用） */
 export const MY_IDP_MENU_KEY = 'myIdp';
 
+/** 「IDP 统计」菜单 key（2026-09-29 新增） */
+export const IDP_STATS_MENU_KEY = 'idpStats';
+
 /**
- * 「我的 IDP」菜单是否对当前用户可见 —— **唯一判据**（AppShell 调它，别在别处再写一份）。
+ * 两个 IDP 菜单各自的**可见性判据** —— 唯一一份（AppShell 调它、后端守卫也调它）。
  *
- * 🔴 为什么不复用 `idpPlans` 权限点：生产实测**只有** 系统管理员 / 院级管理 / student / parent
- *    持有它，**Phase1~Phase9（老师们实际用的角色）全都没有**。
- *    复用它 = 上线后除了管理员谁也看不到菜单（本项目反复踩过的「新权限点=上线即无人可见」）。
+ * ## 2026-09-29 改造（峰哥：「都另造权限吧，有权限的人才能看到这个菜单」）
  *
- * 所以可见性与「学生记录」**同源**：任一记录类型的 read 或合并入口 read。
- * 语义上也成立 —— 这个页面的内容就是「我的 IDP 学生的 IDP 沟通记录」，而沟通记录就是学生记录。
- * **数据面**靠「我是该生的 IDP 老师」这个条件卡（后端 `idpOnlyMine`），不是靠权限点。
+ * 改造前「我的 IDP」的判据是 `anyStudentRecordPerm('read')`（任一记录类型 read），
+ * 好处是老师天然可见，坏处是 **student / parent 也持有 `module:dailyFollowups:read`**
+ * ⇒ 他们同样能看到老师端菜单。现在两个菜单各有**独立权限点**：
+ *   · `module:myIdp:read`   → 「我的 IDP」
+ *   · `module:idpStats:read` → 「IDP 统计」
+ * 权限点是**硬闸门**：没勾的人，谁都不能看（含菜单与接口）。
  *
- * ⚠️ 与学生记录一样兼容「合并前的旧菜单 key」：角色菜单白名单里可能存的是
- *    `dailyFollowups` / `studentRecords` 这类 key，而菜单里是 `myIdp`。
- *    严格只认 `myIdp` 会把**开了白名单的角色**挡在门外（2026-09-24 曹德强那个坑）。
- *    这里**不**自动放行 —— 白名单是管理员显式收敛，该补就补（部署后逐个角色补 `myIdp`），
- *    但要**同时认 `studentRecords`**：因为「学生记录可见 = 沟通记录可用」，
- *    管理员既然给了学生记录，这个页面就不该再被白名单挡一次。
+ * ⚠️ 菜单白名单是**叠加**的收敛条件（角色里显式列了菜单就是"只给这些"）：
+ *    白名单非空时要求它含本菜单 key。但**必须向后兼容**白名单里的旧 key ——
+ *    生产实测 `Phase1` 角色有 13 项白名单（含 `studentObservations` 这个合并前的旧 key），
+ *    **不含 `myIdp`**；严格只认 `myIdp` 会把 Phase1（招生老师）整体挡在门外（报障级）。
+ *    ⇒ 兼容集合 = 本菜单 key ＋ `studentRecords`（合并入口）＋ 学生记录的各旧 key。
+ *    这不会放大可见性：能被兼容 key 放行的人，前提是**已经持有新权限点**。
  */
-export function myIdpMenuVisible(input: {
-  perms?: readonly string[] | null;
-  /** 角色菜单白名单；空 / 缺省 = 不额外限制 */
-  menus?: readonly string[] | null;
-}): boolean {
-  if (!anyStudentRecordPerm(input?.perms, 'read')) return false;
+export function idpMenuVisible(
+  input: { perms?: readonly string[] | null; menus?: readonly string[] | null },
+  menuKey: typeof MY_IDP_MENU_KEY | typeof IDP_STATS_MENU_KEY,
+): boolean {
+  const perms = input?.perms;
+  // ① 硬闸门：必须持有本菜单自己的读权限
+  if (!perms?.includes(modulePermission(menuKey, 'read'))) return false;
+  // ② 菜单白名单（空 / 缺省 = 不额外限制）
   const menus = input?.menus;
   if (!menus?.length) return true;
-  if (menus.includes(MY_IDP_MENU_KEY)) return true;
+  if (menus.includes(menuKey)) return true;
   if (menus.includes(STUDENT_RECORD_ENTRY_KEY)) return true;
   // 合并前的旧 key（studentObservations / dailyFollowups / homeSchoolComms …）
   return STUDENT_RECORD_LEGACY_MENU_KEYS.some((k) => menus.includes(k));
 }
 
-// ─────────────────────────────────────────────────────────────
-// 沟通次数口径
-// ─────────────────────────────────────────────────────────────
-
-export interface IdpCommLike {
-  /** 记录类型 */
-  type?: unknown;
-  /** 关联学生（record id） */
-  studentId?: unknown;
-  /** 沟通时间（任意形态） */
-  time?: unknown;
-  /** 沟通主题（最新摘要用） */
-  subject?: unknown;
+/**
+ * 「IDP 统计」的**数据范围**判据：`true` = 看全部老师，`false` = 只看自己名下。
+ *
+ * 用 `module:idpPlans:read`（IDP 配置的读权限）作依据：生产实测只有
+ * **系统管理员 / 院级管理**（以及 student / parent，但他们拿不到 `idpStats` 这个点）
+ * 持有它 ⇒ 等价于「管理员看全员、老师看自己」。
+ *
+ * ⚠️ 不要改成「角色名里含管理员」之类的字面判断：角色是**配置数据**，可以改名、可以新增，
+ *    写死角色名的那天就是漏授权的那天。权限点才是真源。
+ */
+export function idpStatsSeeAll(perms: readonly string[] | undefined | null): boolean {
+  return Boolean(perms?.includes(modulePermission('idpPlans', 'read')));
 }
 
-export interface IdpCommStat {
-  /** 落在区间内的沟通条数 */
-  count: number;
-  /** 最近一次沟通时间（ms）；没有则 0 */
-  lastAt: number;
-  /** 最近一次的摘要（主题优先，退回总结前若干字） */
-  lastSummary: string;
-  /**
-   * **时间读不出来的**条数 —— 「读不到 ≠ 0」，这个数必须单独报出来，
-   * 否则用户看到 count 少了会以为系统丢了记录。
-   */
-  noTime: number;
+// ─────────────────────────────────────────────────────────────
+// 「IDP 统计」的月份与间隔（纯函数：前后端共用同一份，别各写一遍）
+// ─────────────────────────────────────────────────────────────
+
+/** 北京时间的时区偏移（+08:00）—— 全站判「自然日 / 月份」都用它，别用服务器本地时区 */
+const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+/** 毫秒 → 北京时间 `YYYY-MM` */
+export function idpMonthKey(ms: number): string {
+  if (!ms) return '';
+  const d = new Date(ms + BEIJING_OFFSET_MS);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 /**
- * 按学生聚合 IDP 沟通次数（**唯一口径**，后端重算与聚合接口共用）。
+ * 毫秒 → 北京时间的「自然日序号」（自 epoch 起的天数）。
+ *
+ * 用途：算「相隔几天 / 距今几天」。**按自然日差**而不是 24 小时差 ——
+ * 老师的认知是「9/14 和 9/17 隔了 3 天」，而不是「差了 3.0 天」；
+ * 用 24h 差的话「9/14 23:00 → 9/15 01:00」会算成 0 天，明显反直觉。
+ */
+export function idpDayIndex(ms: number): number {
+  return Math.floor((ms + BEIJING_OFFSET_MS) / 86400000);
+}
+
+/**
+ * 相邻两次沟通的**自然日间隔**：输入按时间**升序**的毫秒数组，
+ * 返回每一项与前一项相差的天数（第一项 / 去重后无前项时为 `null`）。
+ *
+ * ⚠️ 先按时间升序、再算相邻 —— 传进来没排序会得到负数（调用方排序，别在这里隐式排，
+ *    否则「列表顺序」与「间隔」两个口径会悄悄用不同的序）。
+ */
+export function idpGapDaysAsc(sortedMs: readonly number[]): (number | null)[] {
+  return sortedMs.map((ms, i) => {
+    if (i === 0) return null;
+    const prev = sortedMs[i - 1];
+    if (!prev || !ms) return null;
+    return idpDayIndex(ms) - idpDayIndex(prev);
+  });
+}
+
+/** 最近一次沟通**距今**的自然日数（`todayMs` 由调用方传，便于测试固定"今天"） */
+export function idpDaysAgo(lastMs: number, todayMs: number): number | null {
+  if (!lastMs) return null;
+  return Math.max(0, idpDayIndex(todayMs) - idpDayIndex(lastMs));
+}
+
+/**
+ * 沟通次数口径（**唯一口径**，后端重算与聚合接口共用）。
  *
  * 口径（界面提示同步这句话）：
  *   「沟通次数 = 该学生在**本配置的学年学期区间内**、记录类型为 IDP沟通 的记录数；
@@ -279,6 +317,35 @@ export function idpSummarizeComms(
     }
   }
   return { count, lastAt, lastSummary, noTime };
+}
+
+// ─────────────────────────────────────────────────────────────
+// 沟通次数口径
+// ─────────────────────────────────────────────────────────────
+
+export interface IdpCommLike {
+  /** 记录类型 */
+  type?: unknown;
+  /** 关联学生（record id） */
+  studentId?: unknown;
+  /** 沟通时间（任意形态） */
+  time?: unknown;
+  /** 沟通主题（最新摘要用） */
+  subject?: unknown;
+}
+
+export interface IdpCommStat {
+  /** 落在区间内的沟通条数 */
+  count: number;
+  /** 最近一次沟通时间（ms）；没有则 0 */
+  lastAt: number;
+  /** 最近一次的摘要（主题优先，退回总结前若干字） */
+  lastSummary: string;
+  /**
+   * **时间读不出来的**条数 —— 「读不到 ≠ 0」，这个数必须单独报出来，
+   * 否则用户看到 count 少了会以为系统丢了记录。
+   */
+  noTime: number;
 }
 
 /** 取一条沟通记录的摘要文本（主题优先；没有主题就退回总结的前 60 字） */

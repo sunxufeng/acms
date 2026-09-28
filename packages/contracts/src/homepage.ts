@@ -335,13 +335,15 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'studentRecords', label: '学生记录', enLabel: 'Student Records', href: '/student-records', icon: 'notifications', section: '学生闭环', order: 60, perm: '' },
     // 我的 IDP（2026-09-26 新增）：老师端入口 —— 按学年学期看我自己的 IDP 学生 + 沟通记录。
     //
-    // `perm` 留空是有意的：它**不持有独立权限点**。可见性判据收口在 contracts 的
-    // `myIdpMenuVisible`（与「学生记录」同源：任一记录类型的 read 或合并入口 read），
-    // 见 AppShell.canSeeItem 里对应的分支。
-    // 🔴 千万别给它挂 `idpPlans`（= 现在「IDP配置」那个点）：生产实测只有
-    //    系统管理员/院级管理/student/parent 持有，Phase1~9（老师们实际角色）都没有 ⇒
-    //    复用它等于「上线后除管理员谁都看不到菜单」。
+    // 2026-09-29 改：**有了独立权限点** `module:myIdp:read`（峰哥：「有权限的人才能看到这个菜单」）。
+    // 改造前的判据是「任一记录类型 read」，那会让 student / parent（持有 dailyFollowups:read）
+    // 也看到老师端菜单。`perm` 仍留空是**有意**的 —— 可见性不走单个 perm 字符串，
+    // 而是收口在 contracts 的 `idpMenuVisible({perms, menus}, 'myIdp')`（见 AppShell.canSeeItem）。
     { key: 'myIdp', label: '我的IDP', enLabel: 'My IDP', href: '/my-idp', icon: 'target', section: '学生闭环', order: 70, perm: '' },
+    // IDP 统计（2026-09-29 新增）：管理员/院级 + 老师看「名下学生本月沟通」。
+    // 独立权限点 `module:idpStats:read`；**看全部老师**另需 `module:idpPlans:read`
+    //（判据 `idpStatsSeeAll`，后端收敛数据范围、前端据此决定显不显示老师筛选）。
+    { key: 'idpStats', label: 'IDP统计', enLabel: 'IDP Stats', href: '/idp-stats', icon: 'chart', section: '学生闭环', order: 71, perm: '' },
     { key: 'stageEvaluations', label: '阶段评价', enLabel: 'Stage Evaluations', href: '/stage-evaluations', icon: 'students', section: '学生闭环', order: 80, perm: 'evaluation:read' },
     { key: 'alumniFollowups', label: '校友跟进', enLabel: 'Alumni Follow-ups', href: '/alumni-followups', icon: 'students', section: '学生闭环', order: 90, perm: 'alumni:read' },
 

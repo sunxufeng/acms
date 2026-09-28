@@ -1513,6 +1513,18 @@ export const api = {
     const q = new URLSearchParams({ configId, studentId });
     return request<MyIdpComms>(`/my-idp/comms?${q.toString()}`);
   },
+  /**
+   * IDP 统计（2026-09-29 新增）：按 IDP 老师统计名下学生某个月的沟通情况。
+   * 权限 `module:idpStats:read`；数据范围由后端按 `module:idpPlans:read` 收敛
+   *（`seeAll` 字段告诉前端该显示「全部老师」还是只有自己）。
+   */
+  idpStats: (params?: { configId?: string; month?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.configId) q.set('configId', params.configId);
+    if (params?.month) q.set('month', params.month);
+    const qs = q.toString();
+    return request<IdpStatsResp>(`/idp-stats${qs ? `?${qs}` : ''}`);
+  },
 
   // ── 得到大脑（Get笔记）知识库 ──────────────────────────────────────────
   // ⚠️ 凭证模型（2026-09-05 二次修正）：Client ID 与 API Key **都是每人一份**。
@@ -2640,6 +2652,75 @@ export interface MyIdpComms {
     /** 这条记录**自己**关联的笔记 id（点标题弹哪一篇、行内显示「🔗 n 篇笔记」） */
     linkedNoteIds: string[];
   }[];
+}
+
+/**
+ * IDP 统计（2026-09-29 新增）—— 与后端 `IdpService.stats` 的返回一一对应。
+ *
+ * 结构对齐峰哥给的样例：老师 → 名下学生（共 N / 本月沟通 M）→ 每个学生
+ *（本月次数 / 最近一次 / 相隔几天）→ 每条沟通（日期 / 主题 / 笔记 / 附件）。
+ */
+export interface IdpStatsRow {
+  id: string;
+  subject: string;
+  time: number;
+  person: string;
+  way: string;
+  files: IdpCommFile[];
+  /** 这条记录关联的笔记（id + 标题；当前线上每条最多 1 篇） */
+  notes: { noteId: string; title: string }[];
+}
+
+export interface IdpStatsStudent {
+  studentId: string;
+  studentName: string;
+  nameEn: string;
+  cls: string;
+  /** 本月沟通次数 */
+  count: number;
+  /** 本月最近一次沟通时间（ms）；0 = 本月无沟通 */
+  lastAt: number;
+  /** 与上一次（本月）相隔的**自然日**数；本月不足 2 次时为 null */
+  gapDays: number | null;
+  /** 最近一次距今的自然日数；本月无沟通时为 null */
+  daysAgo: number | null;
+  /** 其中沟通人 ≠ 该生 IDP 老师的条数（界面标「代谈」） */
+  byOtherCount: number;
+  rows: IdpStatsRow[];
+}
+
+export interface IdpStatsTeacher {
+  openId: string;
+  name: string;
+  /** 名下学生总数（含本月未沟通的） */
+  studentCount: number;
+  /** 本月有沟通的学生数 */
+  talked: number;
+  /** 本月沟通总次数 */
+  comms: number;
+  lastAt: number;
+  students: IdpStatsStudent[];
+  /** 本月未沟通的学生（老师卡底部「谁还没谈」） */
+  notTalked: { studentId: string; studentName: string; cls: string }[];
+  /** 他本人谈的、但学生不属于他的条数（"代谈"） */
+  coveringCount: number;
+}
+
+export interface IdpStatsResp {
+  me: { openId: string; name: string };
+  /** 是否能看全部老师（持有 `module:idpPlans:read` = 系统管理员 / 院级管理） */
+  seeAll: boolean;
+  config: { id: string; name: string; yearName: string; term: string } | null;
+  rangeText: string;
+  rangeOk: boolean;
+  /** 可选的月份（有 IDP沟通 记录的月份，倒序；含当前月） */
+  months: string[];
+  month: string;
+  overview: { teachers: number; students: number; talkedStudents: number; comms: number; notTalked: number };
+  /** 本配置里没分配 IDP 老师的学生 —— 统计口径之外，但必须报出来 */
+  unassigned: { studentId: string; studentName: string; cls: string }[];
+  teachers: IdpStatsTeacher[];
+  today: number;
 }
 
 export interface ExamAnomalyRow {

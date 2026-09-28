@@ -8,10 +8,11 @@ import { api } from '../lib/api';
 import LocaleSwitcher from './LocaleSwitcher';
 import { useRoleLabels } from './RoleLabels';
 import {
+  IDP_STATS_MENU_KEY,
   MY_IDP_MENU_KEY,
+  idpMenuVisible,
   modulePermission,
   moduleByMenuKey,
-  myIdpMenuVisible,
   studentRecordMenuVisible,
 } from '@acms/contracts';
 import { loadPermissions, resetPermissions } from '../lib/permissions';
@@ -421,11 +422,18 @@ export default function AppShell({
     if (item.key === 'studentRecords') {
       return studentRecordMenuVisible({ perms: myPerms, menus: myMenus });
     }
-    // 「我的 IDP」（2026-09-26）：与「学生记录」**同源**判据（同一个 contracts 函数族）——
-    // 它没有独立权限点，因为 `idpPlans` 老师全都不持有（复用它 = 上线即无人可见）。
-    // 判据收口在 `myIdpMenuVisible`，别在这里再写一遍。
-    if (item.key === MY_IDP_MENU_KEY) {
-      return myIdpMenuVisible({ perms: myPerms, menus: myMenus });
+    // 「我的 IDP」/「IDP 统计」（2026-09-29 起各有**独立权限点**）——
+    // 峰哥要求「另造权限，有权限的人才能看到这个菜单」：
+    //   · `module:myIdp:read`（权限矩阵里的「我的 IDP」）
+    //   · `module:idpStats:read`（权限矩阵里的「IDP 统计」）
+    // 权限点是硬闸门；菜单白名单是叠加条件，并兼容合并前的学生记录旧 key
+    //（生产实测 Phase1 的白名单里有 `studentObservations`、不含 `myIdp`，
+    //  严格只认新 key 会把招生老师整体挡在门外）。判据收口在 `idpMenuVisible`。
+    if (item.key === MY_IDP_MENU_KEY || item.key === IDP_STATS_MENU_KEY) {
+      return idpMenuVisible(
+        { perms: myPerms, menus: myMenus },
+        item.key === MY_IDP_MENU_KEY ? MY_IDP_MENU_KEY : IDP_STATS_MENU_KEY,
+      );
     }
     const enterPerm = modRes ? modulePermission(modRes.key, 'enter') : item.perm;
     if (enterPerm && !(myPerms || []).includes(enterPerm)) return false;

@@ -164,8 +164,9 @@ class IdpAggController {
 /**
  * 「我的 IDP」老师端接口。
  *
- * 🔴 可见性判据是 `myIdpMenuVisible`（= 任一记录类型 read），**不是** `idpPlans` ——
- *    Phase1~9 全都不持有后者（生产实测），复用它等于上线即无人可见。
+ * 🔴 可见性判据是 **`module:myIdp:read`**（2026-09-29 起独立权限点，见 contracts 的
+ *    `idpMenuVisible` 与 module-permissions.ts 文件头 v6）——
+ *    **不要**退回"任一记录类型 read"：那样 student / parent 也会持有而看到老师端菜单。
  * 数据面靠「IDP老师 = 我的 openId」过滤 ⇒ 老师之间互相看不到（判据在 service 内）。
  */
 @Controller('my-idp')
@@ -184,6 +185,25 @@ class MyIdpController {
   }
 }
 
+/**
+ * 「IDP 统计」接口（2026-09-29 新增）。
+ *
+ * 🔴 可见性判据是 **`module:idpStats:read`**（独立权限点，同上一并抬到 v6）。
+ * **数据范围**另有一道：`module:idpPlans:read`（系统管理员 / 院级管理）看全部老师，
+ * 其余人只看自己名下 —— 判据收口在 contracts 的 `idpStatsSeeAll`，前端「要不要显示老师切换器」
+ * 用的是同一份，两边不会漂移。
+ */
+@Controller('idp-stats')
+@UseGuards(SessionGuard)
+class IdpStatsController {
+  constructor(private readonly svc: IdpService) {}
+
+  @Get()
+  stats(@Req() req: Request, @Query('configId') configId?: string, @Query('month') month?: string) {
+    return this.svc.stats(userOf(req), { configId: configId ?? '', month: month ?? '' });
+  }
+}
+
 function userOf(req: Request): SessionUser {
   return (req as Request & { user: SessionUser }).user;
 }
@@ -195,7 +215,7 @@ function userOf(req: Request): SessionUser {
     // 单个文本值），线上 /idp-options 直接 500。见 IdpService.semesterDict 的注释。
     DictModule,
   ],
-  controllers: [IdpPlanController, IdpAggController, MyIdpController],
+  controllers: [IdpPlanController, IdpAggController, MyIdpController, IdpStatsController],
   providers: [IdpPlanService, IdpService, baseClientProvider],
   /** 供学生全景等模块注入（本次未接，但导出语义上属于「本模块提供的能力」） */
   exports: [IdpService],

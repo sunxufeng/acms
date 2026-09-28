@@ -23,7 +23,7 @@ import {
   noteStatusMatches,
   splitNoteTags,
 } from '@acms/contracts';
-import { putConvertPayload, formatConvertLogs, totalConvertCount, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../../lib/noteConvert';
+import { putConvertPayload, formatConvertLogs, totalConvertCount, enabledConvertTargets, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../../lib/noteConvert';
 import { useTl } from '../../lib/useTl';
 // 按钮级门控：归档 / 激活与后端同一个权限点（module:getnote:update）
 import { usePermissions } from '../../lib/permissions';
@@ -759,7 +759,8 @@ export default function GetnotePage() {
       setConvertCfgBusy(true);
       try {
         const cfg = await api.getNoteConvert();
-        setConvertTargets((cfg.items ?? []).filter((i) => i.enabled));
+        // 只取 enabled 的、并按 order 升序 —— 顺序口径见 enabledConvertTargets 的说明
+        setConvertTargets(enabledConvertTargets(cfg.items));
       } catch {
         setConvertErr(t('convertLoadFailed'));
       } finally {

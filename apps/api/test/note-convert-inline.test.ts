@@ -166,20 +166,43 @@ describe('「我的笔记」列表：转换不再弹窗、不再跳页', () => {
 
 describe('转换精简表单里默认展开的字段（convertShow）', () => {
   const SOURCE_COLS = read('apps', 'web', 'app', 'source-followups', 'columns.tsx');
+  const STU_COLS = read('apps', 'web', 'app', 'student-records', 'columns.tsx');
 
-  it('招生跟进：活动类型 / 付款状态 / 家长 / 家长反馈态度（+ 关联学生）默认展开', () => {
-    for (const line of [
-      "{ key: '活动类型'",
-      "{ key: '付款状态'",
-      "{ key: '家长'",
-      "{ key: '家长反馈态度'",
-      "key: '关联学生'",
-    ]) {
-      const i = SOURCE_COLS.indexOf(line);
-      expect(i, line).toBeGreaterThan(-1);
-      // 标记写在该字段自己的定义块里（下 40 个字符内出现 convertShow 即算命中）
-      expect(SOURCE_COLS.slice(i, i + 900), line).toContain('convertShow');
+  /** 在 columns.tsx 里某字段定义的起点（找不到返回 -1） */
+  const at = (src: string, key: string) => src.indexOf(`key: '${key}'`);
+
+  it('招生跟进：活动类型 / 付款状态 / 家长 / 家长反馈态度 / 关联学生 默认展开', () => {
+    for (const k of ['活动类型', '付款状态', '家长', '家长反馈态度', '关联学生']) {
+      const i = at(SOURCE_COLS, k);
+      expect(i, k).toBeGreaterThan(-1);
+      // 标记写在该字段自己的定义块里（往后 900 字符内出现 convertShow 即算命中）
+      expect(SOURCE_COLS.slice(i, i + 900), k).toContain('convertShow');
     }
+  });
+
+  it('🔴 招生跟进：学生姓名紧跟联系人、跟进状态紧跟跟进时间（峰哥 2026-09-28）', () => {
+    for (const k of ['学生姓名', '跟进状态']) {
+      const i = at(SOURCE_COLS, k);
+      expect(i, k).toBeGreaterThan(-1);
+      expect(SOURCE_COLS.slice(i, i + 900), k).toContain('convertShow');
+    }
+    // 表单按 `columns` 数组顺序渲染 ⇒ 「紧跟」= 数组里就挨着
+    expect(at(SOURCE_COLS, '学生姓名')).toBeGreaterThan(at(SOURCE_COLS, '关联联系人'));
+    expect(at(SOURCE_COLS, '学生姓名')).toBeLessThan(at(SOURCE_COLS, '关联学生'));
+    expect(at(SOURCE_COLS, '跟进状态')).toBeGreaterThan(at(SOURCE_COLS, '跟进时间'));
+    expect(at(SOURCE_COLS, '跟进状态')).toBeLessThan(at(SOURCE_COLS, '活动类型'));
+  });
+
+  it('🔴 学生记录：沟通方式紧跟「学生」（关联学生）且默认展开，各类型都有', () => {
+    const i = at(STU_COLS, '沟通方式');
+    expect(i).toBeGreaterThan(-1);
+    expect(STU_COLS.slice(i, i + 900)).toContain('convertShow');
+    expect(i).toBeGreaterThan(at(STU_COLS, '关联学生'));
+    expect(i).toBeLessThan(at(STU_COLS, '观察类型'));
+    // 不带 showIf ⇒ 所有记录类型都显示（峰哥：几种记录类型里都要有）
+    // 只看**本字段自己的定义块**（到下一个 `key:` 为止），别把邻居的 showIf 算进来
+    const next = STU_COLS.indexOf('key: ', i + 5);
+    expect(STU_COLS.slice(i, next)).not.toContain('showIf');
   });
 
   it('会议纪要：峰哥点名的 9 个字段默认展开', () => {
@@ -187,6 +210,29 @@ describe('转换精简表单里默认展开的字段（convertShow）', () => {
     for (const field of ['会议地点', '开始时间', '结束时间', '参会人员', '缺席人员', '列席人员', '状态', '可见范围', '敏感级别']) {
       expect(MEETING_COLS).toContain(field);
     }
+  });
+});
+
+describe('转换候选目标的顺序（🔴 按 order 排，不按菜单树）', () => {
+  const NOTE_CONVERT = read('apps', 'web', 'lib', 'noteConvert.ts');
+
+  it('候选 = enabled 的，且按 order 升序（纯函数只有一份）', () => {
+    expect(NOTE_CONVERT).toContain('export function enabledConvertTargets');
+    expect(NOTE_CONVERT).toMatch(/\.filter\(\(i\) => i\.enabled\)\s*\.sort\(\(a, b\) =>/);
+  });
+
+  it('页面必须用它取候选（不许自己 filter 一遍）', () => {
+    expect(GETNOTE_PAGE).toContain('setConvertTargets(enabledConvertTargets(cfg.items));');
+    // 旧写法（直接 filter、不排序）不许留
+    expect(GETNOTE_PAGE).not.toMatch(/setConvertTargets\(\(cfg\.items \?\? \[\]\)\.filter/);
+  });
+
+  it('线上配置的 order 口径：招生跟进 80 < 学生记录 120 < 会议纪要 540 ⇒ 面板顺序如此', () => {
+    // 这三条是「转换配置」里的实际值，改配置就等于改界面顺序；
+    // 这里只锁「学生记录要排在会议纪要前面」这个结论能被 order 表达出来。
+    const orders = { sourceFollowups: 80, studentRecords: 120, meetingMinutes: 540 };
+    expect(orders.sourceFollowups).toBeLessThan(orders.studentRecords);
+    expect(orders.studentRecords).toBeLessThan(orders.meetingMinutes);
   });
 });
 

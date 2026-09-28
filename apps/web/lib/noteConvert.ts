@@ -103,3 +103,23 @@ export function totalConvertCount(
   if (!items?.length) return 0;
   return items.reduce((sum, i) => sum + (Number(i.count ?? 1) || 1), 0);
 }
+
+/**
+ * 「我的笔记 → 转换」的候选目标 = 转换配置里 `enabled` 的那些，**按 `order` 升序**。
+ *
+ * 🔴 必须自己排一次：接口返回的 `items` 是**整棵菜单树**的顺序（83 个菜单全在里面），
+ *    而 `order` 才是转换配置里约定的展示顺序（`NoteConvertTarget.order` 的注释：
+ *    「排序，越小越靠前」）。不排的话顺序完全跟着菜单树走 ——
+ *    峰哥 2026-09-28 报的「学生记录要排在会议纪要前面」就是这么来的：
+ *    配置里 order 已经是 招生跟进 80 → 学生记录 120 → 会议纪要 540，
+ *    但菜单树里会议纪要（组织管理域）排在学生记录（学生域）前面，界面上就反了。
+ *
+ * ⚠️ 只做一次纯函数、只在这里排：页面与面板各排一遍迟早会分叉（一边排、一边忘）。
+ */
+export function enabledConvertTargets<T extends { enabled?: boolean; order?: number }>(
+  items: T[] | undefined,
+): T[] {
+  return (items ?? [])
+    .filter((i) => i.enabled)
+    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+}

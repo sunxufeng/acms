@@ -162,6 +162,8 @@ export function buildStudentRecordColumns(activeType?: string): CrudColumn[] {
       dictKey: '沟通方式',
       listOrder: 4,
       section: SECTION_BASE,
+      // 转换精简表单里默认展开：紧跟「学生」列；所有记录类型都要有（峰哥 2026-09-28 点名）
+      convertShow: true,
     },
     {
       key: '观察类型',

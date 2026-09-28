@@ -68,6 +68,8 @@ export const COLUMNS: CrudColumn[] = [
     readonly: true,
     listOrder: 2,
     hint: '自动取自联系人报名表里填的学生姓名，不可编辑',
+    // 转换精简表单里默认展开：紧跟「联系人」，选完联系人就带出来了，得让用户看得见
+    convertShow: true,
   },
   {
     key: '关联学生',
@@ -89,7 +91,8 @@ export const COLUMNS: CrudColumn[] = [
     },
   },
   { key: '跟进时间', label: '跟进时间', width: '150px', form: true, type: 'datetime', listOrder: 4 },
-  { key: '跟进状态', label: '跟进状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '跟进状态', listOrder: 5 },
+  // 转换精简表单里默认展开：紧跟「跟进时间」（峰哥 2026-09-28 点名）
+  { key: '跟进状态', label: '跟进状态', width: '110px', filter: true, form: true, type: 'select', dictKey: '跟进状态', listOrder: 5, convertShow: true },
   { key: '活动类型', label: '活动类型', width: '110px', filter: true, form: true, type: 'select', dictKey: '活动类型', listOrder: 6, convertShow: true },
   // ⚠️ 2026-09-19 峰哥要求：负责人要能在**新建/修改表单里看到并修改** ——
   //    原先只配了 listOrder（列表可见）而没开 form，表单里根本找不到这个字段。

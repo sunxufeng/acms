@@ -359,6 +359,29 @@ export function commSummaryOf(c: { subject?: unknown; summary?: unknown }): stri
 export const IDP_COMM_RECORD_TYPE = 'IDP沟通';
 
 /**
+ * 「笔记关联」表里，**IDP 沟通记录**的关联行会写成哪些 `实体类型`。
+ *
+ * 🔴 必须同时认两个值 —— 这是 2026-09-29 实测出来的（生产库 13 条 IDP沟通记录）：
+ *
+ * ```
+ * 实体类型=学生记录 → 13     ← 全部
+ * 实体类型=IDP沟通  → 0
+ * ```
+ *
+ * 原因：写侧（「我的笔记 → 转换」的留痕与后续 `PUT /getnote/links`）用的是**模块标签**
+ * （`target.label` = 「学生记录」），而 IDP 时间线最初只按**记录类型**（`IDP沟通`）过滤
+ * ⇒ **一条笔记都读不出来**（页面「笔记」列恒空，且不报错）。这正是项目里反复踩的
+ * 「同一件事两套判据」—— 修法是**读取侧放宽到写侧实际会写的值**，而不是去改写侧
+ * （改写侧会让已有的 13 条历史关联全部对不上）。
+ *
+ * ⚠️ 放宽是安全的：调用方传入的 `recordIds` 全部来自「记录类型 = IDP沟通」的记录，
+ *    而业务记录 id 全局唯一 ⇒ 不会误收别的模块的笔记。
+ *
+ * ⚠️ 判据只有这一份：`linkedNotesOf` 与 `linkedNoteMapOf` 都必须用它，不许再写字面量。
+ */
+export const IDP_COMM_NOTE_ENTITY_TYPES: readonly string[] = [IDP_COMM_RECORD_TYPE, '学生记录'];
+
+/**
  * IDP 列表「学生」列的展示文案 = **中文名｜英文名**（2026-09-26 峰哥要求）。
  *
  * 为什么抽成纯函数：这个格式被两个页面用（IDP 配置页 / 我的 IDP 页），

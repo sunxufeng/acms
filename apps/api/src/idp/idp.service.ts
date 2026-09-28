@@ -42,6 +42,7 @@ import {
 } from '@nestjs/common';
 import {
   IDP_ARCHIVED,
+  IDP_COMM_NOTE_ENTITY_TYPES,
   IDP_COMM_RECORD_TYPE,
   IDP_CONFIG_FIELDS as CF,
   IDP_CONFIG_STATUSES,
@@ -937,7 +938,9 @@ export class IdpService {
       for (const it of res.items ?? []) {
         const rec = it as unknown as { fields?: Record<string, unknown> };
         const f = (rec.fields ?? {}) as Record<string, unknown>;
-        if (idpTextOf(f['实体类型']) !== IDP_COMM_RECORD_TYPE) continue;
+        // 🔴 不能只认 `IDP沟通`：写侧用的是模块标签「学生记录」（生产实测 13/13 都是它），
+        //    只认记录类型会导致「笔记」列恒空且不报错。判据收口在 contracts 的常量里。
+        if (!IDP_COMM_NOTE_ENTITY_TYPES.includes(idpTextOf(f['实体类型']))) continue;
         const rid = idpTextOf(f['实体ID']);
         if (!want.has(rid)) continue;
         const nid = idpTextOf(f['笔记ID']);

@@ -580,3 +580,28 @@ describe('C. IDP 统计（2026-09-29 新增）', () => {
     expect(seg).toContain('IDP_STATS_MENU_KEY');
   });
 });
+
+describe('C2. 笔记关联的实体类型判据（2026-09-29 实测修正）', () => {
+  const idpTs = read('packages/contracts/src/idp.ts');
+  const svc = read('apps/api/src/idp/idp.service.ts');
+
+  it('🔴 必须同时认「IDP沟通」与「学生记录」——写侧写的是**模块标签**', () => {
+    // 生产实测（13 条 IDP沟通记录）：实体类型=学生记录 → 13 行，实体类型=IDP沟通 → 0 行。
+    // 只认记录类型 ⇒ 页面「笔记」列恒空且不报错（这就是修之前的线上状态）。
+    expect(idpTs).toContain('export const IDP_COMM_NOTE_ENTITY_TYPES');
+    const i = idpTs.indexOf('export const IDP_COMM_NOTE_ENTITY_TYPES');
+    const decl = idpTs.slice(i, idpTs.indexOf(';', i));
+    expect(decl).toContain('IDP_COMM_RECORD_TYPE');
+    expect(decl).toContain("'学生记录'");
+  });
+
+  it('service 用这个常量筛，且**不许**再拿单一字面量比对（两套判据 = 静默 bug）', () => {
+    expect(svc).toContain("IDP_COMM_NOTE_ENTITY_TYPES.includes(idpTextOf(f['实体类型']))");
+    expect(svc).not.toContain("idpTextOf(f['实体类型']) !== IDP_COMM_RECORD_TYPE");
+  });
+
+  it('只放宽「关联行」的判据，**记录类型**的判据仍必须是单一值', () => {
+    // 997 行附近：筛 IDP沟通 记录用的还是 IDP_COMM_RECORD_TYPE（放宽这里会串到别的记录类型）
+    expect(svc).toContain('value: [IDP_COMM_RECORD_TYPE]');
+  });
+});

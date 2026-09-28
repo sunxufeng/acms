@@ -227,12 +227,27 @@ describe('转换候选目标的顺序（🔴 按 order 排，不按菜单树）'
     expect(GETNOTE_PAGE).not.toMatch(/setConvertTargets\(\(cfg\.items \?\? \[\]\)\.filter/);
   });
 
-  it('线上配置的 order 口径：招生跟进 80 < 学生记录 120 < 会议纪要 540 ⇒ 面板顺序如此', () => {
-    // 这三条是「转换配置」里的实际值，改配置就等于改界面顺序；
-    // 这里只锁「学生记录要排在会议纪要前面」这个结论能被 order 表达出来。
-    const orders = { sourceFollowups: 80, studentRecords: 120, meetingMinutes: 540 };
-    expect(orders.sourceFollowups).toBeLessThan(orders.studentRecords);
-    expect(orders.studentRecords).toBeLessThan(orders.meetingMinutes);
+  it('🔴 真跑一遍：菜单树顺序 ≠ 展示顺序，必须按 order 重排', async () => {
+    const { enabledConvertTargets } = await import('../../web/lib/noteConvert');
+    // 复刻线上真实情况：接口给的是**菜单树顺序**（会议纪要排在学生记录前面），
+    // order 才是转换配置约定的顺序 —— 不重排的话界面顺序就是反的。
+    const items = [
+      { key: 'sourceFollowups', enabled: true, order: 80 },
+      { key: 'meetingMinutes', enabled: true, order: 540 },
+      { key: 'studentRecords', enabled: true, order: 120 },
+      { key: 'myIdp', enabled: false, order: 1000 },
+      { key: 'scheduledTasks', enabled: false, order: 1007 },
+    ];
+    expect(enabledConvertTargets(items).map((i) => i.key)).toEqual([
+      'sourceFollowups',
+      'studentRecords',
+      'meetingMinutes',
+    ]);
+    // 未启用的一个都不出现
+    expect(enabledConvertTargets(items)).toHaveLength(3);
+    // 空 / undefined 不炸（配置还没加载时页面就是这个状态）
+    expect(enabledConvertTargets(undefined)).toEqual([]);
+    expect(enabledConvertTargets([])).toEqual([]);
   });
 });
 

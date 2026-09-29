@@ -489,13 +489,53 @@ describe('H. 登记入口（2026-09-30 峰哥：「登记支持按钮在哪里�
 
   it('🔴 学生候选的范围判据与看板**同一份**（不能因为搜得到就绕过行级限制）', () => {
     const i = SVC.indexOf('async studentOptions(');
-    const body = SVC.slice(i, i + 4000);
-    expect(body).toContain('supportInScope(');
-    expect(body).toContain('this.meIdsOf(');
-    // 负责人推导也必须复用同一份（两处各推一次 ⇒ 选择器显示的人与看板不一致）
-    expect(body).toContain('this.resolveOwner(');
+    const body = SVC.slice(i, i + 3000);
+    // 判据全抽到 helper 里共用（各写一份必然漂移）
+    expect(body).toContain('this.loadContext(');
+    expect(body).toContain('this.ctxOf(');
+    expect(body).toContain('this.inScopeOf(');
+    // helper 里落的必须是 contracts 那一份判据 + 本模块共用的负责人推导
+    expect(SVC).toContain('supportInScope({');
+    expect(SVC).toContain('private ctxOf(');
+    expect(SVC).toContain('private inScopeOf(');
+    expect(SVC).toContain('this.resolveOwner(');
     // 反向：不许在学生候选里自己重新推导负责人
     expect(body).not.toContain('supportAutoOwner(');
+  });
+
+  it('🔴🔴 写动作的范围校验**不得**走 `detail()`（detail 依赖 board ⇒ 给"看板上没有的学生"登记必然 404）', () => {
+    // 2026-09-30 上线实测踩到：save 里原为 `const { row } = await this.detail(...)` ⇒
+    // 「＋ 登记支持」里选一个**无信号**的学生 → POST claim **404**、库里 0 行。
+    // 而这个入口的全部意义就是给"看板上没有的人"登记 —— 属于"功能上线即残废且不报错"。
+    const i = SVC.indexOf('async save(');
+    // 🔴 断言前**必须先剥掉注释行** —— 本条的每一版都被注释骗过：
+    //    · 第一版：注释里为了讲规矩写了「这里不能用 `this.detail()`」⇒ `not.toContain` 永远失败
+    //    · 第二版：窗口取太长，把后面 `detail()` 方法体里真正的那句 `this.board(` 框进来了
+    //    ⇒ 源码守卫的通用做法：**窗口贴紧 + 剥注释**，否则断言测的是注释不是代码。
+    const strip = (s: string) =>
+      s
+        .split('\n')
+        .filter((l) => {
+          const t = l.trim();
+          return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*');
+        })
+        .join('\n');
+    const upto = (from: string, next: string, fallback: number) => {
+      const a = SVC.indexOf(from);
+      const b = SVC.indexOf(next, a + from.length);
+      return strip(SVC.slice(a, b > a ? b : a + fallback));
+    };
+
+    const seg = upto('async save(', '\n  async ', 2200);
+    expect(seg).not.toContain('this.detail(');
+    expect(seg).toContain('this.studentCtx(');
+    // studentCtx 自己也不许依赖 board（board 只收"有信号"的学生）
+    const sc = upto('private async studentCtx(', '\n  async ', 1400);
+    expect(sc).not.toContain('this.board(');
+    expect(sc).toContain('this.loadContext(');
+    expect(sc).toContain('this.inScopeOf(');
+    // detail 那边也留了反向提示，防止有人"顺手"把两者合并回去
+    expect(SVC).toContain('写动作不要复用本方法');
   });
 
   it('负责人推导与 IDP 老师索引都抽成了共用方法（board 与 studentOptions 各一份必然漂移）', () => {

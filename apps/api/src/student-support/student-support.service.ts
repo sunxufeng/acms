@@ -84,6 +84,33 @@ import { requireModule } from '../shared/require-module.js';
 
 type Row = { id: string; f: Record<string, unknown> };
 
+/** 聚合上下文：一次读齐的表 + 我的身份 + 判据开关（board / studentOptions / 写入校验共用） */
+type AggContext = {
+  students: Row[];
+  comms: { byId: Map<string, SupportCommLike[]>; byName: Map<string, SupportCommLike[]> };
+  supports: Row[];
+  users: Map<string, string>;
+  idpTeacherOf: Map<string, string>;
+  seeAll: boolean;
+  meIds: string[];
+  nowMs: number;
+};
+
+/** 一个在校生的可操作视图（负责人 / 沟通 / 支持行都算好，范围判定只认这个） */
+type StudentCtx = {
+  id: string;
+  name: string;
+  nameEn: string;
+  grade: string;
+  cls: string;
+  campus: string;
+  comms: SupportCommLike[];
+  sup: Row | null;
+  owner: { name: string; source: string };
+  headOpenId: string;
+  idpOpenId: string;
+};
+
 /** 学生表里「班级」/「年级」的候选字段（与成绩册 `MarkbookService.CLASS_FIELDS` 同口径） */
 const STUDENT_CLASS_FIELDS = ['当前班级', '当前年级'] as const;
 const STUDENT_GRADE_FIELDS = ['当前年级', '入学年级'] as const;
@@ -266,6 +293,75 @@ export class StudentSupportService {
     });
   }
 
+  /**
+   * 一次读齐聚合要用的 5 张表 + 我的身份与判据开关。
+   * `board` / `studentOptions` / 写动作的范围校验共用 —— 各读各的会出现"看板里有、选择器里没有"。
+   */
+  private async loadContext(user: SessionUser): Promise<AggContext> {
+    const { seeAll } = this.require(user);
+    const [students, comms, supports, users, idpTeacherOf] = await Promise.all([
+      this.readAll(TABLES.studentProfile.tableId),
+      this.commsByStudent(),
+      this.readAll(TABLES.studentSupport.tableId),
+      this.userIndex(),
+      this.idpTeacherIndex(),
+    ]);
+    return {
+      students,
+      comms,
+      supports,
+      users,
+      idpTeacherOf,
+      seeAll,
+      meIds: this.meIdsOf(user),
+      nowMs: Date.now(),
+    };
+  }
+
+  /**
+   * 一个在校生的「可操作视图」（负责人、沟通、支持行都算好）。
+   * 返回 null = 不是在校生 / 没有姓名。
+   */
+  private ctxOf(s: Row, ctx: AggContext): StudentCtx | null {
+    if (!idpIsEnrolled(s.f['当前状态'])) return null;
+    const name = String(s.f['学生姓名'] ?? '').trim();
+    if (!name) return null;
+    const comms = ctx.comms.byId.get(s.id) ?? ctx.comms.byName.get(name) ?? [];
+    const headOpenId = String(s.f['班主任'] ?? '').trim();
+    const idpOpenId = ctx.idpTeacherOf.get(s.id) ?? '';
+    const sup = this.openSupportOf(ctx.supports, s.id);
+    const owner = this.resolveOwner({
+      sup,
+      commsDesc: [...comms].sort((a, b) => b.ms - a.ms),
+      headName: ctx.users.get(headOpenId) ?? headOpenId,
+      idpName: ctx.users.get(idpOpenId) ?? idpOpenId,
+    });
+    return {
+      id: s.id,
+      name,
+      nameEn: String(s.f['英文名'] ?? '').trim(),
+      grade: this.studentGrade(s.f),
+      cls: this.studentCls(s.f),
+      campus: String(s.f['校区'] ?? '').trim(),
+      comms,
+      sup,
+      owner,
+      headOpenId,
+      idpOpenId,
+    };
+  }
+
+  /** 行级范围（**读与写共用一份**：`board` / `studentOptions` / `save` 都走它） */
+  private inScopeOf(c: StudentCtx, ctx: AggContext): boolean {
+    return supportInScope({
+      seeAll: ctx.seeAll,
+      owner: c.owner.name,
+      headTeacher: c.headOpenId,
+      idpTeacher: c.idpOpenId,
+      me: ctx.meIds,
+    });
+  }
+
   // ───────────────────────── 看板 ─────────────────────────
 
   /**
@@ -408,63 +504,44 @@ export class StudentSupportService {
    * 🔴 **没上板的学生也在候选里**（`onBoard: false`），这才是本接口存在的意义。
    */
   async studentOptions(user: SessionUser): Promise<SupportStudentOption[]> {
-    const { seeAll } = this.require(user);
-    const nowMs = Date.now();
-    const [students, comms, supports, users, idpTeacherOf] = await Promise.all([
-      this.readAll(TABLES.studentProfile.tableId),
-      this.commsByStudent(),
-      this.readAll(TABLES.studentSupport.tableId),
-      this.userIndex(),
-      this.idpTeacherIndex(),
-    ]);
-    const meIds = this.meIdsOf(user);
+    const ctx = await this.loadContext(user);
     const out: SupportStudentOption[] = [];
 
-    for (const s of students) {
-      if (!idpIsEnrolled(s.f['当前状态'])) continue;
-      const name = String(s.f['学生姓名'] ?? '').trim();
-      if (!name) continue;
-
-      const mine = comms.byId.get(s.id) ?? comms.byName.get(name) ?? [];
-      const sorted = [...mine].sort((a, b) => b.ms - a.ms);
-      const headOpenId = String(s.f['班主任'] ?? '').trim();
-      const idpOpenId = idpTeacherOf.get(s.id) ?? '';
-      const sup = this.openSupportOf(supports, s.id);
-      const owner = this.resolveOwner({
-        sup,
-        commsDesc: sorted,
-        headName: users.get(headOpenId) ?? headOpenId,
-        idpName: users.get(idpOpenId) ?? idpOpenId,
-      });
-
-      // 🔴 与看板同一份行级范围判据
-      if (
-        !supportInScope({
-          seeAll,
-          owner: owner.name,
-          headTeacher: headOpenId,
-          idpTeacher: idpOpenId,
-          me: meIds,
-        })
-      ) {
-        continue;
-      }
-
+    for (const s of ctx.students) {
+      const c = this.ctxOf(s, ctx);
+      if (!c || !this.inScopeOf(c, ctx)) continue;
       out.push({
-        studentId: s.id,
-        name,
-        nameEn: String(s.f['英文名'] ?? '').trim(),
-        grade: this.studentGrade(s.f),
-        cls: this.studentCls(s.f),
-        campus: String(s.f['校区'] ?? '').trim(),
-        owner: owner.name,
-        ownerSource: owner.source,
-        onBoard: supportSignalsOf({ comms: mine }, nowMs).length > 0,
-        supportStatus: String(sup?.f[SF.支持状态] ?? '').trim(),
+        studentId: c.id,
+        name: c.name,
+        nameEn: c.nameEn,
+        grade: c.grade,
+        cls: c.cls,
+        campus: c.campus,
+        owner: c.owner.name,
+        ownerSource: c.owner.source,
+        onBoard: supportSignalsOf({ comms: c.comms }, ctx.nowMs).length > 0,
+        supportStatus: String(c.sup?.f[SF.支持状态] ?? '').trim(),
       });
     }
 
     return out.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  }
+
+  /**
+   * 写动作的范围校验（`save` / `claim` / `resolve` 共用）。
+   *
+   * 🔴🔴 **绝不能走 `detail()`**：detail 依赖 `board()`，而 board 只收"有信号"的学生
+   *    ⇒ 给**看板上没有的学生**登记必然 404 —— 而「＋ 登记支持」的全部意义
+   *    就是这个（2026-09-30 上线实测踩到：接口返 404，库里 0 行）。
+   *    这里只要求"这个学生在我范围内"，**不要求他在看板上**。
+   */
+  private async studentCtx(user: SessionUser, studentId: string): Promise<StudentCtx> {
+    const ctx = await this.loadContext(user);
+    const s = ctx.students.find((x) => x.id === studentId);
+    const c = s ? this.ctxOf(s, ctx) : null;
+    if (!c) throw new NotFoundException('NOT_FOUND: 学生不存在或已离校');
+    if (!this.inScopeOf(c, ctx)) throw new NotFoundException('NOT_FOUND: 该学生不在你的范围内');
+    return c;
   }
 
   // ───────────────────────── 支持卡详情 ─────────────────────────
@@ -490,6 +567,9 @@ export class StudentSupportService {
     }[];
     actions: { ms: number; who: string; what: string }[];
   }> {
+    // ⚠️ 这里**故意**走 `board()`：抽屉是从看板卡片打开的，学生必然在板上，
+    //    而且需要行里的 `signals` 等字段。**写动作不要复用本方法**（见 `studentCtx` 的注释：
+    //    给"看板上没有的学生"登记会因此 404 —— 而那正是「＋ 登记支持」的用途）。
     const boardData = await this.board(user);
     const row = boardData.rows.find((r) => r.studentId === studentId);
     if (!row) throw new NotFoundException('NOT_FOUND: 该学生不在你的看板范围内');
@@ -566,8 +646,11 @@ export class StudentSupportService {
     const sql = getSqlStore();
     if (!sql) throw new BadRequestException('NO_DATABASE');
 
-    // 行级范围：看不到这个学生的人也不许写（与读用同一份判据）
-    const { row } = await this.detail(user, studentId);
+    // 行级范围：看不到这个学生的人也不许写（与读同一份判据）。
+    // 🔴 这里**不能**用 `this.detail()` —— detail 依赖 `board()`，而 board 只收"有信号"的学生
+    //    ⇒ 「＋ 登记支持」里选一个**看板上没有的学生**（那正是这个入口的用途）会 404。
+    //    2026-09-30 上线实测踩到：接口 404、库里 0 行。守卫钉住了这一点。
+    const row = await this.studentCtx(user, studentId);
 
     // 值校验：字典可增删，但**状态**是流程状态（值域在代码里）
     const status = body.status != null ? String(body.status).trim() : '';

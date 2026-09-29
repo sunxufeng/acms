@@ -1597,6 +1597,19 @@ export const api = {
       { method: 'POST', body: JSON.stringify(body) },
     ),
 
+  /**
+   * 「移除卡片」= 忽略 / 恢复（v10，2026-09-30）。
+   *
+   * 🔴 权限是**另一个点** `module:studentSupportRemove:read`（不是 studentSupport）——
+   *    破坏性操作，默认只有系统管理员持有；没权限时后端返 **403**（不是 404）。
+   * ⚠️ 移除时**必须给原因**（后端强校验），恢复时 `on: false`。
+   */
+  studentSupportDismiss: (studentId: string, body: { reason?: string; on?: boolean }) =>
+    request<{ ok: boolean; id: string; on: boolean }>(
+      `/student-support/${encodeURIComponent(studentId)}/dismiss`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
   // ── 得到大脑（Get笔记）知识库 ──────────────────────────────────────────
   // ⚠️ 凭证模型（2026-09-05 二次修正）：Client ID 与 API Key **都是每人一份**。
   //    官方「创建应用 → 获取 Client ID 和 API Key」是成对拿到的，所以用户能完全

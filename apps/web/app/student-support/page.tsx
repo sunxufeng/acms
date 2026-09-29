@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useTranslations } from 'next-intl';
 import {
+  STUDENT_RECORD_TYPE_FIELD,
   SUPPORT_DEFAULT_DUE_DAYS,
   SUPPORT_LEVELS,
   SUPPORT_SEVERITY_DEFAULT,
@@ -19,6 +20,8 @@ import {
   type SupportSaveBody,
   type SupportStudentOption,
 } from '@acms/contracts';
+import CrudPage from '../../components/CrudPage';
+import { buildStudentRecordColumns } from '../student-records/columns';
 import { api } from '../../lib/api';
 
 /**
@@ -65,7 +68,8 @@ export default function StudentSupportPage() {
   // 视图状态
   const [view, setView] = useState<'card' | 'list'>('card');
   const [flat, setFlat] = useState(false);
-  const [closed, setClosed] = useState<Set<string>>(new Set(['P2', 'done']));
+  // 默认折叠「持续观察」与「已认领 · 无信号」—— 这两组不紧急，但要在页面上一眼看到**有这一组**
+  const [closed, setClosed] = useState<Set<string>>(new Set(['P2', 'claimed', 'done']));
   const [q, setQ] = useState('');
   const [fCampus, setFCampus] = useState('');
   const [fOwner, setFOwner] = useState('');
@@ -102,6 +106,21 @@ export default function StudentSupportPage() {
   const [regPick, setRegPick] = useState<SupportStudentOption | null>(null);
   const [stuOpts, setStuOpts] = useState<SupportStudentOption[]>([]);
   const [stuQ, setStuQ] = useState('');
+
+  /**
+   * 「记录一次沟通」（2026-09-30 峰哥：**不要开新 tab**）。
+   *
+   * 做法：在看板页内用 `CrudPage` 的 `formOnly`（「我的笔记 → 转换」同款模式）
+   * 弹出**学生记录自己的新建表单**，字段与联动都复用同一份 `columns`。
+   * 好处：不跳页、不开新 tab、默认值都填好，而且**表单只有一份定义**（不会与记录页漂移）。
+   */
+  const [commOpen, setCommOpen] = useState(false);
+
+  /** 「移除卡片」（v10）：确认弹窗（要填原因）+ 已移除名单弹窗 */
+  const [rmTarget, setRmTarget] = useState<SupportBoardRow | null>(null);
+  const [rmReason, setRmReason] = useState('');
+  const [rmBusy, setRmBusy] = useState(false);
+  const [rmListOpen, setRmListOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -259,6 +278,19 @@ export default function StudentSupportPage() {
   }, [stuOpts, stuQ]);
 
   /**
+   * 「记录一次沟通」用的**学生记录表单**（列定义与接口都与学生记录页同一份）。
+   *
+   * 🔴 两者必须 `useMemo` 稳定住：CrudPage 把它们放进了拉数据/渲染的依赖里，
+   *    每次 render 新建数组或对象字面量会导致**渲染死循环**（页面闪烁 + 每圈打接口）。
+   *    项目里在 student-records 的 `extraParams` 上踩过同一个坑。
+   */
+  const commColumns = useMemo(() => buildStudentRecordColumns('日常跟进'), []);
+  const commApi = useMemo(
+    () => ({ create: (d: Record<string, unknown>) => api.createStudentRecord(d) }),
+    [],
+  );
+
+  /**
    * 打开登记弹窗。`pick` 为空 = 先搜学生（页头入口）；给了学生 = 直接进登记（卡片入口）。
    * 学生候选是**懒加载**的（只在第一次打开弹窗时拉），避免每次进页面都多读 5 张表。
    */
@@ -377,6 +409,39 @@ export default function StudentSupportPage() {
       ),
     );
   }, [regPick, doSubmit]);
+
+  /**
+   * 移除 / 恢复卡片（v10）。
+   *
+   * 🔴 成功后**重新拉看板**（与登记同理：分组与计数都在后端算，本地改必然与后端漂移）。
+   * 🔴 没权限时后端返 403 ⇒ 走 `saveErr` 显示出来（不要静默失败：
+   *    否则老师会以为"点了没反应"，其实是权限没开）。
+   */
+  const doDismiss = useCallback(
+    async (studentId: string, reason: string, on: boolean) => {
+      setRmBusy(true);
+      setSaveErr('');
+      try {
+        await api.studentSupportDismiss(studentId, { reason, on });
+        const fresh = await api.studentSupportBoard({
+          ...(fCampus ? { campus: fCampus } : {}),
+          ...(fOwner ? { owner: fOwner } : {}),
+          ...(fSignal ? { signal: fSignal } : {}),
+          ...(fMine ? { mine: '1' } : {}),
+        });
+        setData(fresh);
+        setRmTarget(null);
+        setRmReason('');
+        return true;
+      } catch (e) {
+        setSaveErr(e instanceof Error ? e.message : String(e));
+        return false;
+      } finally {
+        setRmBusy(false);
+      }
+    },
+    [fCampus, fOwner, fSignal, fMine],
+  );
 
   /**
    * 导出当前**筛选后**的名单（CSV，带 BOM 让 Excel 正确识别中文）。
@@ -516,7 +581,31 @@ export default function StudentSupportPage() {
         <Kpi label={t('kpiProblemClue')} value={data?.kpis.problemClue ?? 0} tone="info" />
         <Kpi label={t('kpiUnresolved')} value={data?.kpis.unresolved ?? 0} tone="info" />
         <Kpi label={t('kpiOverdue')} value={data?.kpis.overdue ?? 0} tone={data?.kpis.overdue ? 'danger' : 'plain'} />
+        <Kpi
+          label={t('kpiClaimedOnly')}
+          value={data?.kpis.claimedOnly ?? 0}
+          tone="plain"
+          hint={t('kpiClaimedOnlyHint')}
+        />
       </div>
+
+      {/* 被移除的卡片（v10）：**这个数字必须看得见** ——
+          否则"移除"就成了无声的数据消失（下次有人问"某某怎么不见了"，无从查起） */}
+      {data && data.dismissedCount > 0 ? (
+        <div style={{ marginBottom: 12, fontSize: 12.5, color: 'var(--fg-secondary)' }}>
+          {t('dismissedHint', { n: data.dismissedCount })}
+          {data.canRemove ? (
+            <button
+              className="btn btn-ghost btn-sm"
+              style={{ marginLeft: 4 }}
+              type="button"
+              onClick={() => setRmListOpen(true)}
+            >
+              {t('dismissedView')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* 视图切换 */}
       <div style={vbarStyle}>
@@ -596,8 +685,13 @@ export default function StudentSupportPage() {
                       <SupportCard
                         key={r.studentId}
                         row={r}
+                        canRemove={data?.canRemove ?? false}
                         onOpen={() => void openCard(r)}
                         onClaim={() => void openRegister(r)}
+                        onRemove={() => {
+                          setRmReason('');
+                          setRmTarget(r);
+                        }}
                       />
                     ))}
                   </div>
@@ -641,7 +735,9 @@ export default function StudentSupportPage() {
                   <td style={tdStyle}>
                     {[r.grade, r.campus].filter(Boolean).join(' · ')}
                   </td>
-                  <td style={tdStyle}>{r.signals.map((s) => s.label).join(' · ')}</td>
+                  <td style={tdStyle}>
+                    {r.signals.length ? r.signals.map((s) => s.label).join(' · ') : t('noSignalNow')}
+                  </td>
                   <td style={{ ...tdStyle, color: 'var(--fg-secondary)' }}>{r.signals[0]?.evidence ?? ''}</td>
                   <td style={tdStyle}>
                     {r.owner || '—'}
@@ -694,6 +790,7 @@ export default function StudentSupportPage() {
               {/* 为什么在这里 */}
               <div style={{ marginBottom: 18 }}>
                 <div style={dsecTitleStyle}>{t('whyHere')}</div>
+                {cur.signals.length === 0 ? <div style={noSignalStyle}>{t('noSignalNow')}</div> : null}
                 {cur.signals.map((s) => (
                   <div key={s.key} style={sigStyle(s.level)}>
                     <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
@@ -834,7 +931,9 @@ export default function StudentSupportPage() {
               </button>
               <button
                 className="btn btn-outline btn-sm"
-                onClick={() => window.open('/student-records', '_blank')}
+                // 2026-09-30 峰哥：不要开新 tab —— 就在本页弹出「记录一次沟通」表单
+                //（字段与学生记录页同一份 columns，默认值预填；见下面的 formOnly）
+                onClick={() => setCommOpen(true)}
                 type="button"
               >
                 {t('addComm')}
@@ -982,6 +1081,139 @@ export default function StudentSupportPage() {
           </div>
         </>
       ) : null}
+
+      {/* ── 记录一次沟通（页内新建；2026-09-30 峰哥：不要开新 tab）──
+          复用学生记录的 `columns` 与 `create` ⇒ 字段 / 联动 / 字典 与记录页**完全一致**；
+          默认值把「记录类型 / 学生 / 沟通时间 / 责任人」都填好，改一项就能存。 */}
+      {commOpen && cur ? (
+        <>
+          <div style={scrimStyle} onClick={() => setCommOpen(false)} />
+          <div style={{ ...modalStyle, width: 760, maxHeight: '88vh' }}>
+            <div style={modalBodyStyle}>
+              <CrudPage
+                key={`comm-${cur.studentId}`}
+                moduleKey="studentRecords"
+                title={t('commTitle')}
+                columns={commColumns}
+                api={commApi}
+                formOnly={{
+                  initial: {
+                    [STUDENT_RECORD_TYPE_FIELD]: '日常跟进',
+                    关联学生: cur.name,
+                    沟通时间: nowMinuteText(),
+                    ...(cur.owner ? { 责任人: cur.owner } : {}),
+                  },
+                  onSaved: () => {
+                    setCommOpen(false);
+                    void load();
+                  },
+                  onCancel: () => setCommOpen(false),
+                }}
+              />
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {/* ── 移除卡片（v10）：必须填原因，可恢复 ── */}
+      {rmTarget ? (
+        <>
+          <div style={scrimStyle} onClick={() => setRmTarget(null)} />
+          <div style={{ ...modalStyle, width: 470 }}>
+            <div style={dheadStyle}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>
+                  {t('removeCard')} · {rmTarget.name}
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  {t('removeHint')}
+                </div>
+              </div>
+              <button style={dcloseStyle} onClick={() => setRmTarget(null)} type="button">
+                ✕
+              </button>
+            </div>
+            <div style={modalBodyStyle}>
+              <div style={fieldStyle}>
+                <label style={flabelStyle}>{t('removeReason')}</label>
+                <input
+                  className="form-input"
+                  style={{ ...inputStyle, flex: 1 }}
+                  placeholder={t('removeReasonHint')}
+                  value={rmReason}
+                  autoFocus
+                  onChange={(e) => setRmReason(e.target.value)}
+                />
+              </div>
+              {saveErr ? (
+                <div style={{ color: 'var(--danger)', fontSize: 12, marginTop: 6 }}>{saveErr}</div>
+              ) : null}
+              <div style={{ display: 'flex', gap: 7, justifyContent: 'flex-end', marginTop: 12 }}>
+                <button className="btn btn-ghost btn-sm" type="button" onClick={() => setRmTarget(null)}>
+                  {t('cancel')}
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  type="button"
+                  disabled={rmBusy || !rmReason.trim()}
+                  onClick={() => void doDismiss(rmTarget.studentId, rmReason, true)}
+                >
+                  {rmBusy ? t('saving') : t('removeCard')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {/* ── 已移除的卡片：查看 + 恢复 ── */}
+      {rmListOpen && data ? (
+        <>
+          <div style={scrimStyle} onClick={() => setRmListOpen(false)} />
+          <div style={{ ...modalStyle, width: 580 }}>
+            <div style={dheadStyle}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>{t('dismissedTitle')}</div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  {t('dismissedSub')}
+                </div>
+              </div>
+              <button style={dcloseStyle} onClick={() => setRmListOpen(false)} type="button">
+                ✕
+              </button>
+            </div>
+            <div style={modalBodyStyle}>
+              {!data.dismissed.length ? <div style={emptyInlineStyle}>{t('dismissedEmpty')}</div> : null}
+              {data.dismissed.map((d) => (
+                <div key={d.studentId} style={stuRowStyle}>
+                  <span style={{ fontWeight: 600 }}>{d.name}</span>
+                  <span className="muted" style={{ fontSize: 11.5 }}>
+                    {[d.grade, d.cls].filter(Boolean).join(' · ')}
+                  </span>
+                  <span className="muted" style={{ fontSize: 11.5 }}>
+                    {d.reason}
+                    {d.who ? ` · ${d.who}` : ''}
+                    {d.ms ? ` · ${fmtDate(d.ms)}` : ''}
+                  </span>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    style={{ marginLeft: 'auto', flexShrink: 0 }}
+                    type="button"
+                    disabled={rmBusy}
+                    onClick={() => void doDismiss(d.studentId, '', false)}
+                  >
+                    {t('restore')}
+                  </button>
+                </div>
+              ))}
+              {saveErr ? (
+                <div style={{ color: 'var(--danger)', fontSize: 12, marginTop: 8 }}>{saveErr}</div>
+              ) : null}
+            </div>
+          </div>
+        </>
+      ) : null}
+
     </div>
   );
 }
@@ -1148,7 +1380,14 @@ function StatusBadge(props: {
 }
 
 /** 一张支持卡（列表/卡片两种视图共用一个组件，样式略有差异） */
-function SupportCard(props: { row: SupportBoardRow; onOpen: () => void; onClaim: () => void }) {
+function SupportCard(props: {
+  row: SupportBoardRow;
+  /** 是否有「移除卡片」权限（v10）—— 前端只决定显不显示，后端会再判一次 */
+  canRemove: boolean;
+  onOpen: () => void;
+  onClaim: () => void;
+  onRemove: () => void;
+}) {
   const t = useTranslations('studentSupport');
   const r = props.row;
   /** 还没认领 ⇒ 「认领并登记」；已经在跟进 ⇒ 「更新登记」（同一个按钮，少一次点击） */
@@ -1180,6 +1419,8 @@ function SupportCard(props: { row: SupportBoardRow; onOpen: () => void; onClaim:
         ) : null}
       </div>
 
+      {/* 无信号但有人认领（`claimed` 组）：说清"为什么他在这里还没有信号" */}
+      {r.signals.length === 0 ? <div style={noSignalStyle}>{t('noSignalNow')}</div> : null}
       {r.signals.map((s) => (
         <div key={s.key} style={sigStyle(s.level)}>
           <span style={{ fontWeight: 700, whiteSpace: 'nowrap', fontSize: 12 }}>
@@ -1217,6 +1458,20 @@ function SupportCard(props: { row: SupportBoardRow; onOpen: () => void; onClaim:
 
       {/* 快捷登记：不用先点开抽屉（2026-09-30 峰哥要求） */}
       <div style={cardActStyle}>
+        {/* 「移除卡片」是破坏性操作（能让别人看不到该看的人）⇒ 只在有权限时显示，且放最左边弱化 */}
+        {props.canRemove ? (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            style={{ marginRight: 'auto', color: 'var(--fg-tertiary)' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onRemove();
+            }}
+          >
+            {t('removeCard')}
+          </button>
+        ) : null}
         <button
           className="btn btn-outline btn-sm"
           type="button"
@@ -1285,6 +1540,17 @@ const srcPillStyle: CSSProperties = {
   border: '1px solid var(--border)',
   borderRadius: 999,
   padding: '0 6px',
+};
+/** 「当前没有信号」的一句说明（`claimed` 组的卡片与抽屉里都用；别留空让人以为渲染坏了） */
+const noSignalStyle: CSSProperties = {
+  fontSize: 11.5,
+  color: 'var(--fg-tertiary)',
+  background: 'var(--bg-subtle)',
+  border: '1px dashed var(--border)',
+  borderRadius: 6,
+  padding: '5px 8px',
+  marginBottom: 6,
+  lineHeight: 1.5,
 };
 const excerptStyle: CSSProperties = {
   fontSize: 12,
@@ -1433,7 +1699,13 @@ const pickBoxStyle: CSSProperties = {
 };
 
 function levelColor(level: string): string {
-  return level === 'P0' ? 'var(--danger)' : level === 'P1' ? '#B8860B' : 'var(--accent)';
+  return level === 'P0'
+    ? 'var(--danger)'
+    : level === 'P1'
+      ? '#B8860B'
+      : level === 'claimed'
+        ? '#8A8F98' // 中性灰：这一组不代表紧急，只代表"需要被看见"
+        : 'var(--accent)';
 }
 
 function cardStyle(level: string): CSSProperties {
@@ -1480,4 +1752,17 @@ function sevChipStyle(on: boolean, sev: string): CSSProperties {
 
 function sevColor(sev: string): string {
   return sev === '紧急' ? 'var(--danger)' : sev === '需介入' ? '#B8860B' : 'var(--accent)';
+}
+
+/**
+ * 「现在」的 `YYYY-MM-DD HH:mm` 文本（北京时间）—— 给新建学生记录表单预填「沟通时间」用。
+ *
+ * ⚠️ 学生记录表的日期字段（type=5）在 PG 里读出会**丢时分秒**，
+ *    所以这里按存储值的形态直接给字符串（`YYYY-MM-DD HH:mm`），
+ *    让 CrudPage 的 `toDateTimeLocal` 能原样吃下（见其注释）。
+ */
+function nowMinuteText(): string {
+  const d = new Date(Date.now() + 8 * 3600000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }

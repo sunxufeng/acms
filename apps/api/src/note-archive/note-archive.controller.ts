@@ -1,8 +1,14 @@
 import { Body, Controller, ForbiddenException, Get, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
-import { archiveJobScheduleText, validateArchiveJob, type SessionUser } from '@acms/contracts';
+import {
+  JOB_KIND_SUPPORT_SNAPSHOT,
+  archiveJobScheduleText,
+  validateArchiveJob,
+  type SessionUser,
+} from '@acms/contracts';
 import { SessionGuard } from '../auth/session.guard.js';
 import { NoteArchiveService } from './note-archive.service.js';
+import { StudentSupportService } from '../student-support/student-support.service.js';
 
 /**
  * 笔记归档到飞书云盘（2026-09-22）。
@@ -18,7 +24,11 @@ import { NoteArchiveService } from './note-archive.service.js';
 @Controller('note-archive')
 @UseGuards(SessionGuard)
 export class NoteArchiveController {
-  constructor(private readonly svc: NoteArchiveService) {}
+  constructor(
+    private readonly svc: NoteArchiveService,
+    // 「看板快照」类任务的执行体在 StudentSupportService 里（2026-09-30）
+    private readonly support: StudentSupportService,
+  ) {}
 
   private admin(req: Request): SessionUser {
     const user = (req as Request & { user: SessionUser }).user;
@@ -70,6 +80,16 @@ export class NoteArchiveController {
     this.admin(req);
     const job = await this.svc.findJob(String(id));
     if (!job) throw new NotFoundException('NOT_FOUND:job');
+    /**
+     * 「看板快照」（2026-09-30）：没有"归档进度"这个概念 —— 就是把看板的数字算一遍并留档。
+     * 🔴 数字由 `StudentSupportService.snapshot()` 里**复用 board()** 得出，
+     *    与页面上看到的完全同口径（别在这里另数一遍）。
+     */
+    if (job.kind === JOB_KIND_SUPPORT_SNAPSHOT) {
+      const detail = await this.support.snapshot();
+      await this.svc.recordJobRun(job, detail);
+      return { ok: true, detail };
+    }
     const limit = Number(body?.limit ?? 0) || 0;
     return this.svc.start(job, { limit, trigger: 'manual' });
   }

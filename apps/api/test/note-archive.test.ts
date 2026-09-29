@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   NOTE_ARCHIVE_JOB_SEEDS,
@@ -202,5 +203,57 @@ describe('归档记录与正文', () => {
     const body = noteArchiveBody({ title: '', kind: '明细', noteId: 'x', owner: '', createdAtMs: 0, content: 'c' });
     expect(body).toContain('# 无标题');
     expect(body).not.toContain('undefined');
+  });
+});
+
+/**
+ * 内容去重（2026-09-30 峰哥：「全部有效笔记和 IDP 笔记，复制到飞书文档时，
+ * 目前是文件名如果一致即不复制，**增加一个条件：虽然文件名不一致，但是文件内容是一致的，也不需要复制了**」）。
+ *
+ * 为什么原有两道防线都拦不住：
+ *  ① 主判据按**笔记 ID**（`<笔记ID>__<任务标识>`）—— 两个任务的任务标识不同 ⇒ 记录不同 ⇒ 各传一份；
+ *  ② 同名文件判据按**文件名**（含笔记 ID / 日期）—— 不同笔记天然不同名。
+ * 判据 = `文件夹Token + kind + 内容哈希`，**跨任务**查。
+ */
+describe('笔记归档 · 内容去重（v 2026-09-30）', () => {
+  const root = new URL('../../../', import.meta.url).pathname;
+  const SVC = readFileSync(`${root}apps/api/src/note-archive/note-archive.service.ts`, 'utf8');
+
+  it('🔴 归档记录表新增两个哈希字段（漏了就是永远判不出重复）', () => {
+    expect(SVC).toContain("明细哈希: '明细哈希'");
+    expect(SVC).toContain("总结哈希: '总结哈希'");
+    // 建表数组里也要有（ensureTable 是 upsert ⇒ 加进去部署即生效）
+    expect(SVC).toContain('{ name: ARCHIVE_FIELDS.明细哈希');
+    expect(SVC).toContain('{ name: ARCHIVE_FIELDS.总结哈希');
+  });
+
+  it('🔴 判据 = 文件夹Token + kind + 内容哈希，且**跨任务**（加载时不得按 jobKey 过滤）', () => {
+    const i = SVC.indexOf('private async loadContentIndex(');
+    expect(i).toBeGreaterThan(0);
+    const j = SVC.indexOf('private async loadStatusMap(', i);
+    // ⚠️ 窗口贴紧到下一个方法（别用固定长度：会框进别的方法体，断言就测错对象了）
+    const body = SVC.slice(i, j > i ? j : i + 2200);
+    expect(body).toContain('${ft}:明细:${dh}');
+    expect(body).toContain('${ft}:总结:${sh}');
+    // 只认成功记录（失败记录里的哈希不可信 —— 文件可能根本没传上去）
+    expect(body).toContain('NOTE_ARCHIVE_OK');
+    // 反向：不许按 jobKey 过滤，否则"两个任务之间去重"这件事直接做不到
+    expect(body).not.toContain('jobKey');
+  });
+
+  it('上传前先查内容索引，命中即跳过并**单独计数**（否则"上传变少了"没法解释）', () => {
+    expect(SVC).toContain('if (this.contentIndex.has(ckey))');
+    expect(SVC).toContain('p.skippedByContent += 1');
+    expect(SVC).toContain('内容重复 ${p.skippedByContent}');
+  });
+
+  it('索引每次运行重建 + 上传成功后写入（同一次运行内也不重复传）', () => {
+    expect(SVC).toContain('this.contentIndex.clear()');
+    expect(SVC).toContain('this.contentIndex.set(ckey, true)');
+  });
+
+  it('哈希用 sha256 截断 32 位（够用且便于人工比对）', () => {
+    expect(SVC).toContain("createHash('sha256')");
+    expect(SVC).toContain("digest('hex').slice(0, 32)");
   });
 });

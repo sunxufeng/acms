@@ -24,6 +24,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  SUPPORT_LEVELS,
   SUPPORT_MENU_KEY,
   SUPPORT_PROBLEM_MIN_WORDS,
   SUPPORT_PROBLEM_TYPES,
@@ -39,6 +40,7 @@ import {
   supportCompareRows,
   supportDefaultDueMs,
   supportInScope,
+  supportLevelRank,
   supportMenuVisible,
   supportOverdueDays,
   supportPriorityOf,
@@ -336,12 +338,17 @@ describe('G. 源码接线守卫（防"声明与判据错开一半"）', () => {
   const PAGE = read('apps/web/app/student-support/page.tsx');
   const SHELL = read('apps/web/components/AppShell.tsx');
 
-  it('权限版本抬到 9，且两个新资源的引入版本都是 9', () => {
-    expect(MP).toContain('export const ROLE_PERMISSION_VERSION = 9;');
+  it('权限版本 ≥ 9，学生支持两个资源引入版本恒为 9（引入版本必须等于当次抬的版本）', () => {
+    // ⚠️ 别再写死 `= N`：每加一批资源都会抬版本，写死就得每次回来改（已撞三次，见 idp.test.ts 的同款注释）
+    const cur = Number(/ROLE_PERMISSION_VERSION = (\d+)/.exec(MP)?.[1] ?? 0);
+    expect(cur).toBeGreaterThanOrEqual(9);
     const i = MP.indexOf('MODULE_RESOURCE_INTRODUCED_VERSION');
-    const seg = MP.slice(i, i + 1400);
-    expect(seg).toContain('studentSupport: 9');
+    const seg = MP.slice(i, i + 1700);
+    expect(seg, 'studentSupport 的引入版本必须恒为 9（它是在 v9 引入的）').toContain('studentSupport: 9');
     expect(seg).toContain('studentSupportAll: 9');
+    // v10（2026-09-30）：「移除卡片」是独立权限点，引入版本 10
+    expect(seg).toContain('studentSupportRemove: 10');
+    expect(cur).toBeGreaterThanOrEqual(10);
   });
 
   it('🔴 每个资源的引入版本必须 ≤ 当前版本（否则 `v <= toVersion` 永远过滤掉 ⇒ 永不迁移）', () => {
@@ -635,5 +642,107 @@ describe('H. 登记入口（2026-09-30 峰哥：「登记支持按钮在哪里�
     const seg = MP.slice(i, i + 900);
     expect(seg).toContain('genericCrud: false');
     expect(SVC).toContain("requireModule(user, 'studentSupport', 'read')");
+  });
+});
+
+describe('I. 已认领无信号（claimed）+ 移除卡片（v10）—— 峰哥 2026-09-30 六条需求之一二四', () => {
+  const MP = read('packages/contracts/src/module-permissions.ts');
+  const SVC = read('apps/api/src/student-support/student-support.service.ts');
+  const MOD = read('apps/api/src/student-support/student-support.module.ts');
+  const PAGE = read('apps/web/app/student-support/page.tsx');
+  const API = read('apps/web/lib/api.ts');
+
+  it('🔴 claimed 是独立级别、排在最后（不代表紧急，只代表"要看得见"）', () => {
+    expect(SUPPORT_LEVELS.map((g) => g.level)).toEqual(['P0', 'P1', 'P2', 'claimed']);
+    expect(supportLevelRank('P0')).toBeLessThan(supportLevelRank('P1'));
+    expect(supportLevelRank('P1')).toBeLessThan(supportLevelRank('P2'));
+    expect(supportLevelRank('P2')).toBeLessThan(supportLevelRank('claimed'));
+  });
+
+  it('🔴 上板条件从"有信号"改成"有信号 **或** 有未关闭支持行"（否则认领过的人会凭空消失）', () => {
+    expect(SVC).toContain('if (!signals.length && !openSup) continue;');
+    expect(SVC).toContain('const openSup = Boolean(supPreview) && supportIsOpen(');
+    // 没信号但有支持行 ⇒ 进 claimed（不是 P2）
+    expect(SVC).toContain("level: signals.length ? supportPriorityOf(signals) || 'P2' : 'claimed',");
+  });
+
+  it('🔴 `needSupport` 只数有信号的人，claimed 单独一格（两者互斥、相加才是总行数）', () => {
+    expect(SVC).toContain('needSupport: out.length - claimedOnly');
+    expect(SVC).toContain('claimedOnly,');
+  });
+
+  it('「移除卡片」是**独立权限点**，且不随版本迁移发放（破坏性操作不能人人有）', () => {
+    const i = MP.indexOf("key: 'studentSupportRemove'");
+    expect(i).toBeGreaterThan(0);
+    const seg = MP.slice(i, i + 800);
+    expect(seg).toContain('legacyRead: null');
+    expect(seg).toContain("subOf: 'studentSupport'");
+    expect(seg).toContain("actions: ['read']");
+    const j = MP.indexOf('MODULE_RESOURCE_INTRODUCED_VERSION');
+    expect(MP.slice(j, j + 1800)).toContain('studentSupportRemove: 10');
+  });
+
+  it('🔴 `dismiss()` 单独判权限 + 走范围校验 + 必须填原因', () => {
+    const i = SVC.indexOf('async dismiss(');
+    expect(i).toBeGreaterThan(0);
+    const body = SVC.slice(i, i + 1600);
+    expect(body).toContain("requireModule(user, 'studentSupportRemove', 'read')");
+    expect(body).toContain('this.studentCtx(');
+    expect(body).toContain('REASON_REQUIRED');
+  });
+
+  it('🔴 忽略是**学生级**判据（任一行有标记即隐藏），且只认「是」', () => {
+    const i = SVC.indexOf('private dismissedOf(');
+    expect(i).toBeGreaterThan(0);
+    const seg = SVC.slice(i, i + 400);
+    expect(seg).toContain('supportDismissed(');
+    // 反向：别自己写 === '是'（判据在 contracts，只此一份）
+    expect(seg).not.toContain("=== '是'");
+    // 被移除的人**不算 hiddenByScope**（那个数字的含义是"被权限挡掉的"）
+    // ⚠️ 窗口必须**贴紧到下一个判定块**：固定长度（如 +800）会把后面那句
+    //    `if (!inScope) { hiddenByScope += 1; ... }` 框进来 —— 断言就测错了对象。
+    const j = SVC.indexOf('if (dis) {');
+    const k = SVC.indexOf('if (!inScope) {', j);
+    const dis = SVC.slice(j, k > j ? k : j + 400);
+    expect(dis).toContain('dismissedCount += 1');
+    expect(dis).not.toContain('hiddenByScope += 1');
+  });
+
+  it('被移除的名单只对有权限者返回', () => {
+    expect(SVC).toContain('if (canRemove) {');
+    expect(SVC).toContain('dismissed: dismissedList');
+    expect(API).toContain('}/dismiss'); // 模板字符串：`/student-support/${id}/dismiss`
+    expect(PAGE).toContain('data?.canRemove');
+  });
+
+  it('建表包含忽略四字段（漏了就是写不进去、且不报错）', () => {
+    for (const f of ['已忽略', '忽略原因', '忽略人', '忽略时间']) {
+      expect(MOD, `建表缺 ${f}`).toContain(`name: '${f}'`);
+    }
+  });
+
+  it('「记一次沟通」不再开新 tab，改为页内 formOnly 新建（复用学生记录的 columns）', () => {
+    expect(PAGE).not.toContain("window.open('/student-records'");
+    expect(PAGE).toContain("buildStudentRecordColumns('日常跟进')");
+    expect(PAGE).toContain('formOnly={{');
+    // 🔴 columns / api 必须 useMemo 稳定（CrudPage 依赖它们 ⇒ 不稳定就是渲染死循环）
+    expect(PAGE).toContain('const commColumns = useMemo(');
+    expect(PAGE).toContain('const commApi = useMemo(');
+    expect(PAGE).toContain('关联学生: cur.name');
+    expect(PAGE).toContain('沟通时间: nowMinuteText()');
+  });
+
+  it('claimed 分组在前端默认折叠、颜色中性', () => {
+    expect(PAGE).toContain("new Set(['P2', 'claimed', 'done'])");
+    expect(PAGE).toContain("level === 'claimed'");
+  });
+
+  it('看板快照复用 board（不另写一份统计）—— 否则任务数字与页面必然不一致', () => {
+    const i = SVC.indexOf('async snapshot(');
+    expect(i).toBeGreaterThan(0);
+    const seg = SVC.slice(i, i + 900);
+    expect(seg).toContain('this.board(system)');
+    // 反向：不许在 snapshot 里自己循环数数
+    expect(seg).not.toContain('supportSignalsOf(');
   });
 });

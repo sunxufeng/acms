@@ -124,12 +124,22 @@ export const ARCHIVE_JOB_FIELDS = {
  *   另：种子（`NOTE_ARCHIVE_JOB_SEEDS`）+ 生产任务行（`seedJobs()` 只在空表时播种，
  *   存量表要手工补行）。
  */
-export const JOB_KINDS = ['笔记归档', '卫瓴联系人同步', '邮件收取', '知识库同步'] as const;
+export const JOB_KINDS = ['笔记归档', '卫瓴联系人同步', '邮件收取', '知识库同步', '看板快照'] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 /** 缺省类型：存量任务都是笔记归档（**兼容老数据**，别改成空串） */
 export const JOB_KIND_DEFAULT: JobKind = '笔记归档';
 /** 只有这个类型才需要「目标文件夹 / 标题关键词 / 输出内容 / 按人分文件夹」 */
 export const JOB_KIND_NOTE_ARCHIVE: JobKind = '笔记归档';
+/**
+ * 「学生支持看板快照」（2026-09-30 新增）。
+ *
+ * ⚠️ 先说清一件事：**看板卡片本身是实时算的**（每次打开页面现算），
+ *    不存在"卡片由定时任务生成"。这条任务的价值是**每天定时算一遍并把数字留下来**
+ *    （写进任务行的「上次运行详情」），于是有了两样东西：
+ *    · 早上不用打开页面就能知道今天有多少人需要支持（后续可推 IM）
+ *    · 每天的基线可以对比（"昨天 50 人、今天 58 人"）
+ */
+export const JOB_KIND_SUPPORT_SNAPSHOT: JobKind = '看板快照';
 
 /** 频率档位 */
 export const JOB_FREQS = ['每天', '每小时', '每15分钟'] as const;
@@ -179,6 +189,24 @@ export const NOTE_ARCHIVE_JOB_SEEDS: NoteArchiveJobDef[] = [
     titleMustInclude: '',
     kinds: [...NOTE_ARCHIVE_KINDS],
     groupByOwner: true,
+    catchUpHours: 6,
+  },
+  {
+    // 2026-09-30 新增（峰哥问「看板的卡片是自动生成的么？有定时任务么？」）。
+    // ⚠️ 卡片本身是**实时算**的（每次打开页面现算），不存在"卡片由定时任务生成"；
+    //    这条任务的价值是每天把数字算一遍**留档**（见 `JOB_KIND_SUPPORT_SNAPSHOT` 的注释）。
+    key: 'supportSnapshot',
+    label: '学生支持看板快照',
+    enabled: true,
+    kind: '看板快照',
+    freq: '每天',
+    hour: 7,
+    minute: 30,
+    weekdays: [],
+    rootFolderToken: '',
+    titleMustInclude: '',
+    kinds: [],
+    groupByOwner: false,
     catchUpHours: 6,
   },
   {

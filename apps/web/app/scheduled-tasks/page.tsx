@@ -5,6 +5,8 @@ import CrudPage, { type CrudColumn } from '../../components/CrudPage';
 import { api, type NoteArchiveCheckResult, type NoteArchiveProgressItem } from '../../lib/api';
 import {
   ARCHIVE_JOB_FIELDS as F,
+  ARCHIVE_JOB_OFF,
+  ARCHIVE_JOB_ON,
   ARCHIVE_JOB_WEEKDAY_OPTIONS,
   JOB_FREQS,
   JOB_KINDS,
@@ -36,14 +38,37 @@ const COLUMNS: CrudColumn[] = [
   {
     key: F.启用,
     label: '启用',
-    width: '70px',
+    width: '88px',
     form: true,
-    type: 'select',
-    options: YES_NO,
+    /**
+     * 2026-09-30 峰哥：「所有的定时任务都增加一个开关」——表单里从「是/否 下拉」改成**开关**。
+     * ⚠️ 存储仍是文本 `是`/`否`（`shouldRunArchiveJob` 判的就是这个），
+     *    所以 `switchValues` 必须显式给出，别让 CrudPage 猜。
+     */
+    type: 'switch',
+    switchValues: { on: ARCHIVE_JOB_ON, off: ARCHIVE_JOB_OFF },
     filter: true,
     filterOptions: YES_NO,
     hint: '停用后定时器不再自动跑；「运行」按钮仍可手动跑一次',
     listOrder: 3,
+    // 列表上一眼看出开关状态（切换用操作列的「启用 / 停用」，或进编辑弹窗）
+    render: (v) => {
+      const on = String(v ?? '') === ARCHIVE_JOB_ON;
+      return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              display: 'inline-block',
+              background: on ? 'var(--accent)' : 'var(--border-strong)',
+            }}
+          />
+          {on ? '启用' : '停用'}
+        </span>
+      );
+    },
   },
   {
     // 2026-09-24 新增：任务类型（「定时任务」从"笔记归档专用"升级为通用调度器）
@@ -228,6 +253,22 @@ export default function ScheduledTasksPage() {
    * **按任务类型分发**：笔记归档走归档接口，卫瓴同步 / 邮件收取走各自的手动同步接口 ——
    * 三类任务虽然共享同一张配置表，但执行体完全不同。
    */
+  /**
+   * 启用 / 停用（2026-09-30 峰哥：「所有的定时任务都增加一个开关」）。
+   *
+   * ⚠️ 这里走 `api.updateScheduledTask` **直连**，不经过 CrudPage 的 `update` 包装 ——
+   *    那个包装会做「目标文件夹变了 ⇒ 提示要不要补归档」，而这里只改「启用」一个字。
+   */
+  const toggleJob = useCallback(async (id: string, cur: string, reload: () => void) => {
+    const next = cur === ARCHIVE_JOB_ON ? ARCHIVE_JOB_OFF : ARCHIVE_JOB_ON;
+    try {
+      await api.updateScheduledTask(id, { [F.启用]: next });
+      reload();
+    } catch (e) {
+      window.alert(`切换失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, []);
+
   const runJob = useCallback(async (id: string, label: string, kind: string) => {
     const isArchive = kind === JOB_KIND_NOTE_ARCHIVE;
     const ok = window.confirm(
@@ -253,6 +294,11 @@ export default function ScheduledTasksPage() {
           tone: 'ok',
           text: `已检查知识库配置：触发 ${r.synced} 个，跳过 ${r.skipped} 个（每条配置仍按自己的「收取频率」节流）`,
         });
+      } else if (kind === '看板快照') {
+        // 2026-09-30：看板卡片是**实时算**的，这条任务只是把数字算一遍留档。
+        // 与归档类共用同一个端点，后端按 `任务类型` 分发（返回 detail 文本）。
+        const r = (await api.runNoteArchiveJob(id)) as unknown as { detail?: string };
+        setNotice({ tone: 'ok', text: `快照完成：${r?.detail ?? '已写入「上次运行详情」'}` });
       } else {
         const p = await api.runNoteArchiveJob(id);
         setProgress((m) => ({ ...m, [id]: p }));
@@ -372,10 +418,11 @@ export default function ScheduledTasksPage() {
           rowsRef.current = m;
         }}
         // 操作列的「运行」/「补归档」（CrudPage 只在非只读模式渲染本插槽）
-        rowActionSlot={(row) => {
+        rowActionSlot={(row, reload) => {
           const id = String(row.id ?? '');
           const label = String(row[F.任务名称] ?? id);
           const kind = String(row[F.任务类型] ?? JOB_KIND_NOTE_ARCHIVE);
+          const enabled = String(row[F.启用] ?? '') === ARCHIVE_JOB_ON;
           const isArchive = kind === JOB_KIND_NOTE_ARCHIVE;
           const p = progress[id];
           const isRunning = !!p?.running;
@@ -383,6 +430,15 @@ export default function ScheduledTasksPage() {
           const pending = isArchive ? check?.jobs.find((j) => j.id === id)?.pending : undefined;
           return (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+              {/* 启用 / 停用（2026-09-30 峰哥：「所有的定时任务都增加一个开关」）——就地切换，不用进编辑弹窗 */}
+              <button
+                type="button"
+                className={`btn btn-sm ${enabled ? 'btn-ghost' : 'btn-outline'}`}
+                title={enabled ? '停用：定时器不再自动跑（手动「运行」仍可用）' : '启用：到点自动跑'}
+                onClick={() => void toggleJob(id, String(row[F.启用] ?? ''), reload)}
+              >
+                {enabled ? '停用' : '启用'}
+              </button>
               <button
                 type="button"
                 className="btn btn-primary btn-sm"

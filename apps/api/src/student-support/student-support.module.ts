@@ -129,6 +129,25 @@ class StudentSupportController {
       owner: typeof body['owner'] === 'string' ? body['owner'] : undefined,
     });
   }
+
+  /**
+   * 「移除卡片」= 忽略 / 恢复（v10，2026-09-30 峰哥要求）。
+   *
+   * 权限是**另一个点** `module:studentSupportRemove:read`（不是 studentSupport）——
+   * 破坏性操作，只给显式授予的角色（默认只有系统管理员）。
+   * `on: false` 即恢复。
+   */
+  @Post(':studentId/dismiss')
+  dismiss(
+    @Req() req: Request,
+    @Param('studentId') studentId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.svc.dismiss(userOf(req), studentId, {
+      reason: typeof body['reason'] === 'string' ? body['reason'] : undefined,
+      on: body['on'] === undefined ? true : Boolean(body['on']),
+    });
+  }
 }
 
 /**
@@ -161,6 +180,9 @@ function normalize(body: Record<string, unknown>): {
 @Module({
   controllers: [StudentSupportController],
   providers: [StudentSupportService],
+  // 定时任务（`看板快照`）要调 `StudentSupportService.snapshot()` ⇒ 必须导出。
+  // ⚠️ 注意依赖方向：本模块**不** import 定时任务模块，所以不会成环。
+  exports: [StudentSupportService],
 })
 export class StudentSupportModule implements OnModuleInit {
   private readonly logger = new Logger('StudentSupport');
@@ -197,6 +219,11 @@ export class StudentSupportModule implements OnModuleInit {
         { name: '来源', type: 1 },
         { name: '更新人', type: 1 },
         { name: '更新时间', type: 2 },
+        // v10（2026-09-30）「移除卡片」= 忽略：不是删数据，藏起来 + 记下原因，可恢复
+        { name: '已忽略', type: 1 },
+        { name: '忽略原因', type: 1 },
+        { name: '忽略人', type: 1 },
+        { name: '忽略时间', type: 2 },
       ]);
       this.logger.log('[studentSupport] 学生支持表已就绪');
     } catch (e) {

@@ -115,8 +115,15 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *        权限矩阵里勾了就知道"这个人能用看板"，心智负担最低。
  *      ⚠️ 声明（actions: READ）与判据（requireModule(user,'studentSupport','read')）**成对**，
  *        不会出现"勾了没反应"或"没勾却能用"。
+ *
+ * ── v10（2026-09-30）：学生支持 · 移除卡片 ──────────────────────
+ * 峰哥：「增加一个权限，可以移除卡片」。
+ *   · 新增 `studentSupportRemove`（`subOf: 'studentSupport'`，矩阵里是缩进子行）
+ *   · 🔴 `legacyRead: null` —— **不随版本迁移发放**：移除 = 让别人看不到该看的人，
+ *     属于破坏性操作，必须由管理员显式授予（默认只有系统管理员持有）。
+ *   · 语义 = **忽略**（带原因 / 操作人 / 时间，可恢复），不是删数据。
  */
-export const ROLE_PERMISSION_VERSION = 9;
+export const ROLE_PERMISSION_VERSION = 10;
 
 /**
  * 资源「从哪个版本开始存在」。
@@ -153,6 +160,9 @@ export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
   // v9：「看全部学生」开关。`legacyRead: null` ⇒ 迁移不发给任何人（同 idpStatsAll 的道理：
   // 一旦继承就变成人人看全部），由管理员在角色矩阵里手工勾选。
   studentSupportAll: 9,
+  // v10（2026-09-30）：「移除卡片」（忽略）开关。`legacyRead: null` ⇒ **不随迁移发放**：
+  // 破坏性操作，只能由管理员显式授予（默认只有系统管理员有）。
+  studentSupportRemove: 10,
 };
 
 /** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */
@@ -386,6 +396,30 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
     key: 'studentSupportAll',
     label: '学生支持 · 看全部',
     path: '/student-support/all',
+    legacyRead: null,
+    legacyWrite: null,
+    menuPermission: null,
+    actions: ['read'],
+    subOf: 'studentSupport',
+    genericCrud: false,
+  },
+  /**
+   * 「学生支持 · 移除卡片」（v10，2026-09-30 峰哥：「增加一个权限，可以移除卡片」）。
+   *
+   * 语义 = 把一张看板卡片**忽略**掉（误报、"这个人我知道，不用系统提醒我"），
+   * 记下原因 / 操作人 / 时间，可恢复。**不是删除数据**。
+   *
+   * 🔴 `legacyRead: null` ⇒ **不随版本迁移发放**：这是破坏性操作
+   *（能让别人看不到该看的人），必须由管理员在角色矩阵里显式勾选。
+   *    默认只有系统管理员持有（`healLockedRoles` 代码全量自愈）。
+   * 🔴 `subOf: 'studentSupport'` ⇒ 矩阵里挂到「学生支持」下的缩进子行（否则找不到勾选处）。
+   * ⚠️ 它是**动作**不是页面 ⇒ `actions: ['read']`，且 `path` 用不存在的假路径，
+   *    免得抢 `/student-support` 的 `moduleByPath` 匹配。
+   */
+  {
+    key: 'studentSupportRemove',
+    label: '学生支持 · 移除卡片',
+    path: '/student-support/remove',
     legacyRead: null,
     legacyWrite: null,
     menuPermission: null,

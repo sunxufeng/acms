@@ -69,11 +69,44 @@ export const SUPPORT_FIELDS = {
   来源: '来源',
   更新人: '更新人',
   更新时间: '更新时间',
+  // ── v10（2026-09-30）「移除卡片」= **忽略** ──
+  // 语义不是删数据：误报（"这个人我知道，不用系统提醒我"）时把卡片藏起来，
+  // 记下原因/操作人/时间，可恢复。判据是"**该生任意一行**有这个标记"。
+  已忽略: '已忽略',
+  忽略原因: '忽略原因',
+  忽略人: '忽略人',
+  忽略时间: '忽略时间',
 } as const;
+
+/**
+ * 「是否被移除（忽略）」的唯一判据。
+ *
+ * 🔴 只认 `'是'`：空值、`'否'`、别的脏值一律算**没忽略**
+ *    （与「学生可见 / 家长可见」同款口径 —— 那个也只认 `=== '是'`）。
+ */
+export function supportDismissed(value: unknown): boolean {
+  return String(value ?? '').trim() === '是';
+}
+
+/** 移除卡片（忽略）的请求体 */
+export interface SupportDismissBody {
+  /** 移除原因（写进记录，给以后想恢复的人看） */
+  reason?: string;
+  /** true = 移除；false = 恢复（同一个接口，`on` 决定方向） */
+  on?: boolean;
+}
 
 /** 人工登记的来源值（与「系统发现」区分，统计时要用） */
 export const SUPPORT_SOURCES = ['系统发现', '人工登记'] as const;
 export type SupportSource = (typeof SUPPORT_SOURCES)[number];
+
+/**
+ * 两个来源值的**具名常量**。
+ * 🔴 别在 service 里手抄字符串 —— 改了值而漏改一处，统计口径就静默分叉
+ *    （"人工登记了多少条"会少算，且不报错）。
+ */
+export const SUPPORT_SOURCE_SYSTEM: SupportSource = '系统发现';
+export const SUPPORT_SOURCE_MANUAL: SupportSource = '人工登记';
 
 // ─────────────────────────────────────────────────────────────
 // 流程状态 —— **留在代码里，不入字典**
@@ -300,8 +333,15 @@ export type SupportSignalKey =
   | 'thinRelation'
   | 'noOwner';
 
-/** 优先级级别（也是看板的分组维度） */
-export type SupportLevel = 'P0' | 'P1' | 'P2';
+/**
+ * 优先级级别（也是看板的分组维度）。
+ *
+ * 🔴 `claimed`（2026-09-30 峰哥要求）：**已认领但没有信号**的学生。
+ *    看板原本只收"有信号"的人（没信号 = 不上板），于是"老师主动认领了、系统这边没信号"
+ *    的人从看板上消失了 —— 跟进到哪了反而看不见。这一类单独成组，
+ *    排在 P2 之后（不紧急，但要看得到）。
+ */
+export type SupportLevel = 'P0' | 'P1' | 'P2' | 'claimed';
 
 export interface SupportSignalMeta {
   label: string;
@@ -381,11 +421,17 @@ export const SUPPORT_LEVELS: readonly { level: SupportLevel; title: string; desc
   { level: 'P0', title: '立即处理', desc: '从未沟通 · 长期失联 >14 天' },
   { level: 'P1', title: '本周关注', desc: '问题线索 · 反复沟通未缓解 · 近期沉默' },
   { level: 'P2', title: '持续观察', desc: '关系待建立 · 记录缺责任人' },
+  // 🔴 这一组是「**没信号但有人管**」：不紧急，所以排在最后；
+  //    存在的意义是让认领过他的人看得到"我认领的那个孩子现在什么状态"。
+  { level: 'claimed', title: '已认领 · 无信号', desc: '有人在跟进，但当前没有命中任何信号' },
 ];
 
-/** 级别 → 排序权重（P0 在最上） */
+/**
+ * 级别 → 排序权重（P0 在最上）。
+ * `claimed` 排最后：它不代表紧急，只代表"需要被看见"。
+ */
 export function supportLevelRank(level: SupportLevel): number {
-  return level === 'P0' ? 0 : level === 'P1' ? 1 : 2;
+  return level === 'P0' ? 0 : level === 'P1' ? 1 : level === 'P2' ? 2 : 3;
 }
 
 /**
@@ -778,11 +824,44 @@ export interface SupportBoardResult {
      *  合并成一个数字会让老师看不出到底哪种情况多（2026-09-30 第一版就这么写错了）。 */
     unresolved: number;
     overdue: number;
+    /**
+     * 「已认领但无信号」的人数（`level === 'claimed'`）。
+     *
+     * 🔴 与 `needSupport` **互斥**：`needSupport` 只数**有信号**的行
+     *    （"需要支持"的前提是有信号），claimed 的人单独一格。
+     *    ⇒ 看板显示的**总行数 = needSupport + claimedOnly**。
+     */
+    claimedOnly: number;
   };
   groups: { level: SupportLevel; title: string; desc: string; count: number }[];
   rows: SupportBoardRow[];
   /** 被行级范围挡掉的人数（提示"还有 N 人不在你的范围内"，避免老师以为看板是空的） */
   hiddenByScope: number;
+  /**
+   * 被「移除卡片」隐藏掉的人数（v10）。
+   * 前端给一句「已移除 N 张卡片 · 查看」——**必须让人看得到这个数字**：
+   * 否则"移除"会变成无声的数据消失（下次有人问"某某怎么不见了"，无从查起）。
+   */
+  dismissedCount: number;
+  /** 我是否有「移除卡片」权限（前端据此决定显不显示按钮；后端同样会再判一次） */
+  canRemove: boolean;
+  /** 被移除的名单（**只有有权限者**才返回内容，用于"查看 / 恢复"弹窗） */
+  dismissed: SupportDismissedRow[];
+}
+
+/** 被「移除卡片」隐藏掉的一个学生（v10） */
+export interface SupportDismissedRow {
+  studentId: string;
+  name: string;
+  nameEn: string;
+  grade: string;
+  cls: string;
+  /** 移除原因（写的时候留的） */
+  reason: string;
+  /** 谁移除的 */
+  who: string;
+  /** 移除时间 */
+  ms: number;
 }
 
 /** 沟通时间线的一条（支持卡抽屉里用） */

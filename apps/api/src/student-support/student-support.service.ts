@@ -51,6 +51,7 @@ import {
   SUPPORT_FIELDS as SF,
   SUPPORT_LEVELS,
   SUPPORT_SEVERITIES,
+  SUPPORT_SOURCE_MANUAL,
   SUPPORT_STATUS_TODO,
   SUPPORT_STATUSES,
   TABLES,
@@ -58,9 +59,11 @@ import {
   idpIsEnrolled,
   idpLinkIds,
   idpTimeMs,
+  modulePermission,
   supportAutoOwner,
   supportCompareRows,
   supportDefaultDueMs,
+  supportDismissed,
   supportInScope,
   supportIsOpen,
   supportOverdueDays,
@@ -73,6 +76,7 @@ import {
   type SupportBoardResult,
   type SupportBoardRow,
   type SupportCommLike,
+  type SupportDismissedRow,
   type SupportLevel,
   type SupportSignal,
   type SupportStatus,
@@ -129,10 +133,15 @@ export class StudentSupportService {
    * 看板页与全部接口的入口判据（**写动作也走它**，见 module-permissions 文件头 v9：
    * 教职工角色没有任何"都持有"的写权限点，硬找一个会让老师点「认领」直接 403）。
    */
-  private require(user: SessionUser): { seeAll: boolean } {
+  private require(user: SessionUser): { seeAll: boolean; canRemove: boolean } {
     requireModule(user, 'studentSupport', 'read');
     const perms = [...permissionsOf(this.toPrincipal(user))];
-    return { seeAll: supportSeeAll(perms) };
+    return {
+      seeAll: supportSeeAll(perms),
+      // 「移除卡片」是**另一个权限点**（v10）：破坏性操作，默认只有系统管理员持有。
+      // 这里只是把"能不能显示这个按钮"告诉前端；真正写的时候 `dismiss()` 会再判一次。
+      canRemove: perms.includes(modulePermission('studentSupportRemove', 'read')),
+    };
   }
 
   // ───────────────────────── 读表 ─────────────────────────
@@ -374,7 +383,7 @@ export class StudentSupportService {
     user: SessionUser,
     query: { campus?: string; owner?: string; signal?: string; mine?: string } = {},
   ): Promise<SupportBoardResult> {
-    const { seeAll } = this.require(user);
+    const { seeAll, canRemove } = this.require(user);
     const nowMs = Date.now();
 
     const [students, comms, supports, users, idpTeacherOf] = await Promise.all([
@@ -387,6 +396,9 @@ export class StudentSupportService {
 
     const meIds = this.meIdsOf(user);
     let hiddenByScope = 0;
+    /** 被「移除卡片」藏起来的人数（v10） */
+    let dismissedCount = 0;
+    const dismissedList: SupportDismissedRow[] = [];
     const rows: SupportBoardRow[] = [];
 
     for (const s of students) {
@@ -396,14 +408,23 @@ export class StudentSupportService {
 
       const mine = comms.byId.get(s.id) ?? comms.byName.get(name) ?? [];
       const signals = supportSignalsOf({ comms: mine }, nowMs);
-      if (!signals.length) continue; // 没有信号 ⇒ 不上板
+      const supPreview = this.openSupportOf(supports, s.id);
+      /**
+       * 🔴 收行的两个条件（2026-09-30 峰哥要的第二类）：
+       *  ① 有信号 ⇒ 正常上板
+       *  ② **没有信号，但有未关闭的支持行** ⇒ 进「已认领 · 无信号」组
+       *     （否则老师认领过的人一旦信号消失就从看板上"人间蒸发"，
+       *      跟进到哪了反而看不见）
+       */
+      const openSup = Boolean(supPreview) && supportIsOpen(supPreview?.f[SF.支持状态]);
+      if (!signals.length && !openSup) continue;
 
       const sorted = [...mine].sort((a, b) => b.ms - a.ms);
       const last = sorted[0];
       const lastMs = last?.ms ?? 0;
       const lastDays = last ? Math.floor((nowMs - lastMs) / 86400000) : null;
 
-      const sup = this.openSupportOf(supports, s.id);
+      const sup = supPreview;
       const headOpenId = String(s.f['班主任'] ?? '').trim();
       const headName = users.get(headOpenId) ?? headOpenId;
       const idpOpenId = idpTeacherOf.get(s.id) ?? '';
@@ -412,16 +433,41 @@ export class StudentSupportService {
       // 负责人：人工指定优先，否则自动推导（判据与 studentOptions 共用一份）
       const owner = this.resolveOwner({ sup, commsDesc: sorted, headName, idpName });
 
-      // 行级范围：默认只看「我是负责人 / 班主任 / IDP 老师」的学生
-      if (
-        !supportInScope({
-          seeAll,
-          owner: owner.name,
-          headTeacher: headOpenId,
-          idpTeacher: idpOpenId,
-          me: meIds,
-        })
-      ) {
+      // 行级范围（**提前到这里判**：被"移除"的学生也要按范围决定要不要进「已移除」名单）
+      const inScope = supportInScope({
+        seeAll,
+        owner: owner.name,
+        headTeacher: headOpenId,
+        idpTeacher: idpOpenId,
+        me: meIds,
+      });
+
+      /**
+       * 🔴 「移除卡片」（v10）：被忽略的学生**不上看板**。
+       * 单独计数（`dismissedCount`）而**不算进 `hiddenByScope`** ——
+       * 那个数字的含义是"被权限挡掉的"，混在一起会让老师以为是自己权限不够。
+       */
+      const dis = this.dismissedOf(supports, s.id);
+      if (dis) {
+        if (inScope) {
+          dismissedCount += 1;
+          if (canRemove) {
+            dismissedList.push({
+              studentId: s.id,
+              name,
+              nameEn: String(s.f['英文名'] ?? '').trim(),
+              grade: this.studentGrade(s.f),
+              cls: this.studentCls(s.f),
+              reason: String(dis.f[SF.忽略原因] ?? '').trim(),
+              who: String(dis.f[SF.忽略人] ?? '').trim(),
+              ms: Number(dis.f[SF.忽略时间] ?? 0) || 0,
+            });
+          }
+        }
+        continue;
+      }
+
+      if (!inScope) {
         hiddenByScope += 1;
         continue;
       }
@@ -438,7 +484,8 @@ export class StudentSupportService {
         campus: String(s.f['校区'] ?? '').trim(),
         studentStatus: String(s.f['当前状态'] ?? '').trim(),
         signals,
-        level: supportPriorityOf(signals) || 'P2',
+        // 有信号 ⇒ 按信号定级；没信号（但有人认领）⇒ 进「已认领 · 无信号」组
+        level: signals.length ? supportPriorityOf(signals) || 'P2' : 'claimed',
         commCount: mine.length,
         lastMs,
         lastDays,
@@ -471,14 +518,18 @@ export class StudentSupportService {
 
     // ── KPI 按**筛选后**的集合算（跟列表所见一致，避免"数字与列表对不上"）──
     const has = (r: SupportBoardRow, key: string) => r.signals.some((x) => x.key === key);
+    const claimedOnly = out.filter((r) => r.level === 'claimed').length;
     const kpis = {
-      needSupport: out.length,
+      // 🔴 `needSupport` **只数有信号的人**：「需要支持」的前提是有信号；
+      //    「已认领但无信号」是另一类（`claimedOnly`），两者互斥、相加才是总行数。
+      needSupport: out.length - claimedOnly,
       unclaimed: out.filter((r) => !r.supportStatus || r.supportStatus === SUPPORT_STATUS_TODO).length,
       neverContacted: out.filter((r) => has(r, 'neverContacted')).length,
       longSilence: out.filter((r) => has(r, 'longSilence')).length,
       problemClue: out.filter((r) => has(r, 'problemClue')).length,
       unresolved: out.filter((r) => has(r, 'unresolved')).length,
       overdue: out.filter((r) => (r.overdueDays ?? 0) > 0).length,
+      claimedOnly,
     };
 
     return {
@@ -488,7 +539,84 @@ export class StudentSupportService {
       groups: SUPPORT_LEVELS.map((g) => ({ ...g, count: out.filter((r) => r.level === g.level).length })),
       rows: out,
       hiddenByScope,
+      dismissedCount,
+      canRemove,
+      // 最近移除的排前面（"我刚手滑移掉的那个"最好恢复）
+      dismissed: dismissedList.sort((a, b) => b.ms - a.ms),
     };
+  }
+
+  /**
+   * 该生是否被「移除卡片」忽略掉（v10）。
+   * 判据是"**该生任意一行**带忽略标记" —— 忽略是**学生级**的，不是某一个支持行的属性。
+   */
+  private dismissedOf(rows: readonly Row[], studentId: string): Row | null {
+    const mine = rows.filter((r) => idpLinkIds(r.f[SF.关联学生]).includes(studentId));
+    return mine.find((r) => supportDismissed(r.f[SF.已忽略])) ?? null;
+  }
+
+  /**
+   * 「移除卡片」= 忽略 / 恢复（v10，2026-09-30 峰哥要求）。
+   *
+   * ## 语义
+   *
+   * 误报或"这个人我知道，不用系统提醒我"时把卡片藏起来。**不是删数据**：
+   * 记下原因 / 操作人 / 时间，`on: false` 即可恢复。
+   *
+   * ## 为什么忽略标记写在「支持表」
+   *
+   * 忽略是**学生级**的（不是某一次支持的属性），但为此单独建一张表不值当
+   * （看板已经要读支持表）。做法：找到该生**当前开着的支持行**，把标记写上去；
+   * 若一行都没有（纯误报、还没人认领过）就先建一行（`来源` 记「人工登记」）。
+   * 读侧 `dismissedOf` 只要求"任一行有标记"。
+   *
+   * ## 权限
+   *
+   * 🔴 单独一个点 `module:studentSupportRemove:read` —— 破坏性操作（能让别人看不到该看的人），
+   *    **不能**跟着看板的 read 走。默认只有系统管理员持有。
+   */
+  async dismiss(
+    user: SessionUser,
+    studentId: string,
+    body: { reason?: string; on?: boolean },
+  ): Promise<{ ok: true; id: string; on: boolean }> {
+    requireModule(user, 'studentSupportRemove', 'read');
+    const sql = getSqlStore();
+    if (!sql) throw new BadRequestException('NO_DATABASE');
+    // 范围校验（与读同一份判据）：不能移除范围外的学生（那等于猜着 id 破坏别人的看板）
+    const row = await this.studentCtx(user, studentId);
+
+    const on = body.on !== false;
+    const reason = String(body.reason ?? '').trim();
+    if (on && !reason) throw new BadRequestException('REASON_REQUIRED: 移除卡片必须填原因');
+
+    const supports = await this.readAll(TABLES.studentSupport.tableId);
+    const mine = supports.filter((r) => idpLinkIds(r.f[SF.关联学生]).includes(studentId));
+    const target = mine.find((r) => supportIsOpen(r.f[SF.支持状态])) ?? mine[0] ?? null;
+    const nowMs = Date.now();
+    const actor = String(user.name ?? '').trim() || '系统';
+    const fields: Record<string, unknown> = {
+      [SF.已忽略]: on ? '是' : '否',
+      [SF.忽略原因]: on ? reason : '',
+      [SF.忽略人]: on ? actor : '',
+      [SF.忽略时间]: on ? nowMs : 0,
+      [SF.更新人]: actor,
+      [SF.更新时间]: nowMs,
+    };
+
+    if (target) {
+      await sql.update(TABLES.studentSupport.tableId, target.id, fields);
+      return { ok: true, id: target.id, on };
+    }
+    // 一行都没有（纯误报、从没人认领过）⇒ 建一行承载标记
+    const id = `dismiss_${studentId}`;
+    await sql.createWithId(TABLES.studentSupport.tableId, id, {
+      ...fields,
+      [SF.关联学生]: [studentId],
+      [SF.学生姓名]: row.name,
+      [SF.来源]: SUPPORT_SOURCE_MANUAL,
+    });
+    return { ok: true, id, on };
   }
 
   /**
@@ -702,7 +830,7 @@ export class StudentSupportService {
       [SF.严重程度]: severity || '需介入',
       [SF.期望回应日期]: Number(body.dueMs ?? 0) || supportDefaultDueMs(nowMs),
       [SF.认领时间]: nowMs,
-      [SF.来源]: String(body.source ?? '人工登记').trim() || '人工登记',
+      [SF.来源]: String(body.source ?? SUPPORT_SOURCE_MANUAL).trim() || SUPPORT_SOURCE_MANUAL,
     });
     return { ok: true, id: created, created: true };
   }
@@ -726,6 +854,36 @@ export class StudentSupportService {
     }
     const res = await this.save(user, studentId, { status, note: body.note, owner: body.owner });
     return { ok: true, id: res.id };
+  }
+
+  /**
+   * 定时任务用：**系统视角**的看板快照（2026-09-30，峰哥要的「看板定时任务」）。
+   *
+   * 🔴 复用 `board()` 本身，**不另写一份统计** —— 看板的数字口径（谁上板、什么算待认领、
+   *    被移除的算不算）只有 `board` 知道；再数一遍 ⇒ 迟早出现
+   *    "任务详情说 50 人、页面显示 48 人"这种没人能解释的差异。
+   * ⚠️ 后台跑没有会话，这里**伪造一个系统管理员身份**：`roles: ['系统管理员']`
+   *    ⇒ `permissionsOf` 给全量权限 ⇒ `seeAll = true`，拿到的是**全站**数字
+   *    （这正是"快照"要的：不是某个老师视角）。
+   */
+  async snapshot(): Promise<string> {
+    const system: SessionUser = {
+      openId: '',
+      name: '系统 · 定时任务',
+      roles: ['系统管理员'],
+      campuses: [],
+      maxDataLevel: 'L4',
+      // 后台没有会话：这两个字段只是类型要求（board 里不读它们）
+      sessionId: 'scheduled-tasks',
+      expiresAt: Date.now() + 60_000,
+    };
+    const b = await this.board(system);
+    const k = b.kpis;
+    return (
+      `需要支持 ${k.needSupport} 人（待认领 ${k.unclaimed}）· 从未沟通 ${k.neverContacted} · ` +
+      `长期失联 ${k.longSilence} · 问题线索 ${k.problemClue} · 反复未缓解 ${k.unresolved} · ` +
+      `已认领无信号 ${k.claimedOnly} · 超期 ${k.overdue} · 已移除 ${b.dismissedCount}`
+    );
   }
 }
 

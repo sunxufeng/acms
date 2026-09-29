@@ -1,4 +1,5 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import {
   ARCHIVE_JOB_FIELDS,
   NOTE_ARCHIVE_FAIL,
@@ -42,6 +43,13 @@ export interface NoteArchiveProgress {
   uploaded: number;
   /** 已归档过、本次跳过 */
   skipped: number;
+  /**
+   * 🆕 **内容重复**跳过（2026-09-30 峰哥要求）。
+   *
+   * 与 `skipped`（笔记 ID 已归档）是两件事：这里说的是「文件名/笔记 ID 都不一样，
+   * 但**内容一模一样**」——典型场景是「全部有效笔记」与「IDP 笔记」两个任务写同一个文件夹。
+   */
+  skippedByContent: number;
   /** 只有总结、没有明细 */
   noDetail: number;
   failed: number;
@@ -66,7 +74,16 @@ const ARCHIVE_FIELDS = {
   归档时间: '归档时间',
   明细字数: '明细字数',
   总结字数: '总结字数',
+  // 🆕 2026-09-30：内容哈希（峰哥：「虽然文件名不一致，但是文件内容是一致的，也不需要复制了」）
+  //   判据是 `文件夹Token + kind + 哈希`，**跨任务**查（否则两个任务之间去重做不到）。
+  明细哈希: '明细哈希',
+  总结哈希: '总结哈希',
 } as const;
+
+/** 内容指纹（sha256 前 32 位十六进制够用，且短一点便于人工比对） */
+function sha256Text(s: string): string {
+  return createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 32);
+}
 
 /** 时间字段四种形态（毫秒数 / 秒数 / 数字串 / ISO 或 `YYYY-MM-DD`）统一成毫秒 */
 function toMs(v: unknown): number {
@@ -123,6 +140,16 @@ export class NoteArchiveService implements OnModuleInit {
   private readonly folderCache = new Map<string, string>();
   /** `names:${文件夹token}` → 该文件夹里已有的文件名集合（本次运行内缓存，防中断重跑重复上传） */
   private readonly nameCache = new Map<string, Set<string>>();
+  /**
+   * 🆕 `${文件夹token}:${kind}:${内容哈希}` → 已存在（2026-09-30 内容去重）。
+   *
+   * 🔴 **跨任务**查（加载时**不按 jobKey 过滤**）：峰哥要的场景正是
+   *    「全部有效笔记」与「IDP 笔记」两个任务写同一个文件夹、同一份内容各传一份。
+   *    只查本任务的记录就退化成"跟以前一样"了。
+   * ⚠️ 每次运行开始时**重建**（清空后从归档记录表重读）：实例级缓存跨天会失效。
+   *    同一次运行内上传成功后也会写入，防止同一次里重复传。
+   */
+  private readonly contentIndex = new Map<string, boolean>();
   private tableReady = false;
 
   async onModuleInit(): Promise<void> {
@@ -153,6 +180,9 @@ export class NoteArchiveService implements OnModuleInit {
       { name: ARCHIVE_FIELDS.归档时间, type: T.NUMBER },
       { name: ARCHIVE_FIELDS.明细字数, type: T.NUMBER },
       { name: ARCHIVE_FIELDS.总结字数, type: T.NUMBER },
+      // 🆕 内容去重（2026-09-30）：ensureTable 是 upsert ⇒ 加在这里部署即生效
+      { name: ARCHIVE_FIELDS.明细哈希, type: T.TEXT },
+      { name: ARCHIVE_FIELDS.总结哈希, type: T.TEXT },
     ]);
     await sql.ensureTable(TABLES.noteArchiveJob.tableId, '笔记归档任务表', [
       { name: ARCHIVE_JOB_FIELDS.任务名称, type: T.TEXT },
@@ -378,6 +408,39 @@ export class NoteArchiveService implements OnModuleInit {
     return out;
   }
 
+  /**
+   * 加载「已归档内容」索引（`${文件夹Token}:${kind}:${内容哈希}`）。
+   *
+   * 🔴 **不按任务（jobKey）过滤** —— 峰哥要的场景是「全部有效笔记」与「IDP 笔记」
+   *    两个任务写同一个文件夹时，同一份内容只留一份；只查本任务的记录等于没做。
+   * ⚠️ 只认「成功」的记录：失败记录里的哈希不可信（文件可能根本没传上去）。
+   */
+  private async loadContentIndex(): Promise<Map<string, boolean>> {
+    const sql = getSqlStore();
+    const out = new Map<string, boolean>();
+    if (!sql) return out;
+    let token: string | undefined;
+    for (let i = 0; i < 40; i += 1) {
+      const page = await sql
+        .search(TABLES.noteArchive.tableId, { pageSize: 500, ...(token ? { pageToken: token } : {}) })
+        .catch(() => null);
+      if (!page) break;
+      for (const r of page.items ?? []) {
+        const f = (r.fields ?? {}) as Record<string, unknown>;
+        if (String(f[ARCHIVE_FIELDS.状态] ?? '') !== NOTE_ARCHIVE_OK) continue;
+        const ft = String(f[ARCHIVE_FIELDS.文件夹Token] ?? '').trim();
+        if (!ft) continue;
+        const dh = String(f[ARCHIVE_FIELDS.明细哈希] ?? '').trim();
+        const sh = String(f[ARCHIVE_FIELDS.总结哈希] ?? '').trim();
+        if (dh) out.set(`${ft}:明细:${dh}`, true);
+        if (sh) out.set(`${ft}:总结:${sh}`, true);
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return out;
+  }
+
   /** 笔记状态（缺行 = 有效，判据在 contracts 的 `normalizeNoteStatus` / `isArchivedNote`） */
   private async loadStatusMap(): Promise<Map<string, string>> {
     const sql = getSqlStore();
@@ -420,6 +483,7 @@ export class NoteArchiveService implements OnModuleInit {
       done: 0,
       uploaded: 0,
       skipped: 0,
+      skippedByContent: 0,
       noDetail: 0,
       failed: 0,
       folders: 0,
@@ -432,6 +496,7 @@ export class NoteArchiveService implements OnModuleInit {
         progress.finishedAt = Date.now();
         this.logger.log(
           `笔记归档完成（${job.label}）：候选 ${progress.total}，跳过 ${progress.skipped}，` +
+            `内容重复 ${progress.skippedByContent}，` +
             `上传 ${progress.uploaded}，无明细 ${progress.noDetail}，失败 ${progress.failed}，文件夹 ${progress.folders}`,
         );
         await this.writeRunResult(job, progress).catch(() => {});
@@ -447,6 +512,21 @@ export class NoteArchiveService implements OnModuleInit {
     return progress;
   }
 
+  /**
+   * 把一次**非归档类**任务的运行结果写回任务行（2026-09-30）。
+   *
+   * 看板快照这类任务没有 `NoteArchiveProgress`（不上传任何文件），
+   * 所以单独开一个入口，只写「上次运行 / 上次运行详情」两列。
+   */
+  async recordJobRun(job: NoteArchiveJobDef, detail: string): Promise<void> {
+    const sql = getSqlStore();
+    if (!sql) return;
+    await sql.update(TABLES.noteArchiveJob.tableId, job.key, {
+      [ARCHIVE_JOB_FIELDS.上次运行]: beijingStamp(Date.now()),
+      [ARCHIVE_JOB_FIELDS.上次运行详情]: detail.slice(0, 500),
+    });
+  }
+
   /** 把本次结果写回任务行（页面上「上次运行」两列；写失败不影响归档本身） */
   private async writeRunResult(job: NoteArchiveJobDef, p: NoteArchiveProgress): Promise<void> {
     const sql = getSqlStore();
@@ -455,6 +535,8 @@ export class NoteArchiveService implements OnModuleInit {
       `候选 ${p.total}`,
       `上传 ${p.uploaded}`,
       `跳过 ${p.skipped}`,
+      // 🆕 内容重复（跨任务）—— 单独列出来，否则"上传变少了"看不出原因
+      `内容重复 ${p.skippedByContent}`,
       `无明细 ${p.noDetail}`,
       `失败 ${p.failed}`,
     ];
@@ -477,6 +559,9 @@ export class NoteArchiveService implements OnModuleInit {
     const status = await this.loadStatusMap();
     this.folderCache.clear();
     this.nameCache.clear();
+    // 🆕 内容索引每次运行重建（跨任务的已归档内容）—— 见 `contentIndex` 的注释
+    this.contentIndex.clear();
+    for (const [k, v] of await this.loadContentIndex()) this.contentIndex.set(k, v);
 
     // ① 先枚举候选（快照表是全量超集）
     type Cand = { id: string; title: string; owner: string; createdMs: number; summary: string };
@@ -520,6 +605,9 @@ export class NoteArchiveService implements OnModuleInit {
         const detail = String((detailRec?.fields ?? {})['原始记录'] ?? '').trim();
         const date = beijingDate(c.createdMs);
         const names: string[] = [];
+        /** 本次这篇笔记的内容哈希（随归档记录落库，供**下次**按内容判重） */
+        let detailHash = '';
+        let summaryHash = '';
         for (const kind of job.kinds) {
           const content = kind === '明细' ? detail : c.summary;
           if (!content.trim()) {
@@ -527,12 +615,34 @@ export class NoteArchiveService implements OnModuleInit {
             continue;
           }
           const fileName = noteArchiveFileName({ date: date || '日期未知', title: c.title, kind, noteId: c.id });
+          const hash = sha256Text(content);
+          if (kind === '明细') detailHash = hash;
+          else summaryHash = hash;
+
+          /**
+           * 🆕 第三道防线（2026-09-30 峰哥）：「**虽然文件名不一致，但是文件内容一致，也不需要复制**」。
+           *
+           * 前两道都拦不住这种情况：① 主判据按**笔记 ID**，两个任务的记录 id 不同；
+           * ② 同名文件判据按**文件名**，而文件名里带笔记 ID/日期 ⇒ 不同名。
+           * 结果就是「全部有效笔记」与「IDP 笔记」写同一个文件夹时，同一份内容各存一份。
+           * 判据 = `文件夹Token + kind + 内容哈希` 在**已归档记录**里出现过（跨任务，见 contentIndex）。
+           */
+          const ckey = `${folder.token}:${kind}:${hash}`;
+          if (this.contentIndex.has(ckey)) {
+            p.skippedByContent += 1;
+            // 名字照常见记（归档记录用它标"这篇已处理"，但没上传新文件）
+            names.push(fileName);
+            continue;
+          }
+
           // 第二道防线：文件夹里**已有同名文件**就不重复上传。
           // 主判据是归档记录表，但一次运行被中断（部署/重启）时记录还没写，
           // 重跑就会把同一篇的两个文件再传一遍（云盘允许重名 ⇒ 出现一模一样的副本）。
           // 名字里带笔记 ID，所以按名字比是可靠的。
           if (await this.fileExists(folder.token, fileName, token)) {
             names.push(fileName);
+            // 同名 = 同笔记同 kind ⇒ 内容相同，索引也记上（免得别的任务再传一份）
+            this.contentIndex.set(ckey, true);
             continue;
           }
           const up = await uploadDriveFile({
@@ -550,17 +660,29 @@ export class NoteArchiveService implements OnModuleInit {
           });
           if (up && up.error) throw new Error(`${kind} 上传失败：${up.error}`);
           names.push(fileName);
+          this.contentIndex.set(ckey, true);
           p.uploaded += 1;
           await new Promise((r) => setTimeout(r, 300)); // 节流：QPS 友好，也让失败更早暴露
         }
-        await this.saveArchiveRecord(c, job.key, folder, names, detail.length, c.summary.length, NOTE_ARCHIVE_OK, '');
+        await this.saveArchiveRecord(c, job.key, folder, names, detail.length, c.summary.length, NOTE_ARCHIVE_OK, '', {
+          detail: detailHash,
+          summary: summaryHash,
+        });
         p.done += 1;
       } catch (e) {
         p.failed += 1;
         p.done += 1;
-        await this.saveArchiveRecord(c, job.key, null, [], 0, 0, NOTE_ARCHIVE_FAIL, (e as Error).message.slice(0, 240)).catch(
-          () => {},
-        );
+        await this.saveArchiveRecord(
+          c,
+          job.key,
+          null,
+          [],
+          0,
+          0,
+          NOTE_ARCHIVE_FAIL,
+          (e as Error).message.slice(0, 240),
+          { detail: '', summary: '' },
+        ).catch(() => {});
         this.logger.warn(`笔记归档失败（${c.id} ${c.title.slice(0, 20)}）：${(e as Error).message.slice(0, 160)}`);
       }
     }
@@ -688,6 +810,8 @@ export class NoteArchiveService implements OnModuleInit {
     summaryLen: number,
     state: string,
     error: string,
+    /** 内容哈希（2026-09-30）：供下次运行按**内容**判重（跨任务） */
+    hashes: { detail: string; summary: string },
   ): Promise<void> {
     const sql = getSqlStore();
     if (!sql) return;
@@ -705,6 +829,8 @@ export class NoteArchiveService implements OnModuleInit {
       [ARCHIVE_FIELDS.归档时间]: Date.now(),
       [ARCHIVE_FIELDS.明细字数]: detailLen,
       [ARCHIVE_FIELDS.总结字数]: summaryLen,
+      [ARCHIVE_FIELDS.明细哈希]: hashes.detail,
+      [ARCHIVE_FIELDS.总结哈希]: hashes.summary,
     };
     const exists = await sql.get(TABLES.noteArchive.tableId, id).catch(() => null);
     if (exists) await sql.update(TABLES.noteArchive.tableId, id, fields);

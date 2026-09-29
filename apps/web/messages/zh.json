@@ -313,7 +313,9 @@
     "customColor": "自定义…",
     "clearColor": "清除颜色",
     "invalidColor": "不是合法色值（支持 #RGB / #RRGGBB）",
-    "moreFields": "更多可选字段（{n} 项：{list}）"
+    "moreFields": "更多可选字段（{n} 项：{list}）",
+    "switchOn": "启用",
+    "switchOff": "停用"
   },
   "ai": {
     "config": {
@@ -4052,6 +4054,20 @@
     "colSeverity": "严重程度",
     "colDue": "期望回应",
     "colCommCount": "沟通记录数",
-    "colOverdue": "超期天数"
+    "colOverdue": "超期天数",
+    "kpiClaimedOnly": "已认领·无信号",
+    "kpiClaimedOnlyHint": "有人在跟进",
+    "noSignalNow": "当前没有命中任何信号 —— 有人在跟进，先看着",
+    "removeCard": "移除卡片",
+    "removeHint": "移除后这张卡片不再出现在看板（数据不删，可随时恢复）",
+    "removeReason": "移除原因",
+    "removeReasonHint": "如：误报 / 已线下处理完",
+    "dismissedHint": "已移除 {n} 张卡片（不计入上面的人数）",
+    "dismissedView": "查看 / 恢复",
+    "dismissedTitle": "已移除的卡片",
+    "dismissedSub": "这些学生不上看板；恢复后立刻回来",
+    "dismissedEmpty": "还没有移除过任何卡片",
+    "restore": "恢复",
+    "commTitle": "记录一次沟通"
   }
 }

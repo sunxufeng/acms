@@ -313,7 +313,9 @@
     "customColor": "Custom…",
     "clearColor": "Clear",
     "invalidColor": "Not a valid colour (use #RGB or #RRGGBB)",
-    "moreFields": "More optional fields ({n}: {list})"
+    "moreFields": "More optional fields ({n}: {list})",
+    "switchOn": "On",
+    "switchOff": "Off"
   },
   "ai": {
     "config": {
@@ -4052,6 +4054,20 @@
     "colSeverity": "Severity",
     "colDue": "Expected reply",
     "colCommCount": "Contact records",
-    "colOverdue": "Days overdue"
+    "colOverdue": "Days overdue",
+    "kpiClaimedOnly": "Claimed, no signal",
+    "kpiClaimedOnlyHint": "someone is on it",
+    "noSignalNow": "No signal right now — someone is on it, keep an eye",
+    "removeCard": "Remove",
+    "removeHint": "The card will no longer appear on the board (data is kept, restorable anytime)",
+    "removeReason": "Reason",
+    "removeReasonHint": "e.g. false alarm / handled offline",
+    "dismissedHint": "{n} card(s) removed (not counted above)",
+    "dismissedView": "View / restore",
+    "dismissedTitle": "Removed cards",
+    "dismissedSub": "These students are hidden; restoring brings them right back",
+    "dismissedEmpty": "Nothing has been removed yet",
+    "restore": "Restore",
+    "commTitle": "Log a contact"
   }
 }

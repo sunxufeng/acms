@@ -14,6 +14,7 @@ import { NoteArchiveService } from '../note-archive/note-archive.service.js';
 import { WeilingService } from '../weiling/weiling.service.js';
 import { MailArchiveService } from '../mail-archive/mail-archive.service.js';
 import { GetnoteSourceService } from '../getnote/sources.service.js';
+import { StudentSupportService } from '../student-support/student-support.service.js';
 
 /**
  * 「定时任务」的统一调度器（2026-09-24，方案 A）。
@@ -49,6 +50,7 @@ export class ScheduledTasksRunner implements OnModuleInit {
     private readonly weiling: WeilingService,
     private readonly mail: MailArchiveService,
     private readonly getnoteSources: GetnoteSourceService,
+    private readonly support: StudentSupportService,
   ) {}
 
   onModuleInit(): void {
@@ -120,6 +122,18 @@ export class ScheduledTasksRunner implements OnModuleInit {
         this.getnoteSources.syncAllDue(),
       );
       await this.writeRunResult(job, `检查后触发 ${r.synced} 个知识库同步，跳过 ${r.skipped} 个`);
+      return;
+    }
+    if (job.kind === '看板快照') {
+      // 2026-09-30（峰哥要的「看板定时任务」）。
+      // ⚠️ 卡片本身是**实时算**的；这条任务只是每天把数字算一遍留档
+      //    （写进任务行的「上次运行详情」），供"今天有多少人需要支持"和逐日对比。
+      // 🔴 快照的数字由 `StudentSupportService.snapshot()` 里**复用 board()** 得出，
+      //    不在这里另数一遍（两处各数一份必然与页面上的数字不一致）。
+      const detail = await runAs(systemActor('scheduled-tasks', '系统 · 定时任务'), () =>
+        this.support.snapshot(),
+      );
+      await this.writeRunResult(job, detail);
       return;
     }
     // 笔记归档：执行体自己是异步的（立刻返回进度），「上次运行」由它回写

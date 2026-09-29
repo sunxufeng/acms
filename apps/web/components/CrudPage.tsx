@@ -34,7 +34,7 @@ import { studentNameOfContact } from '../lib/weilingCustomFields';
 // 注意组件内已有名为 api 的 prop，所以全局 api 必须起别名，否则会遮蔽。
 import { api as globalApi } from '../lib/api';
 
-export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags' | 'password' | 'color' | 'weilingContact' | 'link';
+export type CrudFieldType = 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'person' | 'student' | 'studentLink' | 'parent' | 'department' | 'attachment' | 'markdown' | 'map' | 'tags' | 'password' | 'color' | 'weilingContact' | 'link' | 'switch';
 
 /**
  * `onChangePatch` 的运行上下文：提供**组件内才拿得到**的查询能力。
@@ -56,6 +56,14 @@ export interface CrudColumn {
   label: string;
   width?: string;
   render?: (v: unknown, row: Record<string, unknown>) => React.ReactNode;
+  /**
+   * `type: 'switch'` 用的两个值（默认 `{ on: '是', off: '否' }`）。
+   *
+   * 为什么需要它：本项目的"开关"在存储上是**文本**（`是` / `否`），
+   * 而有些表用别的约定（如 `启用`/`停用`、`on`/`off`）。
+   * 写死 `是/否` 会让另一种约定的表存进脏值（界面看着是开的、后端判成关的）。
+   */
+  switchValues?: { on: string; off: string };
   filter?: boolean;
   /** 列筛选控件类型：select=下拉(默认) / text=文本输入框 */
   filterType?: 'select' | 'text';
@@ -2135,6 +2143,27 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
             <input className="form-input" type="date" value={str(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
           ) : c.type === 'datetime' ? (
             <input className="form-input" type="datetime-local" value={toDateTimeLocal(form[c.key])} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value }))} />
+          ) : c.type === 'switch' ? (
+            /**
+             * 开关（2026-09-30）：存储值是**文本**（默认 `是`/`否`，由 `switchValues` 决定）——
+             * 别改成 boolean，各表的历史约定不一致（定时任务的「启用」就是 `是`/`否`）。
+             */
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                style={{ width: 16, height: 16, cursor: 'pointer' }}
+                checked={str(form[c.key]) === (c.switchValues?.on ?? '是')}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    [c.key]: e.target.checked ? (c.switchValues?.on ?? '是') : (c.switchValues?.off ?? '否'),
+                  }))
+                }
+              />
+              <span className="muted" style={{ fontSize: 12.5 }}>
+                {str(form[c.key]) === (c.switchValues?.on ?? '是') ? t('crud.switchOn') : t('crud.switchOff')}
+              </span>
+            </label>
           ) : c.type === 'password' ? (
             // 凭证字段：后端读取侧恒返回掩码 ******，原样回传 = 不修改；输入新值才覆盖
             <input

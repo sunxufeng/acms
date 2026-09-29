@@ -201,12 +201,17 @@ describe('定时任务 · 源码级守卫（防止定时器又散回各模块）
     expect(runner).toContain('this.weiling.syncAll');
     expect(runner).toContain('this.mail.syncAll');
     expect(runner).toContain('this.getnoteSources.syncAllDue');
+    // v10 新增：看板快照（2026-09-30）
+    expect(runner).toContain('this.support.snapshot');
+    expect(runner).toContain("job.kind === '看板快照'");
     expect(runner).toContain('shouldRunArchiveJob'); // 判据只写一处（contracts 纯函数）
     expect(runner).toContain('jobSlotKey');
   });
 
   it('🔴 `JOB_KINDS` 每多一个类型，分发与前端「运行」都必须跟上（漏一处 = 到点跑了但什么都没发生）', () => {
-    expect([...JOB_KINDS]).toEqual(['笔记归档', '卫瓴联系人同步', '邮件收取', '知识库同步']);
+    // ⚠️ 这里是**穷举**断言（故意写死）：每加一个类型都必须回来改这一行，
+    //    并同时补下面的分发检查 —— 漏了就是"到点跑了但什么都没发生"。
+    expect([...JOB_KINDS]).toEqual(['笔记归档', '卫瓴联系人同步', '邮件收取', '知识库同步', '看板快照']);
     // 后端：每个类型都要有分支
     for (const k of JOB_KINDS) {
       if (k === '笔记归档') continue; // 归档是兜底分支（else），不写字符串比较

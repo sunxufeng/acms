@@ -54,6 +54,17 @@ export const TABLES = {
   idpConfig: { tableId: 'tblidpconfig0001', name: 'IDP配置' },
   /** IDP 学生明细：一行 = 配置 × 学生（幂等键：所属配置 + 学生），含 IDP 老师与沟通次数缓存 */
   idpStudent: { tableId: 'tblidpstudent001', name: 'IDP学生' },
+
+  // 学生支持看板（2026-09-29 峰哥需求）：一行 = 一个学生 × 一次支持，承载**学生级状态**。
+  //
+  // 🔴 为什么新建表、而不是给学生档案加字段、也不是复用记录的 `闭环状态`：
+  //    · 学生档案是最核心的表（84 字段，导出/报表/门户都依赖）—— 不往里塞新业务概念；
+  //    · 记录的 `闭环状态` 是**记录级**的（一条沟通一个状态），而看板上问的是
+  //      **"这个学生现在什么状态"**（学生级）。复用 ⇒ 一个学生 5 条记录 5 个状态，
+  //      答不出"他现在怎样"；生产实测该字段 223/224 都是默认值，本来也没在维护。
+  //    与 IDP 的做法一致（IDP 学生关系也是独立表，不加在档案上）。
+  /** 学生支持：一行 = 学生 × 一次支持（状态 / 问题类型 / 程度 / 负责人 / 期望回应日期） */
+  studentSupport: { tableId: 'tblstudsupp00001', name: '学生支持' },
   // 生命周期域关联目标表（link 字段跨表解析用，2026-08-17 经 listFields 核对）
   academicYear: { tableId: 'tblp9jbG7WMw609S', name: '学年表' },
   classLink: { tableId: 'tblsgoryRptizqBL', name: '班级表' },

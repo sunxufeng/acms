@@ -613,8 +613,12 @@ describe('C2. 笔记关联的实体类型判据（2026-09-29 实测修正）', (
 describe('C3. 「看全部」是专用权限点 idpStatsAll（2026-09-29 v8 与 IDP配置解绑）', () => {
   const mp = read('packages/contracts/src/module-permissions.ts');
 
-  it('🔴 版本抬到 8，且 idpStatsAll 的引入版本也是 8', () => {
-    expect(mp).toContain('export const ROLE_PERMISSION_VERSION = 8;');
+  it('🔴 当前版本 ≥ 8，且 idpStatsAll 的引入版本恒为 8（v8 引入的，之后抬版本不该动它）', () => {
+    // ⚠️ 这里**不写死当前版本号**：每加一批资源就会抬一版（v9 起是学生支持看板），
+    //    写死会让每次抬版本都得回来改断言（撞了两次了）。
+    //    真正的语义是"这个资源在 v8 引入" ⇒ 断言它的引入版本恒为 8，当前版本只要求 ≥ 8。
+    const cur = Number(/ROLE_PERMISSION_VERSION = (\d+)/.exec(mp)?.[1]);
+    expect(cur).toBeGreaterThanOrEqual(8);
     const i = mp.indexOf('MODULE_RESOURCE_INTRODUCED_VERSION');
     const seg = mp.slice(i, i + 1600);
     expect(seg).toContain('idpStatsAll: 8');

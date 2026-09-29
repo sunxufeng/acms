@@ -31,6 +31,8 @@ import { SystemMonitorModule } from './system-monitor/system-monitor.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { Student360Module } from './student-360/student-360.module.js';
 import { IdpModule } from './idp/idp.module.js';
+// 学生支持看板（2026-09-29）：聚合接口 + 自建「学生支持」表（建表在本模块 onModuleInit）
+import { StudentSupportModule } from './student-support/student-support.module.js';
 import { MonitorModule } from './monitor/monitor.module.js';
 import { UsersModule } from './user/user.module.js';
 import { AiModule } from './ai/ai.module.js';
@@ -118,6 +120,7 @@ import { ImpersonateModule } from './impersonate/impersonate.module.js';
     SchemaModule,
     Student360Module,
     IdpModule,
+    StudentSupportModule,
     UsersModule,
     AiModule,
     AiSummarizeModule,

@@ -323,6 +323,20 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'schedule', label: '排课课次', enLabel: 'Schedules', href: '/schedule', icon: 'schedule', section: '业务管理', order: 40, perm: 'schedule:read' },
     { key: 'portal', label: '学生门户', enLabel: 'Student Portal', href: '/portal', icon: 'students', section: '业务管理', order: 50, perm: 'portal:read' },
 
+    // 学生支持（2026-09-29 新增）：老师每天**第一个**要看的页 —— "今天该找谁"。
+    // 放在「学生闭环」区首位（order 5）是有意的：它是工作台性质的入口，不是查询页。
+    //
+    // 独立权限点 `module:studentSupport:read`；**看全部学生**另需
+    // `module:studentSupportAll:read`（矩阵里挂在下面那行缩进子项，判据 `supportSeeAll`，
+    // 后端用 `supportInScope` 收敛行级范围）。
+    //
+    // `perm` 留空是**有意**的 —— 可见性不走单个 perm 字符串，而是收口在 contracts 的
+    // `supportMenuVisible({perms, menus})`（见 AppShell.canSeeItem）。它同时兼容菜单白名单里的
+    // 学生记录旧 key：生产实测**只有 Phase1 有 13 项白名单**（含 `studentObservations` 这个
+    // 合并前旧 key、不含任何新菜单 key），严格只认 `studentSupport` 会把 24 人的招生老师
+    // 整体挡在门外（报障级）。
+    { key: 'studentSupport', label: '学生支持', enLabel: 'Student Support', href: '/student-support', icon: 'shield', section: '学生闭环', order: 5, perm: '' },
+
     { key: 'student360', label: '学生全景', enLabel: 'Student 360', href: '/student-360', icon: 'students', section: '学生闭环', order: 10, perm: 'student360:read' },
     { key: 'sourceFollowups', label: '招生跟进', enLabel: 'Admissions Follow-ups', href: '/source-followups', icon: 'admissions', section: '学生闭环', order: 20, perm: 'followup:read' },
     { key: 'studentAttendances', label: '学生考勤', enLabel: 'Attendance', href: '/student-attendances', icon: 'students', section: '学生闭环', order: 30, perm: 'studentattendance:read' },

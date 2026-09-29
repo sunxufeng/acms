@@ -10,10 +10,12 @@ import { useRoleLabels } from './RoleLabels';
 import {
   IDP_STATS_MENU_KEY,
   MY_IDP_MENU_KEY,
+  SUPPORT_MENU_KEY,
   idpMenuVisible,
   modulePermission,
   moduleByMenuKey,
   studentRecordMenuVisible,
+  supportMenuVisible,
 } from '@acms/contracts';
 import { loadPermissions, resetPermissions } from '../lib/permissions';
 import { imageUrl, type DashboardTheme, type NavMenuConfig, type NavMenuGroupConfig, type NavMenuGroup, type NavMenuItem, DEFAULT_NAV_MENU_CONFIG } from '@acms/contracts';
@@ -429,6 +431,15 @@ export default function AppShell({
     // 权限点是硬闸门；菜单白名单是叠加条件，并兼容合并前的学生记录旧 key
     //（生产实测 Phase1 的白名单里有 `studentObservations`、不含 `myIdp`，
     //  严格只认新 key 会把招生老师整体挡在门外）。判据收口在 `idpMenuVisible`。
+    // 「学生支持」（2026-09-29）：可见性同样**不**走单一模块权限点 —— 判据收口在 contracts 的
+    // `supportMenuVisible`：
+    //   · 硬闸门 = `module:studentSupport:read`（权限矩阵里的「学生支持」）；
+    //   · 菜单白名单是叠加条件，并兼容合并前的学生记录旧 key
+    //     （生产实测**只有 Phase1 有 13 项白名单**、含 `studentObservations` 而不含任何新菜单 key，
+    //      严格只认 `studentSupport` 会把 24 人的招生老师整体挡在门外 —— 报障级）。
+    if (item.key === SUPPORT_MENU_KEY) {
+      return supportMenuVisible({ perms: myPerms, menus: myMenus });
+    }
     if (item.key === MY_IDP_MENU_KEY || item.key === IDP_STATS_MENU_KEY) {
       return idpMenuVisible(
         { perms: myPerms, menus: myMenus },

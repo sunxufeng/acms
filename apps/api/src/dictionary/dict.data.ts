@@ -18,6 +18,13 @@ import {
   EXCUSED_MODES,
   ROUND_MODES,
 } from '../exam-grade/exam-grade.logic.js';
+// 学生支持看板的两个字典 —— 值**直接引用 contracts 常量**，别在这里手抄字符串：
+// 「问题类型」同时是"问题线索"关键词抽取（代码判据）的分类键，手抄会在增删类型后
+// 静默错位（抽出来的类型在字典里不存在 ⇒ 前端 select 显示空、保存进去的值没人认得）。
+import {
+  SUPPORT_PROBLEM_TYPES,
+  SUPPORT_SEVERITIES,
+} from '@acms/contracts';
 
 /** 省 → 市 映射（级联下拉用）。key 为省/直辖市/自治区，value 为该省下城市列表。 */
 export const PROVINCE_CITIES: Record<string, string[]> = {
@@ -111,6 +118,18 @@ export const DICTIONARIES_RAW: Record<string, string[]> = {
   入学类型: ['统招', '国际', '插班', '转学', '借读', '复学'],
   离校原因: ['毕业', '转学', '休学', '退学', '开除', '其他'],
   特殊支持摘要: ['学习支持', '心理支持', '行为支持', '语言支持', '医疗支持', '经济支持'],
+  /**
+   * 学生支持看板（2026-09-29 峰哥要求：「问题类型和严重程度读取字典表数据」）。
+   *
+   * ⚠️ 这两个是**新 key**（`ACMS_DATA_DIR/dictionaries.json` 里没有）⇒ 走种子即生效。
+   *    一旦它们进了文件，改种子就不再生效，必须走 `PUT /dictionaries/<key>`
+   *    （见套件「模块与页面开发/05-字典与下拉候选」的"文件优先"一节）。
+   * 🔴 数组顺序 = 界面上登记面板里按钮的顺序，别随手追加到末尾。
+   * 🔴 值是 `import` 的 contracts 常量，不是手抄 —— 单测钉住了这件事
+   *    （见 apps/api/test/student-support.test.ts）。
+   */
+  支持问题类型: [...SUPPORT_PROBLEM_TYPES],
+  支持严重程度: [...SUPPORT_SEVERITIES],
   健康风险摘要: ['无', '低风险', '中风险', '高风险'],
   来源渠道: ['官网', '转介绍', '展会', '社交媒体', '代理', '搜索引擎', '开放日', '其他'],
   生源跟进状态: ['新线索', '跟进中', '已报名', '已入学', '已成交', '已流失'],

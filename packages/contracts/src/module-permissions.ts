@@ -94,8 +94,29 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *      不给 `enter` ⇒ `normalizeRolePermissions` 也不会自补一个语义不通的 `:enter`。
  *   ⚠️ `subOf: 'idpStats'` ⇒ 权限矩阵里渲染成「IDP 统计」菜单下的**缩进子行**
  *      （不填的话矩阵里生不出这一行，管理员**找不到勾选的地方**，等于功能不可用）。
+ *
+ * v9（2026-09-29）：新增 **`studentSupport`**（学生支持看板）+ **`studentSupportAll`**（看全部学生）。
+ *
+ *   · `studentSupport` 继承源 = `module:meetingMinutes:read`，与两个 IDP 页**同一批人**
+ *     （系统管理员 + 院级管理 + Phase1~9，共 11 个教职工角色；学生 / 家长不持有）。
+ *     理由：看板是「老师看自己学生的支持情况」，受众与「我的 IDP」完全重合。
+ *     ⚠️ 不用 `module:dailyFollowups:read` 当继承源 —— 那个点 **student / parent 也持有**，
+ *        继承进去等于把老师端看板发给学生和家长。
+ *
+ *   🔴 `actions` 只声明 `READ`，**登记 / 认领 / 关闭等写动作也走这条 read 判据**。
+ *      这是被生产数据逼出来的：**教职工角色的 `:update` 点交集为空** ——
+ *      `dailyFollowups:update` 只有 6 个角色、`studentRecords:update` 另 8 个且不含院级管理，
+ *      没有任何"所有老师都持有"的写权限点可以当继承源。若硬找一个：
+ *      · `legacyWrite` 填 null ⇒ 迁移后老师只有 read、没有 update ⇒ **点「认领」直接 403**，
+ *        功能上线即残废（这是最常见的报障形态，且前后端"按钮能点但接口拒绝"极难自查）；
+ *      · 手工给 4 个角色补写权限 ⇒ 每加一个角色都要记得补，必然会漏。
+ *      ⇒ 把「能看这条看板」当作**能力开关**（一个开关控制整个功能），
+ *        数据面另有 `supportInScope` 兜住（看不到的学生根本不能操作），
+ *        权限矩阵里勾了就知道"这个人能用看板"，心智负担最低。
+ *      ⚠️ 声明（actions: READ）与判据（requireModule(user,'studentSupport','read')）**成对**，
+ *        不会出现"勾了没反应"或"没勾却能用"。
  */
-export const ROLE_PERMISSION_VERSION = 8;
+export const ROLE_PERMISSION_VERSION = 9;
 
 /**
  * 资源「从哪个版本开始存在」。
@@ -125,6 +146,13 @@ export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
   // v8（2026-09-29）：「IDP 统计 · 看全部」开关。`legacyRead: null` ⇒ 迁移**不发给任何人**
   //（只有系统管理员靠代码全量权限自愈持有），院级管理与具体负责人由管理员手工勾选。
   idpStatsAll: 8,
+  // v9（2026-09-29）：学生支持看板。继承源 `module:meetingMinutes:read`（= 11 个教职工角色），
+  // 与两个 IDP 页同一批人 —— 看板是"老师看自己学生的支持情况"，受众完全重合。
+  // ⚠️ 千万别改成 `module:dailyFollowups:read` 当继承源：那个点 student / parent 也持有。
+  studentSupport: 9,
+  // v9：「看全部学生」开关。`legacyRead: null` ⇒ 迁移不发给任何人（同 idpStatsAll 的道理：
+  // 一旦继承就变成人人看全部），由管理员在角色矩阵里手工勾选。
+  studentSupportAll: 9,
 };
 
 /** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */
@@ -316,6 +344,53 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
     menuPermission: null,
     actions: ['read'],
     subOf: 'idpStats',
+    genericCrud: false,
+  },
+  /**
+   * 「学生支持」（2026-09-29 新增）：每天早上看这一页就知道"今天该找谁"。
+   *
+   * 继承源 `module:meetingMinutes:read` = 系统管理员 + 院级管理 + Phase1~9（11 个教职工角色），
+   * 与两个 IDP 页同一批人（见文件头 v9 的说明）。
+   *
+   * 🔴 `actions: READ` 但**登记/认领/关闭也走这条 read 判据** —— 因为没有任何写权限点
+   *    是"所有老师都持有"的（生产实测交集为空），硬找一个会让老师点「认领」403。
+   *    这不是"少声明了一个权限"，而是把「能看这条看板」当**能力开关**：
+   *    勾了 = 这个人能用看板，数据面另有 `supportInScope` 兜住（看不到的学生不能操作）。
+   *    声明与判据成对（都只认 read），不会出现"勾了没反应"。
+   */
+  {
+    key: 'studentSupport',
+    label: '学生支持',
+    path: '/student-support',
+    legacyRead: 'module:meetingMinutes:read',
+    legacyWrite: null,
+    menuPermission: null,
+    actions: READ,
+    genericCrud: false,
+  },
+  /**
+   * 「学生支持 · 看全部」（2026-09-29 新增）：**没有自己的页面**，只是"看全部学生"的开关。
+   *
+   * 默认老师只看「我是负责人 / 班主任 / IDP 老师」的学生（判据 `supportInScope`）。
+   *
+   * 🔴🔴 **没归属的学生必须任何范围都能看到** —— 这是本页最容易做废的地方：
+   *    「从未沟通」的 9 人里有一批正是因为**没有沟通记录 ⇒ 也推导不出责任人**，
+   *    如果数据范围只按「负责人 = 我」过滤，"没人管的学生"恰好被筛掉，
+   *    而他们恰恰是这页最该被看见的人。`supportInScope` 里专门留了这个分支。
+   *
+   * ⚠️ `legacyRead: null` ⇒ **不随版本迁移发放**（同 idpStatsAll 的道理：
+   *    一旦继承就变成人人看全部），由管理员在角色矩阵里手工勾选。
+   * ⚠️ `subOf: 'studentSupport'` ⇒ 矩阵里挂到「学生支持」下的缩进子行（否则找不到勾选处）。
+   */
+  {
+    key: 'studentSupportAll',
+    label: '学生支持 · 看全部',
+    path: '/student-support/all',
+    legacyRead: null,
+    legacyWrite: null,
+    menuPermission: null,
+    actions: ['read'],
+    subOf: 'studentSupport',
     genericCrud: false,
   },
   { key: 'stageEvaluations', label: '阶段评价', path: '/stage-evaluations', aliases: ['/export/stageEvaluation'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'evaluation:read', actions: RECORD_IMPORT, genericCrud: true },

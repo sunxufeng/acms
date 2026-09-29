@@ -11,6 +11,12 @@ import type {
   RoomAvailability,
   FindFreeResult,
   StudentNoteLinksResult,
+  // 学生支持看板（2026-09-29）：DTO 定义在 contracts，前后端共用同一份
+  //（见 student-support.ts 的「接口 DTO」一节，别在本文件里再写一遍结构）
+  SupportBoardResult,
+  SupportDetailResult,
+  SupportOwnerOption,
+  SupportSaveBody,
 } from '@acms/contracts';
 
 // 「作业 → 成绩册同步」的请求 / 返回形状由面板组件（apps/web/components/markbook/
@@ -1525,6 +1531,60 @@ export const api = {
     const qs = q.toString();
     return request<IdpStatsResp>(`/idp-stats${qs ? `?${qs}` : ''}`);
   },
+
+  // ── 学生支持看板（2026-09-29 峰哥需求）────────────────────────────────
+  //
+  // 这一页要回答：今天该找谁 / 为什么要找他 / 谁在管、管到哪了。
+  // 权限 `module:studentSupport:read`（**写动作也走它** —— 教职工角色没有任何"都持有"的
+  // 写权限点，见 contracts/module-permissions.ts 文件头 v9）；
+  // 数据范围由后端按 `module:studentSupportAll:read` 收敛，返回的 `seeAll` 告诉前端
+  // 该不该提示"你只看到自己负责的学生"。判据（信号/负责人/范围）全在 contracts，别在前端重写。
+
+  /**
+   * 看板聚合：**一次拿到全部行**（信号 + 负责人 + 状态 + KPI）。
+   * 前端不再逐行请求 —— 84 个学生逐个打接口会直接把首屏拖到几秒。
+   */
+  studentSupportBoard: (params?: { campus?: string; owner?: string; signal?: string; mine?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.campus) q.set('campus', params.campus);
+    if (params?.owner) q.set('owner', params.owner);
+    if (params?.signal) q.set('signal', params.signal);
+    if (params?.mine) q.set('mine', params.mine);
+    const qs = q.toString();
+    return request<SupportBoardResult>(`/student-support/board${qs ? `?${qs}` : ''}`);
+  },
+
+  /** 支持卡详情（信号证据 + 沟通时间线 + 动作记录） */
+  studentSupportDetail: (studentId: string) =>
+    request<SupportDetailResult>(`/student-support/${encodeURIComponent(studentId)}`),
+
+  /**
+   * 负责人候选。
+   * ⚠️ 走本模块的端点而不是 `/users`：那个接口属别的模块的权限点，
+   *    普通老师打它 403 ⇒ 下拉空白（看起来像"系统里一个老师都没有"）。
+   */
+  studentSupportOwners: () => request<SupportOwnerOption[]>('/student-support/owner-options'),
+
+  /** 认领（可同时带问题登记，一步到位；幂等键 = 学生） */
+  studentSupportClaim: (studentId: string, body: SupportSaveBody) =>
+    request<{ ok: boolean; id: string; created: boolean }>(
+      `/student-support/${encodeURIComponent(studentId)}/claim`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  /** 登记 / 更新问题（**未传的字段不动** —— 与全站保存语义一致） */
+  studentSupportSave: (studentId: string, body: SupportSaveBody) =>
+    request<{ ok: boolean; id: string; created: boolean }>(
+      `/student-support/${encodeURIComponent(studentId)}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+
+  /** 已缓解 / 已关闭 / 已升级 */
+  studentSupportResolve: (studentId: string, body: { status: string; note?: string }) =>
+    request<{ ok: boolean; id: string }>(
+      `/student-support/${encodeURIComponent(studentId)}/resolve`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
 
   // ── 得到大脑（Get笔记）知识库 ──────────────────────────────────────────
   // ⚠️ 凭证模型（2026-09-05 二次修正）：Client ID 与 API Key **都是每人一份**。

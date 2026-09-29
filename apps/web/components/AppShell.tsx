@@ -10,11 +10,13 @@ import { useRoleLabels } from './RoleLabels';
 import {
   IDP_STATS_MENU_KEY,
   MY_IDP_MENU_KEY,
+  SUPPORT_CONFIG_MENU_KEY,
   SUPPORT_MENU_KEY,
   idpMenuVisible,
   modulePermission,
   moduleByMenuKey,
   studentRecordMenuVisible,
+  supportConfigVisible,
   supportMenuVisible,
 } from '@acms/contracts';
 import { loadPermissions, resetPermissions } from '../lib/permissions';
@@ -439,6 +441,12 @@ export default function AppShell({
     //      严格只认 `studentSupport` 会把 24 人的招生老师整体挡在门外 —— 报障级）。
     if (item.key === SUPPORT_MENU_KEY) {
       return supportMenuVisible({ perms: myPerms, menus: myMenus });
+    }
+    // 「信号规则」（2026-09-30，v11）：配置页，改的是**判据本身**（影响全站每个人的看板）
+    // ⇒ 不走菜单白名单（那是"业务菜单可见性"的机制），只认权限点。
+    // `legacyRead: null` ⇒ 默认只有系统管理员能看到这个菜单。
+    if (item.key === SUPPORT_CONFIG_MENU_KEY) {
+      return supportConfigVisible(myPerms);
     }
     if (item.key === MY_IDP_MENU_KEY || item.key === IDP_STATS_MENU_KEY) {
       return idpMenuVisible(

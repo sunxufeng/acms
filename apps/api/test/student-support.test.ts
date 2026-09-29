@@ -24,6 +24,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_SUPPORT_SIGNAL_CONFIG,
+  SUPPORT_CONFIG_NUMBER_FIELDS,
   SUPPORT_LEVELS,
   SUPPORT_MENU_KEY,
   SUPPORT_PROBLEM_MIN_WORDS,
@@ -44,9 +46,13 @@ import {
   supportMenuVisible,
   supportOverdueDays,
   supportPriorityOf,
+  normalizeSupportSignalConfig,
+  orphanStrongWords,
+  supportConfigDiffKeys,
   supportProblemHits,
   supportSeeAll,
   supportSignalsOf,
+  supportWordListOf,
   type SupportCommLike,
   type SupportSignal,
 } from '@acms/contracts';
@@ -758,5 +764,256 @@ describe('I. 已认领无信号（claimed）+ 移除卡片（v10）—— 峰哥
     expect(seg).toContain('this.board(system)');
     // 反向：不许在 snapshot 里自己循环数数
     expect(seg).not.toContain('supportSignalsOf(');
+  });
+});
+
+describe('J. 信号规则配置（v11）—— 峰哥 2026-09-30：「信号体系在哪里配置，有配置页面么？」', () => {
+  const MP = read('packages/contracts/src/module-permissions.ts');
+  const HP = read('packages/contracts/src/homepage.ts');
+  const SVC = read('apps/api/src/student-support/student-support.service.ts');
+  const MOD = read('apps/api/src/student-support/student-support.module.ts');
+  const PAGECFG = read('apps/web/app/student-support/config/page.tsx');
+  const PAGE = read('apps/web/app/student-support/page.tsx');
+  const SHELL = read('apps/web/components/AppShell.tsx');
+  const API = read('apps/web/lib/api.ts');
+
+  // ── 归一化：真跑（这一段最值钱 —— 配置是会被人手改的，纯断言源码拦不住）──
+
+  it('🔴 默认配置必须自洽：归一化后**与默认完全一致**、差异项为空', () => {
+    // 不成立的后果：`configGet` 会把"全默认"报成"已自定义 N 项"，
+    // 老师会以为自己改过东西/去点「恢复默认」，全是误导。
+    const n = normalizeSupportSignalConfig(DEFAULT_SUPPORT_SIGNAL_CONFIG);
+    expect(n).toEqual(DEFAULT_SUPPORT_SIGNAL_CONFIG);
+    expect(supportConfigDiffKeys(n)).toEqual([]);
+  });
+
+  it('输入是垃圾（null / 字符串 / 空对象）也**不抛错**，逐项回落默认', () => {
+    // 配置读坏了不能让整个看板 500：看板是老师每天第一眼要看的页面。
+    for (const bad of [null, undefined, '', 123, [], { enabled: 'x', words: 5, longSilenceDays: 'abc' }]) {
+      const n = normalizeSupportSignalConfig(bad);
+      expect(n.longSilenceDays).toBe(DEFAULT_SUPPORT_SIGNAL_CONFIG.longSilenceDays);
+      expect(n.enabled.neverContacted).toBe(true);
+      expect(Object.keys(n.words)).toHaveLength(SUPPORT_PROBLEM_TYPES.length);
+    }
+  });
+
+  it('🔴 数值越界**静默钳到边界**（配置页永远存得下，不报错）', () => {
+    const hi = normalizeSupportSignalConfig({ longSilenceDays: 99999, problemMinWords: 999 });
+    expect(hi.longSilenceDays).toBe(365);
+    expect(hi.problemMinWords).toBe(20);
+    const lo = normalizeSupportSignalConfig({ longSilenceDays: -5, problemMinWords: 0, unresolvedMinCount: 1 });
+    expect(lo.longSilenceDays).toBe(1);
+    expect(lo.problemMinWords).toBe(1);
+    expect(lo.unresolvedMinCount).toBe(2);
+  });
+
+  it('🔴 「近期沉默起点」必须被钳到**小于**长期失联阈值（否则区间为空/倒挂）', () => {
+    const n = normalizeSupportSignalConfig({ longSilenceDays: 10, recentSilenceMinDays: 30 });
+    expect(n.recentSilenceMinDays).toBe(9);
+    expect(n.recentSilenceMinDays).toBeLessThan(n.longSilenceDays);
+  });
+
+  it('🔴 强词必须是词表里出现过的词：孤儿强词会被丢弃（否则"配了但永远不生效"）', () => {
+    const n = normalizeSupportSignalConfig({
+      words: { 学业困难: ['不及格'] },
+      // 8 个类型都给空（否则缺失的类型会回落默认、把词带回词表里）
+      ...Object.fromEntries([]),
+      strongWords: ['不及格', '这个词不存在'],
+    });
+    // 只覆盖了「学业困难」，其余类型回落默认词表 ⇒ 用一个只在默认词表、不在自定义里的词更直接：
+    const n2 = normalizeSupportSignalConfig({
+      words: Object.fromEntries(SUPPORT_PROBLEM_TYPES.map((t) => [t, []])),
+      strongWords: ['不及格'],
+    });
+    expect(n2.words['学业困难']).toEqual([]);
+    expect(n2.strongWords).toEqual([]); // 词表全空 ⇒ 强词全被丢弃
+    expect(orphanStrongWords(n2)).toEqual([]);
+
+    const n3 = normalizeSupportSignalConfig({
+      words: Object.fromEntries(SUPPORT_PROBLEM_TYPES.map((t) => [t, t === '学业困难' ? ['不及格'] : []])),
+      strongWords: ['不及格'],
+    });
+    expect(n3.strongWords).toEqual(['不及格']);
+    expect(orphanStrongWords(n3)).toEqual([]);
+    expect(n.words['学业困难']).toEqual(['不及格']); // 未指定类型的部分回落默认（只有命中的那个被替换）
+  });
+
+  it('词表去重 + 去空行 + 非字符串忽略', () => {
+    const n = normalizeSupportSignalConfig({
+      words: { ...Object.fromEntries(SUPPORT_PROBLEM_TYPES.map((t) => [t, []])), 学业困难: ['厌学', '厌学', '  ', '退步', 123] },
+    });
+    expect(n.words['学业困难']).toEqual(['厌学', '退步', '123']);
+  });
+
+  it('🔴 配置真的会改变判据行为（不是"存了但不生效"）', () => {
+    const withThree = comm(3, { subject: '考试应激' });
+    // ① 关掉「问题线索」⇒ 该信号不再产出
+    const off = normalizeSupportSignalConfig({ enabled: { ...DEFAULT_SUPPORT_SIGNAL_CONFIG.enabled, problemClue: false } });
+    expect(supportSignalsOf({ comms: [withThree] }, NOW, off).some((x) => x.key === 'problemClue')).toBe(false);
+    expect(supportSignalsOf({ comms: [withThree] }, NOW).some((x) => x.key === 'problemClue')).toBe(true);
+
+    // ② 长期失联阈值改成 2 ⇒ 3 天前沟通的人立刻变成 P0
+    const tight = normalizeSupportSignalConfig({ longSilenceDays: 2, recentSilenceMinDays: 1 });
+    expect(supportSignalsOf({ comms: [withThree] }, NOW, tight).some((x) => x.key === 'longSilence')).toBe(true);
+    expect(supportSignalsOf({ comms: [withThree] }, NOW).some((x) => x.key === 'longSilence')).toBe(false);
+
+    // ③ 只在配置里加的**新词**也能命中（老师自己加的词管用）
+    const custom = normalizeSupportSignalConfig({
+      words: { ...Object.fromEntries(SUPPORT_PROBLEM_TYPES.map((t) => [t, []])), 情绪与心理: ['不想上学'] },
+      strongWords: ['不想上学'],
+    });
+    expect(supportSignalsOf({ comms: [comm(1, { subject: '孩子说不想上学' })] }, NOW, custom)
+      .some((x) => x.key === 'problemClue')).toBe(true);
+
+    // ④ 词表清空 ⇒ 问题线索彻底不再命中（验证"删干净"是真的删干净）
+    const empty = normalizeSupportSignalConfig({
+      words: Object.fromEntries(SUPPORT_PROBLEM_TYPES.map((t) => [t, []])),
+      strongWords: [],
+    });
+    expect(supportSignalsOf({ comms: [withThree] }, NOW, empty).some((x) => x.key === 'problemClue')).toBe(false);
+  });
+
+  it('`supportWordListOf` 顺序 = 类型顺序（保证"第一个命中的类型"稳定，不随对象顺序漂）', () => {
+    const list = supportWordListOf(DEFAULT_SUPPORT_SIGNAL_CONFIG);
+    expect(list.length).toBe(SUPPORT_PROBLEM_WORD_LIST.length);
+    expect(list[0]!.type).toBe(SUPPORT_PROBLEM_TYPES[0]);
+  });
+
+  it('孤儿强词判据真跑：不在词表里的会被报出来（界面据此提示老师）', () => {
+    expect(orphanStrongWords({ ...DEFAULT_SUPPORT_SIGNAL_CONFIG, strongWords: ['不存在的词'] }))
+      .toEqual(['不存在的词']);
+  });
+
+  it('六个数值项与区间元信息齐（界面照着渲染，前端不另抄一份说明）', () => {
+    expect(SUPPORT_CONFIG_NUMBER_FIELDS.map((f) => f.key)).toEqual([
+      'longSilenceDays', 'recentSilenceMinDays', 'thinRelationMaxCount',
+      'unresolvedWindowDays', 'unresolvedMinCount', 'problemMinWords',
+    ]);
+    for (const f of SUPPORT_CONFIG_NUMBER_FIELDS) {
+      expect(f.hint.length, `${f.key} 缺少说明`).toBeGreaterThan(8);
+      expect(f.min).toBeLessThan(f.max);
+    }
+  });
+
+  // ── 权限与路由（源码接线）──
+
+  it('🔴 版本 ≥ 11，且 `studentSupportConfig` 的引入版本恒为 11', () => {
+    const cur = Number(/ROLE_PERMISSION_VERSION = (\d+)/.exec(MP)?.[1] ?? 0);
+    expect(cur).toBeGreaterThanOrEqual(11);
+    const i = MP.indexOf('MODULE_RESOURCE_INTRODUCED_VERSION');
+    expect(MP.slice(i, i + 2000)).toContain('studentSupportConfig: 11');
+  });
+
+  it('🔴🔴 配置权限点必须 `legacyRead: null` + `actions: [read, update]` 齐', () => {
+    const i = MP.indexOf("key: 'studentSupportConfig'");
+    expect(i).toBeGreaterThan(0);
+    const seg = MP.slice(i, i + 900);
+    // 不随迁移发放：改一个词表就能让半个学校上板/下板，影响全站每个人的看板
+    expect(seg).toContain('legacyRead: null');
+    // 🔴 必须声明 update —— 只声明 read 的话矩阵里**没有可勾的那一格**，
+    //    这个点连 PERMISSIONS 目录都不在（weilingContacts:update 踩过同一个坑），
+    //    保存接口必然 403 且看不出原因
+    expect(seg, "必须声明 'update'，否则权限矩阵里勾不到、保存必然 403").toContain("'update'");
+    expect(seg).toContain("'read'");
+    // 有真实页面 ⇒ 真路径（不能像"移除卡片"那样用假路径，否则 moduleByPath 对不上）
+    expect(seg).toContain("path: '/student-support/config'");
+  });
+
+  it('🔴 配置三个接口判的是**独立权限点**，不是看板的 read', () => {
+    const i = SVC.indexOf('async configGet(');
+    expect(SVC.slice(i, i + 400)).toContain("requireModule(user, 'studentSupportConfig', 'read')");
+    const j = SVC.indexOf('async configSave(');
+    expect(SVC.slice(j, j + 500)).toContain("requireModule(user, 'studentSupportConfig', 'update')");
+    const k = SVC.indexOf('async configPreview(');
+    expect(SVC.slice(k, k + 500)).toContain("requireModule(user, 'studentSupportConfig', 'read')");
+    // 反向：这三个方法里不许出现看板那个判据（否则"能看看板"就能改全站规则）
+    for (const [name, at] of [['configGet', i], ['configSave', j], ['configPreview', k]] as const) {
+      expect(SVC.slice(at, at + 700), `${name} 不该判 studentSupport:read`).not.toContain("'studentSupport', 'read'");
+    }
+  });
+
+  it('🔴 `@Get(\'config\')` 必须排在 `@Get(\':studentId\')` 之前（静态路由）', () => {
+    // ⚠️ 用 lastIndexOf：文件头注释里也写了这些装饰器名，indexOf 会命中注释
+    const iCfg = MOD.lastIndexOf("@Get('config')");
+    const iParam = MOD.lastIndexOf("@Get(':studentId')");
+    expect(iCfg).toBeGreaterThan(0);
+    expect(iParam).toBeGreaterThan(0);
+    expect(iCfg, 'config 必须排在 :studentId 之前，否则 "config" 被当学生 id').toBeLessThan(iParam);
+    expect(MOD.lastIndexOf("@Put('config')")).toBeGreaterThan(0);
+    expect(MOD.lastIndexOf("@Post('config/preview')")).toBeGreaterThan(0);
+  });
+
+  it('🔴 配置读取不做进程内缓存（"改了不生效先怀疑缓存"踩过）', () => {
+    const i = SVC.indexOf('private async loadSignalConfig(');
+    const j = SVC.indexOf('async configGet(', i);
+    const body = SVC.slice(i, j > i ? j : i + 1600);
+    // 必须是 try/catch 逐项回落：配置读坏了看板仍要能用
+    expect(body).toContain('catch {');
+    expect(body).toContain('return DEFAULT_SUPPORT_SIGNAL_CONFIG;');
+    // 反向：不许出现缓存字段（Map/get-set 缓存会让"保存后刷新看不到变化"）
+    expect(body).not.toContain('Cache');
+    expect(body).not.toContain('cache');
+  });
+
+  it('🔴 看板与详情都必须把**当前配置**传进判据（否则页面按默认判、配置形同虚设）', () => {
+    expect(SVC).toContain('supportSignalsOf({ comms: mine }, nowMs, config)');
+    expect(SVC).toContain('supportSignalsOf({ comms: c.comms }, ctx.nowMs, ctx.config)');
+    expect(SVC).toContain('supportProblemHits(`${c.subject ?? \'\'}\\n${body}`, supportWordListOf(config))');
+    // board 自己的并行读里要带 config
+    const i = SVC.indexOf('async board(');
+    expect(SVC.slice(i, i + 900)).toContain('this.loadSignalConfig()');
+  });
+
+  it('🔴 试算必须复用 `loadContext` + 真判据（不许在前端或另写一份估算）', () => {
+    const i = SVC.indexOf('async configPreview(');
+    const j = SVC.indexOf('// ───────────────────────── 看板', i);
+    const body = SVC.slice(i, j > i ? j : i + 2600);
+    expect(body).toContain('this.loadContext(user)');
+    expect(body).toContain('supportSignalsOf({ comms: mine }, ctx.nowMs, cfg)');
+    expect(body).toContain('supportPriorityOf(sigs)');
+    // 前端不许自己算
+    expect(PAGECFG).not.toContain('supportSignalsOf');
+    expect(PAGECFG).not.toContain('supportProblemHits');
+    // 必须调服务端试算接口
+    expect(PAGECFG).toContain('api.studentSupportConfigPreview');
+    expect(API).toContain("'/student-support/config/preview'");
+  });
+
+  it('配置页的说明文字**从 contracts 带出来**（signals[].hint / numberFields[].hint），不另抄', () => {
+    expect(PAGECFG).toContain('meta.signals');
+    expect(PAGECFG).toContain('meta.numberFields');
+    // 反向：阈值/信号的**说明原文**不许出现在页面里（说明只在 contracts 一份）
+    //  ⚠️ 判据要挑"contracts 里独有的说明句"，不要挑"实测命中"这类**页面注释里为了讲道理
+    //     也会写到的词** —— 第一次就因为这个假失败（注释里写了被禁的字符串，同 G 段那个坑）。
+    const CFG = read('packages/contracts/src/student-support.ts');
+    const explain = CFG.match(/hint: '([^']{12,})'/g) ?? [];
+    // 至少抓到几条真说明，否则这个断言是空转的
+    expect(explain.length).toBeGreaterThan(5);
+    for (const line of explain) {
+      const text = line.slice(7, -1);
+      expect(PAGECFG, `配置页硬编码了说明原文：${text.slice(0, 18)}…`).not.toContain(text);
+    }
+  });
+
+  it('菜单与可见性：菜单项存在 + AppShell 走 supportConfigVisible（不吃菜单白名单）', () => {
+    expect(HP).toContain("key: 'studentSupportConfig'");
+    expect(HP).toContain("href: '/student-support/config'");
+    expect(SHELL).toContain('SUPPORT_CONFIG_MENU_KEY');
+    expect(SHELL).toContain('supportConfigVisible(myPerms)');
+  });
+
+  it('看板页头有直达配置页的入口（峰哥问"在哪里配置"= 从看板找不到）', () => {
+    expect(PAGE).toContain('data?.canConfig');
+    expect(PAGE).toContain("href=\"/student-support/config\"");
+    expect(SVC).toContain('canConfig,');
+  });
+
+  it('保存时**归一化后再存**（存进去的必须就是生效的那份）', () => {
+    const i = SVC.indexOf('async configSave(');
+    const body = SVC.slice(i, i + 1200);
+    expect(body).toContain('normalizeSupportSignalConfig(body)');
+    expect(body).toContain('JSON.stringify(config)');
+    // 固定 id ⇒ createWithId 是整体替换，天然 upsert（不会写出重复配置行）
+    expect(SVC).toContain("const SIGNAL_CONFIG_ID = 'cfg_student_support'");
   });
 });

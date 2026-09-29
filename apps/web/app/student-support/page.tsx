@@ -517,6 +517,13 @@ export default function StudentSupportPage() {
             <button className="btn btn-outline btn-sm" onClick={() => void load()} disabled={loading}>
               {t('refresh')}
             </button>
+            {/* 「信号规则」直达入口（v11）：峰哥问"信号体系在哪里配置"就是因为从看板找不到入口。
+                只有持 module:studentSupportConfig:read 的人看得到（后端 board 返回 canConfig）。 */}
+            {data?.canConfig ? (
+              <a className="btn btn-ghost btn-sm" href="/student-support/config">
+                {t('signalRules')}
+              </a>
+            ) : null}
             <button className="btn btn-outline btn-sm" onClick={exportCsv} disabled={!rows.length}>
               {t('exportCsv')}
             </button>

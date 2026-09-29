@@ -337,6 +337,17 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     // 整体挡在门外（报障级）。
     { key: 'studentSupport', label: '学生支持', enLabel: 'Student Support', href: '/student-support', icon: 'shield', section: '学生闭环', order: 5, perm: '' },
 
+    // 学生支持 · 信号规则（2026-09-30 新增，v11）：**配置页** —— 编辑看板的判据本身
+    //（七条信号的启用开关 / 六个阈值 / 问题词表 / 强词表），并可用「试算」在保存前
+    // 看到"这样配会有多少人上板"。
+    //
+    // 放在「后台管理」区（不是学生闭环）是有意的：它不是老师每天看的页面，
+    // 而是"改一次、影响全站所有人看板"的配置 —— 与「字典数据」「数据密级」同类。
+    // 权限点 `module:studentSupportConfig:read`+`:update`，`legacyRead: null` ⇒
+    // 迁移不发给任何人，默认只有系统管理员持有（要下放需在角色矩阵里显式勾选）。
+    // `perm` 留空 ⇒ 可见性收口在 AppShell 里的 `supportConfigVisible`（与上面同款做法）。
+    { key: 'studentSupportConfig', label: '信号规则', enLabel: 'Signal Rules', href: '/student-support/config', icon: 'target', section: '后台管理', order: 26, perm: '' },
+
     { key: 'student360', label: '学生全景', enLabel: 'Student 360', href: '/student-360', icon: 'students', section: '学生闭环', order: 10, perm: 'student360:read' },
     { key: 'sourceFollowups', label: '招生跟进', enLabel: 'Admissions Follow-ups', href: '/source-followups', icon: 'admissions', section: '学生闭环', order: 20, perm: 'followup:read' },
     { key: 'studentAttendances', label: '学生考勤', enLabel: 'Attendance', href: '/student-attendances', icon: 'students', section: '学生闭环', order: 30, perm: 'studentattendance:read' },

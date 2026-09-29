@@ -17,6 +17,9 @@ import type {
   SupportDetailResult,
   SupportOwnerOption,
   SupportSaveBody,
+  SupportSignalConfig,
+  SupportConfigPreview,
+  SupportConfigResult,
   SupportStudentOption,
 } from '@acms/contracts';
 
@@ -1609,6 +1612,26 @@ export const api = {
       `/student-support/${encodeURIComponent(studentId)}/dismiss`,
       { method: 'POST', body: JSON.stringify(body) },
     ),
+
+  /**
+   * 信号规则配置（v11）：读 / 存 / 试算。
+   *
+   * 🔴 判的是**独立权限点** `module:studentSupportConfig:read|update`，
+   *    不是看板的 read —— 改配置影响全站每个人的看板（一个宽词就能让半个学校上板），
+   *    没权限时后端返 **403**（不是 404）。
+   * 🔴 「试算」用**同一份判据**在服务端跑全站（不是前端估算）⇒ 试算数字与保存后的看板必然一致。
+   */
+  studentSupportConfig: () => request<SupportConfigResult>('/student-support/config'),
+  studentSupportConfigSave: (body: SupportSignalConfig) =>
+    request<SupportConfigResult>('/student-support/config', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  studentSupportConfigPreview: (body: SupportSignalConfig) =>
+    request<SupportConfigPreview>('/student-support/config/preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   // ── 得到大脑（Get笔记）知识库 ──────────────────────────────────────────
   // ⚠️ 凭证模型（2026-09-05 二次修正）：Client ID 与 API Key **都是每人一份**。

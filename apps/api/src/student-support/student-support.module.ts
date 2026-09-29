@@ -90,6 +90,32 @@ class StudentSupportController {
     return this.svc.studentOptions(userOf(req));
   }
 
+  /**
+   * 信号规则配置（v11）：读当前配置 + 保存 + 试算。
+   *
+   * 🔴 `config` 是**静态路由**，必须排在 `@Get(':studentId')` 之前 ——
+   *    否则 `/student-support/config` 的 "config" 会被当成学生 id（静默 404）。
+   * 🔴 三个接口判的是**独立权限点** `module:studentSupportConfig:read/:update`，
+   *    不是看板的 read：改配置影响全站每个人的看板，不能跟着"能看看板"走。
+   *    （守卫钉住这条顺序与判据）
+   */
+  @Get('config')
+  configGet(@Req() req: Request) {
+    return this.svc.configGet(userOf(req));
+  }
+
+  /** 用提交的配置试算全站（不保存）—— 调参前必看，口径与看板同一份判据 */
+  @Post('config/preview')
+  configPreview(@Req() req: Request, @Body() body: Record<string, unknown>) {
+    return this.svc.configPreview(userOf(req), body);
+  }
+
+  /** 保存配置（整体替换；归一化后存，存进去的就是生效的那份） */
+  @Put('config')
+  configSave(@Req() req: Request, @Body() body: Record<string, unknown>) {
+    return this.svc.configSave(userOf(req), body);
+  }
+
   /** 支持卡详情 */
   @Get(':studentId')
   detail(@Req() req: Request, @Param('studentId') studentId: string) {

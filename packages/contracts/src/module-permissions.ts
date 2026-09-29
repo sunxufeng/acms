@@ -122,8 +122,18 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *   · 🔴 `legacyRead: null` —— **不随版本迁移发放**：移除 = 让别人看不到该看的人，
  *     属于破坏性操作，必须由管理员显式授予（默认只有系统管理员持有）。
  *   · 语义 = **忽略**（带原因 / 操作人 / 时间，可恢复），不是删数据。
+ *
+ * ── v11（2026-09-30）：学生支持 · 信号规则（配置页） ──────────────
+ * 峰哥：「信号体系在哪里配置，有配置页面么？如果没有，在系统后台增加一个配置页面」。
+ *   · 新增 `studentSupportConfig`（有真实页面 `/student-support/config`，进「后台管理」区）
+ *   · 可配：七条信号的启用开关 / 六个阈值 / 问题词表（按问题类型）/ 强词表
+ *   · 🔴 `legacyRead: null` + `actions: ['read','update']`：
+ *     配置影响**全站每个人的看板**（一个宽词就能让半个学校上板），
+ *     不能跟着「能看看板」发给 11 个教职工角色；默认只有系统管理员持有。
+ *     必须声明 `update` —— 只声明 read 的话矩阵里没有可勾的格，
+ *     这个点连 `PERMISSIONS` 目录都不在（`weilingContacts:update` 踩过同一个坑）。
  */
-export const ROLE_PERMISSION_VERSION = 10;
+export const ROLE_PERMISSION_VERSION = 11;
 
 /**
  * 资源「从哪个版本开始存在」。
@@ -163,6 +173,9 @@ export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
   // v10（2026-09-30）：「移除卡片」（忽略）开关。`legacyRead: null` ⇒ **不随迁移发放**：
   // 破坏性操作，只能由管理员显式授予（默认只有系统管理员有）。
   studentSupportRemove: 10,
+  // v11（2026-09-30）：「信号规则」配置页。改一个词表就能让半个学校上板或下板，
+  // 影响面是**全站每个人的看板** ⇒ 同样 `legacyRead: null`，不随迁移发放。
+  studentSupportConfig: 11,
 };
 
 /** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */
@@ -425,6 +438,35 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
     menuPermission: null,
     actions: ['read'],
     subOf: 'studentSupport',
+    genericCrud: false,
+  },
+  /**
+   * 「学生支持 · 信号规则」（v11，2026-09-30 峰哥：「信号体系在哪里配置，有配置页面么？
+   * 如果没有，在系统后台增加一个配置页面」）。
+   *
+   * 语义 = 编辑看板的**判据本身**（七条信号开关 / 阈值 / 问题词表 / 强词表）。
+   *
+   * 🔴 为什么必须独立成点、且**不随版本迁移发放**：
+   *    改一个词表就能让半个学校上板或下板（实测：宽词表命中 56%、收紧后 27%），
+   *    影响面是**全站每个人的看板**。这种"改了所有人都受影响"的配置，
+   *    不能跟着「能看看板」一起发给 11 个教职工角色。
+   *    `legacyRead: null` ⇒ 迁移不发给任何人，默认只有系统管理员持有，
+   *    要下放由管理员在角色矩阵里显式勾选。
+   *
+   * ⚠️ 它有 `update`（保存配置）⇒ `actions: ['read', 'update']`，不能只声明 read：
+   *    只声明 read 的话矩阵里**没有那一格可勾**，这个点连 `PERMISSIONS` 目录都不在
+   *    （`weilingContacts:update` 踩过同一个坑），保存接口必然 403 且看不到原因。
+   * ⚠️ 它是**页面**（`/student-support/config`）⇒ 有真实 path，
+   *    `menuByPath` / `moduleByPath` 能对上；不需要 `subOf`（自己有菜单项）。
+   */
+  {
+    key: 'studentSupportConfig',
+    label: '学生支持 · 信号规则',
+    path: '/student-support/config',
+    legacyRead: null,
+    legacyWrite: null,
+    menuPermission: null,
+    actions: ['read', 'update'],
     genericCrud: false,
   },
   { key: 'stageEvaluations', label: '阶段评价', path: '/stage-evaluations', aliases: ['/export/stageEvaluation'], legacyRead: 'student:read', legacyWrite: 'student:write', menuPermission: 'evaluation:read', actions: RECORD_IMPORT, genericCrud: true },

@@ -284,12 +284,15 @@ export const SUPPORT_PROBLEM_MIN_WORDS = 2;
  * 🔴 标签旁边必须能挂**证据原文** —— 老师看到原句才会信，只看到标签只会怀疑。
  *    所以调用方拿 `words` 去回查原文，别只显示类型。
  */
-export function supportProblemHits(text: unknown): { words: string[]; types: SupportProblemType[] } {
+export function supportProblemHits(
+  text: unknown,
+  wordList: readonly { word: string; type: SupportProblemType }[] = SUPPORT_PROBLEM_WORD_LIST,
+): { words: string[]; types: SupportProblemType[] } {
   const s = typeof text === 'string' ? text : '';
   if (!s) return { words: [], types: [] };
   const words: string[] = [];
   const types: SupportProblemType[] = [];
-  for (const { word, type } of SUPPORT_PROBLEM_WORD_LIST) {
+  for (const { word, type } of wordList) {
     if (!s.includes(word)) continue;
     if (!words.includes(word)) words.push(word);
     if (!types.includes(type)) types.push(type);
@@ -387,6 +390,265 @@ export const SUPPORT_SIGNAL_META: Record<SupportSignalKey, SupportSignalMeta> = 
   },
 };
 
+// ─────────────────────────────────────────────────────────────
+// 信号体系的**运行配置**（后台「信号规则」页可改；2026-09-30 峰哥要求）
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 信号体系的可配置项。
+ *
+ * ## 为什么要做成可配置
+ *
+ * 阈值与词表是**靠生产数据实测调出来的**（宽词表命中 56% → 收紧后 27%），
+ * 而数据会变（老师写总结的风格、学生群体、学期阶段）。写死在代码里的话，
+ * 每次调参都要改代码 + 走一遍构建部署，运营侧完全无法自助。
+ *
+ * ## 存在哪
+ *
+ * 系统配置表（`TABLES.systemConfig`）的 `配置键 = student_support_config`，
+ * 与 `homepage_config` / `nav_menu_config` 同一张表同一套做法。
+ *
+ * 🔴 **缺省值就是代码里的默认**（`DEFAULT_SUPPORT_SIGNAL_CONFIG`）：配置行不存在、
+ *    JSON 坏了、某项缺失，都会逐项回落到默认 —— 配置是**叠加**在默认之上的，
+ *    不是替代。这样"加了一条新信号但配置里没有它"不会导致该信号静默消失。
+ */
+export interface SupportSignalConfig {
+  /** 七条信号的启用开关（关掉的信号不参与上板，但它仍会显示在「信号规则」页里） */
+  enabled: Record<SupportSignalKey, boolean>;
+  /** 长期失联：最近沟通距今 **> N 天** ⇒ P0 */
+  longSilenceDays: number;
+  /** 近期沉默：**> N 天且 ≤ longSilenceDays** ⇒ P1（必须小于 longSilenceDays） */
+  recentSilenceMinDays: number;
+  /** 关系待建立：记录数 **≤ N** ⇒ P2 */
+  thinRelationMaxCount: number;
+  /** 反复沟通未缓解：统计窗口 = 近 **N 天** */
+  unresolvedWindowDays: number;
+  /** 反复沟通未缓解：窗口内至少 **N 条**记录都在谈同一类问题 */
+  unresolvedMinCount: number;
+  /** 问题线索门槛：单命中泛词不算，需命中强词 或 同时命中 **≥ N 个**词 */
+  problemMinWords: number;
+  /** 问题词表（按问题类型分组；命中后既能报"有问题"，又能预选问题类型） */
+  words: Record<SupportProblemType, string[]>;
+  /** 强词：**单独出现就足以说明问题**，不再要求 ≥ N 个词 */
+  strongWords: string[];
+}
+
+/** 默认配置（= 代码里的阈值常量与词表，改这里等于改所有未配置的环境） */
+export const DEFAULT_SUPPORT_SIGNAL_CONFIG: SupportSignalConfig = {
+  enabled: {
+    neverContacted: true,
+    longSilence: true,
+    problemClue: true,
+    unresolved: true,
+    recentSilence: true,
+    thinRelation: true,
+    noOwner: true,
+  },
+  longSilenceDays: SUPPORT_LONG_SILENCE_DAYS,
+  recentSilenceMinDays: SUPPORT_RECENT_SILENCE_DAYS,
+  thinRelationMaxCount: 1,
+  unresolvedWindowDays: SUPPORT_UNRESOLVED_WINDOW_DAYS,
+  unresolvedMinCount: SUPPORT_UNRESOLVED_MIN_COUNT,
+  problemMinWords: SUPPORT_PROBLEM_MIN_WORDS,
+  words: Object.fromEntries(
+    SUPPORT_PROBLEM_TYPES.map((t) => [t, [...SUPPORT_PROBLEM_WORDS[t]]]),
+  ) as Record<SupportProblemType, string[]>,
+  strongWords: [...SUPPORT_STRONG_WORDS],
+};
+
+/** 词表条数上限（防手滑粘贴一整篇文章；超了截断并把超出部分报给界面） */
+export const SUPPORT_WORD_LIST_MAX = 400;
+
+/** 数值项的合法区间（归一化时钳制；越界不报错，静默钳到边界 —— 配置页永远存得下） */
+export const SUPPORT_CONFIG_RANGES = {
+  longSilenceDays: [1, 365],
+  recentSilenceMinDays: [0, 364],
+  thinRelationMaxCount: [1, 100],
+  unresolvedWindowDays: [1, 365],
+  unresolvedMinCount: [2, 100],
+  problemMinWords: [1, 20],
+} as const;
+
+/** 信号顺序（配置页 / 预览 / 分组说明都按它排；与 `SUPPORT_SIGNAL_META` 的键一致） */
+export const SUPPORT_SIGNAL_ORDER: readonly SupportSignalKey[] = [
+  'neverContacted',
+  'longSilence',
+  'problemClue',
+  'unresolved',
+  'recentSilence',
+  'thinRelation',
+  'noOwner',
+];
+
+/**
+ * 数值型配置项的元信息（**标签与说明只写在这里一份**，前端照着渲染）。
+ *
+ * 🔴 为什么放在 contracts：说明文字里带着"为什么是这个默认值"的实测背景
+ *   （阈值 2 命中 49%、命中率 56% → 27% 这些），前后端各抄一份必然漂移。
+ */
+export const SUPPORT_CONFIG_NUMBER_FIELDS: readonly {
+  key: 'longSilenceDays' | 'recentSilenceMinDays' | 'thinRelationMaxCount'
+    | 'unresolvedWindowDays' | 'unresolvedMinCount' | 'problemMinWords';
+  label: string;
+  hint: string;
+  unit: string;
+  min: number;
+  max: number;
+}[] = [
+  {
+    key: 'longSilenceDays', label: '长期失联阈值', unit: '天',
+    hint: '最近沟通距今超过这个天数 ⇒ 立即处理（P0）。默认 14；生产实测命中 5 人，量合适',
+    ...{ min: SUPPORT_CONFIG_RANGES.longSilenceDays[0], max: SUPPORT_CONFIG_RANGES.longSilenceDays[1] },
+  },
+  {
+    key: 'recentSilenceMinDays', label: '近期沉默起点', unit: '天',
+    hint: '超过这个天数但没到长期失联阈值 ⇒ 本周关注（P1）。必须小于上面的阈值',
+    ...{ min: SUPPORT_CONFIG_RANGES.recentSilenceMinDays[0], max: SUPPORT_CONFIG_RANGES.recentSilenceMinDays[1] },
+  },
+  {
+    key: 'thinRelationMaxCount', label: '关系待建立上限', unit: '条记录',
+    hint: '沟通记录数不超过这个值 ⇒ 持续观察（P2）。默认 1（只谈过一次）',
+    ...{ min: SUPPORT_CONFIG_RANGES.thinRelationMaxCount[0], max: SUPPORT_CONFIG_RANGES.thinRelationMaxCount[1] },
+  },
+  {
+    key: 'unresolvedWindowDays', label: '反复沟通统计窗口', unit: '天',
+    hint: '只统计最近这个天数内的沟通记录。默认 30',
+    ...{ min: SUPPORT_CONFIG_RANGES.unresolvedWindowDays[0], max: SUPPORT_CONFIG_RANGES.unresolvedWindowDays[1] },
+  },
+  {
+    key: 'unresolvedMinCount', label: '反复沟通最少条数', unit: '条',
+    hint: '窗口内至少这么多条记录、且都在谈同一类问题 ⇒ 反复沟通未缓解。'
+      + '默认 3 —— 阈值 2 会把"这个月正常谈过两次"也算进来（实测命中 49%，等于没有区分度）',
+    ...{ min: SUPPORT_CONFIG_RANGES.unresolvedMinCount[0], max: SUPPORT_CONFIG_RANGES.unresolvedMinCount[1] },
+  },
+  {
+    key: 'problemMinWords', label: '问题线索词数门槛', unit: '个词',
+    hint: '单命中一个泛词不算，需命中强词或同时命中这么多词。默认 2',
+    ...{ min: SUPPORT_CONFIG_RANGES.problemMinWords[0], max: SUPPORT_CONFIG_RANGES.problemMinWords[1] },
+  },
+];
+
+function clampInt(v: unknown, lo: number, hi: number, fallback: number): number {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(hi, Math.max(lo, n));
+}
+
+function cleanWords(v: unknown): string[] {
+  const arr = Array.isArray(v) ? v : [];
+  const out: string[] = [];
+  for (const x of arr) {
+    const w = String(x ?? '').trim();
+    // 同一个词只留一次（重复词会让"≥2 个词"门槛被同一个词凑够）
+    if (w && !out.includes(w)) out.push(w);
+    if (out.length >= SUPPORT_WORD_LIST_MAX) break;
+  }
+  return out;
+}
+
+/**
+ * 把任意来路不明的值归一化成一份**一定能用**的配置。
+ *
+ * 逐项回落 + 钳制 + 去重，永不抛错（配置读坏了要能继续跑看板，而不是整页 500）。
+ *
+ * 🔴 强词与词表的**同源约束**在这里维护：
+ *    强词必须是**词表里出现过的词**（否则它永远匹配不上 —— 匹配是遍历词表做的）。
+ *    归一化时把"孤儿强词"丢弃，由界面提示老师（而不是悄悄留着让人以为生效了）。
+ */
+export function normalizeSupportSignalConfig(raw: unknown): SupportSignalConfig {
+  const d = DEFAULT_SUPPORT_SIGNAL_CONFIG;
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+
+  const enabled = { ...d.enabled };
+  const e = src['enabled'];
+  if (e && typeof e === 'object') {
+    for (const k of Object.keys(d.enabled) as SupportSignalKey[]) {
+      const v = (e as Record<string, unknown>)[k];
+      if (typeof v === 'boolean') enabled[k] = v;
+    }
+  }
+
+  const words = { ...d.words } as Record<SupportProblemType, string[]>;
+  const w = src['words'];
+  if (w && typeof w === 'object') {
+    for (const t of SUPPORT_PROBLEM_TYPES) {
+      const v = (w as Record<string, unknown>)[t];
+      if (Array.isArray(v)) words[t] = cleanWords(v);
+    }
+  }
+
+  const longSilenceDays = clampInt(
+    src['longSilenceDays'], SUPPORT_CONFIG_RANGES.longSilenceDays[0],
+    SUPPORT_CONFIG_RANGES.longSilenceDays[1], d.longSilenceDays,
+  );
+  const recentSilenceMinDays = clampInt(
+    src['recentSilenceMinDays'], SUPPORT_CONFIG_RANGES.recentSilenceMinDays[0],
+    SUPPORT_CONFIG_RANGES.recentSilenceMinDays[1], d.recentSilenceMinDays,
+  );
+
+  // 词表里出现过的词（跨类型去重后的全集）
+  const inList = new Set<string>();
+  for (const t of SUPPORT_PROBLEM_TYPES) for (const x of words[t]) inList.add(x);
+  const strongWords = cleanWords(src['strongWords'] ?? d.strongWords).filter((x) => inList.has(x));
+
+  return {
+    enabled,
+    // 🔴 近期沉默必须**小于**长期失联，否则同一个学生两条信号同时命中（区间为空还反着来）
+    longSilenceDays,
+    recentSilenceMinDays: Math.min(recentSilenceMinDays, longSilenceDays - 1 >= 0 ? longSilenceDays - 1 : 0),
+    thinRelationMaxCount: clampInt(
+      src['thinRelationMaxCount'], SUPPORT_CONFIG_RANGES.thinRelationMaxCount[0],
+      SUPPORT_CONFIG_RANGES.thinRelationMaxCount[1], d.thinRelationMaxCount,
+    ),
+    unresolvedWindowDays: clampInt(
+      src['unresolvedWindowDays'], SUPPORT_CONFIG_RANGES.unresolvedWindowDays[0],
+      SUPPORT_CONFIG_RANGES.unresolvedWindowDays[1], d.unresolvedWindowDays,
+    ),
+    unresolvedMinCount: clampInt(
+      src['unresolvedMinCount'], SUPPORT_CONFIG_RANGES.unresolvedMinCount[0],
+      SUPPORT_CONFIG_RANGES.unresolvedMinCount[1], d.unresolvedMinCount,
+    ),
+    problemMinWords: clampInt(
+      src['problemMinWords'], SUPPORT_CONFIG_RANGES.problemMinWords[0],
+      SUPPORT_CONFIG_RANGES.problemMinWords[1], d.problemMinWords,
+    ),
+    words,
+    strongWords,
+  };
+}
+
+/** 归一化后被丢弃的强词（不在任何类型词表里 ⇒ 永远匹配不上）—— 界面要提示老师 */
+export function orphanStrongWords(config: SupportSignalConfig): string[] {
+  const inList = new Set<string>();
+  for (const t of SUPPORT_PROBLEM_TYPES) for (const x of config.words[t]) inList.add(x);
+  return config.strongWords.filter((x) => !inList.has(x));
+}
+
+/** 从配置展开出「词 → 类型」的有序表（顺序 = 类型顺序 ⇒ "第一个命中的类型"稳定） */
+export function supportWordListOf(
+  config: SupportSignalConfig,
+): { word: string; type: SupportProblemType }[] {
+  return SUPPORT_PROBLEM_TYPES.flatMap((type) => config.words[type].map((word) => ({ word, type })));
+}
+
+/** 配置归一化后与默认值的差异项（用于「已自定义」提示；空数组 = 全默认） */
+export function supportConfigDiffKeys(config: SupportSignalConfig): string[] {
+  const d = DEFAULT_SUPPORT_SIGNAL_CONFIG;
+  const out: string[] = [];
+  for (const k of Object.keys(d.enabled) as SupportSignalKey[]) {
+    if (config.enabled[k] !== d.enabled[k]) out.push(`enabled.${k}`);
+  }
+  for (const k of ['longSilenceDays', 'recentSilenceMinDays', 'thinRelationMaxCount',
+    'unresolvedWindowDays', 'unresolvedMinCount', 'problemMinWords'] as const) {
+    if (config[k] !== d[k]) out.push(k);
+  }
+  for (const t of SUPPORT_PROBLEM_TYPES) {
+    if (config.words[t].join('\u0001') !== d.words[t].join('\u0001')) out.push(`words.${t}`);
+  }
+  if (config.strongWords.join('\u0001') !== d.strongWords.join('\u0001')) out.push('strongWords');
+  return out;
+}
+
 export interface SupportSignal {
   key: SupportSignalKey;
   label: string;
@@ -460,13 +722,21 @@ export function supportDaysAgo(lastMs: number, nowMs: number): number | null {
  * noOwner         「3 条记录中 2 条未填责任人」
  * ```
  */
-export function supportSignalsOf(input: SupportSignalInput, nowMs: number): SupportSignal[] {
+export function supportSignalsOf(
+  input: SupportSignalInput,
+  nowMs: number,
+  config: SupportSignalConfig = DEFAULT_SUPPORT_SIGNAL_CONFIG,
+): SupportSignal[] {
   const comms = [...(input.comms ?? [])].sort((a, b) => b.ms - a.ms);
   const out: SupportSignal[] = [];
   const push = (key: SupportSignalKey, evidence: string) => {
+    // 关掉的信号不产出（后台「信号规则」页可逐条关闭）
+    if (config.enabled[key] === false) return;
     const m = SUPPORT_SIGNAL_META[key];
     out.push({ key, label: m.label, level: m.level, icon: m.icon, evidence });
   };
+  /** 本次生效的词表（配置里可能被改过；顺序 = 类型顺序） */
+  const wordList = supportWordListOf(config);
 
   const count = comms.length;
   const last = count > 0 ? comms[0] : null;
@@ -481,12 +751,12 @@ export function supportSignalsOf(input: SupportSignalInput, nowMs: number): Supp
     return out;
   }
 
-  // ② 长期失联（P0）/ 近期沉默（P1）
+  // ② 长期失联（P0）/ 近期沉默（P1）—— 阈值来自配置
   if (lastDays != null && lastMs) {
     const d = fmtDate(lastMs);
-    if (lastDays > SUPPORT_LONG_SILENCE_DAYS) {
+    if (lastDays > config.longSilenceDays) {
       push('longSilence', `最近沟通 ${d} · 已 ${lastDays} 天未联系`);
-    } else if (lastDays > SUPPORT_RECENT_SILENCE_DAYS) {
+    } else if (lastDays > config.recentSilenceMinDays) {
       push('recentSilence', `最近沟通 ${d} · 已 ${lastDays} 天未联系`);
     }
   }
@@ -494,38 +764,38 @@ export function supportSignalsOf(input: SupportSignalInput, nowMs: number): Supp
   // ③ 问题线索（P1）—— 看**最近一条**记录正文：只关心"当下还没解决的问题"。
   //    对全部历史记录扫描会让"三年前有过一句焦虑"永远挂在看板上，噪声太大。
   //
-  //    🔴 门槛：**命中强词** 或 **同时命中 ≥2 个词**（见 SUPPORT_STRONG_WORDS 的说明）——
+  //    🔴 门槛：**命中强词** 或 **同时命中 ≥N 个词**（N 默认为 2）——
   //    不设这个门槛时，单命中一个泛词（"学习问题""缺课"）就会让 43% 的学生上板。
-  const hits = supportProblemHits(`${last?.subject ?? ''}\n${last?.body ?? ''}`);
-  const strongHit = hits.words.some((w) => SUPPORT_STRONG_WORDS.includes(w));
-  if (hits.words.length > 0 && (strongHit || hits.words.length >= SUPPORT_PROBLEM_MIN_WORDS)) {
+  const hits = supportProblemHits(`${last?.subject ?? ''}\n${last?.body ?? ''}`, wordList);
+  const strongHit = hits.words.some((w) => config.strongWords.includes(w));
+  if (hits.words.length > 0 && (strongHit || hits.words.length >= config.problemMinWords)) {
     const words = hits.words.slice(0, 3).map((w) => `「${w}」`).join('');
     const subj = (last?.subject ?? '').trim();
     push('problemClue', `命中${words}${subj ? ` —— ${fmtDate(lastMs)} ${truncate(subj, 34)}` : ''}`);
   }
 
-  // ④ 反复沟通未缓解（P1）—— 近 30 天 ≥2 条，且**都**命中同一类问题词
-  const win = nowMs - SUPPORT_UNRESOLVED_WINDOW_DAYS * 86400000;
+  // ④ 反复沟通未缓解（P1）—— 近 N 天 ≥M 条，且**都**命中同一类问题词
+  const win = nowMs - config.unresolvedWindowDays * 86400000;
   const recentComms = comms.filter((c) => c.ms >= win);
-  if (recentComms.length >= SUPPORT_UNRESOLVED_MIN_COUNT && recentComms.length > 1) {
+  if (recentComms.length >= config.unresolvedMinCount && recentComms.length > 1) {
     const typeCount = new Map<SupportProblemType, number>();
     for (const c of recentComms) {
-      const t = supportProblemHits(`${c.subject ?? ''}\n${c.body ?? ''}`).types;
+      const t = supportProblemHits(`${c.subject ?? ''}\n${c.body ?? ''}`, wordList).types;
       for (const x of new Set(t)) typeCount.set(x, (typeCount.get(x) ?? 0) + 1);
     }
-    // 取"被谈得最多"的那一类：至少 2 条记录都在谈它
+    // 取"被谈得最多"的那一类：至少 M 条记录都在谈它
     let top: { type: SupportProblemType; n: number } | null = null;
     for (const [type, n] of typeCount) {
-      if (n >= SUPPORT_UNRESOLVED_MIN_COUNT && (!top || n > top.n)) top = { type, n };
+      if (n >= config.unresolvedMinCount && (!top || n > top.n)) top = { type, n };
     }
     if (top) {
-      push('unresolved', `近 ${SUPPORT_UNRESOLVED_WINDOW_DAYS} 天 ${recentComms.length} 次沟通，都在谈「${top.type}」`);
+      push('unresolved', `近 ${config.unresolvedWindowDays} 天 ${recentComms.length} 次沟通，都在谈「${top.type}」`);
     }
   }
 
   // ⑤ 关系待建立（P2）
-  if (count === 1 && lastMs) {
-    push('thinRelation', `只沟通过 1 次（${fmtDate(lastMs)}）`);
+  if (count <= config.thinRelationMaxCount && lastMs) {
+    push('thinRelation', `只沟通过 ${count} 次（${fmtDate(lastMs)}）`);
   }
 
   // ⑥ 记录缺责任人（P2）
@@ -693,6 +963,14 @@ export function supportSeeAll(perms: readonly string[] | undefined | null): bool
   return Boolean(perms?.includes(modulePermission('studentSupportAll', 'read')));
 }
 
+/** 「信号规则」配置页菜单 key（2026-09-30 v11；进后台管理区） */
+export const SUPPORT_CONFIG_MENU_KEY = 'studentSupportConfig';
+
+/** 能看「信号规则」配置页 = 持有 `module:studentSupportConfig:read`（不随迁移发放） */
+export function supportConfigVisible(perms: readonly string[] | undefined | null): boolean {
+  return Boolean(perms?.includes(modulePermission('studentSupportConfig', 'read')));
+}
+
 /**
  * 行级可见性：这个学生要不要出现在**我**的看板上。
  *
@@ -845,6 +1123,14 @@ export interface SupportBoardResult {
   dismissedCount: number;
   /** 我是否有「移除卡片」权限（前端据此决定显不显示按钮；后端同样会再判一次） */
   canRemove: boolean;
+  /**
+   * 我是否有「信号规则」权限（v11）。
+   *
+   * 看板页头据此显示一个直达配置页的入口 —— 峰哥 2026-09-30 问的正是
+   * "信号体系在哪里配置，有配置页面么"，说明**从看板找不到入口**；
+   * 菜单藏在「后台管理」里，对第一次找的人不够（配置页本身仍是独立权限点，这里只控制入口）。
+   */
+  canConfig: boolean;
   /** 被移除的名单（**只有有权限者**才返回内容，用于"查看 / 恢复"弹窗） */
   dismissed: SupportDismissedRow[];
 }
@@ -949,3 +1235,50 @@ export function supportSeverityRank(sev: unknown): number {
 export function supportTextOf(v: unknown): string {
   return idpTextOf(v);
 }
+
+// ─────────────────────────────────────────────────────────────
+// 「信号规则」配置页的 DTO（2026-09-30）
+// ─────────────────────────────────────────────────────────────
+
+/** `GET /student-support/config` —— 配置页打开时一次拿齐（含元信息，前端不另抄一份说明） */
+export interface SupportConfigResult {
+  /** 当前生效的配置（已归一化） */
+  config: SupportSignalConfig;
+  /** 代码默认值（「恢复默认」用） */
+  defaults: SupportSignalConfig;
+  /** 与默认值不同的项（空数组 = 全默认）；用于页面上的「已自定义 N 项」提示 */
+  changed: string[];
+  /**
+   * 归一化时被丢弃的孤儿强词（不在任何类型词表里 ⇒ 永远匹配不上）。
+   * 🔴 界面必须显示出来 —— 否则老师以为"加了强词"，实际毫无作用。
+   */
+  orphanStrong: string[];
+  /** 七条信号的元信息（按 `SUPPORT_SIGNAL_ORDER` 排） */
+  signals: { key: SupportSignalKey; label: string; hint: string; level: SupportLevel; icon: string }[];
+  /** 数值项元信息（标签/说明/区间） */
+  numberFields: typeof SUPPORT_CONFIG_NUMBER_FIELDS;
+  /** 词表条数上限（界面提示用） */
+  wordListMax: number;
+}
+
+/**
+ * `POST /student-support/config/preview` —— **用提交的配置试算全站**，不保存。
+ *
+ * 🔴 这是本页最重要的能力：调阈值/加词是**高风险**操作（一个宽词就能让半个学校上板），
+ *    必须先看到"如果这样配，会有多少人上板、各条信号各命中多少"再决定存不存。
+ *    口径与看板**完全同一份判据**（同一个 `supportSignalsOf` + 同一份配置），
+ *    否则又会掉进"我的复算与线上不一致"那个坑。
+ */
+export interface SupportConfigPreview {
+  /** 全站在校生数（口径：有档案 + 在校） */
+  total: number;
+  /** 会出现在看板上的人数（不含「被移除」） */
+  onBoard: number;
+  /** 各条信号命中人数（按 `SUPPORT_SIGNAL_ORDER`） */
+  bySignal: { key: SupportSignalKey; label: string; count: number }[];
+  /** 各分组人数（P0/P1/P2，以及无信号但…这里恒 0，保留给未来） */
+  byLevel: { level: SupportLevel; label: string; count: number }[];
+  /** 当前线上配置下的同一组数字（用于并排对比"改之前 / 改之后"） */
+  before: { total: number; onBoard: number; bySignal: { key: SupportSignalKey; label: string; count: number }[] };
+}
+

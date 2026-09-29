@@ -48,20 +48,28 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  DEFAULT_SUPPORT_SIGNAL_CONFIG,
+  SUPPORT_CONFIG_NUMBER_FIELDS,
   SUPPORT_FIELDS as SF,
   SUPPORT_LEVELS,
   SUPPORT_SEVERITIES,
+  SUPPORT_SIGNAL_META,
+  SUPPORT_SIGNAL_ORDER,
   SUPPORT_SOURCE_MANUAL,
   SUPPORT_STATUS_TODO,
   SUPPORT_STATUSES,
+  SUPPORT_WORD_LIST_MAX,
   TABLES,
   USER_TABLE,
   idpIsEnrolled,
   idpLinkIds,
   idpTimeMs,
   modulePermission,
+  normalizeSupportSignalConfig,
+  orphanStrongWords,
   supportAutoOwner,
   supportCompareRows,
+  supportConfigDiffKeys,
   supportDefaultDueMs,
   supportDismissed,
   supportInScope,
@@ -72,13 +80,17 @@ import {
   supportSeeAll,
   supportSignalsOf,
   supportTextOf,
+  supportWordListOf,
   type SessionUser,
   type SupportBoardResult,
   type SupportBoardRow,
   type SupportCommLike,
+  type SupportConfigPreview,
+  type SupportConfigResult,
   type SupportDismissedRow,
   type SupportLevel,
   type SupportSignal,
+  type SupportSignalConfig,
   type SupportStatus,
   type SupportStudentOption,
 } from '@acms/contracts';
@@ -98,7 +110,17 @@ type AggContext = {
   seeAll: boolean;
   meIds: string[];
   nowMs: number;
+  /** 信号体系的运行配置（后台「信号规则」页可改；缺省 = 代码默认） */
+  config: SupportSignalConfig;
 };
+
+/** 系统配置表里存「信号规则」的配置键（与 homepage_config / nav_menu_config 同表同做法） */
+const SIGNAL_CONFIG_KEY = 'student_support_config';
+/** 配置行的固定 id（`createWithId` 整体替换 ⇒ 天然 upsert，不会写出重复行） */
+const SIGNAL_CONFIG_ID = 'cfg_student_support';
+/** 系统配置表的两个字段名 */
+const CFG_FIELD_KEY = '配置键';
+const CFG_FIELD_VALUE = '配置值';
 
 /** 一个在校生的可操作视图（负责人 / 沟通 / 支持行都算好，范围判定只认这个） */
 type StudentCtx = {
@@ -133,7 +155,7 @@ export class StudentSupportService {
    * 看板页与全部接口的入口判据（**写动作也走它**，见 module-permissions 文件头 v9：
    * 教职工角色没有任何"都持有"的写权限点，硬找一个会让老师点「认领」直接 403）。
    */
-  private require(user: SessionUser): { seeAll: boolean; canRemove: boolean } {
+  private require(user: SessionUser): { seeAll: boolean; canRemove: boolean; canConfig: boolean } {
     requireModule(user, 'studentSupport', 'read');
     const perms = [...permissionsOf(this.toPrincipal(user))];
     return {
@@ -141,6 +163,9 @@ export class StudentSupportService {
       // 「移除卡片」是**另一个权限点**（v10）：破坏性操作，默认只有系统管理员持有。
       // 这里只是把"能不能显示这个按钮"告诉前端；真正写的时候 `dismiss()` 会再判一次。
       canRemove: perms.includes(modulePermission('studentSupportRemove', 'read')),
+      // 「信号规则」（v11）：同上，只给前端一个"要不要显示入口"的标记；
+      // 真正的读写由 configGet / configSave 各自判 studentSupportConfig。
+      canConfig: perms.includes(modulePermission('studentSupportConfig', 'read')),
     };
   }
 
@@ -308,12 +333,13 @@ export class StudentSupportService {
    */
   private async loadContext(user: SessionUser): Promise<AggContext> {
     const { seeAll } = this.require(user);
-    const [students, comms, supports, users, idpTeacherOf] = await Promise.all([
+    const [students, comms, supports, users, idpTeacherOf, config] = await Promise.all([
       this.readAll(TABLES.studentProfile.tableId),
       this.commsByStudent(),
       this.readAll(TABLES.studentSupport.tableId),
       this.userIndex(),
       this.idpTeacherIndex(),
+      this.loadSignalConfig(),
     ]);
     return {
       students,
@@ -324,6 +350,7 @@ export class StudentSupportService {
       seeAll,
       meIds: this.meIdsOf(user),
       nowMs: Date.now(),
+      config,
     };
   }
 
@@ -371,6 +398,143 @@ export class StudentSupportService {
     });
   }
 
+  // ───────────────────── 信号规则（配置，v11） ─────────────────────
+
+  /**
+   * 读「信号规则」配置。
+   *
+   * 存法：系统配置表（`TABLES.systemConfig`）一行，`配置键 = student_support_config`，
+   * 值与 `homepage_config` / `nav_menu_config` 完全同款。
+   *
+   * 🔴 读的是**全量小表**（系统配置就十来行）⇒ 不做缓存。
+   *    上次踩过"改了字段不生效先怀疑缓存"的坑；配置这类**改了必须立刻生效**的东西，
+   *    多读十几行远比"老师改完看不见变化"便宜。
+   *
+   * 🔴 任何异常（行不存在 / JSON 坏了 / 字段缺失）都**逐项回落代码默认**
+   *    （`normalizeSupportSignalConfig`），绝不抛错 —— 配置读坏了应该继续能看看板。
+   */
+  private async loadSignalConfig(): Promise<SupportSignalConfig> {
+    try {
+      const rows = await this.readAll(TABLES.systemConfig.tableId);
+      const rec = rows.find((r) => String(r.f[CFG_FIELD_KEY] ?? '').trim() === SIGNAL_CONFIG_KEY);
+      if (!rec) return DEFAULT_SUPPORT_SIGNAL_CONFIG;
+      const raw = supportTextOf(rec.f[CFG_FIELD_VALUE]);
+      if (!raw) return DEFAULT_SUPPORT_SIGNAL_CONFIG;
+      return normalizeSupportSignalConfig(JSON.parse(raw));
+    } catch {
+      return DEFAULT_SUPPORT_SIGNAL_CONFIG;
+    }
+  }
+
+  /**
+   * 配置页打开时一次拿齐（含元信息）。
+   *
+   * 🔴 元信息（信号说明 / 数值项标签与区间 / 词表上限）**从 contracts 带出去**，
+   *    前端不另抄一份 —— 那些说明里写着"为什么默认是 3""实测命中 56%"这类背景，
+   *    两处各写必然漂移（本次已经因为同类问题返工过）。
+   */
+  async configGet(user: SessionUser): Promise<SupportConfigResult> {
+    requireModule(user, 'studentSupportConfig', 'read');
+    const config = await this.loadSignalConfig();
+    return {
+      config,
+      defaults: DEFAULT_SUPPORT_SIGNAL_CONFIG,
+      changed: supportConfigDiffKeys(config),
+      orphanStrong: orphanStrongWords(config),
+      signals: SUPPORT_SIGNAL_ORDER.map((k) => ({
+        key: k,
+        label: SUPPORT_SIGNAL_META[k].label,
+        hint: SUPPORT_SIGNAL_META[k].hint,
+        level: SUPPORT_SIGNAL_META[k].level,
+        icon: SUPPORT_SIGNAL_META[k].icon,
+      })),
+      numberFields: SUPPORT_CONFIG_NUMBER_FIELDS,
+      wordListMax: SUPPORT_WORD_LIST_MAX,
+    };
+  }
+
+  /**
+   * 保存配置（整体替换）。
+   *
+   * ⚠️ 归一化后再存（钳制 / 去重 / 丢孤儿强词）：**存进去的必须就是生效的那份**，
+   *    否则界面显示的和判据实际用的是两回事（"我明明配了 5 天，怎么还是 14 天"）。
+   */
+  async configSave(user: SessionUser, body: unknown): Promise<SupportConfigResult> {
+    requireModule(user, 'studentSupportConfig', 'update');
+    const sql = getSqlStore();
+    if (!sql) throw new BadRequestException('NO_DATABASE');
+    const config = normalizeSupportSignalConfig(body);
+    await sql.createWithId(TABLES.systemConfig.tableId, SIGNAL_CONFIG_ID, {
+      [CFG_FIELD_KEY]: SIGNAL_CONFIG_KEY,
+      [CFG_FIELD_VALUE]: JSON.stringify(config),
+      // 留痕：谁在什么时候改的（配置影响全站，出事要能查到人）
+      更新人: String(user.name ?? '').trim() || '系统',
+      更新时间: Date.now(),
+    });
+    return this.configGet(user);
+  }
+
+  /**
+   * **用提交的配置试算全站**（不保存）。
+   *
+   * 🔴 这是本页存在的意义：调阈值/加词是高风险动作（一个宽词就能让半个学校上板），
+   *    必须先看到"这样配会有多少人上板"，再决定存不存。
+   *
+   * 🔴 口径与看板**完全同一份判据**（同一个 `supportSignalsOf`、同一套数据装载），
+   *    所以试算数字与保存后的看板**必然一致** —— 这是被"我的复算与线上差 5 倍"
+   *    那次坑逼出来的规矩：任何估算都要跑真判据。
+   * ⚠️ 试算**不分权限范围**（全站在校生），因为调参看的是全站效果；
+   *    返回里只有人数，没有任何学生明细。
+   */
+  async configPreview(user: SessionUser, body: unknown): Promise<SupportConfigPreview> {
+    requireModule(user, 'studentSupportConfig', 'read');
+    const ctx = await this.loadContext(user);
+    const current = ctx.config ?? DEFAULT_SUPPORT_SIGNAL_CONFIG;
+    const proposed = normalizeSupportSignalConfig(body);
+
+    const tally = (cfg: SupportSignalConfig) => {
+      const bySignal = new Map<string, number>();
+      const byLevel = new Map<string, number>();
+      let onBoard = 0;
+      let total = 0;
+      for (const s of ctx.students) {
+        if (!idpIsEnrolled(s.f['当前状态'])) continue;
+        const name = String(s.f['学生姓名'] ?? '').trim();
+        if (!name) continue;
+        total += 1;
+        const mine = ctx.comms.byId.get(s.id) ?? ctx.comms.byName.get(name) ?? [];
+        const sigs = supportSignalsOf({ comms: mine }, ctx.nowMs, cfg);
+        if (!sigs.length) continue;
+        onBoard += 1;
+        for (const k of new Set(sigs.map((x) => x.key))) bySignal.set(k, (bySignal.get(k) ?? 0) + 1);
+        const lv = supportPriorityOf(sigs) || 'P2';
+        byLevel.set(lv, (byLevel.get(lv) ?? 0) + 1);
+      }
+      return { total, onBoard, bySignal, byLevel };
+    };
+
+    const after = tally(proposed);
+    const before = tally(current);
+    const signalRow = (m: Map<string, number>) =>
+      SUPPORT_SIGNAL_ORDER.map((k) => ({
+        key: k,
+        label: SUPPORT_SIGNAL_META[k].label,
+        count: m.get(k) ?? 0,
+      }));
+
+    return {
+      total: after.total,
+      onBoard: after.onBoard,
+      bySignal: signalRow(after.bySignal),
+      byLevel: SUPPORT_LEVELS.map((g) => ({
+        level: g.level,
+        label: g.title,
+        count: after.byLevel.get(g.level) ?? 0,
+      })),
+      before: { total: before.total, onBoard: before.onBoard, bySignal: signalRow(before.bySignal) },
+    };
+  }
+
   // ───────────────────────── 看板 ─────────────────────────
 
   /**
@@ -383,15 +547,16 @@ export class StudentSupportService {
     user: SessionUser,
     query: { campus?: string; owner?: string; signal?: string; mine?: string } = {},
   ): Promise<SupportBoardResult> {
-    const { seeAll, canRemove } = this.require(user);
+    const { seeAll, canRemove, canConfig } = this.require(user);
     const nowMs = Date.now();
 
-    const [students, comms, supports, users, idpTeacherOf] = await Promise.all([
+    const [students, comms, supports, users, idpTeacherOf, config] = await Promise.all([
       this.readAll(TABLES.studentProfile.tableId),
       this.commsByStudent(),
       this.readAll(TABLES.studentSupport.tableId),
       this.userIndex(),
       this.idpTeacherIndex(),
+      this.loadSignalConfig(),
     ]);
 
     const meIds = this.meIdsOf(user);
@@ -407,7 +572,7 @@ export class StudentSupportService {
       if (!name) continue;
 
       const mine = comms.byId.get(s.id) ?? comms.byName.get(name) ?? [];
-      const signals = supportSignalsOf({ comms: mine }, nowMs);
+      const signals = supportSignalsOf({ comms: mine }, nowMs, config);
       const supPreview = this.openSupportOf(supports, s.id);
       /**
        * 🔴 「移除卡片」（v10）：被忽略的学生**不上看板**。
@@ -553,6 +718,8 @@ export class StudentSupportService {
       hiddenByScope,
       dismissedCount,
       canRemove,
+      // 看板页头据此显示直达「信号规则」配置页的入口（v11）
+      canConfig,
       // 最近移除的排前面（"我刚手滑移掉的那个"最好恢复）
       dismissed: dismissedList.sort((a, b) => b.ms - a.ms),
     };
@@ -659,7 +826,7 @@ export class StudentSupportService {
         campus: c.campus,
         owner: c.owner.name,
         ownerSource: c.owner.source,
-        onBoard: supportSignalsOf({ comms: c.comms }, ctx.nowMs).length > 0,
+        onBoard: supportSignalsOf({ comms: c.comms }, ctx.nowMs, ctx.config).length > 0,
         supportStatus: String(c.sup?.f[SF.支持状态] ?? '').trim(),
       });
     }
@@ -714,6 +881,9 @@ export class StudentSupportService {
     const row = boardData.rows.find((r) => r.studentId === studentId);
     if (!row) throw new NotFoundException('NOT_FOUND: 该学生不在你的看板范围内');
 
+    // 命中词用**当前生效的配置词表**（与 board 同一份，不另用代码默认 —— 否则改了词表
+    // 会出现"看板按新词表上板、抽屉里的命中词还是老的"）
+    const config = await this.loadSignalConfig();
     const comms = await this.commsByStudent();
     const mine = [...(comms.byId.get(studentId) ?? comms.byName.get(row.name) ?? [])].sort(
       (a, b) => b.ms - a.ms,
@@ -729,7 +899,7 @@ export class StudentSupportService {
         owner: String(c.owner ?? ''),
         excerpt: body.replace(/\s+/g, ' ').slice(0, 160),
         // 命中的问题词（前端挂在时间线条目下当"证据原文"用）
-        hits: supportProblemHits(`${c.subject ?? ''}\n${body}`).words.slice(0, 5),
+        hits: supportProblemHits(`${c.subject ?? ''}\n${body}`, supportWordListOf(config)).words.slice(0, 5),
       };
     });
 

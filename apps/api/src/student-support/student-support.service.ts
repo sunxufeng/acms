@@ -410,14 +410,26 @@ export class StudentSupportService {
       const signals = supportSignalsOf({ comms: mine }, nowMs);
       const supPreview = this.openSupportOf(supports, s.id);
       /**
-       * 🔴 收行的两个条件（2026-09-30 峰哥要的第二类）：
+       * 🔴 「移除卡片」（v10）：被忽略的学生**不上看板**。
+       * 判据必须在下面那个 `continue` **之前**算出来（见收行条件的 `!dis` 那一项）。
+       */
+      const dis = this.dismissedOf(supports, s.id);
+      /**
+       * 🔴 收行的三个条件（2026-09-30 峰哥要的第二类）：
        *  ① 有信号 ⇒ 正常上板
        *  ② **没有信号，但有未关闭的支持行** ⇒ 进「已认领 · 无信号」组
        *     （否则老师认领过的人一旦信号消失就从看板上"人间蒸发"，
        *      跟进到哪了反而看不见）
+       *  ③ **被移除过** ⇒ 也要收，因为要进「已移除」名单（供恢复）
+       *
+       * 🔴🔴 `!dis` 这一项不能省（2026-09-30 上线实测抓到的真 bug）：
+       *    被移除的学生绝大多数**没有信号**（正因为没信号才被当成误报移除的），
+       *    少了它就会在这里被 `continue` 掉 ⇒ 永远走不到下面的 dismissed 分支
+       *    ⇒ `dismissedCount` 恒为 0、名单里也没有他 ⇒
+       *    **从界面上再也恢复不了**（无声的数据消失，且不报错）。
        */
       const openSup = Boolean(supPreview) && supportIsOpen(supPreview?.f[SF.支持状态]);
-      if (!signals.length && !openSup) continue;
+      if (!signals.length && !openSup && !dis) continue;
 
       const sorted = [...mine].sort((a, b) => b.ms - a.ms);
       const last = sorted[0];
@@ -443,11 +455,11 @@ export class StudentSupportService {
       });
 
       /**
-       * 🔴 「移除卡片」（v10）：被忽略的学生**不上看板**。
+       * 🔴 「移除卡片」（v10）：被忽略的学生**不上看板**（`dis` 在上面就算好了 ——
+       *    这里只是执行「计数 → 进名单 → 跳过」）。
        * 单独计数（`dismissedCount`）而**不算进 `hiddenByScope`** ——
        * 那个数字的含义是"被权限挡掉的"，混在一起会让老师以为是自己权限不够。
        */
-      const dis = this.dismissedOf(supports, s.id);
       if (dis) {
         if (inScope) {
           dismissedCount += 1;

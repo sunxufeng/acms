@@ -659,11 +659,25 @@ describe('I. 已认领无信号（claimed）+ 移除卡片（v10）—— 峰哥
     expect(supportLevelRank('P2')).toBeLessThan(supportLevelRank('claimed'));
   });
 
-  it('🔴 上板条件从"有信号"改成"有信号 **或** 有未关闭支持行"（否则认领过的人会凭空消失）', () => {
-    expect(SVC).toContain('if (!signals.length && !openSup) continue;');
+  it('🔴 上板条件 = 有信号 **或** 有未关闭支持行 **或** 被移除过（三个条件缺一不可）', () => {
+    expect(SVC).toContain('if (!signals.length && !openSup && !dis) continue;');
     expect(SVC).toContain('const openSup = Boolean(supPreview) && supportIsOpen(');
     // 没信号但有支持行 ⇒ 进 claimed（不是 P2）
     expect(SVC).toContain("level: signals.length ? supportPriorityOf(signals) || 'P2' : 'claimed',");
+  });
+
+  it('🔴🔴 `dis` 必须在**上板条件的 continue 之前**算出来（上线实测抓到的真 bug）', () => {
+    // 被移除的学生绝大多数**没有信号**（正因为没信号才被当误报移除）。
+    // 若 `dis` 算在上板条件之后 ⇒ 他们在 continue 处就被剔掉了，
+    // 永远走不到 dismissed 分支 ⇒ dismissedCount 恒 0、名单里也没有他 ⇒
+    // **从界面上再也恢复不了**（无声的数据消失，且不报错）。
+    const iDis = SVC.indexOf('const dis = this.dismissedOf(');
+    const iGate = SVC.indexOf('if (!signals.length && !openSup');
+    expect(iDis).toBeGreaterThan(0);
+    expect(iGate).toBeGreaterThan(0);
+    expect(iDis, 'dismissedOf 必须排在「上板条件」之前').toBeLessThan(iGate);
+    // 且判定分支只有一处（重复算两次说明有人把顺序调回去了）
+    expect((SVC.match(/this\.dismissedOf\(/g) ?? []).length).toBe(1);
   });
 
   it('🔴 `needSupport` 只数有信号的人，claimed 单独一格（两者互斥、相加才是总行数）', () => {

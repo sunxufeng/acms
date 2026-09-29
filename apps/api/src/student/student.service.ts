@@ -10,6 +10,7 @@ import { DictService } from '../dictionary/dict.service.js';
 import { FieldMaskService } from '../shared/field-mask.service.js';
 import { StudentScopeService } from '../shared/student-scope.service.js';
 import { isScopeUnrestricted, studentInScope } from '../shared/student-scope.js';
+import { linkIds } from '../shared/record.util.js';
 
 import type { CreateStudentDto, UpdateStudentDto, StudentFilterDto, ExportQueryDto } from './student.dto.js';
 
@@ -324,12 +325,19 @@ export class StudentService {
   }
 
   /**
-   * 把学生记录的「证件与文件」关联字段（[{record_ids:[...],...}]）解析为附件列表。
+   * 把学生记录的「证件与文件」关联字段解析为附件列表。
+   *
    * 关联表(tblJDhpAEOVhCwE2)的「文件附件」存实际 file_token，「文件名称」存文件名。
+   *
+   * 🔴 **关联字段必须用 `linkIds()` 宽容解析**（2026-09-29 修）：
+   *   PG 模式下关联字段落库的是**字符串 id 数组**（实测 `关联学生` = `["recvtZbIHspepE"]`），
+   *   而这里原来只认飞书 `[{ record_ids: [...] }]` 形态 ⇒ `record_ids` 恒为 undefined ⇒
+   *   **附件一条都读不出来**（页面显示 0 个附件，且不报错）。
+   *   `linkIds` 同时吃 `string[]` / `{link_record_ids}` / `{record_ids}` / `{record_id}`，
+   *   飞书与 PG 两种形态都覆盖 —— 别再退回单一形态判断。
    */
   private async resolveDocFiles(link: unknown): Promise<Array<{ file_token: string; name?: string; url?: string; createdAt?: string }>> {
-    const arr = Array.isArray(link) ? (link as Array<{ record_ids?: string[] }>) : [];
-    const recordIds = arr[0]?.record_ids ?? [];
+    const recordIds = linkIds(link);
     if (recordIds.length === 0) return [];
     const docs = await Promise.all(
       recordIds.map((rid) => this.base.get(DOC_TABLE, rid).catch(() => null)),
@@ -367,17 +375,33 @@ export class StudentService {
   }
 
   /**
-   * 上传「证件与文件」：飞书实体存于关联表(tblJDhpAEOVhCwE2)的「文件附件」字段，
-   * 并通过「关联学生」反向链接到学生（双向关联自动回填学生的「证件与文件」）。
+   * 上传「证件与文件」：附件实体存于关联表(tblJDhpAEOVhCwE2)的「文件附件」字段，
+   * 并把新记录 id **显式追加**到学生的「证件与文件」关联字段。
+   *
+   * 🔴 为什么要自己维护学生侧（2026-09-29 修）：原注释写的「双向关联自动回填学生的
+   *    「证件与文件」」是**飞书 Base 的行为**；生产 `SQL_TABLES=*` 全部走 PG，
+   *    **没有这个回填** ⇒ 上传成功了但学生档案里一个附件都看不到（接口返回 0 条）。
+   *    实测：关联表建了行，学生侧仍是 `{"link_record_ids": null}`。
+   *
+   * ⚠️ 写入形态用**字符串 id 数组**（与 `关联学生` 落库形态一致，`linkIds` 能读回）。
+   * ⚠️ `证件与文件` 在 `READONLY_FIELDS` 里 ⇒ 前端保存学生时会跳过它，
+   *    所以这里手工维护不会被后续编辑覆盖。
    */
   async attachDoc(user: SessionUser, studentId: string, fileToken: string, name: string): Promise<string> {
     // 先校验学生存在 + read ABAC
     await this.detail(user, studentId);
-    return this.base.create(DOC_TABLE, {
+    const docId = await this.base.create(DOC_TABLE, {
       文件附件: [{ file_token: fileToken }],
       文件名称: name,
       关联学生: [studentId],
     } as Record<string, unknown>);
+    // 显式回填学生侧的关联（PG 无自动反向回填）——幂等：已在列表里就不重复写
+    const stu = await this.base.get(TABLE, studentId);
+    const cur = linkIds(stu?.fields?.['证件与文件']);
+    if (!cur.includes(docId)) {
+      await this.base.update(TABLE, studentId, { 证件与文件: [...cur, docId] } as Record<string, unknown>);
+    }
+    return docId;
   }
 
   /**
@@ -395,10 +419,10 @@ export class StudentService {
     if (!decision.allowed) {
       throw new ForbiddenException(`FORBIDDEN:module:students:update:${decision.reason}`);
     }
-    // 取学生「证件与文件」原始关联引用，得到关联记录 id 列表
+    // 取学生「证件与文件」原始关联引用，得到关联记录 id 列表（宽容解析，见 resolveDocFiles）
     const rec = await this.base.get(TABLE, studentId);
-    const link = rec?.fields?.['证件与文件'];
-    const recordIds = Array.isArray(link) ? (link[0]?.record_ids ?? []) : [];
+    const recordIds = linkIds(rec?.fields?.['证件与文件']);
+    let removedId: string | null = null;
     for (const rid of recordIds) {
       const doc = await this.base.get(DOC_TABLE, rid).catch(() => null);
       if (!doc) continue;
@@ -407,8 +431,15 @@ export class StudentService {
         : null;
       if (att?.file_token === fileToken) {
         await this.base.delete(DOC_TABLE, rid);
+        removedId = rid;
         break;
       }
+    }
+    // 🔴 同步摘掉学生侧的引用：PG 没有"双向关联自动解除"（与 attachDoc 的回填对称）
+    if (removedId) {
+      await this.base.update(TABLE, studentId, {
+        证件与文件: recordIds.filter((x) => x !== removedId),
+      } as Record<string, unknown>);
     }
     return { ok: true };
   }

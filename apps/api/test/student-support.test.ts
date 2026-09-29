@@ -25,8 +25,12 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   SUPPORT_MENU_KEY,
+  SUPPORT_PROBLEM_MIN_WORDS,
   SUPPORT_PROBLEM_TYPES,
+  SUPPORT_PROBLEM_WORD_LIST,
   SUPPORT_SEVERITIES,
+  SUPPORT_STRONG_WORDS,
+  SUPPORT_UNRESOLVED_MIN_COUNT,
   SUPPORT_STATUSES,
   modulePermission,
   parseDayToMs,
@@ -83,11 +87,11 @@ describe('A. 信号判据（supportSignalsOf）', () => {
 
   it('问题线索：只看**最近一条**记录（三年前的焦虑不该永远挂在看板上）', () => {
     const old = supportSignalsOf(
-      { comms: [comm(30, { subject: '考试焦虑' }), comm(1, { subject: '课程咨询' })] },
+      { comms: [comm(30, { subject: '考试应激' }), comm(1, { subject: '课程咨询' })] },
       NOW,
     );
     expect(old.some((v) => v.key === 'problemClue')).toBe(false);
-    const fresh = supportSignalsOf({ comms: [comm(1, { subject: '考试焦虑' })] }, NOW);
+    const fresh = supportSignalsOf({ comms: [comm(1, { subject: '考试应激' })] }, NOW);
     expect(fresh.some((v) => v.key === 'problemClue')).toBe(true);
   });
 
@@ -98,20 +102,35 @@ describe('A. 信号判据（supportSignalsOf）', () => {
     expect(x!.evidence).toContain('「应激」');
   });
 
-  it('反复沟通未缓解：近 30 天 ≥2 条且**都**命中同一类问题词', () => {
+  it('反复沟通未缓解：近 30 天 ≥3 条且**都**命中同一类问题词（阈值 2 会命中 49%）', () => {
     const hit = supportSignalsOf(
       {
         comms: [
-          comm(3, { subject: '缺数学课未交作业' }),
-          comm(9, { subject: '作业未交情况说明' }),
+          comm(3, { subject: '又缺数学课了' }),
+          comm(9, { subject: '缺数学课情况' }),
+          comm(16, { subject: '缺数学课未到' }),
         ],
       },
       NOW,
     );
     expect(hit.some((v) => v.key === 'unresolved')).toBe(true);
-    // 只命中一次 ⇒ 不算"反复"
+    // ⚠️ 三条记录必须命中**同一类**问题词；混着两类（如两条"缺课"+两条"未交作业"）
+    //    各只到 2 条，不算"反复谈同一件事"（这正是本判据的语义，不是 bug）。
+    // 只有 2 条 ⇒ 不算"反复"（那是一个月正常谈过两次）
+    const twice = supportSignalsOf(
+      { comms: [comm(3, { subject: '缺数学课未交作业' }), comm(9, { subject: '作业未交情况说明' })] },
+      NOW,
+    );
+    expect(twice.some((v) => v.key === 'unresolved')).toBe(false);
+    // 只有一条命中 ⇒ 也不算
     const once = supportSignalsOf(
-      { comms: [comm(3, { subject: '缺数学课未交作业' }), comm(9, { subject: '聊社团' })] },
+      {
+        comms: [
+          comm(3, { subject: '缺数学课未交作业' }),
+          comm(9, { subject: '聊社团' }),
+          comm(16, { subject: '聊社团' }),
+        ],
+      },
       NOW,
     );
     expect(once.some((v) => v.key === 'unresolved')).toBe(false);
@@ -135,12 +154,49 @@ describe('A. 信号判据（supportSignalsOf）', () => {
   });
 
   it('问题词词典：按问题类型分组，且能推回问题类型（用于预选类型）', () => {
-    const h = supportProblemHits('遇到考试会出现肚子疼、发高烧，情绪也很差');
-    expect(h.words).toContain('情绪');
+    // ⚠️ 不能再用「情绪」—— 它是本轮被移除的宽词（见 A2 段的说明）
+    const h = supportProblemHits('遇到考试会出现肚子疼、发高烧，失眠严重');
+    expect(h.words).toContain('失眠');
     expect(h.types).toContain('情绪与心理');
     // 中性词不该命中（否则等于没筛）
     const neutral = supportProblemHits('今天聊了考试安排与作业要求');
     expect(neutral.words).toHaveLength(0);
+  });
+});
+
+describe('A2. 词表与门槛（2026-09-30 上线后调优：命中率 56% → 21%）', () => {
+  it('🔴 词表**不含**这些"宽词"—— 它们在 AI 长文总结里天天出现、且多在否定或中性语境', () => {
+    // 「没有违纪」「时间冲突」「情绪高涨」「美国心理学方向」「请假流程」「作息规律」
+    // 实测：第一版收了它们 ⇒ problemClue 命中 42/75 人（56%），看板失去优先级意义。
+    const flat = SUPPORT_PROBLEM_WORD_LIST.map((x) => x.word);
+    for (const w of ['情绪', '压力', '心理', '紧张', '冲突', '矛盾', '请假', '家庭', '家访',
+                     '人际', '纪律', '作息', '同学关系', '选校', '选科', '文书', '标化', '申请季']) {
+      expect(flat, `「${w}」是宽词，不该出现在词表里（见 SUPPORT_PROBLEM_WORDS 的注释）`).not.toContain(w);
+    }
+  });
+
+  it('🔴 单独一个泛词**不算**问题线索；命中强词、或 ≥2 个词才算', () => {
+    // 只命中「学习问题」（泛词，1 个）⇒ 不算：这类记录多半是老师已在处理的日常评价
+    const one = supportSignalsOf({ comms: [comm(1, { subject: '英语学习问题突出' })] }, NOW);
+    expect(one.some((v) => v.key === 'problemClue')).toBe(false);
+    // 命中两个词 ⇒ 算
+    const two = supportSignalsOf({ comms: [comm(1, { subject: '学习问题突出，跟不上' })] }, NOW);
+    expect(two.some((v) => v.key === 'problemClue')).toBe(true);
+    // 命中强词（单独就够）⇒ 算
+    const strong = supportSignalsOf({ comms: [comm(1, { subject: '近期失眠严重' })] }, NOW);
+    expect(strong.some((v) => v.key === 'problemClue')).toBe(true);
+  });
+
+  it('强词表与词表必须同源（强词也得在词表里，否则永远匹配不上）', () => {
+    const flat = new Set(SUPPORT_PROBLEM_WORD_LIST.map((x) => x.word));
+    for (const w of SUPPORT_STRONG_WORDS) {
+      expect(flat.has(w), `强词「${w}」不在 SUPPORT_PROBLEM_WORDS 里`).toBe(true);
+    }
+    expect(SUPPORT_PROBLEM_MIN_WORDS).toBe(2);
+  });
+
+  it('🔴 unresolved 阈值 = 3（近 30 天 2 条记录是常态，不是"反复"）', () => {
+    expect(SUPPORT_UNRESOLVED_MIN_COUNT).toBe(3);
   });
 });
 

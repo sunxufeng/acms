@@ -4034,6 +4034,7 @@
     "addComm": "Log a contact",
     "overdue": "⚠ {n}d overdue",
     "unassigned": "Unassigned",
-    "auto": "auto"
+    "auto": "auto",
+    "kpiUnresolved": "Talked, unresolved"
   }
 }

@@ -306,6 +306,7 @@ export default function StudentSupportPage() {
         <Kpi label={t('kpiNeverContacted')} value={data?.kpis.neverContacted ?? 0} tone="danger" />
         <Kpi label={t('kpiLongSilence')} value={data?.kpis.longSilence ?? 0} tone="warn" />
         <Kpi label={t('kpiProblemClue')} value={data?.kpis.problemClue ?? 0} tone="info" />
+        <Kpi label={t('kpiUnresolved')} value={data?.kpis.unresolved ?? 0} tone="info" />
         <Kpi label={t('kpiOverdue')} value={data?.kpis.overdue ?? 0} tone={data?.kpis.overdue ? 'danger' : 'plain'} />
       </div>
 

@@ -4034,6 +4034,7 @@
     "addComm": "记一次沟通",
     "overdue": "⚠ 超期 {n} 天",
     "unassigned": "未指派",
-    "auto": "自动"
+    "auto": "自动",
+    "kpiUnresolved": "反复未缓解"
   }
 }

@@ -354,7 +354,8 @@ export class StudentSupportService {
       unclaimed: out.filter((r) => !r.supportStatus || r.supportStatus === SUPPORT_STATUS_TODO).length,
       neverContacted: out.filter((r) => has(r, 'neverContacted')).length,
       longSilence: out.filter((r) => has(r, 'longSilence')).length,
-      problemClue: out.filter((r) => has(r, 'problemClue') || has(r, 'unresolved')).length,
+      problemClue: out.filter((r) => has(r, 'problemClue')).length,
+      unresolved: out.filter((r) => has(r, 'unresolved')).length,
       overdue: out.filter((r) => (r.overdueDays ?? 0) > 0).length,
     };
 

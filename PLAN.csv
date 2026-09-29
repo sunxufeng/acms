@@ -120,3 +120,4 @@ IDP 沟通记录里的录音附件：改成播放按钮（复用学生记录列�
 新增「IDP 统计」页（/idp-stats）+ 我的IDP/IDP统计另造独立权限点（module:myIdp:read / module:idpStats:read）；后端按月统计名下学生沟通次数/间隔/明细（含笔记与附件）,已完成,,P0,教学管理
 权限迁移抬版本不等于补上：v6 被整体跳过导致 Phase1~8 缺 idpStats ⇒ 版本 6→7 重跑增量迁移；新增守卫「资源引入版本 ≤ 当前版本」,已完成,,P0,权限与身份
 修既有 bug：IDP 沟通「笔记」读不出来（写侧模块标签 vs 读侧记录类型）⇒ 放宽读取侧判据,已完成,,P0,教学管理
+「IDP 统计·看全部」独立成专用权限点 idpStatsAll（v8，与 IDP配置解绑；legacyRead null 不随迁移发放、subOf idpStats 供勾选）；补 Phase10/院级管理，清 student/parent 的 idpPlans:read,已完成,,P0,权限安全

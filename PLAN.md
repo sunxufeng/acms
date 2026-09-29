@@ -41,6 +41,7 @@
 | 转换候选目标**按 order 排序**（前端原来漏了：接口给的是整棵菜单树顺序 ⇒ 学生记录被排到会议纪要后面）；招生跟进表单默认展开补 学生姓名（紧跟联系人）/ 跟进状态（紧跟跟进时间）；学生记录默认展开补 沟通方式（紧跟学生，各类型都有） | 已完成 | | P1 | 教学管理 |
 | 新增「IDP 统计」页（/idp-stats）：老师卡（名下学生数 / 本月沟通学生数·次数 / 未沟通 / 最近一次）→ 学生行（次数 · 最近一次 · 两次相隔 · 距今）→ 每条沟通（日期 · 主题 · 笔记 · 附件）；后端 GET /idp-stats 按学生 IDP 老师归属，本月=自然月、间隔=自然日；「我的 IDP」/「IDP 统计」**另造独立权限点**（module:myIdp:read / module:idpStats:read，继承源 module:meetingMinutes:read）；菜单写 DB；新增纯函数 idpMonthKey/idpGapDaysAsc/idpDaysAgo | 已完成 | | P0 | 教学管理 |
 | 🔴 权限迁移「抬版本 ≠ 一定补上」：v6 上线后 Phase1~8 只补到 myIdp、idpStats 全无（迁移被整体跳过，角色版本已达 6）⇒ 版本 6→7 + 两个资源引入版本标 7 重跑增量迁移；新增守卫「资源引入版本必须 ≤ 当前版本」 | 已完成 | | P0 | 权限与身份 |
+| 「IDP 统计 · 看全部」独立成专用权限点 `idpStatsAll`（v8）：原先借 `module:idpPlans:read` 当判据，而那正是「IDP配置」页入口 ⇒ 想看全部统计必然连带看到配置页；且 `idpPlans:read` 还被 student/parent 持有（隐患）。新点 `legacyRead: null`（不随迁移发放）+ `subOf: idpStats`（矩阵里的勾选子行）；部署后补 Phase10/院级管理、清 student/parent | 已完成 | | P0 | 权限与身份 |
 | 修既有 bug：IDP 沟通记录的「笔记」读不出来（写侧写模块标签「学生记录」、读侧按记录类型「IDP沟通」过滤）⇒ 新增 IDP_COMM_NOTE_ENTITY_TYPES 放宽读取侧，本月 13 条记录 13 条带笔记 | 已完成 | | P0 | 教学管理 |
 | IDP 重构：新增「IDP配置」（学年×学期批次 → 拉学生 → 分 IDP 老师）与「我的 IDP」（老师只看自己的学生 + 沟通次数）；沟通记录复用「学生记录·IDP沟通」不建新表；旧 IDP 管理下线 | 已完成 | | P0 | 教学管理 |
 | 成绩单「已有总评的学生重复」+「批量评语科目筛选后无数据」：服务端补学生维度去重、科目下拉带总评计数标注、批量评语补科目列 | 已完成 | | P0 | 教学管理 |
@@ -1254,9 +1255,9 @@ apps/api 272 项测试全绿 · BUILD_ID `a1gxMnLdbpLCV1v7HEYPY`（槽 3002/3102
 
 | 指标 | 数值 |
 |---|---|
-| 计划条目 | 97（已完成 94 · 待开始 3）—— 见第二节各域表格（基础设施 24 · 招生管理 23 · 权限安全 16 · 教学管理 22 · 报表管理 7 · AI 路由 3 · 数据质量 1） |
+| 计划条目 | 98（已完成 95 · 待开始 3）—— 见第二节各域表格（基础设施 24 · 招生管理 23 · 权限安全 17 · 教学管理 22 · 报表管理 7 · AI 路由 3 · 数据质量 1） |
 | 待办（**Issues 是真源**） | 6 项 open：[#1](https://github.com/sunxufeng/acms/issues/1) 教学班数据补录（P0·阻塞）· [#3](https://github.com/sunxufeng/acms/issues/3) AI 路由用户管理 · [#4](https://github.com/sunxufeng/acms/issues/4) 首页 logo 重传 · [#12](https://github.com/sunxufeng/acms/issues/12) 关联笔记可见性口径 · [#13](https://github.com/sunxufeng/acms/issues/13) 会议纪要加关联学生 · [#14](https://github.com/sunxufeng/acms/issues/14) 两处字典与实际数据不匹配 |
-| 导出副本 `PLAN.csv` | 121 条（已完成 118 · 待开始 3）—— 与第二节**同源但更细**（含逐条修复），供工作台「项目 → 计划」导入 |
+| 导出副本 `PLAN.csv` | 122 条（已完成 119 · 待开始 3）—— 与第二节**同源但更细**（含逐条修复），供工作台「项目 → 计划」导入 |
 | 执行任务（8/25 – 9/26） | 1008（已完成 1005 · 待处理 3）—— 见 `docs/TASKS-ARCHIVE.md` |
 | 工作日 | 29 天（8/25 起算，含两端自然日） |
 | 线上部署形态 | Blue-Green，当前活跃 slot 见服务器 `/opt/acms/repo/.deploy_slot` |

@@ -1,11 +1,64 @@
 # ACMS 任务归档
 
-> 时间跨度：2026-08-25 ~ 2026-09-29（34 个工作日）· 共 **1158 条**（已完成 1155 · 待处理 3）
+> 时间跨度：2026-08-25 ~ 2026-09-29（34 个工作日）· 共 **1177 条**（已完成 1174 · 待处理 3）
 >
 > ⚠️ 本文件是**执行过程**的归档（含"构建部署验证"这类操作性任务），用于回溯"做过什么"。
 > **项目计划**（要做什么、优先级、状态）见仓库根目录 [`PLAN.md`](../PLAN.md)。
 >
 > 由 AI 助手在每次工作后同步；`[x]` = 已完成，`[ ]` = 待处理。
+
+## 2026-09-29 上午（「看全部」独立权限点 v8，12 条，完成 12）
+
+**峰哥问「刘佳音怎么才能看到所有老师所有学生的统计」→ 定方案并上线**
+
+### 一、问题定位
+
+- [x] 判据 `idpStatsSeeAll` 原先是「持有 `module:idpPlans:read`」，而那正是
+      **「IDP配置」页（/idp-configs）的入口** ⇒ 想看全部统计就必然连带看到 IDP 配置页
+- [x] 更麻烦：生产实测 `idpPlans:read` 还被 **student / parent** 持有（历史遗留）
+      ⇒ 哪天给他们 `idpStats:read`，他们就会看到**全部老师**的统计
+- [x] 刘佳音现状实测（本人会话）：`seeAll=false` · 只有自己 1 位老师卡 / 5 个学生 /
+      本月 0 次沟通 ⇒ 她能进页面但看不到别人
+
+### 二、改法（峰哥选「改成专用权限点，不连带 IDP配置」）
+
+- [x] 新增资源 `idpStatsAll`（label「IDP 统计 · 看全部」）：
+      `actions: ['read']`（无独立页面 ⇒ 不给 enter/refresh）·
+      `legacyRead: null`（🔴 刻意不继承，开关类权限**绝不能**随迁移发给所有老角色）·
+      `subOf: 'idpStats'`（矩阵里挂到「IDP 统计」下的缩进子行，否则管理员**找不到勾选处**）·
+      `path: '/idp-stats/all'`（假路径，不抢 `/idp-stats` 的路由匹配）
+- [x] `ROLE_PERMISSION_VERSION` 7 → 8；`MODULE_RESOURCE_INTRODUCED_VERSION.idpStatsAll = 8`
+- [x] `idpStatsSeeAll` 判据 → `module:idpStatsAll:read`；8 个文件的相关注释同步
+- [x] 守卫 +4 条：版本 8 / 三件套（legacyRead null + actions read + subOf）/
+      **解绑核心断言**（`idpStatsSeeAll([idpPlans:read]) === false`）/ 不抢路由匹配
+
+### 三、部署后的角色权限变更（备份 + 接口 PUT + 逐角色回读）
+
+- [x] 备份：`/opt/acms/backups/role_permission_config_before_v8_*.json`
+- [x] **补** `module:idpStatsAll:read` → **Phase10**（= 刘佳音的专属角色，仅 1 人）、**院级管理**
+      （保持它原有的"看全部"能力，否则会静默退化成只看自己）
+- [x] **清** `module:idpPlans:read` → **student / parent**（峰哥确认直接清；
+      先核实过学生端/门户**不调用**任何 IDP 接口 ⇒ 无影响）
+- [x] 回读核对：**只有这 4 个角色有差异，其余角色零改动**；每步 PUT 200
+      （Phase10 41→42、院级管理 437→438、student 108→107、parent 103→102）
+
+### 四、验收（会话实测）
+
+- [x] **刘佳音**：`/idp-stats` → 200 · **`seeAll=true` · 全站 23 老师 / 78 学生 / 本月 11 人 13 次** ✅
+- [x] 院级管理（宋琼）：`seeAll=true` ✅（保持原行为）
+- [x] Phase1 老师（曹德强 / 刘攀扬）：`seeAll=false` · 只看自己 1 老师 / 3 学生 ✅
+- [x] **不连带的关键证据**：刘佳音 `module:idpPlans:read=false`、菜单里无 `idpPlans`、
+      直接打 `GET /idp-configs` → **403** ✅
+- [x] student / parent：`idpPlans:read=false`（隐患消除）；他们本就没有 `idpStats:read` ⇒ 仍进不去统计页
+- [x] 页面 smoke：`/idp-stats` `/idp-configs` `/my-idp` 全 200
+- [x] 全量：**728 tests passed** · typecheck 全绿 · i18n lint 通过
+- [x] 交付链：`7013a97` → 远端 `afecabf`（tree `05c79ae` 一致）
+      → 部署 BUILD_ID `FbCoNk-E9tYVxKAXkaq-k`（slot 3002/3102）
+
+### 五、以后怎么给别的人开「看全部」
+
+角色管理页 → 找到「IDP 统计」那一行 → 勾它下面缩进的「**IDP 统计 · 看全部**」→ 保存。
+（不需要动「IDP配置」，也不会让人看到那个页面。）
 
 ## 2026-09-29 凌晨（IDP 统计页 + 权限另造 + 笔记判据修复，38 条，完成 38）
 

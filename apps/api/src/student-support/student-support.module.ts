@@ -5,14 +5,16 @@
  *
  * ```
  * GET  /student-support/board                 看板聚合（一次返回全部行）
+ * GET  /student-support/owner-options         负责人候选（挂本模块读权限，避免直连 /users 403）
+ * GET  /student-support/student-options       可登记的学生候选（**含没上板的**，登记弹窗用）
  * GET  /student-support/:studentId            支持卡详情（信号证据 + 时间线 + 动作）
  * POST /student-support/:studentId/claim      认领（可带问题登记字段，一步到位）
  * PUT  /student-support/:studentId            登记 / 更新问题
  * POST /student-support/:studentId/resolve    已缓解 / 关闭 / 升级
  * ```
  *
- * ⚠️ `board` 是**静态路由，必须排在 `@Get(':studentId')` 之前** ——
- *    否则 `/student-support/board` 会被 `:studentId` 吃掉，把 "board" 当成学生 id（套件红线）。
+ * ⚠️ `board` / `owner-options` / `student-options` 都是**静态路由，必须排在 `@Get(':studentId')`
+ *    之前** —— 否则会被 `:studentId` 吃掉，把 "board" 当成学生 id（套件红线）。
  *
  * ## 权限
  *
@@ -74,6 +76,18 @@ class StudentSupportController {
   @Get('owner-options')
   ownerOptions(@Req() req: Request) {
     return this.svc.ownerOptions(userOf(req));
+  }
+
+  /**
+   * 「我可以给谁登记」的候选（登记弹窗的学生选择器）。
+   *
+   * 🔴 含**没上板**的学生 —— 老师要主动登记一个看板上没有的学生时，只有这个入口。
+   * 🔴 范围与 `board` 同一份判据（老师不能给范围外的学生登记）。
+   * ⚠️ 静态路由，同样必须在 `:studentId` 之前。
+   */
+  @Get('student-options')
+  studentOptions(@Req() req: Request) {
+    return this.svc.studentOptions(userOf(req));
   }
 
   /** 支持卡详情 */

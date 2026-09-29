@@ -76,6 +76,7 @@ import {
   type SupportLevel,
   type SupportSignal,
   type SupportStatus,
+  type SupportStudentOption,
 } from '@acms/contracts';
 import { permissionsOf, type Principal } from '@acms/domain';
 import { getSqlStore } from '../base.provider.js';
@@ -222,6 +223,49 @@ export class StudentSupportService {
     return pick[0] ?? null;
   }
 
+  /** 我的两个身份（姓名 / openId）—— 行级范围判据要**同时认**，少传一个会漏判一半 */
+  private meIdsOf(user: SessionUser): string[] {
+    return [String(user.name ?? '').trim(), String(user.openId ?? '').trim()].filter(Boolean);
+  }
+
+  /**
+   * IDP 老师关系（IDP学生表：一行 = 配置 × 学生，含该生这一期的 IDP 老师 openId）。
+   * `board` 与 `studentOptions` 共用 —— 两处各建一份必然漂移。
+   */
+  private async idpTeacherIndex(): Promise<Map<string, string>> {
+    const rows = await this.readAll(TABLES.idpStudent.tableId);
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      const sid = idpLinkIds(r.f['学生'])[0] ?? '';
+      const t = String(r.f['IDP老师'] ?? '').trim();
+      if (sid && t && !map.has(sid)) map.set(sid, t);
+    }
+    return map;
+  }
+
+  /**
+   * 一行学生的「负责跟进」：**人工指定优先**，否则自动推导。
+   *
+   * 🔴 `commsDesc` 必须按时间**降序** —— 取"最近一条**有责任人**的记录"的负责人，不是
+   *    "最近一条记录"的：生产实测 17/224 条没填责任人，直接取最近一条会经常拿到空。
+   * ⚠️ 判据与 `board` 共用一份（`studentOptions` 里再写一遍 = 选择器与看板显示不同的人）。
+   */
+  private resolveOwner(input: {
+    sup: Row | null;
+    commsDesc: readonly SupportCommLike[];
+    headName: string;
+    idpName: string;
+  }): { name: string; source: string } {
+    const manualOwner = String(input.sup?.f[SF.负责跟进] ?? '').trim();
+    const manualSrc = String(input.sup?.f[SF.负责来源] ?? '').trim();
+    if (manualOwner && manualSrc === '人工指定') return { name: manualOwner, source: manualSrc };
+    return supportAutoOwner({
+      commOwner: input.commsDesc.find((c) => String(c.owner ?? '').trim())?.owner ?? '',
+      headTeacher: input.headName,
+      idpTeacher: input.idpName,
+    });
+  }
+
   // ───────────────────────── 看板 ─────────────────────────
 
   /**
@@ -237,23 +281,15 @@ export class StudentSupportService {
     const { seeAll } = this.require(user);
     const nowMs = Date.now();
 
-    const [students, comms, supports, users, idpRows] = await Promise.all([
+    const [students, comms, supports, users, idpTeacherOf] = await Promise.all([
       this.readAll(TABLES.studentProfile.tableId),
       this.commsByStudent(),
       this.readAll(TABLES.studentSupport.tableId),
       this.userIndex(),
-      this.readAll(TABLES.idpStudent.tableId),
+      this.idpTeacherIndex(),
     ]);
 
-    // IDP 老师关系（IDP学生表：一行 = 配置 × 学生，含该生这一期的 IDP 老师 openId）
-    const idpTeacherOf = new Map<string, string>();
-    for (const r of idpRows) {
-      const sid = idpLinkIds(r.f['学生'])[0] ?? '';
-      const t = String(r.f['IDP老师'] ?? '').trim();
-      if (sid && t && !idpTeacherOf.has(sid)) idpTeacherOf.set(sid, t);
-    }
-
-    const meIds = [String(user.name ?? '').trim(), String(user.openId ?? '').trim()].filter(Boolean);
+    const meIds = this.meIdsOf(user);
     let hiddenByScope = 0;
     const rows: SupportBoardRow[] = [];
 
@@ -277,18 +313,8 @@ export class StudentSupportService {
       const idpOpenId = idpTeacherOf.get(s.id) ?? '';
       const idpName = users.get(idpOpenId) ?? idpOpenId;
 
-      // 负责人：人工指定的优先，否则自动推导
-      const manualOwner = String(sup?.f[SF.负责跟进] ?? '').trim();
-      const manualSrc = String(sup?.f[SF.负责来源] ?? '').trim();
-      const isManual = Boolean(manualOwner) && manualSrc === '人工指定';
-      const auto = supportAutoOwner({
-        // 🔴 用"最近一条**有责任人**的记录"的责任人，不是"最近一条记录"的 ——
-        //    生产实测 17/224 条没填责任人，直接取最近一条会经常拿到空。
-        commOwner: sorted.find((c) => String(c.owner ?? '').trim())?.owner ?? '',
-        headTeacher: headName,
-        idpTeacher: idpName,
-      });
-      const owner = isManual ? { name: manualOwner, source: manualSrc } : auto;
+      // 负责人：人工指定优先，否则自动推导（判据与 studentOptions 共用一份）
+      const owner = this.resolveOwner({ sup, commsDesc: sorted, headName, idpName });
 
       // 行级范围：默认只看「我是负责人 / 班主任 / IDP 老师」的学生
       if (
@@ -367,6 +393,78 @@ export class StudentSupportService {
       rows: out,
       hiddenByScope,
     };
+  }
+
+  /**
+   * 「我可以给谁登记」的候选 —— 给**登记弹窗**里的学生选择器用。
+   *
+   * 🔴🔴 为什么需要这个接口（峰哥 2026-09-30 指出）：
+   *    看板只显示**有信号**的学生。一个没命中任何信号的学生（比如老师自己觉得该盯着），
+   *    在看板上根本不存在 ⇒ 想给他登记一条支持**没有任何入口**。
+   *    设计稿里页头那个「＋ 登记支持」正是为此准备的（弹窗里搜学生）。
+   *
+   * 🔴 范围与 `board` 用**同一份判据**（`supportInScope`）—— 不能因为"选择器里搜得到"
+   *    就绕过看板的行级限制（否则老师能给全校登记，而看板里他只看得到自己那几个）。
+   * 🔴 **没上板的学生也在候选里**（`onBoard: false`），这才是本接口存在的意义。
+   */
+  async studentOptions(user: SessionUser): Promise<SupportStudentOption[]> {
+    const { seeAll } = this.require(user);
+    const nowMs = Date.now();
+    const [students, comms, supports, users, idpTeacherOf] = await Promise.all([
+      this.readAll(TABLES.studentProfile.tableId),
+      this.commsByStudent(),
+      this.readAll(TABLES.studentSupport.tableId),
+      this.userIndex(),
+      this.idpTeacherIndex(),
+    ]);
+    const meIds = this.meIdsOf(user);
+    const out: SupportStudentOption[] = [];
+
+    for (const s of students) {
+      if (!idpIsEnrolled(s.f['当前状态'])) continue;
+      const name = String(s.f['学生姓名'] ?? '').trim();
+      if (!name) continue;
+
+      const mine = comms.byId.get(s.id) ?? comms.byName.get(name) ?? [];
+      const sorted = [...mine].sort((a, b) => b.ms - a.ms);
+      const headOpenId = String(s.f['班主任'] ?? '').trim();
+      const idpOpenId = idpTeacherOf.get(s.id) ?? '';
+      const sup = this.openSupportOf(supports, s.id);
+      const owner = this.resolveOwner({
+        sup,
+        commsDesc: sorted,
+        headName: users.get(headOpenId) ?? headOpenId,
+        idpName: users.get(idpOpenId) ?? idpOpenId,
+      });
+
+      // 🔴 与看板同一份行级范围判据
+      if (
+        !supportInScope({
+          seeAll,
+          owner: owner.name,
+          headTeacher: headOpenId,
+          idpTeacher: idpOpenId,
+          me: meIds,
+        })
+      ) {
+        continue;
+      }
+
+      out.push({
+        studentId: s.id,
+        name,
+        nameEn: String(s.f['英文名'] ?? '').trim(),
+        grade: this.studentGrade(s.f),
+        cls: this.studentCls(s.f),
+        campus: String(s.f['校区'] ?? '').trim(),
+        owner: owner.name,
+        ownerSource: owner.source,
+        onBoard: supportSignalsOf({ comms: mine }, nowMs).length > 0,
+        supportStatus: String(sup?.f[SF.支持状态] ?? '').trim(),
+      });
+    }
+
+    return out.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
   }
 
   // ───────────────────────── 支持卡详情 ─────────────────────────

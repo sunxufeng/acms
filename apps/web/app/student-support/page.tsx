@@ -17,6 +17,7 @@ import {
   type SupportDetailResult,
   type SupportOwnerOption,
   type SupportSaveBody,
+  type SupportStudentOption,
 } from '@acms/contracts';
 import { api } from '../../lib/api';
 
@@ -78,13 +79,29 @@ export default function StudentSupportPage() {
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState('');
 
-  // 登记表单草稿（打开抽屉时按当前行初始化）
+  /**
+   * 登记表单草稿 —— **抽屉与登记弹窗共用这一份**（字段在 `<RegisterFields>` 里，
+   * 只写一遍；两处各写一份必然出现"抽屉里填了、弹窗里没带上"这类静默不一致）。
+   */
   const [dType, setDType] = useState('');
   const [dSeverity, setDSeverity] = useState<string>(SUPPORT_SEVERITY_DEFAULT);
   const [dText, setDText] = useState('');
   const [dOwner, setDOwner] = useState('');
   const [dDue, setDDue] = useState('');
   const [dNote, setDNote] = useState('');
+
+  /**
+   * 登记弹窗（2026-09-30 峰哥要的「＋ 登记支持」）。
+   *
+   * 🔴 它存在的理由：看板只显示**有信号**的学生。一个没命中信号的学生在看板上不存在，
+   *    老师想主动给他登记一条支持**原本没有任何入口**。
+   * - 从页头进 ⇒ `regPick` 为空，先搜学生
+   * - 从卡片「认领并登记」进 ⇒ `regPick` 直接预填该生（少一步）
+   */
+  const [regOpen, setRegOpen] = useState(false);
+  const [regPick, setRegPick] = useState<SupportStudentOption | null>(null);
+  const [stuOpts, setStuOpts] = useState<SupportStudentOption[]>([]);
+  const [stuQ, setStuQ] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,19 +174,57 @@ export default function StudentSupportPage() {
 
   const groupsOf = (level: string) => rows.filter((r) => r.level === level);
 
+  /**
+   * 登记表单预填 —— 「改一项就能存」，**抽屉与弹窗共用**。
+   * 传 `RowValues` 进来即可（`SupportBoardRow` 与 `SupportStudentOption` 都是这个形状的子集）。
+   */
+  const fillReg = useCallback(
+    (src: {
+      problemType?: string;
+      severity?: string;
+      problemText?: string;
+      owner?: string;
+      dueMs?: number;
+      note?: string;
+    }) => {
+      setDType(src.problemType || '');
+      setDSeverity(src.severity || SUPPORT_SEVERITY_DEFAULT);
+      setDText(src.problemText || '');
+      setDOwner(src.owner || '');
+      setDDue(fmtDay(src.dueMs || supportDefaultDueMs(Date.now())));
+      setDNote(src.note || '');
+    },
+    [],
+  );
+
+  /** 表单值（传给共用的 `<RegisterFields>`；一处 state，两处渲染） */
+  const regValues = useMemo(
+    () => ({ type: dType, severity: dSeverity, text: dText, owner: dOwner, due: dDue, note: dNote }),
+    [dType, dSeverity, dText, dOwner, dDue, dNote],
+  );
+
+  /** 负责人下拉候选：优先用户表（有 openId 的那批），读不到才退化成看板里出现过的名字 */
+  const ownerChoices = useMemo(
+    () => (owners.length ? owners.map((o) => o.name) : ownerNames),
+    [owners, ownerNames],
+  );
+
+  const patchReg = useCallback((p: Partial<typeof regValues>) => {
+    if (p.type !== undefined) setDType(p.type);
+    if (p.severity !== undefined) setDSeverity(p.severity);
+    if (p.text !== undefined) setDText(p.text);
+    if (p.owner !== undefined) setDOwner(p.owner);
+    if (p.due !== undefined) setDDue(p.due);
+    if (p.note !== undefined) setDNote(p.note);
+  }, []);
+
   /** 打开支持卡抽屉：同时拉详情（时间线 + 动作记录） */
   const openCard = useCallback(
     async (row: SupportBoardRow) => {
       setCur(row);
       setDetail(null);
       setSaveErr('');
-      // 表单按当前行预填 —— 登记成本压到「改一项就能存」
-      setDType(row.problemType || '');
-      setDSeverity(row.severity || SUPPORT_SEVERITY_DEFAULT);
-      setDText(row.problemText || '');
-      setDOwner(row.owner || '');
-      setDDue(fmtDay(row.dueMs || supportDefaultDueMs(Date.now())));
-      setDNote(row.note || '');
+      fillReg(row);
       setDLoading(true);
       try {
         setDetail(await api.studentSupportDetail(row.studentId));
@@ -179,13 +234,80 @@ export default function StudentSupportPage() {
         setDLoading(false);
       }
     },
-    [],
+    [fillReg],
   );
 
-  /** 写动作统一入口：保存 → 刷新看板与抽屉（避免两处数字不一致） */
-  const submit = useCallback(
-    async (body: SupportSaveBody, kind: 'save' | 'claim' | 'resolve') => {
-      if (!cur) return;
+  /**
+   * 弹窗里的学生搜索结果。
+   *
+   * ⚠️ **没上板的排在后面**而不是隐藏 —— 老师从页头进来，多半正是一时想不起
+   *    "看板上没有的那个人"（那才是需要主动登记的）。隐藏掉等于把入口又堵上。
+   */
+  const stuHits = useMemo(() => {
+    const kw = stuQ.trim().toLowerCase();
+    const list = kw
+      ? stuOpts.filter((o) =>
+          `${o.name}${o.nameEn}${o.grade}${o.cls}${o.campus}${o.owner}`.toLowerCase().includes(kw),
+        )
+      : stuOpts;
+    return list
+      .slice()
+      .sort((a, b) =>
+        Number(a.onBoard) - Number(b.onBoard) || a.name.localeCompare(b.name, 'zh-CN'),
+      )
+      .slice(0, 80);
+  }, [stuOpts, stuQ]);
+
+  /**
+   * 打开登记弹窗。`pick` 为空 = 先搜学生（页头入口）；给了学生 = 直接进登记（卡片入口）。
+   * 学生候选是**懒加载**的（只在第一次打开弹窗时拉），避免每次进页面都多读 5 张表。
+   */
+  const openRegister = useCallback(
+    async (pick: SupportBoardRow | SupportStudentOption | null) => {
+      setSaveErr('');
+      setStuQ('');
+      if (pick) {
+        setRegPick({
+          studentId: pick.studentId,
+          name: pick.name,
+          nameEn: pick.nameEn,
+          grade: pick.grade,
+          cls: pick.cls,
+          campus: pick.campus,
+          owner: pick.owner,
+          ownerSource: pick.ownerSource,
+          // 从看板卡片进来时，卡片本来就在板上
+          onBoard: true,
+          supportStatus: 'supportStatus' in pick ? String(pick.supportStatus ?? '') : '',
+        });
+        // 预填已有的支持信息（有就带上，没有就是空表单）
+        fillReg('problemType' in pick ? (pick as SupportBoardRow) : { owner: pick.owner });
+        setRegOpen(true);
+        return;
+      }
+      setRegPick(null);
+      fillReg({});
+      setRegOpen(true);
+      if (!stuOpts.length) {
+        try {
+          setStuOpts(await api.studentSupportStudentOptions());
+        } catch (e) {
+          setSaveErr(e instanceof Error ? e.message : String(e));
+        }
+      }
+    },
+    [fillReg, stuOpts.length],
+  );
+
+  /**
+   * 写动作唯一入口（抽屉 + 登记弹窗共用）。
+   *
+   * 🔴 提交后**重新拉看板**，不本地改一行：分组 / 负责人 / 超期都是后端算的，
+   *    本地改必然漂移（卡片还留在「立即处理」，服务端已经不算它了）。
+   * 🔴 两处各写一份提交逻辑 ⇒ 会出现"弹窗能存、抽屉报错"这种只在一条路径暴露的问题。
+   */
+  const doSubmit = useCallback(
+    async (studentId: string, kind: 'save' | 'claim' | 'resolve', body: SupportSaveBody) => {
       setSaving(true);
       setSaveErr('');
       try {
@@ -199,33 +321,109 @@ export default function StudentSupportPage() {
           ...(dueMs ? { dueMs } : {}),
           ...body,
         };
-        if (kind === 'claim') await api.studentSupportClaim(cur.studentId, payload);
+        if (kind === 'claim') await api.studentSupportClaim(studentId, payload);
         else if (kind === 'resolve') {
-          await api.studentSupportResolve(cur.studentId, {
+          await api.studentSupportResolve(studentId, {
             status: String(body.status ?? '已缓解'),
             note: dNote,
           });
-        } else await api.studentSupportSave(cur.studentId, payload);
+        } else await api.studentSupportSave(studentId, payload);
 
-        const [fresh] = await Promise.all([api.studentSupportBoard({
+        const fresh = await api.studentSupportBoard({
           ...(fCampus ? { campus: fCampus } : {}),
           ...(fOwner ? { owner: fOwner } : {}),
           ...(fSignal ? { signal: fSignal } : {}),
           ...(fMine ? { mine: '1' } : {}),
-        })]);
+        });
         setData(fresh);
-        const moved = fresh.rows.find((r) => r.studentId === cur.studentId) ?? null;
-        setCur(moved);
-        if (moved) setDetail(await api.studentSupportDetail(moved.studentId));
-        else setDetail(null);
+        return fresh;
       } catch (e) {
         setSaveErr(e instanceof Error ? e.message : String(e));
+        return null;
       } finally {
         setSaving(false);
       }
     },
-    [cur, dType, dSeverity, dText, dOwner, dDue, dNote, fCampus, fOwner, fSignal, fMine],
+    [dType, dSeverity, dText, dOwner, dDue, dNote, fCampus, fOwner, fSignal, fMine],
   );
+
+  /** 抽屉里的保存（提交后把抽屉切到刷新后的那一行） */
+  const submit = useCallback(
+    async (body: SupportSaveBody, kind: 'save' | 'claim' | 'resolve') => {
+      if (!cur) return;
+      const fresh = await doSubmit(cur.studentId, kind, body);
+      if (!fresh) return;
+      const moved = fresh.rows.find((r) => r.studentId === cur.studentId) ?? null;
+      setCur(moved);
+      if (moved) setDetail(await api.studentSupportDetail(moved.studentId));
+      else setDetail(null);
+    },
+    [cur, doSubmit],
+  );
+
+  /** 登记弹窗里的保存：成功后关掉弹窗，学生候选的「已在看板 / 状态」也跟着更新 */
+  const submitRegister = useCallback(async () => {
+    if (!regPick) return;
+    const fresh = await doSubmit(
+      regPick.studentId,
+      regPick.supportStatus && regPick.supportStatus !== '待认领' ? 'save' : 'claim',
+      { status: '跟进中' },
+    );
+    if (!fresh) return;
+    setRegOpen(false);
+    setStuOpts((prev) =>
+      prev.map((o) =>
+        o.studentId === regPick.studentId ? { ...o, onBoard: true, supportStatus: '跟进中' } : o,
+      ),
+    );
+  }, [regPick, doSubmit]);
+
+  /**
+   * 导出当前**筛选后**的名单（CSV，带 BOM 让 Excel 正确识别中文）。
+   * 口径与看板一致：行是后端算好的 `rows`，前端只做筛选、不重算任何判据。
+   */
+  const exportCsv = useCallback(() => {
+    const head = [
+      t('colStudent'),
+      t('colGrade'),
+      t('colWhy'),
+      t('colEvidence'),
+      t('colOwner'),
+      t('colStatus'),
+      t('colProblemType'),
+      t('colSeverity'),
+      t('colDue'),
+      t('colCommCount'),
+      t('colOverdue'),
+    ];
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [head.map(esc).join(',')];
+    for (const r of rows) {
+      lines.push(
+        [
+          r.nameEn ? `${r.name}${r.nameEn}` : r.name,
+          [r.grade, r.cls, r.campus].filter(Boolean).join(' / '),
+          r.signals.map((s) => s.label).join(' / '),
+          r.signals.map((s) => s.evidence).join(' / '),
+          r.owner ? `${r.owner}${r.ownerSource ? `（${t('auto')}·${r.ownerSource}）` : ''}` : t('unassigned'),
+          r.supportStatus || '待认领',
+          r.problemType,
+          r.severity,
+          r.dueMs ? fmtDay(r.dueMs) : '',
+          r.commCount,
+          r.overdueDays ?? '',
+        ]
+          .map(esc)
+          .join(','),
+      );
+    }
+    const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `学生支持看板-${fmtDay(Date.now())}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, [rows, t]);
 
   const toggleGroup = (level: string) => {
     setClosed((prev) => {
@@ -253,6 +451,16 @@ export default function StudentSupportPage() {
             ) : null}
             <button className="btn btn-outline btn-sm" onClick={() => void load()} disabled={loading}>
               {t('refresh')}
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={exportCsv} disabled={!rows.length}>
+              {t('exportCsv')}
+            </button>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => void openRegister(null)}
+              type="button"
+            >
+              ＋ {t('addSupport')}
             </button>
           </div>
         </div>
@@ -385,7 +593,12 @@ export default function StudentSupportPage() {
                 {!isClosed ? (
                   <div style={cardGridStyle}>
                     {list.map((r) => (
-                      <SupportCard key={r.studentId} row={r} onOpen={() => void openCard(r)} />
+                      <SupportCard
+                        key={r.studentId}
+                        row={r}
+                        onOpen={() => void openCard(r)}
+                        onClaim={() => void openRegister(r)}
+                      />
                     ))}
                   </div>
                 ) : null}
@@ -504,84 +717,13 @@ export default function StudentSupportPage() {
               {/* 问题登记 */}
               <div style={{ marginBottom: 18 }}>
                 <div style={dsecTitleStyle}>{t('register')}</div>
-                <div style={fieldStyle}>
-                  <label style={flabelStyle}>{t('problemType')}</label>
-                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', flex: 1 }}>
-                    {problemTypes.map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        className={dType === p ? 'chip chip-active' : 'chip'}
-                        onClick={() => setDType(dType === p ? '' : p)}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div style={fieldStyle}>
-                  <label style={flabelStyle}>{t('severity')}</label>
-                  <div style={{ display: 'flex', gap: 5, flex: 1 }}>
-                    {severities.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        style={sevChipStyle(dSeverity === s, s)}
-                        onClick={() => setDSeverity(s)}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div style={fieldStyle}>
-                  <label style={flabelStyle}>{t('problemText')}</label>
-                  <input
-                    className="form-input"
-                    style={{ ...inputStyle, flex: 1 }}
-                    placeholder={t('problemTextHint')}
-                    value={dText}
-                    onChange={(e) => setDText(e.target.value)}
-                  />
-                </div>
-                <div style={fieldStyle}>
-                  <label style={flabelStyle}>{t('owner')}</label>
-                  <select
-                    className="form-input"
-                    style={{ ...inputStyle, flex: 1 }}
-                    value={dOwner}
-                    onChange={(e) => setDOwner(e.target.value)}
-                  >
-                    <option value="">—</option>
-                    {(owners.length ? owners.map((o) => o.name) : ownerNames.map((n) => n)).map((n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div style={fieldStyle}>
-                  <label style={flabelStyle}>{t('dueDate')}</label>
-                  <input
-                    className="form-input"
-                    type="date"
-                    style={{ ...inputStyle, width: 160 }}
-                    value={dDue}
-                    onChange={(e) => setDDue(e.target.value)}
-                  />
-                  <span className="muted" style={{ fontSize: 11.5 }}>
-                    {t('dueHint', { n: SUPPORT_DEFAULT_DUE_DAYS })}
-                  </span>
-                </div>
-                <div style={fieldStyle}>
-                  <label style={flabelStyle}>{t('note')}</label>
-                  <input
-                    className="form-input"
-                    style={{ ...inputStyle, flex: 1 }}
-                    value={dNote}
-                    onChange={(e) => setDNote(e.target.value)}
-                  />
-                </div>
+                <RegisterFields
+                  problemTypes={problemTypes}
+                  severities={severities}
+                  ownerNames={ownerChoices}
+                  values={regValues}
+                  onChange={patchReg}
+                />
                 {saveErr ? (
                   <div style={{ color: 'var(--danger)', fontSize: 12, marginTop: 6 }}>{saveErr}</div>
                 ) : null}
@@ -701,11 +843,260 @@ export default function StudentSupportPage() {
           </div>
         </>
       ) : null}
+
+      {/* ── 登记弹窗（2026-09-30 峰哥：「登记支持按钮在哪里」）──
+          页头「＋ 登记支持」与卡片「认领并登记」都进这里；
+          表单与抽屉共用 `<RegisterFields>`，只有一份字段定义。 */}
+      {regOpen ? (
+        <>
+          <div style={scrimStyle} onClick={() => setRegOpen(false)} />
+          <div style={modalStyle} role="dialog" aria-modal="true">
+            <div style={dheadStyle}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>
+                  {t('addSupport')}
+                  {regPick ? <span className="muted"> · {regPick.name}</span> : null}
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  {regPick ? t('registerHint') : t('pickHint')}
+                </div>
+              </div>
+              <button style={dcloseStyle} onClick={() => setRegOpen(false)} type="button">
+                ✕
+              </button>
+            </div>
+
+            <div style={modalBodyStyle}>
+              {!regPick ? (
+                <>
+                  <input
+                    className="form-input"
+                    style={{ ...inputStyle, width: '100%' }}
+                    placeholder={t('searchStudent')}
+                    value={stuQ}
+                    autoFocus
+                    onChange={(e) => setStuQ(e.target.value)}
+                  />
+                  <div style={{ marginTop: 8, maxHeight: 360, overflowY: 'auto' }}>
+                    {stuHits.map((o) => (
+                      <button
+                        key={o.studentId}
+                        type="button"
+                        style={stuRowStyle}
+                        onClick={() => {
+                          setRegPick(o);
+                          fillReg({ owner: o.owner });
+                        }}
+                      >
+                        <span style={{ fontWeight: 600 }}>{o.name}</span>
+                        {o.nameEn ? (
+                          <span className="muted" style={{ fontSize: 11.5 }}>
+                            {o.nameEn}
+                          </span>
+                        ) : null}
+                        <span className="muted" style={{ fontSize: 11.5 }}>
+                          {[o.grade, o.cls, o.campus].filter(Boolean).join(' · ')}
+                        </span>
+                        <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11 }}>
+                          {o.onBoard ? (
+                            <span style={boardPillStyle}>{t('onBoard')}</span>
+                          ) : (
+                            <span className="muted">{t('offBoard')}</span>
+                          )}
+                        </span>
+                      </button>
+                    ))}
+                    {!stuHits.length ? (
+                      <div style={emptyInlineStyle}>
+                        {stuOpts.length ? t('noStudentHit') : t('loading')}
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={pickBoxStyle}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13.5 }}>
+                        {regPick.name}
+                        {regPick.nameEn ? (
+                          <span className="muted" style={{ fontSize: 11.5, fontWeight: 400 }}>
+                            {' '}
+                            {regPick.nameEn}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="muted" style={{ fontSize: 11.5 }}>
+                        {[regPick.grade, regPick.cls, regPick.campus].filter(Boolean).join(' · ')}
+                        {regPick.owner ? ` · ${t('owner')} ${regPick.owner}` : ''}
+                      </div>
+                    </div>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ marginLeft: 'auto', flexShrink: 0 }}
+                      type="button"
+                      onClick={() => {
+                        setRegPick(null);
+                        setSaveErr('');
+                      }}
+                    >
+                      {t('changeStudent')}
+                    </button>
+                  </div>
+
+                  <RegisterFields
+                    problemTypes={problemTypes}
+                    severities={severities}
+                    ownerNames={ownerChoices}
+                    values={regValues}
+                    onChange={patchReg}
+                  />
+
+                  {saveErr ? (
+                    <div style={{ color: 'var(--danger)', fontSize: 12, marginTop: 6 }}>{saveErr}</div>
+                  ) : null}
+                  <div style={{ display: 'flex', gap: 7, justifyContent: 'flex-end', marginTop: 12 }}>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      onClick={() => setRegOpen(false)}
+                    >
+                      {t('cancel')}
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void submitRegister()}
+                    >
+                      {saving
+                        ? t('saving')
+                        : regPick.supportStatus && regPick.supportStatus !== '待认领'
+                          ? t('save')
+                          : t('claimAndSave')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
 
 // ───────────────────────── 子组件 ─────────────────────────
+
+/** 登记表单的字段值（抽屉与弹窗共用一份形状） */
+type RegValues = {
+  type: string;
+  severity: string;
+  text: string;
+  owner: string;
+  due: string;
+  note: string;
+};
+
+/**
+ * 登记表单字段 —— **抽屉与登记弹窗共用这一份定义**。
+ *
+ * 🔴 为什么不各写一份：字段一旦分开，改了一处忘另一处，就会出现"抽屉里选了类型、
+ *    弹窗里存下去是空的"这类**只在某条路径上暴露且不报错**的问题。
+ *    （本页其余判据同理：都从 contracts / 后端来，前端不重写。）
+ */
+function RegisterFields(props: {
+  problemTypes: readonly string[];
+  severities: readonly string[];
+  ownerNames: readonly string[];
+  values: RegValues;
+  onChange: (patch: Partial<RegValues>) => void;
+}) {
+  const t = useTranslations('studentSupport');
+  const v = props.values;
+  return (
+    <>
+      <div style={fieldStyle}>
+        <label style={flabelStyle}>{t('problemType')}</label>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', flex: 1 }}>
+          {props.problemTypes.map((p) => (
+            <button
+              key={p}
+              type="button"
+              className={v.type === p ? 'chip chip-active' : 'chip'}
+              onClick={() => props.onChange({ type: v.type === p ? '' : p })}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={fieldStyle}>
+        <label style={flabelStyle}>{t('severity')}</label>
+        <div style={{ display: 'flex', gap: 5, flex: 1 }}>
+          {props.severities.map((s) => (
+            <button
+              key={s}
+              type="button"
+              style={sevChipStyle(v.severity === s, s)}
+              onClick={() => props.onChange({ severity: s })}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={fieldStyle}>
+        <label style={flabelStyle}>{t('problemText')}</label>
+        <input
+          className="form-input"
+          style={{ ...inputStyle, flex: 1 }}
+          placeholder={t('problemTextHint')}
+          value={v.text}
+          onChange={(e) => props.onChange({ text: e.target.value })}
+        />
+      </div>
+      <div style={fieldStyle}>
+        <label style={flabelStyle}>{t('owner')}</label>
+        <select
+          className="form-input"
+          style={{ ...inputStyle, flex: 1 }}
+          value={v.owner}
+          onChange={(e) => props.onChange({ owner: e.target.value })}
+        >
+          <option value="">—</option>
+          {props.ownerNames.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div style={fieldStyle}>
+        <label style={flabelStyle}>{t('dueDate')}</label>
+        <input
+          className="form-input"
+          type="date"
+          style={{ ...inputStyle, width: 160 }}
+          value={v.due}
+          onChange={(e) => props.onChange({ due: e.target.value })}
+        />
+        <span className="muted" style={{ fontSize: 11.5 }}>
+          {t('dueHint', { n: SUPPORT_DEFAULT_DUE_DAYS })}
+        </span>
+      </div>
+      <div style={fieldStyle}>
+        <label style={flabelStyle}>{t('note')}</label>
+        <input
+          className="form-input"
+          style={{ ...inputStyle, flex: 1 }}
+          value={v.note}
+          onChange={(e) => props.onChange({ note: e.target.value })}
+        />
+      </div>
+    </>
+  );
+}
 
 function Kpi(props: { label: string; value: number; tone: 'plain' | 'danger' | 'warn' | 'info'; hint?: string }) {
   const color =
@@ -757,9 +1148,14 @@ function StatusBadge(props: {
 }
 
 /** 一张支持卡（列表/卡片两种视图共用一个组件，样式略有差异） */
-function SupportCard(props: { row: SupportBoardRow; onOpen: () => void }) {
+function SupportCard(props: { row: SupportBoardRow; onOpen: () => void; onClaim: () => void }) {
   const t = useTranslations('studentSupport');
   const r = props.row;
+  /** 还没认领 ⇒ 「认领并登记」；已经在跟进 ⇒ 「更新登记」（同一个按钮，少一次点击） */
+  const claimLabel =
+    !r.supportId || !r.supportStatus || r.supportStatus === '待认领'
+      ? t('claimAndRegister')
+      : t('updateRegister');
   return (
     <div style={cardStyle(r.level)} onClick={props.onOpen}>
       <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginBottom: 8 }}>
@@ -818,6 +1214,21 @@ function SupportCard(props: { row: SupportBoardRow; onOpen: () => void }) {
           </span>
         ) : null}
       </div>
+
+      {/* 快捷登记：不用先点开抽屉（2026-09-30 峰哥要求） */}
+      <div style={cardActStyle}>
+        <button
+          className="btn btn-outline btn-sm"
+          type="button"
+          onClick={(e) => {
+            // 🔴 必须阻止冒泡：整张卡片的 onClick 是打开抽屉，不拦会"点按钮 → 抽屉也弹出来"
+            e.stopPropagation();
+            props.onClaim();
+          }}
+        >
+          {claimLabel}
+        </button>
+      </div>
     </div>
   );
 }
@@ -845,6 +1256,15 @@ const chkStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', 
 const kpiGridStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 9, marginBottom: 14 };
 const vbarStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 };
 const cardGridStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 10 };
+/** 卡片底部那条操作带（快捷登记按钮） */
+const cardActStyle: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  gap: 6,
+  marginTop: 8,
+  paddingTop: 8,
+  borderTop: '1px solid var(--border)',
+};
 const gheadStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 9, padding: '7px 2px', cursor: 'pointer', userSelect: 'none' };
 const thStyle: CSSProperties = {
   textAlign: 'left',
@@ -957,6 +1377,60 @@ const dfootStyle: CSSProperties = {
 };
 const fieldStyle: CSSProperties = { display: 'flex', gap: 9, alignItems: 'center', marginBottom: 8 };
 const flabelStyle: CSSProperties = { fontSize: 12.5, color: 'var(--fg-secondary)', width: 66, textAlign: 'right', flexShrink: 0 };
+
+// ── 登记弹窗 ──
+const modalStyle: CSSProperties = {
+  position: 'fixed',
+  top: '8vh',
+  left: '50%',
+  transform: 'translateX(-50%)',
+  width: 560,
+  maxWidth: '94vw',
+  maxHeight: '84vh',
+  background: 'var(--surface)',
+  borderRadius: 12,
+  boxShadow: '0 12px 40px rgba(23,74,69,.28)',
+  zIndex: 50,
+  display: 'flex',
+  flexDirection: 'column',
+};
+const modalBodyStyle: CSSProperties = { padding: '14px 18px 18px', overflowY: 'auto' };
+/** 学生搜索结果的一行（button 需要显式清掉浏览器默认样式） */
+const stuRowStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  textAlign: 'left',
+  padding: '8px 10px',
+  background: 'none',
+  border: 'none',
+  borderBottom: '1px solid var(--border)',
+  cursor: 'pointer',
+  fontSize: 12.5,
+  color: 'inherit',
+  font: 'inherit',
+};
+/** 「已在看板」小标（与之相对的是"当前无信号"的灰字） */
+const boardPillStyle: CSSProperties = {
+  fontSize: 10.5,
+  color: 'var(--fg-tertiary)',
+  background: 'var(--bg-subtle)',
+  border: '1px solid var(--border)',
+  borderRadius: 999,
+  padding: '0 6px',
+};
+/** 弹窗里选定的那个学生 */
+const pickBoxStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '9px 11px',
+  marginBottom: 12,
+  background: 'var(--bg-subtle)',
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+};
 
 function levelColor(level: string): string {
   return level === 'P0' ? 'var(--danger)' : level === 'P1' ? '#B8860B' : 'var(--accent)';

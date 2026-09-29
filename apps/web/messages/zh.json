@@ -4035,6 +4035,23 @@
     "overdue": "⚠ 超期 {n} 天",
     "unassigned": "未指派",
     "auto": "自动",
-    "kpiUnresolved": "反复未缓解"
+    "kpiUnresolved": "反复未缓解",
+    "addSupport": "登记支持",
+    "exportCsv": "导出",
+    "pickHint": "先选一个学生 —— 看板上没有的学生也能在这里找到",
+    "registerHint": "系统已经知道的都填好了，确认或改一项就能存",
+    "searchStudent": "搜索学生（姓名 / 英文名 / 年级 / 班级）",
+    "noStudentHit": "没有匹配的学生",
+    "onBoard": "已在看板",
+    "offBoard": "当前无信号",
+    "changeStudent": "换一个",
+    "cancel": "取消",
+    "claimAndRegister": "认领并登记",
+    "updateRegister": "更新登记",
+    "colProblemType": "问题类型",
+    "colSeverity": "严重程度",
+    "colDue": "期望回应",
+    "colCommCount": "沟通记录数",
+    "colOverdue": "超期天数"
   }
 }

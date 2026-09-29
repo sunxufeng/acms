@@ -451,3 +451,149 @@ describe('G. 源码接线守卫（防"声明与判据错开一半"）', () => {
     expect(MOD).toContain('TABLES.studentSupport.tableId');
   });
 });
+
+describe('H. 登记入口（2026-09-30 峰哥：「登记支持按钮在哪里」）', () => {
+  const MP = read('packages/contracts/src/module-permissions.ts');
+  const SVC = read('apps/api/src/student-support/student-support.service.ts');
+  const MOD = read('apps/api/src/student-support/student-support.module.ts');
+  const PAGE = read('apps/web/app/student-support/page.tsx');
+  const API = read('apps/web/lib/api.ts');
+  const CONTRACTS = read('packages/contracts/src/student-support.ts');
+  const ZH = read('apps/web/messages/zh.json');
+
+  it('🔴 `student-options` 是静态路由，必须排在 `@Get(\':studentId\')` 之前', () => {
+    // ⚠️ 与 G 段同因：**必须用 lastIndexOf** —— 文件头注释里也写了这几个装饰器名，
+    //    `indexOf` 会命中注释（第 16 行），断言就变成"看注释位置"了（第一次写就踩了）。
+    const iOpt = MOD.lastIndexOf("@Get('student-options')");
+    const iParam = MOD.lastIndexOf("@Get(':studentId')");
+    expect(iOpt).toBeGreaterThan(0);
+    expect(iParam).toBeGreaterThan(0);
+    expect(iOpt, 'student-options 排在 :studentId 之后 ⇒ 会被当成学生 id，静默失效').toBeLessThan(iParam);
+    // 三个静态路由都要在参数路由之前（board / owner-options / student-options）
+    expect(MOD.lastIndexOf("@Get('board')")).toBeLessThan(iParam);
+    expect(MOD.lastIndexOf("@Get('owner-options')")).toBeLessThan(iParam);
+  });
+
+  it('🔴 学生候选**必须包含没上板的学生**（否则这个入口就没意义了）', () => {
+    // board 里靠 `if (!signals.length) continue` 把无信号的学生挡在板外 ——
+    // studentOptions 里**不能**有这一句，否则"看板上没有的人"在选择器里也找不到，
+    // 峰哥要的「主动给一个没信号的学生登记」还是做不到（而且不报错）。
+    const i = SVC.indexOf('async studentOptions(');
+    const j = SVC.indexOf('// ─────────────────────────', i);
+    const body = SVC.slice(i, j > i ? j : i + 4000);
+    expect(body.length).toBeGreaterThan(200);
+    expect(body).not.toContain('if (!signals.length) continue');
+    // 但必须标记他有没有上板（前端要给出「当前无信号」的提示）
+    expect(body).toContain('onBoard:');
+  });
+
+  it('🔴 学生候选的范围判据与看板**同一份**（不能因为搜得到就绕过行级限制）', () => {
+    const i = SVC.indexOf('async studentOptions(');
+    const body = SVC.slice(i, i + 4000);
+    expect(body).toContain('supportInScope(');
+    expect(body).toContain('this.meIdsOf(');
+    // 负责人推导也必须复用同一份（两处各推一次 ⇒ 选择器显示的人与看板不一致）
+    expect(body).toContain('this.resolveOwner(');
+    // 反向：不许在学生候选里自己重新推导负责人
+    expect(body).not.toContain('supportAutoOwner(');
+  });
+
+  it('负责人推导与 IDP 老师索引都抽成了共用方法（board 与 studentOptions 各一份必然漂移）', () => {
+    expect(SVC).toContain('private resolveOwner(');
+    expect(SVC).toContain('private async idpTeacherIndex(');
+    // board 里不能再有内联的 idpTeacherOf 构建
+    const iBoard = SVC.indexOf('async board(');
+    const board = SVC.slice(iBoard, iBoard + 3000);
+    expect(board).toContain('this.idpTeacherIndex()');
+    expect(board).toContain('this.resolveOwner(');
+    expect(board).not.toContain("idpTeacherOf.set(");
+  });
+
+  it('契约层有 SupportStudentOption，且前端接口层挂的是本模块端点', () => {
+    expect(CONTRACTS).toContain('export interface SupportStudentOption');
+    expect(CONTRACTS).toContain('onBoard: boolean');
+    expect(API).toContain("'/student-support/student-options'");
+  });
+
+  it('🔴 登记表单字段**只有一份定义**（RegisterFields），抽屉与弹窗共用', () => {
+    expect(PAGE).toContain('function RegisterFields(');
+    // 抽屉里已改为渲染共用组件
+    expect(PAGE).toContain('<RegisterFields');
+    // 字段标签在整页里只应出现一次（都在 RegisterFields 内部）
+    // ⚠️ 模式不带右括号：`dueHint` 是带参数的 `t('dueHint', { n })`，
+    //    写死 `t('dueHint')` 会永远匹配 0 次 —— 断言反而变成"永远通过"的反向假象。
+    for (const key of ['problemType', 'severity', 'problemText', 'dueHint']) {
+      const n = (PAGE.match(new RegExp(`t\\('${key}'`, 'g')) ?? []).length;
+      expect(n, `t('${key}' 出现了 ${n} 次 —— 字段定义被复制了一份，两处必然漂移`).toBe(1);
+    }
+    // 表单 state 只有一组（六个字段）
+    expect(PAGE).toContain('const regValues = useMemo(');
+    expect(PAGE).toContain('const patchReg = useCallback(');
+  });
+
+  it('🔴 卡片的快捷登记按钮必须 stopPropagation（否则点按钮会同时打开抽屉）', () => {
+    const i = PAGE.indexOf('function SupportCard(');
+    const card = PAGE.slice(i, i + 4000);
+    expect(card).toContain('onClaim');
+    expect(card).toContain('e.stopPropagation()');
+    // 卡片上要能看出"已认领的人显示更新登记"（同一个按钮，语义随状态变）
+    expect(card).toContain("t('claimAndRegister')");
+    expect(card).toContain("t('updateRegister')");
+  });
+
+  it('页头有「＋ 登记支持」与「导出」（设计稿里有、首版漏做的两个）', () => {
+    expect(PAGE).toContain("t('addSupport')");
+    expect(PAGE).toContain("t('exportCsv')");
+    expect(PAGE).toContain('onClick={exportCsv}');
+    expect(PAGE).toContain('openRegister(null)');
+  });
+
+  it('导出 CSV 带 BOM（不带的话 Excel 打开是乱码）且口径是后端算好的 rows', () => {
+    const i = PAGE.indexOf('const exportCsv = useCallback(');
+    const seg = PAGE.slice(i, i + 1800);
+    expect(seg).toContain('\\ufeff');
+    expect(seg).toContain('text/csv;charset=utf-8');
+    // 不重算判据：只用行里已有的字段
+    expect(seg).not.toContain('supportSignalsOf');
+    expect(seg).not.toContain('supportOverdueDays');
+  });
+
+  it('学生选择器里「没上板的排在前面」的意图写在注释里（下次别改成过滤掉）', () => {
+    expect(PAGE).toContain('const stuHits = useMemo(');
+    expect(PAGE).toContain('Number(a.onBoard) - Number(b.onBoard)');
+  });
+
+  it('弹窗的提交走与抽屉同一个 doSubmit（两处各写一份 ⇒ 会出现只有一条路径报错）', () => {
+    expect(PAGE).toContain('const doSubmit = useCallback(');
+    expect(PAGE).toContain('const submitRegister = useCallback(');
+    // submit（抽屉）与 submitRegister（弹窗）都调用 doSubmit，且不再各自直连 api
+    const iDrawer = PAGE.indexOf('const submit = useCallback(');
+    const drawer = PAGE.slice(iDrawer, iDrawer + 700);
+    expect(drawer).toContain('doSubmit(');
+    expect(drawer).not.toContain('api.studentSupportSave(');
+    const iReg = PAGE.indexOf('const submitRegister = useCallback(');
+    const reg = PAGE.slice(iReg, iReg + 700);
+    expect(reg).toContain('doSubmit(');
+    expect(reg).not.toContain('api.studentSupportSave(');
+  });
+
+  it('新文案齐（中英都要有，否则英文界面下弹出空按钮）', () => {
+    for (const k of ['addSupport', 'exportCsv', 'pickHint', 'searchStudent', 'onBoard', 'offBoard',
+                     'changeStudent', 'cancel', 'claimAndRegister', 'updateRegister',
+                     'colProblemType', 'colSeverity', 'colDue', 'colCommCount', 'colOverdue']) {
+      expect(ZH, `zh.json 缺 ${k}`).toContain(`"${k}"`);
+    }
+    const EN = read('apps/web/messages/en.json');
+    for (const k of ['addSupport', 'claimAndRegister', 'cancel', 'searchStudent']) {
+      expect(EN, `en.json 缺 ${k}`).toContain(`"${k}"`);
+    }
+  });
+
+  it('权限没变：登记入口不需要新的权限点（能看看板 = 能登记，见 module-permissions v9）', () => {
+    // 反面：如果哪天有人给"登记"造一个 update 点，老师会点不动（教职工的写点交集为空）
+    const i = MP.indexOf("key: 'studentSupport'");
+    const seg = MP.slice(i, i + 900);
+    expect(seg).toContain('genericCrud: false');
+    expect(SVC).toContain("requireModule(user, 'studentSupport', 'read')");
+  });
+});

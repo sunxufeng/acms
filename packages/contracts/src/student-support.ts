@@ -822,6 +822,32 @@ export interface SupportOwnerOption {
   openId: string;
 }
 
+/**
+ * `/student-support/student-options` 的一行 = 一个**我可以给他登记**的在读学生。
+ *
+ * 🔴 与看板 `board` **同一份行级范围判据**（`supportInScope`）：
+ *    老师只能给「我是负责人 / 班主任 / IDP 老师」的学生登记 —— 不能靠"选择器里搜得到"
+ *    绕过看板的范围限制。
+ *
+ * 🔴 这份列表**包含没上板的学生**（没有命中任何信号）—— 这正是它存在的理由：
+ *    峰哥 2026-09-30 指出「学生不在看板上时，老师想主动登记一条支持，没有任何入口」。
+ */
+export interface SupportStudentOption {
+  studentId: string;
+  name: string;
+  nameEn: string;
+  grade: string;
+  cls: string;
+  campus: string;
+  /** 自动/人工推导出来的负责人（可能为空 = 未指派） */
+  owner: string;
+  ownerSource: string;
+  /** 是否已经在看板上（有信号）。false ⇒ 弹窗里提示"当前无信号，主动登记" */
+  onBoard: boolean;
+  /** 已有的支持状态（空串 = 还没人动过） */
+  supportStatus: string;
+}
+
 /** 问题类型候选（前端兜底用；正常应从字典读 `支持问题类型`） */
 export function supportProblemTypeOptions(dict?: readonly string[] | null): string[] {
   const fromDict = (dict ?? []).map((x) => String(x ?? '').trim()).filter(Boolean);

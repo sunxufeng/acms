@@ -17,6 +17,7 @@ import type {
   SupportDetailResult,
   SupportOwnerOption,
   SupportSaveBody,
+  SupportStudentOption,
 } from '@acms/contracts';
 
 // 「作业 → 成绩册同步」的请求 / 返回形状由面板组件（apps/web/components/markbook/
@@ -1564,6 +1565,16 @@ export const api = {
    *    普通老师打它 403 ⇒ 下拉空白（看起来像"系统里一个老师都没有"）。
    */
   studentSupportOwners: () => request<SupportOwnerOption[]>('/student-support/owner-options'),
+
+  /**
+   * 「我可以给谁登记」的候选（登记弹窗的学生选择器）。
+   *
+   * 🔴 含**没上板**的学生 —— 看板只显示有信号的人，而老师要主动登记一个
+   *    "看板上根本没有"的学生时，只有这个入口（峰哥 2026-09-30）。
+   * 🔴 范围与看板同一份判据（后端 `supportInScope`），前端**不额外过滤**。
+   */
+  studentSupportStudentOptions: () =>
+    request<SupportStudentOption[]>('/student-support/student-options'),
 
   /** 认领（可同时带问题登记，一步到位；幂等键 = 学生） */
   studentSupportClaim: (studentId: string, body: SupportSaveBody) =>

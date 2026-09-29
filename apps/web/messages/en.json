@@ -4035,6 +4035,23 @@
     "overdue": "⚠ {n}d overdue",
     "unassigned": "Unassigned",
     "auto": "auto",
-    "kpiUnresolved": "Talked, unresolved"
+    "kpiUnresolved": "Talked, unresolved",
+    "addSupport": "Add support",
+    "exportCsv": "Export",
+    "pickHint": "Pick a student first — students not on the board are searchable here too",
+    "registerHint": "Pre-filled from what the system knows — confirm or change one thing",
+    "searchStudent": "Search student (name / English name / grade / class)",
+    "noStudentHit": "No matching student",
+    "onBoard": "On board",
+    "offBoard": "No signal",
+    "changeStudent": "Change",
+    "cancel": "Cancel",
+    "claimAndRegister": "Claim & register",
+    "updateRegister": "Update",
+    "colProblemType": "Problem type",
+    "colSeverity": "Severity",
+    "colDue": "Expected reply",
+    "colCommCount": "Contact records",
+    "colOverdue": "Days overdue"
   }
 }

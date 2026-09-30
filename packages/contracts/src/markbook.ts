@@ -419,11 +419,16 @@ export interface GradeImportProblem {
 }
 
 export interface GradeImportParsed {
-  /** 提交给后端的变更行（**已剔除空值** —— 空 = 不动） */
+  /**
+   * 提交给后端的变更行。
+   * ⚠️ 「空 = 不动」那条只在**输入为空**时成立 —— 那类格子**不进 rows**（计入 `untouched`）。
+   *    写 `clear` 的格子会以 `raw: ''` 进 rows（后端把空串解释成"删除该条目"），
+   *    所以 rows 里**允许**出现 `raw === ''`，别在别处假设"rows 里全是非空值"。
+   */
   rows: { columnId: string; studentId: string; raw: string }[];
   /** 空着没填的格子数（不动） */
   untouched: number;
-  /** 显式清空的格子数（`-`） */
+  /** 显式清空的格子数（写 `clear`，见 `GRADE_IMPORT_CLEAR`） */
   clears: number;
   /** 能在前端判出来的问题（列名没匹配上 / 学生找不到 / 同名歧义） */
   problems: GradeImportProblem[];

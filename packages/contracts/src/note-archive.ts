@@ -761,16 +761,23 @@ export function jobKindLabel(kind: JobKind): string {
  * 给人看的，别拿它做判据（判据在 `shouldRunArchiveJob`）。
  */
 export function archiveJobScheduleText(job: NoteArchiveJobDef): string {
-  const time = `${String(job.hour).padStart(2, '0')}:${String(job.minute).padStart(2, '0')}`;
   const days = weekdaySummary(job.weekdays);
   // ⚠️ 频率=每小时/每15分钟时，`weekdaySummary([])` 会给出「每天」——
   //    拼起来变成「每天 每小时第 57 分」这种自相矛盾的文案（日志里一眼就看得见）。
   //    所以非「每天」频率下，只在**真的限定了星期**时才带前缀。
   if (job.freq === '每小时') {
     // 「HH:MM 起每小时」——hour 是**起始时刻**的小时（见 `shouldRunArchiveJob`）
-    return job.weekdays.length ? `${days} ${time} 起每小时` : `${time} 起每小时`;
+    const t = `${String(job.hour).padStart(2, '0')}:${String(job.minute).padStart(2, '0')}`;
+    return job.weekdays.length ? `${days} ${t} 起每小时` : `${t} 起每小时`;
   }
   if (job.freq === '每15分钟') return job.weekdays.length ? `${days} 每 15 分钟` : '每 15 分钟';
+  // 🔴 「每天多次」必须走 `jobTimeText`（拼出 `08:00,13:00,18:00`）。
+  //    2026-09-30 踩到：这里原来写死 `${hour}:${minute}`，于是线上任务列表显示「每天 08:00」，
+  //    实际却按 `times` 一天跑三次 —— **调度是对的、显示是错的**，而这比反过来更坏：
+  //    峰哥按列表理解成"一天一次"，看到「上次运行」一天更新三次只会当成偶发。
+  //    （`archiveJobRowFields` 早有同样注释，这里漏改了。）
+  if (job.freq === '每天多次') return `${days} ${jobRunMinutes(job).map(formatTimeOfDay).join(',')}`;
+  const time = `${String(job.hour).padStart(2, '0')}:${String(job.minute).padStart(2, '0')}`;
   return `${days} ${time}`;
 }
 

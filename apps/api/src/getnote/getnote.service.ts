@@ -2284,18 +2284,33 @@ export class GetnoteService implements OnModuleInit {
     this.logger.log('音频补抓已交由统一调度器（定时任务「笔记音频补抓」，默认每天 3 次）');
   }
 
+  /**
+   * 「保存原始音频」的进度查询。
+   *
+   * 🔴 两处不能省（2026-09-30 线上验证时发现）：
+   * ① **兜底要带上 `noCred` / `trigger`** —— 空进度原先只回 7 个字段，而前端
+   *    `RefetchAudioProgress` 把这两个当必填 ⇒ 类型在骗人，页面上「选不到凭证」
+   *    永远是 `undefined`（显示成 0 或空白，看不出是真 0 还是没这个字段）。
+   * ② **要能看见定时任务那次** —— 定时补抓的进度存在 `audio:__cron__`（没有"某个人"），
+   *    而这里只读 `audio:<openId>`。于是峰哥在「定时任务」页点「运行」，
+   *    页面提示"进度见「我的笔记」页"，但那一页**永远是空的**。
+   *    ⇒ 本人没有自己的任务记录时，回落到定时任务那份（它才是正在跑的那个）。
+   */
   async refetchAudioStatus(user: SessionUser): Promise<RefetchAudioProgress> {
-    return (
-      this.audioJobs.get(`audio:${user.openId}`) ?? {
-        running: false,
-        total: 0,
-        done: 0,
-        stored: 0,
-        skipped: 0,
-        failed: 0,
-        bytes: 0,
-      }
-    );
+    const mine = this.audioJobs.get(`audio:${user.openId}`);
+    if (mine) return mine;
+    const cron = this.audioJobs.get('audio:__cron__');
+    if (cron) return cron;
+    return {
+      running: false,
+      total: 0,
+      done: 0,
+      stored: 0,
+      skipped: 0,
+      failed: 0,
+      bytes: 0,
+      noCred: 0,
+    };
   }
 
   private async runRefetchAudio(

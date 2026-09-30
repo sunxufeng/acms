@@ -131,6 +131,30 @@ describe('定时任务 · 兼容性与按类型的校验', () => {
     expect(archiveJobScheduleText(job({ freq: '每小时', hour: 7, minute: 15 }))).toContain('07:15 起每小时');
     expect(archiveJobScheduleText(job({ freq: '每15分钟' }))).toContain('15');
   });
+
+  it('🔴 「每天多次」的执行安排文案必须列出**全部**时刻（写死 hour:minute 会显示成一天一次）', () => {
+    // 2026-09-30 线上踩到：任务列表显示「每天 08:00」，实际一天跑三次。
+    // 调度是对的、显示是错的 —— 而峰哥按列表理解成"一天一次"，
+    // 看到「上次运行」一天更新三次只会当成偶发。这类"显示说谎"比不显示更坏。
+    const audio = job({ freq: '每天多次', hour: 8, minute: 0, times: [8 * 60, 13 * 60, 18 * 60] });
+    const text = archiveJobScheduleText(audio);
+    expect(text).toContain('08:00');
+    expect(text).toContain('13:00');
+    expect(text).toContain('18:00');
+    expect(text).not.toBe('每天 08:00'); // 曾经的错法，留成回归锚点
+
+    // 带星期前缀时同样要列全
+    expect(archiveJobScheduleText({ ...audio, weekdays: [1, 3] })).toContain('13:00');
+  });
+
+  it('🔴 「每天多次」的 `times` 与 `hour/minute` 不一致时，文案以 `times` 为准（那才是调度器读的）', () => {
+    // `jobRunMinutes()` 是调度判据的唯一来源；文案若看 hour/minute 就会与它分叉
+    const j = job({ freq: '每天多次', hour: 1, minute: 2, times: [9 * 60, 21 * 60] });
+    const text = archiveJobScheduleText(j);
+    expect(text).toContain('09:00');
+    expect(text).toContain('21:00');
+    expect(text).not.toContain('01:02');
+  });
 });
 
 /**

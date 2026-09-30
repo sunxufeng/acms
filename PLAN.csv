@@ -133,3 +133,10 @@ IDP 沟通记录里的录音附件：改成播放按钮（复用学生记录列�
 笔记归档内容去重：文件夹Token+kind+内容哈希（sha256、跨任务查），记录表加哈希字段,已完成,,P1,教学管理
 新增「信号规则」配置页（v11：信号开关+阈值+词表；判据参数化；试算用同一份判据；权限独立下发）,已完成,,P0,权限安全
 修「被移除的卡片再也恢复不了」（上板条件排在移除检查之前的顺序 bug；守卫加顺序断言）,已完成,,P0,教学管理
+笔记录音自动补抓改为统一调度任务（每天 3 次 08:00/13:00/18:00，删掉 getnote 进程内自建定时器；频率新增「每天多次」+ 槽位带序号）,已完成,,P0,教学管理
+IDP 配置页隐藏操作列（SHOW_OPS_COLUMN=false，表头与单元格同一常量；抽屉入口保留）,已完成,,P2,教学管理
+报表学生结构概览筛选顺序：入学年份移到入学年月之前,已完成,,P2,报表管理
+成绩册模板导出 + 成绩导入（parseGradeImport/buildGradeTemplateCsv/gradeCellExportText；空=不动·clear=清空·学生ID优先；分批300格）,已完成,,P1,教学管理
+修「新 slot 起不来」：ScheduledTasksModule 漏导 GetnoteModule（tsc/单测/typecheck 全绿、只有装配期才炸）；新增启动期装配守卫 nest-module-di.test.ts,已完成,,P0,基础设施
+修「定时任务列表显示说谎」：每天多次的执行安排文案写死 hour:minute 导致显示成一天一次；改用 jobRunMinutes+formatTimeOfDay,已完成,,P0,教学管理
+修「音频补抓进度看不见」：status 兜底缺 noCred/trigger 且看不到定时任务那份（audio:__cron__）；新增 getnote-audio-progress.test.ts 守卫,已完成,,P1,教学管理

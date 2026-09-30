@@ -1,11 +1,116 @@
 # ACMS 任务归档
 
-> 时间跨度：2026-08-25 ~ 2026-09-30（35 个工作日）· 共 **1298 条**（已完成 1291 · 待处理 7）
+> 时间跨度：2026-08-25 ~ 2026-09-30（35 个工作日）· 共 **1348 条**（已完成 1341 · 待处理 7）
 >
 > ⚠️ 本文件是**执行过程**的归档（含"构建部署验证"这类操作性任务），用于回溯"做过什么"。
 > **项目计划**（要做什么、优先级、状态）见仓库根目录 [`PLAN.md`](../PLAN.md)。
 >
 > 由 AI 助手在每次工作后同步；`[x]` = 已完成，`[ ]` = 待处理。
+
+## 2026-09-30 下午（峰哥四条需求 + 一次上线事故排查 + 线上验证揪出两个「显示说谎」bug，50 条，完成 50）
+
+四条需求：① 笔记录音自动补抓（每天 3 次）② IDP 配置页隐藏操作列 ③ 报表筛选顺序
+④ 成绩册模板导出 + 成绩导入。
+过程中第一次部署**新 slot 起不来**（探活恒 000），定位到 NestJS 模块漏导；
+线上验证又揪出两个「调度是对的、显示是错的」bug。全部当场修掉并重新上线。
+
+### 一、四条需求的实现
+
+- [x] 1️⃣ 新增任务类型「笔记音频补抓」（`JOB_KIND_NOTE_AUDIO`，加进 `JOB_KINDS` 穷举断言）
+- [x] 🔴 删掉 getnote 里那个**进程内自建定时器** `startAudioCron()`（硬编码 06:30、页面上看不见也改不了；
+      「迁过来」与「删掉旧的」必须同一轮做，留着就是每天 4 次）
+- [x] 契约层新增频率「每天多次」+ `parseTimesOfDay` / `jobRunMinutes` / `dueJobSlot` / `jobTimeText`
+- [x] 🔴 `jobSlotKey` 对「每天多次」必须带**槽序号** —— 否则三个时刻共用一个 key，
+      第一个跑过之后另外两个当天永远不跑（静默少跑两次）
+- [x] `hour` / `minute` 保留为「第一个时刻」，既有频率的槽位 key 一字不变（向后兼容，存量任务不少跑）
+- [x] 种子任务 `noteAudio`：08:00 / 13:00 / 18:00（**分散在一天**而非等间隔：录音当天陆续产生，
+      早上那次补昨天、午晚两次补当天），补跑窗口 3 小时
+- [x] 新增 `POST /getnote/refetch-audio/scheduled`（无触发者版本，`@HttpCode(200)`，权限 `module:getnote:update`）
+- [x] `runScheduledAudioRefetch(onDone?)` 加完成回调 ⇒ 跑完把**真实数字**回写「上次运行详情」
+- [x] 定时任务页补「笔记音频补抓」运行分支；补齐前端 `RefetchAudioProgress` 缺失的 `noCred` / `trigger`
+- [x] 2️⃣ `/idp-configs` 隐藏操作列：`SHOW_OPS_COLUMN = false`，**表头与单元格同一常量**；
+      抽屉入口代码保留（只是不渲染）—— 那是 `IdpCommDrawer` 的唯一入口
+- [x] 3️⃣ 报表筛选项顺序：`FILTER_KEYS` 把「入学年份」移到「入学年月」之前
+- [x] 4️⃣ 成绩册模板导出 + 成绩导入（contracts 新增 `parseCsvRows` / `csvCell` / `gradeColumnHeaders` /
+      `gradeHeaderIndex` / `buildGradeTemplateCsv` / `parseGradeImport` / `gradeCellExportText`）
+- [x] 🔴 清空标记用 `clear` 而**不是** `-` —— 后端 `parseScoreInput` 把 `-` / `na` 当**缺考**，
+      同一个符号两套语义必然出事
+- [x] 🔴 导出用 `gradeCellExportText`（语言无关：免/缺/等级/数字），**不用**界面 i18n 的 `cellText`
+      （英文界面会导出 `Excused`，机器往返就断了）
+- [x] 三条语义落地：**空 = 不动** / **`clear` = 清空** / 学生匹配 **ID 优先**（同名必须唯一，否则报错而不是猜）
+- [x] 前端「导出模板」「导入成绩」两个按钮 + 导入弹窗（两步确认 + 分批 300 格，避免单请求超时后"不知道进了多少"）
+- [x] `CrudPage.parseCsv` 改为复用全站那一份 `parseCsvRows`（原来各写一份）
+
+### 二、上线事故：新 slot 起不来（探活恒 000）
+
+- [x] 现象：部署后 `acms-api@3002` 崩溃重启 10 次，探活 60 次全 `api=000`、`web=200`
+- [x] 日志根因：`Nest can't resolve dependencies of the ScheduledTasksRunner (…, GetnoteService)`
+- [x] 🔴 真因：`scheduled-tasks.module.ts` 里 `import { GetnoteModule } …` 写了，
+      但 `@Module({ imports: [...] })` 数组**漏了它**
+- [x] 🔴 关键教训：`tsc` / 单测 / typecheck / i18n lint **全绿** —— 数组元素只是类引用，
+      编译期与测试期都看不见，**只有装配期才炸**
+- [x] 生产未受影响：蓝绿未切流（脚本在探活阶段就中止了，没动 nginx），nginx 仍指 3001
+- [x] 补齐 imports 数组（附原因注释）；顺手删掉 `app.module.ts` 里未使用的 `AiDocsModule` import
+      （真正注册它的是 `ai.module.ts`，那份是对的）
+- [x] 新增 `apps/api/test/nest-module-di.test.ts` 三条**启动期装配守卫**（零豁免白名单）：
+      ① 凡 `import { XxxModule }` 出现就必须写进 `@Module.imports`
+      ② `ScheduledTasksRunner` 注入的每个 service，其声明模块必须被导入且已 `exports`
+      ③ imports 里的 `XxxModule` 必须是真模块（按 `export class XxxModule` 收集，**不按文件名推**）
+- [x] 🔴 已做**反证**：临时删掉 `GetnoteModule` ⇒ 断言 ①② 立刻转红（守卫真的拦得住）
+- [x] ⚠️ 守卫实现踩坑：`moduleField` 用非贪婪正则会被 `registerAll([...])` 的**内层 `]`** 提前截断，
+      导致数组后半截被静默丢掉 ⇒ 改成**括号配对 + 顶层逗号切分**
+
+### 三、任务行落库 + 线上功能验证
+
+- [x] ⚠️ `noteAudio` 任务行**必须手工插**：`seedJobs()` 只在任务表为空时播种
+      （"用户删掉的任务重启后自己长回来"比"少一条任务"更难解释）。插入后核对共 6 条任务
+- [x] ⚠️ 插入时机有讲究：**必须等新版本上线后**再插 —— 旧版不认识这个类型，
+      `parseArchiveJobRow` 会把它当「笔记归档」兜底
+- [x] 写综合验证探针：Node 侧 `require` **服务器上的 contracts 构建产物**（`/tmp/cc_dist2`）
+      ⇒ 与线上**同一份判据**，绝不照抄重写一份（记忆里踩过：自算 8 人 vs 线上 42 人）
+- [x] 探针通过伪造管理员会话（写 redis `session:<SID>`）走真实接口，跑完即清理
+- [x] 🎉 录音补抓**实测生效**：候选 25 · **已保存 25** · 无音频 0 · 失败 0 · 选不到凭证 0 · **58.6 MB**
+      —— 峰哥「没法播放的笔记」真的被自动存下来了
+- [x] 复跑一次候选 = **0** ⇒ 既证明幂等，也证明上一轮那 25 篇确实落库
+- [x] 数据面复核：PG 正文表 `音频状态=已保存` 共 **783** 条
+- [x] 成绩册往返（真实班级「全球领航计划」2 生 × 3 列）：导出 → 回读 rows == 有值格数 →
+      原样提交 `saved=3 / errors=0 / skipped=0` → 再拉网格**逐格文本无漂移**（幂等，未误改成绩）
+- [x] 成绩册三条语义线上实测：`clear` → `clears=1` 且产出 `raw=''` 的变更行；空值 → rows/clears 全 0；
+      学生找不到 → 报 problem（**不是静默丢弃**）
+- [x] 页面可达性：`/` `/reports` `/idp-configs` `/markbook` `/scheduled-tasks` `/getnote` 全 200
+
+### 四、线上验证揪出的两个「显示说谎」bug（当场修掉并重新上线）
+
+- [x] 🔴 `archiveJobScheduleText` 对「每天多次」写死了 `hour:minute` ⇒ 任务列表显示「每天 08:00」，
+      实际按 `times` 一天跑三次。**调度是对的、显示是错的** —— 而这比反过来更坏：
+      峰哥按列表理解成"一天一次"，看到「上次运行」一天更新三次只会当成偶发
+- [x] 改为 `jobRunMinutes(job).map(formatTimeOfDay)`（与调度器同一份判据）；线上已验证显示为
+      `每天 08:00,13:00,18:00`。（`archiveJobRowFields` 旁边早就写过这条警告，这里漏改了）
+- [x] 🔴 `refetchAudioStatus` 空进度兜底只回 7 个字段，缺 `noCred` / `trigger`，
+      而前端把它们当必填 ⇒ **类型在骗人**，页面上「选不到凭证」永远是 `undefined`
+- [x] 🔴 定时补抓进度存 `audio:__cron__`（没有"某个人"），而 status 只读 `audio:<openId>`
+      ⇒ 在「定时任务」页点「运行」，提示"进度见「我的笔记」页"，而那一页**永远是空的**
+- [x] 改为：先读本人那份，没有则回落定时任务那份；兜底补上 `noCred`
+      （线上已验证：`/getnote/refetch-audio/status` 能读到 `trigger=cron` 的那份进度）
+- [x] 新增 `apps/api/test/getnote-audio-progress.test.ts`（6 条）：兜底含 `noCred`、能看见定时任务那份、
+      读侧顺序（先本人后 cron）、写/读两侧 key 是**同一字面量且只出现 2 处**
+- [x] ⚠️ 该测试实现踩坑：计数前**必须先剥注释**（我自己在 JSDoc 里写了 `audio:__cron__`，
+      不剥就永远多 1）；且 `bodyOf` 的"下一个方法"窗口取错会把后面的方法框进来
+- [x] 修两处注释漂移：`GradeImportParsed.rows` 说"已剔除空值"，但写 `clear` 的格子会以 `raw: ''` 进 rows
+      （后端把空串解释成删除）；`clears` 的注释还写着旧标记 `-`
+
+### 五、前端改动必须**核线上构建产物**（页面是客户端渲染，不看产物就能漏）
+
+- [x] 报表：产物里顺序确为 `当前年级 → 入学年份 → 入学年月`
+- [x] IDP 配置页：产物里已**无** `viewComms`（`SHOW_OPS_COLUMN=false` 让分支被 DCE）+ **反证**
+      同页其他列头 `colGrade` 仍在产物里 ⇒ 上面的"没有"是真没有，不是整页没构建出来
+
+### 六、交付链（顺序：commit → 推 GitHub → 构建 → 打包 → 部署 → 验证）
+
+- [x] GitHub 为唯一事实源：两次推送后都比对 **tree SHA**（快照式推送 ⇒ SHA 会不同，tree 相同即等价）
+- [x] 打包后核对 **tar 内 BUILD_ID == 本地 `.next/BUILD_ID`**（沙箱会静默拦 `build_tars.sh`，退出码 0 且零输出）
+- [x] 部署脚本零空窗验证：`buildId` 期望值 == 实际服务值，且 `.deploy_slot` 与 nginx upstream 一致
+- [x] 测试 871 passed（+11）· typecheck 全绿 · i18n lint 通过
 
 ## 2026-09-30 上午（峰哥六条需求之一/三/四/五/六 + 之二「信号规则」配置页，52 条，完成 52）
 

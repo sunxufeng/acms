@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CrudPage from '../../components/CrudPage';
 import type { CrudColumn } from '../../components/CrudPage';
 import { api } from '../../lib/api';
@@ -8,6 +8,8 @@ import { COLUMNS } from './columns';
 // 403 机器码 → 人话：这四个同步/维护接口判的是 module:weilingContacts:update，
 // 没有该权限的人点按钮原来只会看到 `FORBIDDEN:module:weilingContacts:update`。
 import { forbiddenText } from '../../lib/apiError';
+import { usePermissions } from '../../lib/permissions';
+import WeilingEnrollModal from '../../components/WeilingEnrollModal';
 
 /** 接口错误 → 提示文案（权限类错误翻成「没有权限（联系人管理 · 编辑）…」） */
 function errMsg(e: unknown): string {
@@ -28,6 +30,22 @@ export default function WeilingContactsPage() {
   const [lostMsg, setLostMsg] = useState('');
   const [lostRunning, setLostRunning] = useState(false);
   const [lostProgress, setLostProgress] = useState<{ scanned: number; total: number } | null>(null);
+  /**
+   * 「入学」弹窗的目标（`null` = 关着）。
+   * 动作实质是**往学生档案建记录** ⇒ 需要同时持有两个权限点（后端也这么判）。
+   * 前端只负责把按钮藏起来，真正的闸门在 `weiling.controller.requireEnroll`。
+   */
+  const [enrollTarget, setEnrollTarget] = useState<{ id: string; name: string } | null>(null);
+  const [enrollMsg, setEnrollMsg] = useState('');
+  /**
+   * CrudPage 给的行级 reload，转档成功后用它刷新列表（「关联学生」列要立刻更新）。
+   * 🔴 用 `useRef` 而**不是** `useState`：`setReloadRef(() => reload)` 会被 React
+   *    当成**函数式更新**（把 updater 的返回值当新状态），行为虽然碰巧对，
+   *    但语义是错的、下一个人读不懂，改成 `useState` 存函数很容易踩坏。
+   */
+  const reloadRef = useRef<(() => void) | null>(null);
+  const perms = usePermissions();
+  const canEnroll = perms.includes('module:weilingEnroll:update') && perms.includes('module:students:create');
   const [options, setOptions] = useState<Record<string, string[]>>({});
   /**
    * 报表下钻进来的隐藏条件（没有对应筛选控件，用户看不到就会以为「筛选没生效」）。
@@ -333,8 +351,36 @@ export default function WeilingContactsPage() {
         // 只读：数据来自卫瓴，这里不提供任何写入能力
         readonly
         hideCreate
-        // 只读列表没有行内动作，「操作」列只剩一个空单元格，白占 150px
-        hideActions
+        // 2026-09-30：「操作」列回来了 —— 但不是为了改这一行，而是「入学」
+        // （把联系人转成学生档案里的学生）。数据本身仍然只读：
+        // `readonly` 会挡住新建/编辑/删除/导出/导入，本开关**只**放开 rowActionSlot。
+        rowActionSlotWhenReadonly
+        rowActionSlot={(row, reload) => {
+          const id = String(row.id ?? '');
+          const linkedId = String(row['关联学生ID'] ?? '');
+          const studentName = String(row['关联学生'] ?? '');
+          if (linkedId) {
+            // 已关联过 ⇒ 不给「入学」（重复转档会造出第二条同样档案），只给查看入口
+            return (
+              <a className="btn btn-ghost btn-sm" href={`/students/${encodeURIComponent(linkedId)}`} title={`已关联到学生「${studentName}」`}>
+                查看学生 ↗
+              </a>
+            );
+          }
+          if (!canEnroll) return <span className="muted" style={{ fontSize: 12 }}>—</span>;
+          return (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                reloadRef.current = reload;
+                setEnrollTarget({ id, name: String(row['联系人姓名'] ?? id) });
+              }}
+            >
+              入学
+            </button>
+          );
+        }}
         // 「疑似关联学生」是按姓名匹配出来的（不是 link），显式声明后
         // CrudPage 会注入 __studentEnglish，让该列显示「中文名 / 英文名」
         studentNameKeys={['关联学生']}
@@ -371,6 +417,28 @@ export default function WeilingContactsPage() {
           list: (p) => api.listWeilingContacts(p),
         }}
       />
+
+      {enrollMsg ? (
+        <div className="notice notice-ok" style={{ marginTop: 12 }}>
+          {enrollMsg}
+          <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} onClick={() => setEnrollMsg('')}>
+            知道了
+          </button>
+        </div>
+      ) : null}
+
+      {enrollTarget ? (
+        <WeilingEnrollModal
+          contactId={enrollTarget.id}
+          contactName={enrollTarget.name}
+          onClose={() => setEnrollTarget(null)}
+          onDone={(studentId) => {
+            setEnrollTarget(null);
+            setEnrollMsg(`已处理：该联系人现在已关联到学生档案（${studentId}）。列表已刷新。`);
+            reloadRef.current?.();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

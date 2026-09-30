@@ -514,6 +514,21 @@ export interface CrudPageProps {
    */
   hideActions?: boolean;
   /**
+   * **只读列表也渲染 `rowActionSlot`**（连同「操作」列表头）。默认 false。
+   *
+   * 场景：数据本身只读、但允许对某一行做一次**跨模块动作** ——
+   * 典型是「卫瓴联系人 → 转入学生档案」（2026-09-30 峰哥需求）：
+   * 联系人是从上游同步来的只读副本，而「入学」这个动作要在**学生档案**里建记录，
+   * 不修改联系人本身 ⇒ 既不该放开编辑、又必须有个行级入口。
+   *
+   * 🔴 只放开 `rowActionSlot`：新建 / 编辑 / 删除 / 导出 / 导入仍由 `readonly` 挡住
+   *    （`canCreate` / `canUpdate` / `canDelete` 全都带 `!readonly`），
+   *    `rowExtraActions` 与状态流转也**不**放开 —— 那两类语义是"改这一行"。
+   * 🔴 页面若同时传 `hideActions`，本字段仍能把它压回来；但别这么用，意图会读不清：
+   *    **要么去掉 `hideActions`，要么别传本字段**。
+   */
+  rowActionSlotWhenReadonly?: boolean;
+  /**
    * 这些列的**文本值本身就是学生姓名**（而非 link 存的 record id）。
    * 提供后 CrudPage 会拉一次学生档案建「中文名 → 英文名」映射，并以
    * `__studentEnglish` 注入行上，供模块自定义 render 用 studentLabel() 显示双语。
@@ -682,7 +697,7 @@ let weilingContactCache: { value: string; label: string }[] | null = null;
  */
 let weilingContactStudentNameCache: Record<string, string> | null = null;
 
-export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, createDefaults, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, studentNameKeys, sidebar, extraParams, rowActionSlot, expandedRow, formOnly, onFormChange }: CrudPageProps) {
+export default function CrudPage({ title, subtitle, columns, api, statusField, transitions, statusClass, extraActions, readonly, rangeFilters, search, passthroughParams, inlineEdit, standaloneForm, renderForm, onEditingChange, pageSize, extraLinks, createHref, createDefaults, editHref, detailHref, studentDetailHref, rowExtraActions, formExtraActions, hideCreate, selection, onSelectionChange, backHref, enrichEditRow, onRowsLoaded, moduleKey, enrichPrefill, bulkActions, columnSettings, autoRefresh, onInlineSwitch, hideActions, rowActionSlotWhenReadonly, studentNameKeys, sidebar, extraParams, rowActionSlot, expandedRow, formOnly, onFormChange }: CrudPageProps) {
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   // 每页条数可由用户在分页条上切换（默认沿用 props.pageSize，缺省 10）。
@@ -904,7 +919,9 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
   const pageIds = items.map(selKey);
   const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedRows.has(id));
   const someOnPageSelected = pageIds.some((id) => selectedRows.has(id));
-  const showActions = !hideActions;
+  // 只读列表默认不出「操作」列；但页面显式要行级动作时（`rowActionSlotWhenReadonly`）
+  // 也得把这一列渲染出来 —— 否则槽"渲染了却没地方显示"，是个静默无效果的改动
+  const showActions = !hideActions || !!rowActionSlotWhenReadonly;
   const colCount = listCols.length + (showActions ? 1 : 0) + (selection ? 1 : 0);
   const toggleRow = (row: Record<string, unknown>) => {
     const id = selKey(row);
@@ -2504,7 +2521,7 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                   <td>
                     <div style={rowActions}>
                       {/* 自定义插槽（如笔记行的「播放 / 停止」「归档 / 激活」）—— 放最前，操作列一眼可见 */}
-                      {!readonly && rowActionSlot?.(row, () => reload())}
+                      {(!readonly || rowActionSlotWhenReadonly) && rowActionSlot?.(row, () => reload())}
                       {canUpdate && editHref ? (
                         <Link href={editHref(String(row.id))} className="btn btn-ghost btn-sm">{t('crud.edit')}</Link>
                       ) : canUpdate && (

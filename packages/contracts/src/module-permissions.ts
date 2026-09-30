@@ -133,7 +133,7 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *     必须声明 `update` —— 只声明 read 的话矩阵里没有可勾的格，
  *     这个点连 `PERMISSIONS` 目录都不在（`weilingContacts:update` 踩过同一个坑）。
  */
-export const ROLE_PERMISSION_VERSION = 11;
+export const ROLE_PERMISSION_VERSION = 12;
 
 /**
  * 资源「从哪个版本开始存在」。
@@ -176,6 +176,11 @@ export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
   // v11（2026-09-30）：「信号规则」配置页。改一个词表就能让半个学校上板或下板，
   // 影响面是**全站每个人的看板** ⇒ 同样 `legacyRead: null`，不随迁移发放。
   studentSupportConfig: 11,
+  // v12（2026-09-30）：「联系人 → 转入学生档案」。**会往学生档案建记录**（不可逆、且新建的
+  // 学生立刻出现在所有人的学生列表里）⇒ 属于敏感动作，`legacyRead: null` **不随迁移发放**。
+  // 设计上只给招生老师，由管理员在角色矩阵里手工勾。
+  // ⚠️ 引入版本必须 == 当次抬的版本号，否则 `(11, 12]` 这段增量覆盖不到它。
+  weilingEnroll: 12,
 };
 
 /** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */
@@ -481,6 +486,26 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   //  联系人管理页的四个同步按钮点了必然 403（报 FORBIDDEN:module:weilingContacts:update）。
   //  声明之后：系统管理员由代码目录自愈获得，其他角色按需在矩阵里勾。
   { key: 'weilingContacts', label: '联系人管理', path: '/weiling-contacts', legacyRead: 'weiling:read', legacyWrite: 'weiling:write', menuPermission: 'weiling:read', actions: [...READ, 'update'], genericCrud: true },
+  /**
+   * 「联系人 → 转入学生档案」（v12，2026-09-30 峰哥需求）。
+   *
+   * 动作实质 = **读联系人 + 往学生档案建一条记录**，所以：
+   *  · 单独一个权限点（没有复用 `weilingContacts:update`）—— 能"维护联系人"的人
+   *    （同步/重算/重匹配）不该自动获得"建学生档案"的能力，两者受众与后果都不同；
+   *  · 后端**另外叠加**要求 `module:students:create`（见 weiling.controller 的
+   *    `requireEnroll`）：缺任一个都不该放行，且要在 403 里说清缺的是哪个。
+   *    ⚠️ 只判 `weilingEnroll` 会在"给了入学点、没给建学生点"时让请求在
+   *    `StudentService.create` 里 403 —— 那时错误信息已经离按钮很远了。
+   *
+   * 🔴 `legacyRead: null`：**不随权限迁移发放**。改一条联系方式是可改的，
+   *    而它会在学生档案里留下一条**新记录**（进入所有人可见的学生列表）⇒ 只手工授予。
+   * 🔴 `actions` 必须含 `update`（真正执行写动作的那个动作）：只声明 read 的话
+   *    矩阵里**没有那一格可勾**，这个点连 `PERMISSIONS` 目录都不在，保存必然 403
+   *    —— `weilingContacts:update` 与 `studentSupportConfig` 都踩过同一个坑。
+   * 🔴 `subOf: 'weilingContacts'`：它**没有自己的菜单**（入口是联系人列表的操作列），
+   *    不填这个字段矩阵里就生不出勾选行，管理员找不到地方授权。
+   */
+  { key: 'weilingEnroll', label: '联系人转学生档案', path: '/weiling-contacts', legacyRead: null, legacyWrite: null, menuPermission: null, actions: [...READ, 'update'], subOf: 'weilingContacts' },
   { key: 'reports', label: '报表管理', path: '/reports', legacyRead: 'report:read', legacyWrite: null, menuPermission: 'report:read', actions: READ },
   // ── 报表级权限（v3，2026-09-19）：每个报表一个权限点 ──
   //

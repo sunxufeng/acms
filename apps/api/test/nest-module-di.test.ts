@@ -26,7 +26,34 @@ import { describe, expect, it } from 'vitest';
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(here, '..', 'src');
-const read = (p: string) => readFileSync(p, 'utf8');
+
+/**
+ * 带缓存的读文件。
+ *
+ * 🔴 必须缓存：下面的断言会对同一批 module 文件反复 `read + stripComments`
+ *    （外层遍历文件、内层再为每个依赖重读一遍）⇒ 无缓存时是 O(n×m) 次磁盘读，
+ *    在本机沙箱里会**偶发超时**（实测同一条断言先 29ms、后 >5s 被 kill）。
+ *    守卫不该因为磁盘慢而变红 —— 那会让人开始"重跑一次看看"，
+ *    而这类守卫一旦被当成噪音就会被绕过。
+ */
+const fileCache = new Map<string, string>();
+const read = (p: string) => {
+  const hit = fileCache.get(p);
+  if (hit !== undefined) return hit;
+  const text = readFileSync(p, 'utf8');
+  fileCache.set(p, text);
+  return text;
+};
+
+/** 带缓存的 `read + stripComments`（注释剥了就等于换了一份内容，单独缓存） */
+const strippedCache = new Map<string, string>();
+const stripped = (p: string) => {
+  const hit = strippedCache.get(p);
+  if (hit !== undefined) return hit;
+  const text = stripComments(read(p));
+  strippedCache.set(p, text);
+  return text;
+};
 
 /** 递归收集 `*.module.ts` */
 function moduleFiles(dir: string): string[] {
@@ -136,13 +163,13 @@ const MODULE_IMPORT_EXEMPT: Record<string, string> = {};
 describe('NestJS 模块装配守卫', () => {
   const files = moduleFiles(SRC);
 
-  it('🔴 凡 `import { XxxModule }` 出现的模块，必须写进 `@Module.imports` 数组里', () => {
+  it('🔴 凡 `import { XxxModule }` 出现的模块，必须写进 `@Module.imports` 数组里', { timeout: 30_000 }, () => {
     // 这条断言直接对应 2026-09-30 那次「新 slot 起不来、探活全 000」的事故：
     // 编译器不会报错，因为它只知道"这个标识符被 import 了、也被用到了（或根本没用到）"。
     const violations: string[] = [];
     for (const f of files) {
       const rel = path.relative(SRC, f);
-      const src = stripComments(read(f));
+      const src = stripped(f);
       // 该文件 import 进来的所有 `XxxModule`
       const imported = new Set<string>();
       for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"][^'"]*\.module\.js['"]/g)) {
@@ -166,11 +193,11 @@ describe('NestJS 模块装配守卫', () => {
     expect(violations).toEqual([]);
   });
 
-  it('🔴 ScheduledTasksRunner 注入的每个 service，其声明模块必须被导入且已 exports', () => {
+  it('🔴 ScheduledTasksRunner 注入的每个 service，其声明模块必须被导入且已 exports', { timeout: 30_000 }, () => {
     const runnerPath = path.join(SRC, 'scheduled-tasks', 'scheduled-tasks.runner.ts');
     const schedPath = path.join(SRC, 'scheduled-tasks', 'scheduled-tasks.module.ts');
-    const runner = stripComments(read(runnerPath));
-    const schedSrc = stripComments(read(schedPath));
+    const runner = stripped(runnerPath);
+    const schedSrc = stripped(schedPath);
 
     // 构造函数注入的 service 类名（`private readonly xxx: FooService`）
     const ctor = /constructor\(([\s\S]*?)\)\s*\{/.exec(runner);
@@ -184,7 +211,7 @@ describe('NestJS 模块装配守卫', () => {
     const problems: string[] = [];
     for (const dep of deps) {
       // 找到声明（providers 里含它）的那个模块
-      const decl = files.find((f) => moduleField(stripComments(read(f)), 'providers').includes(dep));
+      const decl = files.find((f) => moduleField(stripped(f), 'providers').includes(dep));
       if (!decl) {
         problems.push(`${dep}：找不到任何模块在 providers 里声明它`);
         continue;
@@ -194,7 +221,7 @@ describe('NestJS 模块装配守卫', () => {
         problems.push(`${dep}：${path.relative(SRC, decl)} 里找不到 export class XxxModule`);
         continue;
       }
-      const declSrc = stripComments(read(decl));
+      const declSrc = stripped(decl);
       if (!importedModules.has(declName)) {
         problems.push(`${dep} → 声明它的 ${declName} 未列入 ScheduledTasksModule.imports`);
       }
@@ -205,7 +232,7 @@ describe('NestJS 模块装配守卫', () => {
     expect(problems).toEqual([]);
   });
 
-  it('🔴 每个模块 `imports` 里出现的 `XxxModule` 都必须是**真模块**（防止笔误写了个不存在的名字）', () => {
+  it('🔴 每个模块 `imports` 里出现的 `XxxModule` 都必须是**真模块**（防止笔误写了个不存在的名字）', { timeout: 30_000 }, () => {
     // Nest 对未定义的标识符会直接 ReferenceError，但写法千奇百怪；
     // 这里只守"列进 imports 的模块标识符，源码里确实有对应文件 export 它"。
     // ⚠️ 用 `export class XxxModule` 收集，**不能**按文件名推 —— `sources.module.ts`
@@ -220,7 +247,7 @@ describe('NestJS 模块装配守卫', () => {
 
     const problems: string[] = [];
     for (const f of files) {
-      for (const name of moduleField(stripComments(read(f)), 'imports')) {
+      for (const name of moduleField(stripped(f), 'imports')) {
         if (!/Module$/.test(name)) {
           problems.push(`${path.relative(SRC, f)} → imports 里出现非模块标识符「${name}」`);
           continue;

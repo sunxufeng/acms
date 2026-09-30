@@ -925,6 +925,40 @@ export const api = {
     ),
   syncWeilingLost: () =>
     request<{ ok: boolean; started: boolean; message?: string }>('/weiling/sync-lost', { method: 'POST' }),
+  /**
+   * 「联系人 → 转入学生档案」的**预检**（不写任何数据）。
+   *
+   * 🔴 为什么要有这个接口、而不是让弹窗自己算：字段能不能填、能不能映射、
+   *    姓名是否可用 —— 这套判据在 `@acms/contracts` 里**只有一份**，
+   *    前端重算一遍必然与后端不一致，就会出现"弹窗说会填、实际没填"。
+   *    重名检测（同名已有学生）也只能在服务端做。
+   */
+  weilingEnrollPreview: (contactId: string) =>
+    request<WeilingEnrollPreview>(`/weiling/contacts/${encodeURIComponent(contactId)}/enroll-preview`),
+  /**
+   * 转入学生档案。两种模式：
+   *  · 默认 —— 新建一条学生档案；
+   *  · 传 `linkExistingStudentId` —— 关联到已存在的学生（重名分支），只补空的「招生负责老师」。
+   */
+  weilingEnroll: (
+    contactId: string,
+    body: {
+      picked?: Record<string, boolean>;
+      overrides?: Record<string, string>;
+      linkExistingStudentId?: string;
+      backfill?: { sourceFollowups?: boolean; mail?: boolean };
+    },
+  ) =>
+    request<{
+      ok: boolean;
+      mode: 'created' | 'linked';
+      studentId: string;
+      studentName: string;
+      steps: { label: string; value: string }[];
+    }>(`/weiling/contacts/${encodeURIComponent(contactId)}/enroll`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   weilingAnalyze: (params: { from?: string; to?: string; owner?: string; channel?: string; stage?: string; status?: string } = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);
@@ -2535,6 +2569,37 @@ export interface MarkbookLevel {
   max: number | null;
   concern: boolean;
 }
+/** 转档草稿的一格（与 `@acms/contracts` 的 `EnrollDraftField` 同形） */
+export interface WeilingEnrollDraftField {
+  key: string;
+  label: string;
+  value: string;
+  /** 给人看的展示值（`招生负责老师` 的 value 是 open_id，这里放姓名） */
+  display?: string;
+  tier: 'solid' | 'check' | 'skip';
+  source: string;
+  why?: string;
+  editable: boolean;
+  options?: readonly string[];
+}
+
+/** 「联系人 → 转入学生档案」预检结果 */
+export interface WeilingEnrollPreview {
+  draft: {
+    studentName: string;
+    nameProblem: string | null;
+    fields: WeilingEnrollDraftField[];
+    derived: Record<string, string>;
+    remark: string;
+  };
+  /** 同名学生（同一姓名在档案里已存在）—— 有值时弹窗顶部要给分支 */
+  sameName: { id: string; name: string; grade: string; cls: string; enrolledAt: string; status: string }[];
+  /** 该联系人此前已关联的学生（`null` = 没关联过） */
+  link: { studentId: string; studentName: string; score: number; reason: string } | null;
+  /** 回填候选条数（按姓名匹配出来的） */
+  backfill: { sourceFollowups: number; mail: number };
+}
+
 export interface MarkbookGrid {
   cls: string;
   columns: MarkbookColumn[];

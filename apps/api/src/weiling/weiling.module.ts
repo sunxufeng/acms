@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TABLES } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
+import { StudentModule } from '../student/student.module.js';
 import { WeilingController } from './weiling.controller.js';
 import { WeilingService } from './weiling.service.js';
 
@@ -10,8 +11,14 @@ import { WeilingService } from './weiling.service.js';
  * - 列表/详情走 generic-crud（lifecycle.meta.ts 里 path='weiling-contacts'），
  *   模块资源只登记了 READ，所以接口层没有 create/update/delete
  * - 本 controller 额外提供：字段描述、同步状态、手动同步
+ * - 🔴 `StudentModule` 是「联系人 → 转入学生档案」（v12）要用的：`WeilingService`
+ *   注入了 `StudentService`（建学生必须复用它的必填校验 / ABAC / 默认值 / open_id 口径）。
+ *   **import 了就必须写进下面的 `imports` 数组** —— 漏了的话 tsc/单测全绿、
+ *   只有启动期 `Nest can't resolve dependencies of WeilingService`（守卫
+ *   `apps/api/test/nest-module-di.test.ts` 会拦）。
  */
 @Module({
+  imports: [StudentModule],
   controllers: [WeilingController],
   providers: [WeilingService],
   exports: [WeilingService],

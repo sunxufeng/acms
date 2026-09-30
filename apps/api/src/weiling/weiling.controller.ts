@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import type { SessionUser } from '@acms/contracts';
 import { modulePermission, REPORT_MODULE_KEYS } from '@acms/contracts';
@@ -40,6 +40,32 @@ export class WeilingController {
     const need = modulePermission(REPORT_MODULE_KEYS.weiling, 'read');
     if (authorize(principal, need).allowed || authorize(principal, 'module:weilingContacts:read').allowed) return;
     throw new HttpException(`FORBIDDEN:${need}`, HttpStatus.FORBIDDEN);
+  }
+
+  /**
+   * 「联系人 → 转入学生档案」的判据：**两个权限点都要**（2026-09-30）。
+   *
+   * 动作实质 = 读联系人 + 往学生档案**建一条记录**，所以：
+   *   · `module:weilingEnroll:update` —— 这是"把线索变成学生"这件事本身的许可
+   *     （`legacyRead: null`，只手工勾给招生老师）；
+   *   · `module:students:create` —— 建学生档案的许可。
+   *
+   * 🔴 为什么两个都判、而不是只判 `weilingEnroll`：只判前者时，若某个角色有入学点
+   *    但没有建学生点，请求会在 `StudentService.create()` 里才 403 ——
+   *    那时错误已经"离按钮很远"，前端只能显示一句莫名的失败。
+   *    在这里判，403 的 message 能直接说清**缺的是哪一个**。
+   * 🔴 为什么不用 `module:weilingContacts:update` 代替 `weilingEnroll`：
+   *    能"维护联系人"（同步 / 重算 / 重匹配）的人不该自动获得"建学生档案"的能力，
+   *    两者受众与后果都不同。详见 contracts 里该权限点的注释。
+   */
+  private static requireEnroll(user: SessionUser): void {
+    const principal = { roles: user.roles, campuses: user.campuses, maxDataLevel: user.maxDataLevel };
+    if (!authorize(principal, 'module:weilingEnroll:update').allowed) {
+      throw new HttpException('FORBIDDEN:module:weilingEnroll:update', HttpStatus.FORBIDDEN);
+    }
+    if (!authorize(principal, 'module:students:create').allowed) {
+      throw new HttpException('FORBIDDEN:module:students:create', HttpStatus.FORBIDDEN);
+    }
   }
 
   /** 字段描述（中文名 + 枚举选项），前端用它渲染详情与翻译自定义字段 */
@@ -139,6 +165,44 @@ export class WeilingController {
       throw new HttpException('FORBIDDEN:module:weilingContacts:update', HttpStatus.FORBIDDEN);
     }
     return this.svc.matchStudents({ fillRecruiter: 'always' });
+  }
+
+  /**
+   * 转档预览：把「会写进学生档案的每一格、它的来源、同名学生、已有关联」一次取全。
+   *
+   * 🔴 **不写任何数据**，是给确认弹窗用的。为什么单独一个接口而不是让前端自己算：
+   *    判据（哪些能填 / 能不能映射 / 姓名是否可用）在 contracts 里**只有一份**，
+   *    前端重算一遍必然与后端不一致 —— 就会出现"弹窗说会填、实际没填"。
+   */
+  @Get('contacts/:id/enroll-preview')
+  enrollPreview(@Req() req: Request, @Param('id') id: string) {
+    WeilingController.requireEnroll((req as Request & { user: SessionUser }).user);
+    return this.svc.enrollPreview(String(id));
+  }
+
+  /**
+   * 转入学生档案。两种模式：
+   *   · 默认 —— 新建一条学生档案；
+   *   · 传了 `linkExistingStudentId` —— **关联到已存在的学生**（重名分支），
+   *     只补空的「招生负责老师」，不新建、不改动其它字段。
+   *
+   * 返回 `steps[]`：逐条说明"哪一格写进去了、哪一格为什么跳过"，用户要看这个。
+   */
+  @Post('contacts/:id/enroll')
+  enroll(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      picked?: Record<string, boolean>;
+      overrides?: Record<string, string>;
+      linkExistingStudentId?: string;
+      backfill?: { sourceFollowups?: boolean; mail?: boolean };
+    },
+  ) {
+    const user = (req as Request & { user: SessionUser }).user;
+    WeilingController.requireEnroll(user);
+    return this.svc.enroll(user, String(id), body ?? {});
   }
 
   /**

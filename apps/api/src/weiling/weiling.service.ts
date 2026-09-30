@@ -1,5 +1,18 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { TABLES, USER_TABLE, WEILING_STATUS_ORDER, weilingStatusLabel } from '@acms/contracts';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  TABLES,
+  USER_TABLE,
+  WEILING_STATUS_ORDER,
+  weilingStatusLabel,
+  WEILING_STUDENT_NAME_KEY,
+  buildEnrollDraft,
+  enrollWriteFields,
+  weilingStudentName,
+  type EnrollDraft,
+  type SessionUser,
+  type WeilingEnrollContext,
+} from '@acms/contracts';
+import { StudentService } from '../student/student.service.js';
 import { getSqlStore } from '../base.provider.js';
 import { decryptSecret } from '../shared/secret-cipher.js';
 import { runAs, systemActor } from '../shared/actor-context.js';
@@ -23,6 +36,11 @@ import { linkIds } from '../shared/record.util.js';
 
 
 let analyzeCache = new Map<string, { at: number; data: unknown }>();
+
+/** 该字段是否被用户显式取消勾选（`false` 才算取消；`undefined` = 默认写） */
+function pickedOff(picked: Record<string, boolean> | undefined, key: string): boolean {
+  return !!picked && picked[key] === false;
+}
 
 function parseCustom(v: unknown): Record<string, unknown> {
   if (!v) return {};
@@ -67,6 +85,16 @@ interface TokenCache {
 @Injectable()
 export class WeilingService implements OnModuleInit {
   private readonly logger = new Logger(WeilingService.name);
+
+  /**
+   * 「联系人转学生档案」要往学生档案建记录。
+   *
+   * 🔴 走 `StudentService.create()` 而**不是**直接 `sql.create(TABLES.studentProfile…)`：
+   *    建学生有一套必须复用的口径（`学生姓名` 必填校验、ABAC 校区/密级、
+   *    默认 `数据密级=L1` / `当前状态=潜在学生`、人员字段落 **open_id 文本**、
+   *    脱敏字段处理）。自己拼一份必然漏掉其中几项，而且漏了不报错。
+   */
+  constructor(@Inject(StudentService) private readonly students: StudentService) {}
   private tokenCache: TokenCache | null = null;
   private fieldCache: { at: number; fields: WeilingFieldDesc[] } | null = null;
   /** 筛选下拉选项缓存（客户阶段 / 来源渠道 / 归属人，取自联系人表 distinct） */
@@ -847,6 +875,394 @@ export class WeilingService implements OnModuleInit {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // 「联系人 → 转入学生档案」（2026-09-30 峰哥需求）
+  //
+  // 动作链：预检 → 建学生（或关联已有学生）→ 写联系人侧关联 → 回填周边实体
+  // 判据全在 contracts 的 `weiling-enroll.ts`（前端弹窗与这里共用同一份）。
+  // ══════════════════════════════════════════════════════════════
+
+  /** 读一个联系人（只取字段体） */
+  private async readContact(contactId: string): Promise<Record<string, unknown> | null> {
+    const sql = getSqlStore();
+    if (!sql) return null;
+    const rec = (await sql.get(TABLES.weilingContact.tableId, contactId)) as
+      | { fields?: Record<string, unknown> }
+      | null;
+    if (!rec) return null;
+    return (rec.fields ?? {}) as Record<string, unknown>;
+  }
+
+  /**
+   * 把卫瓴的**代码值**翻译成人话。
+   *
+   * 🔴 卫瓴的枚举结构是 `{ label: '数字编码', value: '中文名' }` —— **label 是代码、value 才是文本**，
+   *    与直觉相反（详情页也有一处同样的注释）。`custom` 里存的是代码 ⇒ 不能直接显示。
+   */
+  private async customTextPicker(): Promise<(apiName: string, code: unknown) => string> {
+    const fields = await this.fields();
+    const byApi = new Map(fields.map((f) => [f.api_name, f]));
+    return (apiName: string, code: unknown): string => {
+      const raw = code == null ? '' : String(code).trim();
+      if (!raw) return '';
+      const f = byApi.get(apiName);
+      const hit = f?.options?.find((o) => String(o.label) === raw);
+      return String(hit?.value ?? raw);
+    };
+  }
+
+  /** 组装转档上下文（这里做查库与翻译，之后交给 contracts 的纯函数） */
+  private async enrollContextOf(
+    contactId: string,
+    operatorName: string,
+  ): Promise<{ ctx: WeilingEnrollContext; draft: EnrollDraft; contact: Record<string, unknown> }> {
+    const contact = await this.readContact(contactId);
+    if (!contact) throw new Error('NOT_FOUND:联系人不存在');
+    const custom = parseCustom(contact['自定义字段']);
+    const textOf = await this.customTextPicker();
+
+    const ownerName = String(contact['归属人'] ?? '').trim();
+    const ownerIdx = await this.ownerIndex();
+    const recruiterOpenId = ownerIdx.byOwner.get(ownerName) ?? '';
+    // ⚠️ 姓名从 **ACMS 用户表**按 open_id 取，不能用 `staffName()`（那个收的是卫瓴 userid）
+    const recruiterName = recruiterOpenId ? (ownerIdx.nameOf.get(recruiterOpenId) ?? '') : '';
+
+    const ctx: WeilingEnrollContext = {
+      contactName: String(contact['联系人姓名'] ?? '').trim(),
+      // 🔴 学生姓名只在 `自定义字段.xsxm` 里；**不用**「联系人姓名」兜底 ——
+      //    联系人姓名常是「秦明辉妈妈」这种家长身份，当学生名会造出错误档案。
+      studentNameRaw: String(custom[WEILING_STUDENT_NAME_KEY] ?? ''),
+      ownerName,
+      recruiterOpenId,
+      recruiterName,
+      school: String(custom['suozaixx'] ?? '').trim(),
+      schoolType: textOf('yxxlx', custom['yxxlx']),
+      plannedTerm: textOf('jxrdzjxysj', custom['jxrdzjxysj']),
+      paid: textOf('jfqk', custom['jfqk']),
+      mobile: String(contact['手机号'] ?? '').trim(),
+      // 只进「备注」留痕：学生档案没有承接这些信息的字段
+      marketing: [
+        { label: '客户阶段', value: String(contact['客户阶段'] ?? '').trim() },
+        { label: '来源渠道', value: String(contact['来源渠道'] ?? '').trim() },
+        { label: '意向度', value: textOf('yxd', custom['yxd']) },
+        { label: '线索定性', value: textOf('xsdx', custom['xsdx']) },
+        { label: '咨询者类型', value: textOf('zxzlx', custom['zxzlx']) },
+        { label: '意向留学国别', value: textOf('yxlxb', custom['yxlxgb']) || textOf('yxlxgb', custom['yxlxgb']) },
+        { label: '学生年级', value: textOf('xssjxx', custom['xssjxx']) },
+      ],
+      createdAt: toEpochMsLocal(contact['创建时间']),
+      operatorName,
+      now: Date.now(),
+    };
+    return { ctx, draft: buildEnrollDraft(ctx), contact };
+  }
+
+  /** 同名学生（重名检测的判据；学生仅几十到几百行，全表扫） */
+  private async sameNameStudents(name: string): Promise<
+    { id: string; name: string; grade: string; cls: string; enrolledAt: string; status: string }[]
+  > {
+    const sql = getSqlStore();
+    const target = weilingStudentName(name);
+    if (!sql || !target) return [];
+    const out: { id: string; name: string; grade: string; cls: string; enrolledAt: string; status: string }[] = [];
+    let token: string | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const page = await sql.search(TABLES.studentProfile.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of page.items ?? []) {
+        const rec = r as { id?: string; recordId?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        if (weilingStudentName(f['学生姓名']) !== target) continue;
+        out.push({
+          id: String(rec.recordId ?? rec.id ?? ''),
+          name: String(f['学生姓名'] ?? ''),
+          grade: String(f['当前年级'] ?? ''),
+          cls: String(f['校区'] ?? ''),
+          enrolledAt: String(f['入学年月'] ?? ''),
+          status: String(f['当前状态'] ?? ''),
+        });
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return out;
+  }
+
+  /**
+   * 转档预览：给确认弹窗用的全部信息（**不写任何数据**）。
+   *
+   * 为什么单独一个接口：重名、姓名不可用、归属人映射不到 —— 这些都要**在提交前**让用户看到。
+   * 提交后才报错意味着用户已经填完一轮表单再来一次。
+   */
+  async enrollPreview(contactId: string): Promise<{
+    draft: EnrollDraft;
+    sameName: { id: string; name: string; grade: string; cls: string; enrolledAt: string; status: string }[];
+    link: { studentId: string; studentName: string; score: number; reason: string } | null;
+    backfill: { sourceFollowups: number; mail: number };
+  }> {
+    const { ctx, draft, contact } = await this.enrollContextOf(contactId, '');
+    const sameName = draft.studentName ? await this.sameNameStudents(draft.studentName) : [];
+
+    // 已经关联过学生？—— 已关联的行不该再出现「入学」按钮（见前端），但接口也要兜住
+    const linkedId = String(contact['关联学生ID'] ?? '').trim();
+    const link = linkedId
+      ? {
+          studentId: linkedId,
+          studentName: String(contact['关联学生'] ?? ''),
+          score: Number(contact['匹配置信度'] ?? 0),
+          reason: String(contact['匹配依据'] ?? ''),
+        }
+      : null;
+
+    const names = [draft.studentName, ctx.contactName].filter(Boolean);
+    return {
+      draft,
+      sameName,
+      link,
+      backfill: {
+        sourceFollowups: draft.studentName ? await this.countSourceFollowups(draft.studentName) : 0,
+        mail: names.length ? await this.countMailByName(names) : 0,
+      },
+    };
+  }
+
+  /** 转档：建学生（或关联已有）+ 写联系人关联 + 回填周边实体。逐步返回结果摘要。 */
+  async enroll(
+    user: SessionUser,
+    contactId: string,
+    payload: {
+      /** 逐字段勾选（`false` = 用户取消了这一格）；缺省全部 solid/check 都写 */
+      picked?: Record<string, boolean>;
+      /** 用户在弹窗里改过的值 */
+      overrides?: Record<string, string>;
+      /** 关联到已有学生（重名分支）——传了就**不新建** */
+      linkExistingStudentId?: string;
+      /** 回填开关 */
+      backfill?: { sourceFollowups?: boolean; mail?: boolean };
+    } = {},
+  ): Promise<{
+    ok: boolean;
+    mode: 'created' | 'linked';
+    studentId: string;
+    studentName: string;
+    steps: { label: string; value: string }[];
+  }> {
+    const sql = getSqlStore();
+    if (!sql) throw new Error('未配置数据库连接');
+
+    const operatorName = String(user?.name ?? '').trim();
+    const { ctx, draft, contact } = await this.enrollContextOf(contactId, operatorName);
+
+    // ── 关联到已有学生（重名分支）：**只补空、不覆盖**，不写其它字段 ──
+    if (payload.linkExistingStudentId) {
+      const sid = String(payload.linkExistingStudentId);
+      const stu = (await sql.get(TABLES.studentProfile.tableId, sid)) as
+        | { fields?: Record<string, unknown> }
+        | null;
+      if (!stu) throw new Error('NOT_FOUND:要关联的学生不存在');
+      const sf = (stu.fields ?? {}) as Record<string, unknown>;
+      const studentName = String(sf['学生姓名'] ?? '');
+      await sql.update(TABLES.weilingContact.tableId, contactId, {
+        关联学生: studentName,
+        关联学生ID: sid,
+        匹配置信度: 100,
+        匹配依据: '手动入学（关联已有学生）',
+        匹配时间: Date.now(),
+      });
+      const steps: { label: string; value: string }[] = [
+        { label: '关联方式', value: `关联到已存在的学生「${studentName}」` },
+        { label: '学生档案', value: '未新建、未改动任何字段（只补了空的「招生负责老师」）' },
+      ];
+      // 只补空（与 `fillRecruiter` 同一口径：老师可以自由改，不覆盖已有值）
+      if (ctx.recruiterOpenId && !String(sf['招生负责老师'] ?? '').trim()) {
+        await sql.update(TABLES.studentProfile.tableId, sid, { 招生负责老师: ctx.recruiterOpenId });
+        steps.push({ label: '招生负责老师', value: `补上 ${ctx.recruiterName || ctx.recruiterOpenId}` });
+      } else if (String(sf['招生负责老师'] ?? '').trim()) {
+        steps.push({ label: '招生负责老师', value: '档案里已有值，按"只补空"口径未改动' });
+      }
+      const bf = await this.runBackfill(sid, studentName, ctx.contactName, payload.backfill);
+      steps.push(...bf);
+      return { ok: true, mode: 'linked', studentId: sid, studentName, steps };
+    }
+
+    // ── 新建学生档案 ──
+    const nameProblem = draft.nameProblem;
+    if (nameProblem) throw new Error(`VALIDATION:${nameProblem}`);
+    const fields = enrollWriteFields(draft, payload.picked ?? {}, payload.overrides ?? {});
+    const studentName = String(fields['学生姓名'] ?? '').trim();
+    if (!studentName) throw new Error('VALIDATION:学生姓名必填');
+
+    // 🔴 建学生走 StudentService.create（复用必填校验 / ABAC / 默认值 / 人员字段 open_id 口径）
+    const created = (await this.students.create(user, fields as never)) as { id?: string; recordId?: string };
+    const studentId = String(created?.id ?? created?.recordId ?? '');
+    if (!studentId) throw new Error('INTERNAL:学生档案已创建但拿不到 id');
+
+    const steps: { label: string; value: string }[] = [];
+    // 逐字段报告「写了什么」（用户要在结果里看到"哪一格进了、哪一格被跳过"）
+    for (const f of draft.fields) {
+      if (f.tier === 'skip') continue;
+      const wrote = fields[f.key];
+      if (pickedOff(payload.picked, f.key)) {
+        steps.push({ label: f.label, value: '已按你的选择跳过' });
+      } else if (wrote === undefined || String(wrote).trim() === '') {
+        steps.push({ label: f.label, value: '无来源数据，留空' });
+      } else {
+        steps.push({ label: f.label, value: String(wrote).slice(0, 120) });
+      }
+    }
+    for (const [k, v] of Object.entries(fields)) {
+      if (k === '入学年份' || k === 'Arete入学年') steps.push({ label: k, value: `由「入学年月」自动带出：${v}` });
+    }
+
+    await sql.update(TABLES.weilingContact.tableId, contactId, {
+      关联学生: studentName,
+      关联学生ID: studentId,
+      匹配置信度: 100,
+      匹配依据: '手动入学（新建学生档案）',
+      匹配时间: Date.now(),
+    });
+    steps.push({ label: '联系人关联', value: `已把该联系人关联到学生「${studentName}」` });
+
+    steps.push(...(await this.runBackfill(studentId, studentName, ctx.contactName, payload.backfill)));
+
+    void contact; // 上下文已用；显式标注避免"读而未用"的误读
+    this.logger.log(`联系人转学生档案：${ctx.contactName} → ${studentName}（${studentId}）`);
+    return { ok: true, mode: 'created', studentId, studentName, steps };
+  }
+
+  /**
+   * 回填周边实体的关联。
+   *
+   * 🔴 只处理**该学生/该联系人名下**的记录，且**只在关联为空时**写 —— 这是「转档时顺手关联」，
+   *    不是存量数据治理（存量那批是断的，单独排期）。
+   * 🔴 邮件表只能按**姓名精确匹配**（联系人「邮箱」字段 0 条有值，没有更可靠的键）⇒
+   *    匹配面窄但不会误伤；结果里如实报条数。
+   */
+  private async runBackfill(
+    studentId: string,
+    studentName: string,
+    contactName: string,
+    on?: { sourceFollowups?: boolean; mail?: boolean },
+  ): Promise<{ label: string; value: string }[]> {
+    const out: { label: string; value: string }[] = [];
+    if (on?.sourceFollowups !== false) {
+      const n = await this.backfillSourceFollowups(studentId, studentName);
+      out.push({ label: '招生跟进记录', value: n ? `回填了 ${n} 条的「关联学生编号」` : '没有需要回填的（按姓名匹配）' });
+    }
+    if (on?.mail !== false) {
+      const names = [studentName, contactName].filter(Boolean);
+      const n = await this.backfillMail(studentId, names);
+      out.push({ label: '相关邮件', value: n ? `回填了 ${n} 封的「关联学生」` : '没有需要回填的（按姓名精确匹配）' });
+    }
+    return out;
+  }
+
+  /** 招生跟进表：`关联学生` 存的是**文本姓名**、`关联学生编号` 才是 id ⇒ 回填 id（仅补空） */
+  private async backfillSourceFollowups(studentId: string, studentName: string): Promise<number> {
+    const sql = getSqlStore();
+    if (!sql || !studentName) return 0;
+    let n = 0;
+    let token: string | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const page = await sql.search(TABLES.sourceFollowup.tableId, {
+        pageSize: 200,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of page.items ?? []) {
+        const rec = r as { id?: string; recordId?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        const id = String(rec.recordId ?? rec.id ?? '');
+        if (!id) continue;
+        if (String(f['关联学生'] ?? '').trim() !== studentName) continue;
+        if (linkIds(f['关联学生编号']).length) continue; // 仅补空
+        await sql.update(TABLES.sourceFollowup.tableId, id, { 关联学生编号: [studentId] });
+        n += 1;
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return n;
+  }
+
+  /** 邮件归档：`关联学生` 是 id 数组（type=18）。只能按姓名精确匹配 ⇒ 仅补空、只认精确命中 */
+  private async backfillMail(studentId: string, names: string[]): Promise<number> {
+    const sql = getSqlStore();
+    const want = names.map((x) => String(x).trim()).filter((x) => x.length >= 2);
+    if (!sql || !want.length) return 0;
+    let n = 0;
+    let token: string | undefined;
+    for (let i = 0; i < 40; i += 1) {
+      const page = await sql.search(TABLES.mailArchive.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of page.items ?? []) {
+        const rec = r as { id?: string; recordId?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        const id = String(rec.recordId ?? rec.id ?? '');
+        if (!id) continue;
+        if (linkIds(f['关联学生']).length) continue; // 仅补空
+        const hay = [f['主题'], f['发件人'], f['收件人'], f['抄送']].map((x) => String(x ?? '')).join(' ');
+        if (!want.some((nm) => hay.includes(nm))) continue;
+        await sql.update(TABLES.mailArchive.tableId, id, { 关联学生: [studentId] });
+        n += 1;
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return n;
+  }
+
+  private async countSourceFollowups(studentName: string): Promise<number> {
+    const rows = await this.scanByStudentName(TABLES.sourceFollowup.tableId, studentName);
+    return rows.filter((r) => !linkIds(r['关联学生编号']).length).length;
+  }
+
+  private async countMailByName(names: string[]): Promise<number> {
+    const sql = getSqlStore();
+    const want = names.map((x) => String(x).trim()).filter((x) => x.length >= 2);
+    if (!sql || !want.length) return 0;
+    let n = 0;
+    let token: string | undefined;
+    for (let i = 0; i < 40; i += 1) {
+      const page = await sql.search(TABLES.mailArchive.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of page.items ?? []) {
+        const rec = r as { id?: string; recordId?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        if (linkIds(f['关联学生']).length) continue;
+        const hay = [f['主题'], f['发件人'], f['收件人'], f['抄送']].map((x) => String(x ?? '')).join(' ');
+        if (want.some((nm) => hay.includes(nm))) n += 1;
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return n;
+  }
+
+  /** 扫某表里 `关联学生`（文本姓名）等于给定姓名的行 */
+  private async scanByStudentName(tableId: string, studentName: string): Promise<Record<string, unknown>[]> {
+    const sql = getSqlStore();
+    if (!sql || !studentName) return [];
+    const out: Record<string, unknown>[] = [];
+    let token: string | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const page = await sql.search(tableId, { pageSize: 200, ...(token ? { pageToken: token } : {}) });
+      for (const r of page.items ?? []) {
+        const rec = r as { id?: string; recordId?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        if (String(f['关联学生'] ?? '').trim() === studentName) out.push(f);
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return out;
+  }
+
   /**
    * 归属人 → ACMS 用户 open_id 的索引。
    *
@@ -861,10 +1277,24 @@ export class WeilingService implements OnModuleInit {
    *    （`listMyFollowupOwners()`），模糊匹配只会把「刘老师」错配到「刘老师 | Yvonne」。
    */
   private async ownerOpenIdIndex(): Promise<Map<string, string>> {
-    const out = new Map<string, string>();
+    return (await this.ownerIndex()).byOwner;
+  }
+
+  /**
+   * 归属人索引 + open_id → 姓名索引（**一次扫表供两用**）。
+   *
+   * 🔴 为什么要 `nameOf`：`staffName()` 收的是**卫瓴的 userid**（要打上游
+   *    `/openapi/user/get?userid=`），**不是 ACMS 的 open_id**。
+   *    拿 open_id 去调它 → 上游查不到 → 回退成"id 前 8 位"，
+   *    **不报错但显示一串乱码**（2026-09-30 转档功能里差点这么写）。
+   *    招生老师的姓名只能从 **ACMS 用户表**按 open_id 反查。
+   */
+  private async ownerIndex(): Promise<{ byOwner: Map<string, string>; nameOf: Map<string, string> }> {
+    const byOwner = new Map<string, string>();
+    const nameOf = new Map<string, string>();
     const sql = getSqlStore();
-    if (!sql) return out;
-    // ① 用户表：recordId → open_id
+    if (!sql) return { byOwner, nameOf };
+    // ① 用户表：recordId → open_id，并顺手记 open_id → 姓名
     const openIdOfUser = new Map<string, string>();
     let token: string | undefined;
     for (let i = 0; i < 20; i += 1) {
@@ -875,6 +1305,10 @@ export class WeilingService implements OnModuleInit {
         const rid = String(rec.recordId ?? rec.id ?? '');
         const openId = String(f['飞书 Open ID'] ?? '').trim();
         if (rid && openId) openIdOfUser.set(rid, openId);
+        if (openId) {
+          const nm = String(f['姓名'] ?? '').trim();
+          if (nm) nameOf.set(openId, nm);
+        }
       }
       if (!page.hasMore || !page.pageToken) break;
       token = page.pageToken;
@@ -889,12 +1323,12 @@ export class WeilingService implements OnModuleInit {
         const owner = String(f['卫瓴归属人'] ?? '').trim();
         const uid = linkIds(f['ACMS用户'])[0] ?? '';
         const openId = openIdOfUser.get(uid) ?? '';
-        if (owner && openId) out.set(owner, openId);
+        if (owner && openId) byOwner.set(owner, openId);
       }
       if (!page.hasMore || !page.pageToken) break;
       token = page.pageToken;
     }
-    return out;
+    return { byOwner, nameOf };
   }
 
   /**

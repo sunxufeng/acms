@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import type { SessionUser } from '@acms/contracts';
 import { modulePermission, REPORT_MODULE_KEYS } from '@acms/contracts';
@@ -165,6 +165,45 @@ export class WeilingController {
       throw new HttpException('FORBIDDEN:module:weilingContacts:update', HttpStatus.FORBIDDEN);
     }
     return this.svc.matchStudents({ fillRecruiter: 'always' });
+  }
+
+  /**
+   * 「卫瓴映射」配置（v13）：读 / 试算 / 存。
+   *
+   * 🔴 判的是**独立权限点** `module:weilingMapping:read/:update`，不是 `weilingContacts` 的读写：
+   *    改这份配置等于改**以后每个转档学生**的字段值（来源渠道 / 生源跟进状态 / 原学校类型 /
+   *    入学年月 / 付款状态），是"口径级"的操作，与"能不能维护联系人"受众不同。
+   * 🔴 三个都是**静态路由**，必须排在 `@Get('contacts/:id/…')` 这类带参数的路由之前 ——
+   *    否则 `mapping` 会被当成某个 id（静默 404）。本 controller 里 `mapping` 无同名参数段，
+   *    但仍按惯例前置，避免以后加 `@Get(':id')` 时踩。
+   */
+  /**
+   * 学生详情页「招生来源」（二期）：反查这个学生是从哪个卫瓴联系人转来的。
+   *
+   * 🔴 权限只判 `students:read`（看学生的人就该看到"他来自哪"）；
+   *    返回里**不含联系方式** —— 那是联系人模块的数据。
+   * ⚠️ 静态路由，排在带参数路由之前。
+   */
+  @Get('students/:studentId/source')
+  studentSource(@Req() req: Request, @Param('studentId') studentId: string) {
+    return this.svc.sourceOfStudent((req as Request & { user: SessionUser }).user, String(studentId));
+  }
+
+  @Get('mapping')
+  mappingGet(@Req() req: Request) {
+    return this.svc.mappingGet((req as Request & { user: SessionUser }).user);
+  }
+
+  /** 用提交的配置试算（**不保存**）：看这样配能填上多少条、还有哪些取值没配 */
+  @Post('mapping/preview')
+  mappingPreview(@Req() req: Request, @Body() body: Record<string, unknown>) {
+    return this.svc.mappingPreview((req as Request & { user: SessionUser }).user, body ?? {});
+  }
+
+  /** 保存映射（整体替换；归一化后存，存进去的就是生效的那份） */
+  @Put('mapping')
+  mappingSave(@Req() req: Request, @Body() body: Record<string, unknown>) {
+    return this.svc.mappingSave((req as Request & { user: SessionUser }).user, body ?? {});
   }
 
   /**

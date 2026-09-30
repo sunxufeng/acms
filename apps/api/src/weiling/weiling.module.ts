@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TABLES } from '@acms/contracts';
 import { getSqlStore } from '../base.provider.js';
 import { StudentModule } from '../student/student.module.js';
+import { DictModule } from '../dictionary/dict.module.js';
 import { WeilingController } from './weiling.controller.js';
 import { WeilingService } from './weiling.service.js';
 
@@ -16,9 +17,12 @@ import { WeilingService } from './weiling.service.js';
  *   **import 了就必须写进下面的 `imports` 数组** —— 漏了的话 tsc/单测全绿、
  *   只有启动期 `Nest can't resolve dependencies of WeilingService`（守卫
  *   `apps/api/test/nest-module-di.test.ts` 会拦）。
+ * - 🔴 `DictModule` 是「卫瓴映射」（v13）要用的：`WeilingService` 注入了 `DictService`
+ *   取档案侧字段的**运行期选项**（「来源渠道」是 8 项还是 4 项取决于字典，不在代码里抄）。
+ *   同样**必须写进 `imports` 数组**。
  */
 @Module({
-  imports: [StudentModule],
+  imports: [StudentModule, DictModule],
   controllers: [WeilingController],
   providers: [WeilingService],
   exports: [WeilingService],

@@ -415,6 +415,26 @@ export const api = {
   updateStudent: (id: string, data: Record<string, unknown>) =>
     request<StudentRecord>(`/students/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
+  /**
+   * 学籍号可用性预检（2026-09-30：学籍号不能重复，保存前要先提醒）。
+   *
+   * 🔴 为什么是独立接口而不是前端在列表里比对：学籍号是 **L4 受控字段**，
+   *    低密级用户拿到的是 `●●●` —— 拿脱敏值比对会把"重名"判成"没重复"。
+   *    判据必须在服务端用真值做。
+   * 🔴 只回"能不能用 + 占用者姓名/学生编号"，**不回学籍号本身**。
+   * `excludeId` 是编辑态要排除的自己（否则保存时没改这一栏也会撞自己）。
+   */
+  checkStudentNo: (value: string, excludeId?: string) =>
+    request<{
+      ok: boolean;
+      available: boolean;
+      reason: string;
+      holder: { name: string; studentNo: string; status: string } | null;
+    }>(
+      `/students/student-no-taken?value=${encodeURIComponent(value)}` +
+        (excludeId ? `&excludeId=${encodeURIComponent(excludeId)}` : ''),
+    ),
+
   /** 归档 */
   archiveStudent: (id: string) =>
     request<{ ok: boolean }>(`/students/${id}`, { method: 'DELETE' }),
@@ -426,6 +446,7 @@ export const api = {
   /** 上传学生照片（multipart） */
   uploadStudentPhoto: (id: string, file: File) => {
     const form = new FormData();
+
     form.append('file', file);
     return request<{ ok: boolean; file_token: string; viewUrl?: string; name?: string }>(`/students/${id}/photo`, {
       method: 'POST',
@@ -925,6 +946,30 @@ export const api = {
     ),
   syncWeilingLost: () =>
     request<{ ok: boolean; started: boolean; message?: string }>('/weiling/sync-lost', { method: 'POST' }),
+
+  /**
+   * 学生详情页「招生来源」（二期）：反查这个学生是从哪个卫瓴联系人转来的。
+   *
+   * 🔴 是**反查**：关联关系的事实来源在联系人表的 `关联学生ID`，
+   *    不在学生档案里再存一份（两份真相迟早不一致且不报错）。
+   * 🔴 返回里**不含联系方式**（手机号/邮箱属联系人模块的数据）。
+   * 🔴 权限只判 `students:read` ⇒ 看学生的人都能看到"他来自哪"。
+   */
+  weilingStudentSource: (studentId: string) =>
+    request<{
+      ok: boolean;
+      contacts: {
+        contactId: string;
+        contactName: string;
+        ownerName: string;
+        channel: string;
+        customerStage: string;
+        matchReason: string;
+        matchScore: number;
+        matchTime: number;
+        manual: boolean;
+      }[];
+    }>(`/weiling/students/${encodeURIComponent(studentId)}/source`),
   /**
    * 「联系人 → 转入学生档案」的**预检**（不写任何数据）。
    *
@@ -1663,6 +1708,27 @@ export const api = {
     }),
   studentSupportConfigPreview: (body: SupportSignalConfig) =>
     request<SupportConfigPreview>('/student-support/config/preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  /**
+   * 「卫瓴映射」配置（v13）：读 / 试算 / 存。
+   *
+   * 🔴 判的是**独立权限点** `module:weilingMapping:read|update`，不是 `weilingContacts` 的读写
+   *    —— 改这份配置等于改**以后每个转档学生**填什么（来源渠道 / 生源跟进状态 / 原学校类型 /
+   *    入学年月 / 付款状态），是"口径级"操作，与"能不能维护联系人"受众不同。没权限返 **403**。
+   * 🔴 「试算」在**服务端**跑（用的是转档时同一份 `buildEnrollDraft`）⇒
+   *    试算结果与保存后的实际效果必然一致，不许在前端估算。
+   */
+  weilingMappingGet: () => request<WeilingMappingResult>('/weiling/mapping'),
+  weilingMappingSave: (body: WeilingMappingConfig) =>
+    request<WeilingMappingResult>('/weiling/mapping', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  weilingMappingPreview: (body: WeilingMappingConfig) =>
+    request<WeilingMappingResult>('/weiling/mapping/preview', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
@@ -2598,6 +2664,47 @@ export interface WeilingEnrollPreview {
   link: { studentId: string; studentName: string; score: number; reason: string } | null;
   /** 回填候选条数（按姓名匹配出来的） */
   backfill: { sourceFollowups: number; mail: number };
+}
+
+/** 「卫瓴映射」：一个映射键的取值表（卫瓴取值 → 档案取值；`''` = 显式不映射） */
+export interface WeilingMappingConfig {
+  channel: Record<string, string>;
+  stage: Record<string, string>;
+  schoolType: Record<string, string>;
+  plannedTerm: Record<string, string>;
+  payment: Record<string, string>;
+  fallback: {
+    channel: string;
+    stage: string;
+    schoolType: string;
+    plannedTerm: string;
+    payment: string;
+  };
+}
+
+/** 一条映射的页面数据（左列值 + 已配目标 + 出现条数） */
+export interface WeilingMappingFieldView {
+  key: keyof Omit<WeilingMappingConfig, 'fallback'>;
+  weilingLabel: string;
+  weilingSource: string;
+  archiveField: string;
+  archiveOptions: string[];
+  hint: string;
+  fallback: string;
+  entries: { from: string; to: string; count: number }[];
+  unmapped: string[];
+  total: number;
+  mapped: number;
+}
+
+/** 「卫瓴映射」读/试算/存 的统一返回 */
+export interface WeilingMappingResult {
+  config: WeilingMappingConfig;
+  defaults: WeilingMappingConfig;
+  fields: WeilingMappingFieldView[];
+  changed: string[];
+  invalid: string[];
+  topUnmapped: { key: string; from: string; count: number }[];
 }
 
 export interface MarkbookGrid {

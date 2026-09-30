@@ -67,6 +67,35 @@ export default function StudentDetailPage() {
       .finally(() => setMailsLoading(false));
   }, [id]);
 
+  /**
+   * 「招生来源」（二期，2026-09-30）：
+   * 反查这个学生是从哪个卫瓴联系人转来的 —— 关系的事实来源在联系人表，
+   * 这里只是**反查展示**，不在学生档案里再存一份（两份真相迟早不一致）。
+   */
+  const [sources, setSources] = useState<
+    {
+      contactId: string;
+      contactName: string;
+      ownerName: string;
+      channel: string;
+      customerStage: string;
+      matchReason: string;
+      matchScore: number;
+      matchTime: number;
+      manual: boolean;
+    }[]
+  >([]);
+  const [srcLoading, setSrcLoading] = useState(true);
+  useEffect(() => {
+    setSrcLoading(true);
+    api
+      .weilingStudentSource(id)
+      .then((d) => setSources(d.contacts ?? []))
+      // 拉不到就当作"没有来源"，不要拿这个卡片的失败挡住整页（它不是主体信息）
+      .catch(() => setSources([]))
+      .finally(() => setSrcLoading(false));
+  }, [id]);
+
   /** 附件下载：换取临时链接后新窗口打开（与邮件归档详情页同一接口、同一权限口径） */
   const downloadAtt = useCallback(
     async (recordId: string, fileToken: string) => {
@@ -115,6 +144,57 @@ export default function StudentDetailPage() {
 
       {/* ── Read-only form (same layout as 新建) ── */}
       <StudentForm initial={student} readOnly onSubmit={() => {}} />
+
+      {/* ── 招生来源（二期）──
+          只读卡片：这个学生是从哪个卫瓴联系人转来的（或算法自动匹配上的）。
+          事实来源是联系人表的 `关联学生ID`，这里反查展示；不显示联系方式。 */}
+      <section style={{ marginTop: 24 }}>
+        <h2 style={{ fontSize: 16, margin: '0 0 12px' }}>{t('admissionSource')}</h2>
+        {srcLoading ? (
+          <p style={{ color: 'var(--fg-tertiary)' }}>{t('sourceLoading')}</p>
+        ) : sources.length === 0 ? (
+          <p style={{ color: 'var(--fg-tertiary)' }}>{t('noAdmissionSource')}</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {sources.map((c) => (
+              <div
+                key={c.contactId}
+                className="card"
+                style={{ padding: '12px 14px', display: 'flex', flexWrap: 'wrap', gap: '6px 18px', alignItems: 'baseline' }}
+              >
+                <Link
+                  href={`/weiling-contacts/${encodeURIComponent(c.contactId)}`}
+                  style={{ color: 'var(--accent)', fontWeight: 600 }}
+                >
+                  {c.contactName || t('unnamedContact')}
+                </Link>
+                <span style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>
+                  {t('sourceManual')}：{c.manual ? t('sourceManualYes') : t('sourceManualNo')}
+                </span>
+                {c.ownerName ? (
+                  <span style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>
+                    {t('sourceOwner')}：{c.ownerName}
+                  </span>
+                ) : null}
+                {c.channel ? (
+                  <span style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>
+                    {t('sourceChannel')}：{c.channel}
+                  </span>
+                ) : null}
+                {c.customerStage ? (
+                  <span style={{ fontSize: 12, color: 'var(--fg-secondary)' }}>
+                    {t('sourceStage')}：{c.customerStage}
+                  </span>
+                ) : null}
+                <span style={{ fontSize: 12, color: 'var(--fg-tertiary)' }} title={c.matchReason}>
+                  {c.matchReason || '—'}
+                  {c.matchScore ? `（${t('sourceScore', { n: c.matchScore })}）` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* ── 相关邮件 ──
           每封显示：方向 / 主题（可点进详情）/ 发送时间（年月日）/ 发件人 / 附件（文件名可点直接下载）。 */}

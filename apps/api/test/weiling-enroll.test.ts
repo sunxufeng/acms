@@ -3,13 +3,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  ARCHIVE_ENROLL_MONTH_OPTIONS,
-  ARCHIVE_SCHOOL_TYPE_OPTIONS,
+  DEFAULT_WEILING_MAPPING_CONFIG,
+  normalizeWeilingMappingConfig,
+  WEILING_MAPPING_FIELDS,
   MODULE_RESOURCES,
   MODULE_RESOURCE_INTRODUCED_VERSION,
   ROLE_PERMISSION_VERSION,
-  WEILING_PLANNED_TERM_MAP,
-  WEILING_SCHOOL_TYPE_MAP,
+
   buildEnrollDraft,
   buildEnrollRemark,
   enrollWriteFields,
@@ -74,6 +74,11 @@ function ctx(over: Partial<WeilingEnrollContext> = {}): WeilingEnrollContext {
   };
 }
 
+// 映射表已搬到「卫瓴映射」配置（2026-09-30）；默认值 == 原来的 const，所以这些断言口径不变。
+// ⚠️ 必须在**模块作用域**：多个 `it` 都要用（第一版定义在某个 it 里面，另一个 it 直接 ReferenceError）。
+const DEFAULT_SCHOOL_TYPE_MAP = DEFAULT_WEILING_MAPPING_CONFIG.schoolType;
+const DEFAULT_PLANNED_TERM_MAP = DEFAULT_WEILING_MAPPING_CONFIG.plannedTerm;
+
 describe('学生姓名可用性判据（线上真实脏值）', () => {
   it('正常姓名可用', () => {
     expect(weilingStudentNameProblem('秦明辉')).toBeNull();
@@ -116,26 +121,30 @@ describe('学生姓名可用性判据（线上真实脏值）', () => {
 
 describe('字段映射判据', () => {
   it('🔴 原学校类型：卫瓴 6 档只有 2 档能对上，其余必须留空而不是硬写', () => {
-    expect(WEILING_SCHOOL_TYPE_MAP['体制内']).toBe('体制内学校');
-    expect(WEILING_SCHOOL_TYPE_MAP['国际课程']).toBe('国际学校');
+    // 映射表已搬到可配置的 `DEFAULT_WEILING_MAPPING_CONFIG`（2026-09-30「卫瓴映射」页）
+    expect(DEFAULT_SCHOOL_TYPE_MAP['体制内']).toBe('体制内学校');
+    expect(DEFAULT_SCHOOL_TYPE_MAP['国际课程']).toBe('国际学校');
     // 学生档案这一栏只有「国际学校 / 体制内学校」两个选项 ⇒ 其余 4 档无对应
-    expect(WEILING_SCHOOL_TYPE_MAP['homeschool 或 休学']).toBeNull();
-    expect(WEILING_SCHOOL_TYPE_MAP['海外回国']).toBeNull();
-    expect(WEILING_SCHOOL_TYPE_MAP['创新学校']).toBeNull();
-    expect(WEILING_SCHOOL_TYPE_MAP['其他']).toBeNull();
+    // 旧写法是显式 `null`；新配置里「不映射」的表示法是**没有这个键**（等价语义）
+    expect(DEFAULT_SCHOOL_TYPE_MAP['homeschool 或 休学']).toBeUndefined();
+    expect(DEFAULT_SCHOOL_TYPE_MAP['海外回国']).toBeUndefined();
+    expect(DEFAULT_SCHOOL_TYPE_MAP['创新学校']).toBeUndefined();
+    expect(DEFAULT_SCHOOL_TYPE_MAP['其他']).toBeUndefined();
     // 映射结果必须落在字段选项集合里（否则界面上会显示成"没值"）
-    for (const v of Object.values(WEILING_SCHOOL_TYPE_MAP)) {
-      if (v) expect(ARCHIVE_SCHOOL_TYPE_OPTIONS).toContain(v);
+    const SCHOOL_TYPE_OPTIONS = WEILING_MAPPING_FIELDS.find((f) => f.key === 'schoolType')!.archiveValues;
+    for (const v of Object.values(DEFAULT_SCHOOL_TYPE_MAP)) {
+      if (v) expect(SCHOOL_TYPE_OPTIONS).toContain(v);
     }
   });
 
   it('🔴 计划入读 → 入学年月：映射结果必须是「入学年月」的合法选项', () => {
-    for (const v of Object.values(WEILING_PLANNED_TERM_MAP)) {
-      if (v) expect(ARCHIVE_ENROLL_MONTH_OPTIONS).toContain(v);
+    const ENROLL_MONTH_OPTIONS = WEILING_MAPPING_FIELDS.find((f) => f.key === 'plannedTerm')!.archiveValues;
+    for (const v of Object.values(DEFAULT_PLANNED_TERM_MAP)) {
+      if (v) expect(ENROLL_MONTH_OPTIONS).toContain(v);
     }
-    expect(WEILING_PLANNED_TERM_MAP['2026年春季学期']).toBe('26春季');
-    expect(WEILING_PLANNED_TERM_MAP['2025年秋季学期']).toBe('25秋季');
-    expect(WEILING_PLANNED_TERM_MAP['其它']).toBe(''); // 模糊值不映射
+    expect(DEFAULT_PLANNED_TERM_MAP['2026年春季学期']).toBe('26春季');
+    expect(DEFAULT_PLANNED_TERM_MAP['2025年秋季学期']).toBe('25秋季');
+    expect(DEFAULT_PLANNED_TERM_MAP['其它']).toBe(''); // 模糊值不映射
   });
 
   it('🔴 「当前年级」必须是 skip 档 —— 卫瓴是 G1–G12，档案是 Pre-1/Pre-2/大一，硬写会显示成没值', () => {
@@ -155,13 +164,34 @@ describe('字段映射判据', () => {
     expect(d.remark).toContain('13998950335');
   });
 
-  it('🔴 口径未定的两栏（来源渠道 / 生源跟进状态）也必须是 skip，且写明"待定"而不是装死', () => {
-    const d = buildEnrollDraft(ctx());
+  it('🔴 口径的两栏（来源渠道 / 生源跟进状态）在**没配映射**时是 skip，并指路到「卫瓴映射」', () => {
+    // 2026-09-30 起这两栏由「卫瓴映射」页决定：配了 → check 档并填值；没配 → skip + 指路。
+    // 断言"没配时"的行为（默认配置里这两张表是空的）。
+    const d = buildEnrollDraft(ctx({ channel: '活动-公众号', customerStage: '面访' }));
     for (const k of ['来源渠道', '生源跟进状态']) {
       const f = d.fields.find((x) => x.key === k);
       expect(f?.tier, k).toBe('skip');
-      expect(f?.why, k).toMatch(/口径|映射规则/);
+      // 不能只写"跳过"：要告诉人去哪儿配（不然用户只会当成 bug 报）
+      expect(f?.why, k).toContain('卫瓴映射');
+      // 但**保持可编辑** —— 留空 ≠ 禁用（用户可以在弹窗里手选一个）
+      expect(f?.editable, k).toBe(true);
+      // 没值时也要给候选，否则"手选"无从选起
+      expect((f?.options ?? []).length, k).toBeGreaterThan(0);
     }
+  });
+
+  it('配了映射之后同两栏变成 check 档并填上翻译后的值', () => {
+    const d = buildEnrollDraft(
+      ctx({ channel: '活动-公众号', customerStage: '面访' }),
+      normalizeWeilingMappingConfig({
+        ...DEFAULT_WEILING_MAPPING_CONFIG,
+        channel: { '活动-公众号': '活动招募' },
+        stage: { 面访: '跟进中' },
+      }),
+    );
+    expect(d.fields.find((f) => f.key === '来源渠道')?.tier).toBe('check');
+    expect(d.fields.find((f) => f.key === '来源渠道')?.value).toBe('活动招募');
+    expect(d.fields.find((f) => f.key === '生源跟进状态')?.value).toBe('跟进中');
   });
 
   it('🟢 可靠档：学生姓名 / 招生负责老师 / 原学校', () => {
@@ -188,7 +218,9 @@ describe('字段映射判据', () => {
     const f = d.fields.find((x) => x.key === '原学校类型');
     expect(f?.value).toBe('');
     expect(f?.why).toContain('创新学校');
-    expect(f?.why).toContain('对不上');
+    // 文案已改为走「卫瓴映射」机制（不再硬编码"对不上"）—— 关键是**说清为什么没填 + 去哪配**
+    expect(f?.why).toBeTruthy();
+    expect(f?.why).toMatch(/卫瓴映射|不映射/);
   });
 
   it('入学年月随「计划入读」带出，并派生入学年份 / Arete入学年（复用档案页同一份规则）', () => {
@@ -329,7 +361,12 @@ describe('源码级守卫：权限点声明与判据成对', () => {
   });
 
   it('🔴 引入版本 == 当次抬的版本号（否则 `(v-1, v]` 增量覆盖不到它）', () => {
-    expect(MODULE_RESOURCE_INTRODUCED_VERSION.weilingEnroll).toBe(ROLE_PERMISSION_VERSION);
+    // ⚠️ 这里**不能**写 `toBe(ROLE_PERMISSION_VERSION)`：那条等式只在"引入它的那次发布"成立，
+    //    下次为别的功能抬版本时它必然变红（2026-09-30 抬到 v13 时就被自己抓到）。
+    //    真正的不变式是：**登记过的引入版本 ≤ 当前版本**（不能是未来的版本，否则增量迁移覆盖不到它）。
+    const v = MODULE_RESOURCE_INTRODUCED_VERSION.weilingEnroll;
+    expect(v).toBeGreaterThanOrEqual(12); // 它是 v12 引入的，不许被改小（改小 = 又给存量角色发一遍）
+    expect(v).toBeLessThanOrEqual(ROLE_PERMISSION_VERSION);
   });
 
   it('🔴 后端判据与声明的点**同名**（错开一半就是"勾了没反应"）', () => {

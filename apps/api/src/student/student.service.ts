@@ -8,6 +8,7 @@ import { FileUploadService } from '../file-upload/file-upload.service.js';
 import { FileStorageService } from '../file-storage/file-storage.service.js';
 import { DictService } from '../dictionary/dict.service.js';
 import { FieldMaskService } from '../shared/field-mask.service.js';
+import { requireModule } from '../shared/require-module.js';
 import { StudentScopeService } from '../shared/student-scope.service.js';
 import { isScopeUnrestricted, studentInScope } from '../shared/student-scope.js';
 import { linkIds } from '../shared/record.util.js';
@@ -15,6 +16,16 @@ import { linkIds } from '../shared/record.util.js';
 import type { CreateStudentDto, UpdateStudentDto, StudentFilterDto, ExportQueryDto } from './student.dto.js';
 
 const TABLE = TABLES.studentProfile.tableId;
+
+/**
+ * 学籍号字段的**准确中文名**（含全角括号）。
+ *
+ * 🔴 系统里只有这一个「学籍号」字段，但它的名字带「（脱敏）」后缀 ——
+ *    按 `学籍号` 去取会**恒为空且不报错**（2026-09-30 摸底时发现两处这样的老 bug：
+ *    `ai/lib/tools/studentQuery.ts` 与 `app/portal/page.tsx`，都已修）。
+ *    凡是要读写学籍号的地方，一律用本常量，别再手写字符串。
+ */
+export const STUDENT_NO_FIELD = '学籍号（脱敏）';
 
 /** 关联类字段（DuplexLink/SingleLink/Attachment），M1 只读，编辑时跳过 */
 const READONLY_FIELDS = new Set([
@@ -466,6 +477,106 @@ export class StudentService {
     return { ok: true };
   }
 
+  /**
+   * 按学籍号找占用者（排除自己）。返回 `null` = 没人用。
+   *
+   * 🔴 为什么是**全表扫**而不是 `filter` 等值查询：
+   *    库里存量学籍号来自手工填写 / CSV 导入，**首尾空白不保证被清过**
+   *    （`"A2026001 "` 与 `"A2026001"` 在等值查询里是两个值，但业务上是同一个学籍号）。
+   *    扫一遍按 `trim` 比较才不会漏判；学生档案是几百到几千行量级，
+   *    而查重只发生在**保存那一下**（不是热路径），这点开销换来"绝不漏判"是划算的。
+   *    ⚠️ 若将来学生数上万，改成「等值查询快路径 + 未命中再扫」。
+   *
+   * 🔴 返回里**只给姓名与学生编号**，不回学籍号本身 ——
+   *    学籍号是 L4 受控字段（`dict.data.ts` 的 `fieldLevels`），
+   *    提示里没必要把它再回显一遍。
+   */
+  async findByStudentNo(
+    value: string,
+    excludeId?: string,
+  ): Promise<{ id: string; name: string; studentNo: string; status: string } | null> {
+    const target = String(value ?? '').trim();
+    if (!target) return null;
+    let token: string | undefined;
+    for (let i = 0; i < 40; i += 1) {
+      const page = await this.base.search(TABLE, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of page.items ?? []) {
+        const rec = r as unknown as { recordId?: string; id?: string; fields?: Record<string, unknown> };
+        const id = String(rec.recordId ?? rec.id ?? '');
+        if (!id) continue;
+        if (excludeId && id === excludeId) continue;
+        const f = (rec.fields ?? (r as unknown as Record<string, unknown>)) as Record<string, unknown>;
+        if (String(f[STUDENT_NO_FIELD] ?? '').trim() !== target) continue;
+        return {
+          id,
+          name: String(f['学生姓名'] ?? '').trim(),
+          studentNo: String(f['学生编号'] ?? '').trim(),
+          status: String(f['当前状态'] ?? '').trim(),
+        };
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    return null;
+  }
+
+  /**
+   * 「学籍号能不能用」的**提交前预检**（给表单用，不写任何数据）。
+   *
+   * 🔴 为什么要有它：学籍号同时是**学生 / 家长 / 小程序的登录凭证**
+   *    （`学生编号` 或 `学籍号（脱敏）` 任一命中 + 姓名即可登录）
+   *    ⇒ 重复不只是"数据脏"，而是**两个人的账号会互串**。
+   *    所以不能等提交后才 400：那时用户已经填完一整页表单。
+   */
+  async checkStudentNo(
+    user: SessionUser,
+    value: string,
+    excludeId?: string,
+  ): Promise<{ ok: boolean; available: boolean; reason: string; holder: { name: string; studentNo: string; status: string } | null }> {
+    requireModule(user, 'students', 'read');
+    const target = String(value ?? '').trim();
+    // 空值不报"被占用" —— 学籍号不是必填字段（"没填"是合法状态，多个学生都可以不填）
+    if (!target) return { ok: true, available: true, reason: '', holder: null };
+    const hit = await this.findByStudentNo(target, excludeId);
+    if (!hit) return { ok: true, available: true, reason: '', holder: null };
+    return {
+      ok: true,
+      available: false,
+      reason: `学籍号「${target}」已被学生「${hit.name || '（未填姓名）'}」${
+        hit.studentNo ? `（学生编号 ${hit.studentNo}）` : ''
+      }使用${hit.status ? `，当前状态：${hit.status}` : ''}`,
+      holder: { name: hit.name, studentNo: hit.studentNo, status: hit.status },
+    };
+  }
+
+  /**
+   * 学籍号唯一性**硬拦**（写入前的最后一道）。
+   *
+   * 🔴 前后端都要挡：前端只负责"让人早点知道"，**接口可直连**
+   *    ⇒ 真正的闸门必须在这里。前端拦住的只是体验，不是正确性。
+   * 🔴 `fields` 是**已经过 `stripProtected`** 的那份 ——
+   *    低密级用户保存时 `学籍号（脱敏）` 会被**静默删除**（L4 受控，`field-mask.ts`）。
+   *    所以判"有没有传学籍号"必须看 strip 之后的结果：字段被删掉时**不该报重复**
+   *    （那次写入根本不会碰这一栏）。
+   */
+  private async assertStudentNoUnique(
+    fields: Record<string, unknown>,
+    excludeId?: string,
+  ): Promise<void> {
+    const target = String(fields[STUDENT_NO_FIELD] ?? '').trim();
+    if (!target) return;
+    const hit = await this.findByStudentNo(target, excludeId);
+    if (!hit) return;
+    throw new BadRequestException(
+      `DUPLICATE_STUDENT_NO:学籍号「${target}」已被学生「${hit.name || '（未填姓名）'}」${
+        hit.studentNo ? `（学生编号 ${hit.studentNo}）` : ''
+      }使用，不能重复。学籍号是学生/家长登录用的凭证，重复会导致两个人互相登录到对方账号。`,
+    );
+  }
+
   /** 新建（ABAC write 校验） */
   async create(user: SessionUser, dto: CreateStudentDto) {
     const principal = toPrincipal(user);
@@ -482,6 +593,8 @@ export class StudentService {
     const fields = this.toWriteFields(this.mask.stripProtected(user, 'students', dto as unknown as Record<string, unknown>));
     if (!fields['数据密级']) fields['数据密级'] = 'L1';
     if (!fields['当前状态']) fields['当前状态'] = '潜在学生';
+    // 🔴 学籍号查重必须在**真正写库之前**（它在 strip 之后，见该方法的注释）
+    await this.assertStudentNoUnique(fields);
     await this.ensureTagOptions(dto);
     const recordId = await this.base.create(TABLE, fields);
     return this.detail(user, recordId);
@@ -502,6 +615,8 @@ export class StudentService {
     if (Object.keys(fields).length === 0) {
       throw new BadRequestException('VALIDATION:无可更新字段');
     }
+    // 🔴 改学籍号同样要查重，且**要把自己排除掉**（否则"保存时没改这一栏"也会自撞）
+    await this.assertStudentNoUnique(fields, id);
     await this.ensureTagOptions(dto);
     await this.base.update(TABLE, id, fields);
     return this.detail(user, id);

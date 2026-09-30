@@ -12,11 +12,13 @@ import {
   MY_IDP_MENU_KEY,
   SUPPORT_CONFIG_MENU_KEY,
   SUPPORT_MENU_KEY,
+  WEILING_MAPPING_MENU_KEY,
   idpMenuVisible,
   modulePermission,
   moduleByMenuKey,
   studentRecordMenuVisible,
   supportConfigVisible,
+  weilingMappingVisible,
   supportMenuVisible,
 } from '@acms/contracts';
 import { loadPermissions, resetPermissions } from '../lib/permissions';
@@ -447,6 +449,13 @@ export default function AppShell({
     // `legacyRead: null` ⇒ 默认只有系统管理员能看到这个菜单。
     if (item.key === SUPPORT_CONFIG_MENU_KEY) {
       return supportConfigVisible(myPerms);
+    }
+    // 「卫瓴映射」（2026-09-30，v13）：配置页，改的是**转档字段的翻译口径**
+    // （来源渠道 / 客户阶段 → 生源跟进状态 / 原学校类型 / 入学年月 / 付款状态），
+    // 一次配置影响以后每个转档学生 ⇒ 与「信号规则」同类，只认权限点、不吃菜单白名单。
+    // `legacyRead: null` ⇒ 默认只有系统管理员能看到这个菜单。
+    if (item.key === WEILING_MAPPING_MENU_KEY) {
+      return weilingMappingVisible(myPerms);
     }
     if (item.key === MY_IDP_MENU_KEY || item.key === IDP_STATS_MENU_KEY) {
       return idpMenuVisible(

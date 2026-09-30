@@ -21,7 +21,9 @@ export function createStudentQueryTool(studentService: StudentService) {
           学生编号: s.学生编号,
           姓名: s.学生姓名,
           英文名: s.英文名,
-          学籍号: s.学籍号,
+          // 🔴 字段名带「（脱敏）」后缀 —— 写成 `学籍号` 会恒为 undefined
+          //    （2026-09-30 摸底时发现的老 bug；字段真名见 StudentService.STUDENT_NO_FIELD）
+          学籍号: s['学籍号（脱敏）'],
           校区: s.校区,
           当前状态: s.当前状态,
         }));

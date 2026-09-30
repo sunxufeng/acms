@@ -8,11 +8,25 @@ import {
   buildEnrollDraft,
   enrollWriteFields,
   weilingStudentName,
+  DEFAULT_WEILING_MAPPING_CONFIG,
+  WEILING_MAPPING_FIELDS,
+  WEILING_MAPPING_KEYS,
+  normalizeWeilingMappingConfig,
+  weilingMappingChangedKeys,
+  weilingMappingInvalid,
+  weilingMappingTally,
+  weilingValueDistribution,
   type EnrollDraft,
   type SessionUser,
   type WeilingEnrollContext,
+  type WeilingMappingConfig,
+  type WeilingMappingFieldView,
+  type WeilingMappingKey,
+  type WeilingMappingResult,
 } from '@acms/contracts';
 import { StudentService } from '../student/student.service.js';
+import { DictService } from '../dictionary/dict.service.js';
+import { requireModule } from '../shared/require-module.js';
 import { getSqlStore } from '../base.provider.js';
 import { decryptSecret } from '../shared/secret-cipher.js';
 import { runAs, systemActor } from '../shared/actor-context.js';
@@ -94,7 +108,14 @@ export class WeilingService implements OnModuleInit {
    *    默认 `数据密级=L1` / `当前状态=潜在学生`、人员字段落 **open_id 文本**、
    *    脱敏字段处理）。自己拼一份必然漏掉其中几项，而且漏了不报错。
    */
-  constructor(@Inject(StudentService) private readonly students: StudentService) {}
+  /**
+   * `DictService` 用来取档案侧字段的**运行期选项**（「来源渠道」是 8 项还是 4 项取决于字典，
+   * 不能在 contracts 里再抄一份 —— 抄了迟早与字典漂移，后果是"弹窗里选不到某个值"）。
+   */
+  constructor(
+    @Inject(StudentService) private readonly students: StudentService,
+    @Inject(DictService) private readonly dicts: DictService,
+  ) {}
   private tokenCache: TokenCache | null = null;
   private fieldCache: { at: number; fields: WeilingFieldDesc[] } | null = null;
   /** 筛选下拉选项缓存（客户阶段 / 来源渠道 / 归属人，取自联系人表 distinct） */
@@ -876,6 +897,291 @@ export class WeilingService implements OnModuleInit {
   }
 
   // ══════════════════════════════════════════════════════════════
+  // 学生详情页的「招生来源」（二期，2026-09-30）
+  // ══════════════════════════════════════════════════════════════
+
+  /**
+   * 反查：这个学生是从哪个卫瓴联系人转来的（学生详情页的只读卡片用）。
+   *
+   * 为什么是**反查**而不是在学生档案加一个「来源联系人」字段：
+   *   · 关联关系的事实来源在联系人表的 `关联学生ID`（转档/自动匹配都写在那里）；
+   *     再往学生档案里存一份就是**两份真相**，迟早不一致（而且不一致不报错）。
+   *   · 反查零成本（联系人表有 `关联学生ID` 索引可用），且天然跟着关联变化走。
+   *
+   * 🔴 只返回**非敏感**字段：联系人姓名 / 归属人 / 渠道 / 阶段 / 匹配依据 / 时间。
+   *    **不返回手机号、邮箱** —— 招生来源卡的用途是"这个学生从哪来的"，
+   *    联系方式属于联系人模块的数据，不该顺手泄露给"能看学生"的人。
+   * 🔴 权限只判 `students:read`：看学生详情的人本来就该看到"他来自哪"，
+   *    不该因为没开联系人权限就看不到（那会让这个卡片对多数老师永远空白）。
+   */
+  async sourceOfStudent(
+    user: SessionUser,
+    studentId: string,
+  ): Promise<{
+    ok: boolean;
+    contacts: {
+      contactId: string;
+      contactName: string;
+      ownerName: string;
+      channel: string;
+      customerStage: string;
+      matchReason: string;
+      matchScore: number;
+      matchTime: number;
+      manual: boolean;
+    }[];
+  }> {
+    requireModule(user, 'students', 'read');
+    const sql = getSqlStore();
+    const sid = String(studentId ?? '').trim();
+    if (!sql || !sid) return { ok: true, contacts: [] };
+    const out: {
+      contactId: string;
+      contactName: string;
+      ownerName: string;
+      channel: string;
+      customerStage: string;
+      matchReason: string;
+      matchScore: number;
+      matchTime: number;
+      manual: boolean;
+    }[] = [];
+    let token: string | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const page = await sql.search(TABLES.weilingContact.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of page.items ?? []) {
+        const rec = r as { id?: string; recordId?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        if (String(f['关联学生ID'] ?? '').trim() !== sid) continue;
+        const reason = String(f['匹配依据'] ?? '').trim();
+        out.push({
+          contactId: String(rec.recordId ?? rec.id ?? ''),
+          contactName: String(f['联系人姓名'] ?? '').trim(),
+          ownerName: String(f['归属人'] ?? '').trim(),
+          channel: String(f['来源渠道'] ?? '').trim(),
+          customerStage: String(f['客户阶段'] ?? '').trim(),
+          matchReason: reason,
+          matchScore: Number(f['匹配置信度'] ?? 0),
+          matchTime: Number(f['匹配时间'] ?? 0),
+          // 「手动入学」是转档时写进去的依据前缀，用来区分"人工转档"与"算法匹配"
+          manual: reason.includes('手动') || reason.includes('人工'),
+        });
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    // 置信度高的排前面（人工转档是 100）
+    out.sort((a, b) => b.matchScore - a.matchScore || a.contactId.localeCompare(b.contactId));
+    return { ok: true, contacts: out };
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // 「卫瓴映射」配置（v13，2026-09-30 峰哥需求）
+  //
+  // 把「卫瓴取值 → 学生档案选项」的对应关系从代码里的 const 提成可配置。
+  // 存法照 `student_support_config`（同表同做法）：系统配置表一行 + 固定 id upsert。
+  // ══════════════════════════════════════════════════════════════
+
+  /** 系统配置表里的配置键（与 homepage_config / student_support_config 同族） */
+  private static readonly MAPPING_KEY = 'weiling_mapping_config';
+  /** 配置行的固定 id（`createWithId` 整体替换 ⇒ 天然 upsert，不会写出重复行） */
+  private static readonly MAPPING_ID = 'cfg_weiling_mapping';
+
+  /**
+   * 读「卫瓴映射」配置。
+   *
+   * 🔴 与「信号规则」同款：**不做缓存**（系统配置就十来行）——
+   *    配置这类"改了必须立刻生效"的东西，多读十几行远比"老师改完转档还是老口径"便宜。
+   * 🔴 任何异常（行不存在 / JSON 坏了 / 字段缺失）都**逐项回落默认**，绝不抛错 ——
+   *    配置读坏了必须还能转档，不能整页 500。
+   */
+  async loadEnrollMapping(): Promise<WeilingMappingConfig> {
+    try {
+      const sql = getSqlStore();
+      if (!sql) return DEFAULT_WEILING_MAPPING_CONFIG;
+      const rec = (await sql.get(TABLES.systemConfig.tableId, WeilingService.MAPPING_ID)) as
+        | { fields?: Record<string, unknown> }
+        | null;
+      const raw = rec?.fields?.['配置值'];
+      if (!raw) return DEFAULT_WEILING_MAPPING_CONFIG;
+      const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+      if (!text.trim()) return DEFAULT_WEILING_MAPPING_CONFIG;
+      return normalizeWeilingMappingConfig(JSON.parse(text));
+    } catch (e) {
+      this.logger.warn(`卫瓴映射配置读取失败，回落默认：${(e as Error).message}`);
+      return DEFAULT_WEILING_MAPPING_CONFIG;
+    }
+  }
+
+  /**
+   * 各目标字段的**运行期选项**（字典优先，回落在 contracts 的出厂清单）。
+   *
+   * 🔴 字典是选项的**唯一真源**（老师可以在「字典数据」页改），contracts 里那份只是
+   *    字典读不到时的兜底。两边不一致时以字典为准 —— 否则弹窗里会出现一个
+   *    "选了也存不进去的合法值"。
+   */
+  private archiveOptionsOf(): Partial<Record<WeilingMappingKey, string[]>> {
+    const labels = this.dicts.getAllLabels();
+    const out: Partial<Record<WeilingMappingKey, string[]>> = {};
+    for (const f of WEILING_MAPPING_FIELDS) {
+      const fromDict = f.archiveDictKey ? labels[f.archiveDictKey] : undefined;
+      out[f.key] = fromDict?.length ? [...fromDict] : [...f.archiveValues];
+    }
+    return out;
+  }
+
+  /**
+   * 扫全站联系人，统计每条映射关系里**卫瓴侧的取值分布**（`取值 → 出现条数`）。
+   *
+   * 用途：页面上左列列出真实出现过的取值（按频次降序），老师先配高频的那几个；
+   * 试算也用它，因此**试算结果与配置生效后的实际效果必然一致**。
+   *
+   * ⚠️ 全表扫（3700 行 × 5 个字段）—— 只在打开配置页 / 点试算时跑，不在任何热路径上。
+   *    联系人表是本地 PG 副本，不走上游。
+   */
+  private async valueDistribution(): Promise<Partial<Record<WeilingMappingKey, { value: string; count: number }[]>>> {
+    const sql = getSqlStore();
+    if (!sql) return {}; // 没有库 ⇒ 页面显示空候选（而不是崩）
+    const acc: Record<WeilingMappingKey, Map<string, number>> = {
+      channel: new Map(),
+      stage: new Map(),
+      schoolType: new Map(),
+      plannedTerm: new Map(),
+      payment: new Map(),
+    };
+    let token: string | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const page = await sql.search(TABLES.weilingContact.tableId, {
+        pageSize: 500,
+        ...(token ? { pageToken: token } : {}),
+      });
+      for (const r of page.items ?? []) {
+        const rec = r as { id?: string; recordId?: string; fields?: Record<string, unknown> };
+        const f = ((rec.fields ?? r) ?? {}) as Record<string, unknown>;
+        // 两个顶层列直接取
+        const bump = (k: WeilingMappingKey, v: unknown) => {
+          const sv = String(v ?? '').trim();
+          if (!sv) return;
+          acc[k].set(sv, (acc[k].get(sv) ?? 0) + 1);
+        };
+        bump('channel', f['来源渠道']);
+        bump('stage', f['客户阶段']);
+        // 三个自定义字段在整包 JSON 里（键是卫瓴的 api_name）
+        const custom = parseCustom(f['自定义字段']);
+        bump('schoolType', custom['yxxlx']);
+        bump('plannedTerm', custom['jxrdzjxysj']);
+        bump('payment', custom['jfqk']);
+      }
+      if (!page.hasMore || !page.pageToken) break;
+      token = page.pageToken;
+    }
+    const out: Partial<Record<WeilingMappingKey, { value: string; count: number }[]>> = {};
+    for (const k of WEILING_MAPPING_KEYS) {
+      out[k] = [...acc[k].entries()].map(([value, count]) => ({ value, count }));
+    }
+    return out;
+  }
+
+  /** 把分布 + 配置拼成页面要的视图（每条映射一行，含未配提醒） */
+  private mappingFieldsOf(
+    config: WeilingMappingConfig,
+    dist: Partial<Record<WeilingMappingKey, { value: string; count: number }[]>>,
+    options: Partial<Record<WeilingMappingKey, string[]>>,
+  ): WeilingMappingFieldView[] {
+    const tally = new Map(weilingMappingTally(config, dist).map((t) => [t.key, t]));
+    return WEILING_MAPPING_FIELDS.map((meta) => {
+      const rows = weilingValueDistribution(dist[meta.key] ?? []);
+      const t = tally.get(meta.key);
+      const seen = new Set(rows.map((r) => r.value));
+      // 配置里手工加过、但库里还没出现过的取值也列出来（否则老师配完看不到自己加的那条）
+      const extra = Object.keys(config[meta.key])
+        .filter((from) => !seen.has(from))
+        .map((from) => ({ value: from, count: 0 }));
+      const entries = [...rows, ...extra].map((r) => ({
+        from: r.value,
+        to: Object.prototype.hasOwnProperty.call(config[meta.key], r.value)
+          ? (config[meta.key][r.value] ?? '')
+          : '',
+        count: r.count,
+      }));
+      return {
+        key: meta.key,
+        weilingLabel: meta.weilingLabel,
+        weilingSource: meta.weilingSource,
+        archiveField: meta.archiveField,
+        archiveOptions: options[meta.key] ?? [...meta.archiveValues],
+        hint: meta.hint,
+        fallback: config.fallback[meta.key] ?? '',
+        entries,
+        unmapped: t?.unmapped ?? [],
+        total: t?.total ?? 0,
+        mapped: t?.mapped ?? 0,
+      };
+    });
+  }
+
+  /** 读配置（含真实取值分布与命中数）—— 页面首屏 */
+  async mappingGet(user: SessionUser): Promise<WeilingMappingResult> {
+    requireModule(user, 'weilingMapping', 'read');
+    return this.mappingView(await this.loadEnrollMapping());
+  }
+
+  /** 用提交的配置重算视图（**不保存**）—— 试算/预览 */
+  async mappingPreview(user: SessionUser, body: unknown): Promise<WeilingMappingResult> {
+    requireModule(user, 'weilingMapping', 'read');
+    return this.mappingView(normalizeWeilingMappingConfig(body));
+  }
+
+  /**
+   * 保存配置（整体替换）。
+   *
+   * 🔴 存进去的必须就是**归一化后的**那份 —— 否则界面显示的和判据实际用的是两回事
+   *    （"我明明配了，转档还是不填"这种最难查）。
+   * 🔴 留痕：配置影响**以后每个转档学生**的字段值，出事要能查到人。
+   */
+  async mappingSave(user: SessionUser, body: unknown): Promise<WeilingMappingResult> {
+    requireModule(user, 'weilingMapping', 'update');
+    const sql = getSqlStore();
+    if (!sql) throw new BadRequestException('NO_DATABASE');
+    const config = normalizeWeilingMappingConfig(body);
+    await sql.createWithId(TABLES.systemConfig.tableId, WeilingService.MAPPING_ID, {
+      配置键: WeilingService.MAPPING_KEY,
+      配置值: JSON.stringify(config),
+      分组: '招生配置',
+      说明: '卫瓴联系人 → 学生档案：字段映射规则（JSON）',
+      状态: '启用',
+      更新人: String(user.name ?? '').trim() || '系统',
+      更新时间: Date.now(),
+    });
+    this.logger.log(`卫瓴映射已更新（${weilingMappingChangedKeys(config).join(', ') || '全默认'}）`);
+    return this.mappingView(config);
+  }
+
+  /** 拼一份完整视图（三个接口共用，保证读/试算/保存后看到的完全一致） */
+  private async mappingView(config: WeilingMappingConfig): Promise<WeilingMappingResult> {
+    const options = this.archiveOptionsOf();
+    const dist = await this.valueDistribution();
+    const fields = this.mappingFieldsOf(config, dist, options);
+    const allowed: Partial<Record<WeilingMappingKey, string[]>> = {};
+    for (const f of WEILING_MAPPING_FIELDS) allowed[f.key] = options[f.key] ?? [];
+    const topUnmapped = fields
+      .flatMap((f) => f.unmapped.map((from) => ({ key: f.key, from, count: f.entries.find((e) => e.from === from)?.count ?? 0 })))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 12);
+    return {
+      config,
+      defaults: DEFAULT_WEILING_MAPPING_CONFIG,
+      fields,
+      changed: weilingMappingChangedKeys(config),
+      invalid: weilingMappingInvalid(config, allowed),
+      topUnmapped,
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════
   // 「联系人 → 转入学生档案」（2026-09-30 峰哥需求）
   //
   // 动作链：预检 → 建学生（或关联已有学生）→ 写联系人侧关联 → 回填周边实体
@@ -930,6 +1236,8 @@ export class WeilingService implements OnModuleInit {
     if (!contact) throw new NotFoundException('NOT_FOUND:联系人不存在');
     const custom = parseCustom(contact['自定义字段']);
     const textOf = await this.customTextPicker();
+    // 「卫瓴映射」：转档时按老师配的对应关系翻译（读不到就回落默认 = 原写死的表）
+    const mapping = await this.loadEnrollMapping();
 
     const ownerName = String(contact['归属人'] ?? '').trim();
     const ownerIdx = await this.ownerIndex();
@@ -950,6 +1258,9 @@ export class WeilingService implements OnModuleInit {
       plannedTerm: textOf('jxrdzjxysj', custom['jxrdzjxysj']),
       paid: textOf('jfqk', custom['jfqk']),
       mobile: String(contact['手机号'] ?? '').trim(),
+      channel: String(contact['来源渠道'] ?? '').trim(),
+      customerStage: String(contact['客户阶段'] ?? '').trim(),
+      archiveOptions: this.archiveOptionsOf(),
       // 只进「备注」留痕：学生档案没有承接这些信息的字段
       marketing: [
         { label: '客户阶段', value: String(contact['客户阶段'] ?? '').trim() },
@@ -964,7 +1275,7 @@ export class WeilingService implements OnModuleInit {
       operatorName,
       now: Date.now(),
     };
-    return { ctx, draft: buildEnrollDraft(ctx), contact };
+    return { ctx, draft: buildEnrollDraft(ctx, mapping), contact };
   }
 
   /** 同名学生（重名检测的判据；学生仅几十到几百行，全表扫） */

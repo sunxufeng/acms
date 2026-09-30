@@ -16,6 +16,15 @@ import {
 
 export type FieldType = 'text' | 'select' | 'date' | 'multiselect' | 'user' | 'email' | 'phone' | 'textarea' | 'number' | 'typescore';
 
+/**
+ * 学籍号字段的准确中文名（含全角括号）。
+ *
+ * 🔴 与后端 `StudentService.STUDENT_NO_FIELD` 必须**逐字一致**（含全角括号）——
+ *    写成 `学籍号` 会恒为空且不报错（本仓已有两处这样的老 bug）。
+ *    守卫见 `apps/api/test/student-no-unique.test.ts`。
+ */
+const STUDENT_NO_FIELD = '学籍号（脱敏）';
+
 export interface FieldDef {
   key: string;
   label: string;
@@ -704,6 +713,19 @@ export function StudentForm({
   // 记录 ID：编辑态由 initial 提供；新建态在首次保存/上传时由表单自动建记录后写入
   const [studentId, setStudentId] = useState<string | undefined>(initial?.id as string | undefined);
   const [saving, setSaving] = useState(false);
+  /**
+   * 学籍号可用性预检的结果（2026-09-30 峰哥：「学籍号不能重复，学生档案保存时需要有提醒」）。
+   *
+   * 🔴 为什么查的是**服务端**：学籍号是 L4 受控字段，低密级用户在列表里拿到的是 `●●●`
+   *    —— 前端自己比对必然把"有重复"判成"没重复"。
+   * 🔴 为什么不能等提交后才提醒：那一刻用户已经填完一整页表单（几十个字段），
+   *    让他返工去改一个编号是不可接受的。这里是**尽早发现**，后端那道才是硬闸门。
+   */
+  const [noState, setNoState] = useState<{ checking: boolean; reason: string; available: boolean }>({
+    checking: false,
+    reason: '',
+    available: true,
+  });
   // 防止并发上传时重复建记录：首个 ensureRecord 创建中的 Promise 被复用
   const createPromiseRef = useRef<Promise<string> | null>(null);
 
@@ -962,6 +984,41 @@ function PhotoAttachmentSection({
 
   const setField = (key: string, val: unknown) => setValues((p) => ({ ...p, [key]: val }));
 
+  /**
+   * 学籍号预检：输入停下 500ms 后查一次（防抖，不然每敲一个字符就打一次接口）。
+   *
+   * 只在**新建/编辑态**跑（`readOnly` 时表单是只读的，改了也没用）；
+   * 编辑态带 `studentId` 排除自己，否则"没改这一栏"也会自撞。
+   */
+  const noValue = String(values[STUDENT_NO_FIELD] ?? '').trim();
+  useEffect(() => {
+    if (readOnly) {
+      setNoState({ checking: false, reason: '', available: true });
+      return;
+    }
+    if (!noValue) {
+      setNoState({ checking: false, reason: '', available: true });
+      return;
+    }
+    let alive = true;
+    setNoState((s0) => ({ ...s0, checking: true }));
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const r = await api.checkStudentNo(noValue, studentId);
+          if (alive) setNoState({ checking: false, reason: r.available ? '' : r.reason, available: r.available });
+        } catch {
+          // 预检失败不阻塞用户（真正的闸门在后端）—— 静默即可，别拿服务端小故障拦住录入
+          if (alive) setNoState({ checking: false, reason: '', available: true });
+        }
+      })();
+    }, 500);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [noValue, studentId, readOnly]);
+
   /** 收集当前表单字段（与提交一致） */
   const buildData = (): Record<string, unknown> => {
     const data: Record<string, unknown> = {};
@@ -1061,6 +1118,12 @@ function PhotoAttachmentSection({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const data = buildData();
+    // 学籍号重复时不给提交：这里挡的是"体验"（不让人白填一页），真正的闸门在后端
+    // （`StudentService.assertStudentNoUnique`）—— 接口可直连，前端拦不住恶意调用。
+    if (!readOnly && noState.reason) {
+      alert(noState.reason);
+      return;
+    }
     setSaving(true);
     try {
       if (studentId) {
@@ -1237,13 +1300,30 @@ function PhotoAttachmentSection({
                     />
                   )
                 ) : (
-                  <input
-                    className="form-input"
-                    type={f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : f.type === 'phone' ? 'tel' : 'text'}
-                    value={readOnly && f.type === 'date' ? fmtDateVal(values[f.key]) : String(values[f.key] ?? '')}
-                    disabled={readOnly}
-                    onChange={(e) => setField(f.key, e.target.value)}
-                  />
+                  <>
+                    <input
+                      className="form-input"
+                      type={f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : f.type === 'phone' ? 'tel' : 'text'}
+                      value={readOnly && f.type === 'date' ? fmtDateVal(values[f.key]) : String(values[f.key] ?? '')}
+                      disabled={readOnly}
+                      onChange={(e) => setField(f.key, e.target.value)}
+                      style={
+                        f.key === STUDENT_NO_FIELD && noState.reason
+                          ? { borderColor: 'var(--danger)' }
+                          : undefined
+                      }
+                    />
+                    {/* 学籍号是学生/家长/小程序的登录凭证 ⇒ 重复会让两个人互串账号，
+                        所以这里必须**当场**说清跟谁撞了，而不是等保存后弹一句"失败" */}
+                    {f.key === STUDENT_NO_FIELD && noState.reason ? (
+                      <div className="form-hint" style={{ color: 'var(--danger)' }}>
+                        {noState.reason}
+                      </div>
+                    ) : null}
+                    {f.key === STUDENT_NO_FIELD && !noState.reason && noState.checking ? (
+                      <div className="form-hint">{ts('studentNoChecking')}</div>
+                    ) : null}
+                  </>
                 )}
               </label>
             ))}

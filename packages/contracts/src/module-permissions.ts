@@ -133,7 +133,7 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *     必须声明 `update` —— 只声明 read 的话矩阵里没有可勾的格，
  *     这个点连 `PERMISSIONS` 目录都不在（`weilingContacts:update` 踩过同一个坑）。
  */
-export const ROLE_PERMISSION_VERSION = 12;
+export const ROLE_PERMISSION_VERSION = 13;
 
 /**
  * 资源「从哪个版本开始存在」。
@@ -181,6 +181,12 @@ export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
   // 设计上只给招生老师，由管理员在角色矩阵里手工勾。
   // ⚠️ 引入版本必须 == 当次抬的版本号，否则 `(11, 12]` 这段增量覆盖不到它。
   weilingEnroll: 12,
+  // v13（2026-09-30）：「卫瓴映射」配置页。它决定**所有转档学生的字段填什么**
+  //  （来源渠道 / 生源跟进状态 / 原学校类型 / 入学年月 / 付款状态），
+  // 改错一条就是"以后每个转档学生都带着错值进来" ⇒ 与信号规则同级，`legacyRead: null`
+  // **不随迁移发放**，只在角色矩阵里手工勾给管理员/招生负责人。
+  // ⚠️ 引入版本必须 == 当次抬的版本号，否则 `(12, 13]` 这段增量覆盖不到它。
+  weilingMapping: 13,
 };
 
 /** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */
@@ -468,6 +474,36 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
     key: 'studentSupportConfig',
     label: '学生支持 · 信号规则',
     path: '/student-support/config',
+    legacyRead: null,
+    legacyWrite: null,
+    menuPermission: null,
+    actions: ['read', 'update'],
+    genericCrud: false,
+  },
+  /**
+   * 「卫瓴映射」配置页（v13，2026-09-30 峰哥需求）。
+   *
+   * 管的是「卫瓴侧取值 → 学生档案选项」的对应关系（来源渠道 / 客户阶段 → 生源跟进状态 /
+   * 原学校类型 / 计划入读 → 入学年月 / 缴费情况 → 付款状态）。口径只有招生老师知道，
+   * 所以从代码里的 `const` 提成可配置 —— 但这也意味着**改它等于改所有新转档学生的字段值**。
+   *
+   * ⚠️ 与 `weilingEnroll` 是**两件事**，别合并：
+   *    · `weilingEnroll` = 「能不能把线索转成学生」（动作许可，招生老师用）
+   *    · `weilingMapping` = 「转档时字段怎么翻译」（口径配置，招生负责人 / 管理员用）
+   *    能转档的人不该自动获得"改全局口径"的能力。
+   *
+   * ⚠️ 它有真实页面 `/weiling-mapping` ⇒ 真 path、**不需要 `subOf`**（自己有菜单项）。
+   * 🔴 `actions` 恰为 `['read','update']`，**不得带 `enter`**：
+   *    本资源 `menuPermission: null`，而 `enter` 的继承判据是
+   *    `!adminOnly && (!menuPermission || legacy.has(menuPermission)) && …`
+   *    ⇒ 一旦声明 `enter` 就会**无条件发给全站角色**（含 student / parent）。
+   *    2026-09-30 `weilingEnroll` 正是这么漏发过 12 个角色。
+   *    菜单可见性走自定义判据 `weilingMappingVisible()`（同 `studentSupportConfig`）。
+   */
+  {
+    key: 'weilingMapping',
+    label: '卫瓴映射',
+    path: '/weiling-mapping',
     legacyRead: null,
     legacyWrite: null,
     menuPermission: null,

@@ -66,6 +66,20 @@ export class StudentController {
     return this.svc.myScope(this.user(req));
   }
 
+  /**
+   * 学籍号可用性预检（2026-09-30 峰哥：「学籍号不能重复，学生档案保存时需要有提醒」）。
+   *
+   * 🔴 为什么是**独立接口**而不是让前端在列表里自己找：
+   *    学籍号是 L4 受控字段（低密级用户看到的是 `●●●`），前端**根本拿不到真值**，
+   *    拿脱敏值去比对必然误判"没重复"。判据必须在服务端用真值做。
+   * 🔴 它只回"能不能用 + 占用者姓名/学生编号"，**不回学籍号本身**（同上，受控字段）。
+   * ⚠️ 必须声明在 `@Get(':id')` **之前**，否则 "student-no-taken" 会被当成学生 id。
+   */
+  @Get('student-no-taken')
+  studentNoTaken(@Req() req: Request, @Query('value') value = '', @Query('excludeId') excludeId?: string) {
+    return this.svc.checkStudentNo(this.user(req), String(value), excludeId ? String(excludeId) : undefined);
+  }
+
   /** 详情 */
   @Get(':id')
   detail(@Req() req: Request, @Param('id') id: string) {

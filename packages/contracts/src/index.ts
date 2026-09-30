@@ -29,3 +29,6 @@ export * from './student-support.js';
 // 卫瓴联系人 → 学生档案「入学」：字段映射的三档判据 + 姓名可用性 + 留痕文本
 // —— 🔴 前端弹窗「显示会填什么」与后端「实际填什么」必须是同一份，各写一份必然漂移
 export * from './weiling-enroll.js';
+// 卫瓴映射：卫瓴取值 → 学生档案选项（可配置；默认值 = 原写死的映射表）
+// —— 🔴 与 weiling-enroll 的 buildEnrollDraft(ctx, mapping?) 配套，只此一份
+export * from './weiling-mapping.js';

@@ -24,6 +24,13 @@
  */
 
 import { deriveEnrollFields, ENROLL_MONTH_FIELD } from './student-enroll.js';
+import {
+  DEFAULT_WEILING_MAPPING_CONFIG,
+  WEILING_MAPPING_FIELDS,
+  weilingMappedValue,
+  type WeilingMappingConfig,
+  type WeilingMappingKey,
+} from './weiling-mapping.js';
 
 /** 转档字段的档位 */
 export type EnrollTier = 'solid' | 'check' | 'skip';
@@ -112,47 +119,18 @@ export function weilingStudentName(raw: unknown): string {
     .trim();
 }
 
-/**
- * 卫瓴「原学校类型」（api_name `yxxlx`）→ 学生档案「原学校类型」。
- *
- * 卫瓴 6 档 vs 学生档案 2 个选项 ⇒ **只有 2 档能对上**，其余留空
- * （`null` = 无对应，UI 上标出来，别让用户以为漏了）。
- *
- * 要不要给「原学校类型」补选项是另一个决定（要改字段定义）；在没补之前，
- * 写一个选项外的值会让这个字段在界面上显示成"没值"，比留空更难排查。
- */
-export const WEILING_SCHOOL_TYPE_MAP: Record<string, string | null> = {
-  体制内: '体制内学校',
-  国际课程: '国际学校',
-  'homeschool 或 休学': null,
-  海外回国: null,
-  创新学校: null,
-  其他: null,
-};
-
-export const ARCHIVE_SCHOOL_TYPE_OPTIONS: readonly string[] = ['国际学校', '体制内学校'];
-
-/**
- * 卫瓴「计划入读致极学院时间」（api_name `jxrdzjxysj`）→ 学生档案「入学年月」的选项值。
- *
- * 学生档案「入学年月」的选项形如 `25秋季` / `26春季`（见 `student-enroll.ts`）。
- * ⚠️ 卫瓴这一档的**粒度只到学期**（且 `2026年秋季或后` 是模糊的"或后"）⇒ 归到 `check` 档，
- *    默认填上但要求人工确认；`其它` 不映射（返回空串）。
- */
-export const WEILING_PLANNED_TERM_MAP: Record<string, string> = {
-  '2025年秋季学期': '25秋季',
-  '2026年春季学期': '26春季',
-  '2026年秋季或后': '26秋季',
-  其它: '',
-};
-
-export const ARCHIVE_ENROLL_MONTH_OPTIONS: readonly string[] = [
-  '21春季', '21秋季', '22春季', '22秋季', '23春季', '23秋季',
-  '24春季', '24秋季', '25春季', '25秋季', '26春季', '26秋季',
-  '27春季', '27秋季', '28春季', '28秋季',
-];
-
-export const ARCHIVE_PAYMENT_OPTIONS: readonly string[] = ['未付款', '已付款'];
+// ─────────────────────────────────────────────────────────────
+// 「卫瓴取值 → 档案选项」的映射表**已搬到 `weiling-mapping.ts`**（2026-09-30 峰哥要求可配置）。
+//
+// 原先是这里的 4 个模块级 const（`WEILING_SCHOOL_TYPE_MAP` / `WEILING_PLANNED_TERM_MAP` /
+// `ARCHIVE_SCHOOL_TYPE_OPTIONS` / `ARCHIVE_ENROLL_MONTH_OPTIONS` / `ARCHIVE_PAYMENT_OPTIONS`）。
+// 全部**删掉、不再保留别名** —— 留着就会出现"有人改了新配置、有人还在读旧常量"这种
+// 双源不一致（那种 bug 不报错，只是某些字段悄悄不填）。
+//
+// · 默认值（= 原常量）→ `DEFAULT_WEILING_MAPPING_CONFIG`
+// · 字段元信息（含档案侧选项）→ `WEILING_MAPPING_FIELDS`
+// · 翻译判据 → `weilingMappedValue()`
+// ─────────────────────────────────────────────────────────────
 
 /**
  * 转档的上下文（**全部是"已翻译成人话"的值**）。
@@ -182,6 +160,19 @@ export interface WeilingEnrollContext {
   paid: string;
   /** 联系人的手机号（**只进备注**，见 `buildEnrollDraft` 的 skip 说明） */
   mobile: string;
+  /** 卫瓴「来源渠道」（联系人表顶层列，如「活动-公众号」）—— 原始值，靠映射翻译 */
+  channel: string;
+  /** 卫瓴「客户阶段」（联系人表顶层列）—— 原始值，靠映射翻译 */
+  customerStage: string;
+  /**
+   * 目标字段的**运行期选项**（来自字典；不在 contracts 里再抄一份）。
+   *
+   * 🔴 为什么由调用方传：档案「来源渠道」是 8 项还是 4 项**取决于字典**，
+   *    而字典可以在界面上改（`dicts`）。写死在 contracts 里迟早与字典漂移
+   *    —— 漂移的后果是"弹窗里选不到某个值"或"选了个字典里没有的值"。
+   *    传进来时用它渲染下拉；不传则回落 `WEILING_MAPPING_FIELDS` 里的 `archiveValues`。
+   */
+  archiveOptions?: Partial<Record<WeilingMappingKey, readonly string[]>>;
   /** 只进备注的营销信息（意向度 / 线索定性 / 咨询者类型 / 意向留学国别 / 客户阶段 / 来源渠道） */
   marketing: { label: string; value: string }[];
   /** 卫瓴线索创建时间（毫秒；0 = 未知） */
@@ -221,15 +212,91 @@ export function buildEnrollRemark(ctx: WeilingEnrollContext): string {
  *
  * 🔴 三档的**边界**就是本函数存在的意义 —— 前端把它渲染成弹窗、后端拿它写库，
  *    所以「显示会填什么」与「实际填什么」永远是同一份。
+ *
+ * 🔴 第二参 `mapping` **可选、默认 = 出厂映射**（= 原来写死在代码里的那两张表）⇒
+ *    老调用点与老测试一行不改、行为不变。「卫瓴映射」页配的就是它。
  */
-export function buildEnrollDraft(ctx: WeilingEnrollContext): EnrollDraft {
+export function buildEnrollDraft(
+  ctx: WeilingEnrollContext,
+  mapping: WeilingMappingConfig = DEFAULT_WEILING_MAPPING_CONFIG,
+): EnrollDraft {
   const studentName = weilingStudentName(ctx.studentNameRaw);
   const nameProblem = weilingStudentNameProblem(ctx.studentNameRaw);
   const remark = buildEnrollRemark(ctx);
 
-  const schoolType = ctx.schoolType ? (WEILING_SCHOOL_TYPE_MAP[ctx.schoolType] ?? null) : null;
-  const enrollMonth = ctx.plannedTerm ? (WEILING_PLANNED_TERM_MAP[ctx.plannedTerm] ?? '') : '';
-  const payment = ctx.paid === '是' ? '已付款' : ctx.paid === '否' ? '未付款' : '';
+  /** 取某个目标字段的运行期选项（字典优先，回落出厂清单） */
+  const optionsOf = (key: WeilingMappingKey): readonly string[] =>
+    ctx.archiveOptions?.[key]?.length
+      ? ctx.archiveOptions[key]!
+      : (WEILING_MAPPING_FIELDS.find((f) => f.key === key)?.archiveValues ?? []);
+
+  /**
+   * 按映射翻译一条卫瓴取值，并生成「为什么是这个值 / 为什么没填」的说明。
+   *
+   * 🔴 三种"没填"必须说清是哪一种（不然用户只会看到"漏了"）：
+   *    ① 卫瓴侧本身没值；② 卫瓴有值但映射表里没配（去「卫瓴映射」配）；
+   *    ③ 配了但显式映射为空（老师故意不映射这一项）。
+   */
+  const tr = (
+    key: WeilingMappingKey,
+    raw: string,
+  ): { value: string; why?: string; source: string } => {
+    const meta = WEILING_MAPPING_FIELDS.find((f) => f.key === key)!;
+    const from = String(raw ?? '').trim();
+    if (!from) {
+      return { value: '', source: `← 卫瓴未填${meta.weilingLabel}`, why: undefined };
+    }
+    const hit = weilingMappedValue(mapping, key, from);
+    if (hit.value) {
+      return {
+        value: hit.value,
+        source:
+          hit.via === 'exact'
+            ? `← ${meta.weilingLabel}「${from}」按「卫瓴映射」翻译为「${hit.value}」`
+            : `← ${meta.weilingLabel}「${from}」未配映射，走兜底「${hit.value}」`,
+        why: hit.via === 'fallback' ? `「${from}」在「卫瓴映射」里没配，按兜底填了「${hit.value}」，请确认` : undefined,
+      };
+    }
+    // 显式配置成空 vs 根本没配 —— 两者的处理建议不同，分开说
+    const configured = Object.prototype.hasOwnProperty.call(mapping[key], from);
+    return {
+      value: '',
+      source: `← ${meta.weilingLabel}「${from}」`,
+      why: configured
+        ? `「${from}」在「卫瓴映射」里被**显式设为不映射** ⇒ 留空（要填请手选）`
+        : `「${from}」还没配映射 ⇒ 留空。请到「后台管理 → 卫瓴映射」把它指到档案的一个选项上`,
+    };
+  };
+
+  const schoolTypeTr = tr('schoolType', ctx.schoolType);
+  const enrollMonthTr = tr('plannedTerm', ctx.plannedTerm);
+  const paymentTr = tr('payment', ctx.paid);
+  const channelTr = tr('channel', ctx.channel);
+  const stageTr = tr('stage', ctx.customerStage);
+
+  /** 一个"由映射决定"的格子：有值 → `check` 档；没值 → `skip` 档但**仍可手选** */
+  const mappedField = (
+    mapKey: WeilingMappingKey,
+    label: string,
+    translated: { value: string; why?: string; source: string },
+    extraWhy?: string,
+  ): EnrollDraftField => {
+    // 目标字段名只从元信息取（不在这里再写一遍字面量 —— 那是"两份清单必然漂移"的老坑）
+    const meta = WEILING_MAPPING_FIELDS.find((f) => f.key === mapKey)!;
+    const has = String(translated.value ?? '').trim() !== '';
+    return {
+      key: meta.archiveField,
+      label,
+      value: translated.value,
+      tier: has ? 'check' : 'skip',
+      source: translated.source,
+      why: has ? (extraWhy ?? translated.why) : (translated.why ?? extraWhy),
+      // 没值时也**保持可编辑**：留空的字段用户可以在弹窗里手选一个
+      // （"留空"与"禁用"是两件事，写成 disabled 会让人以为这个字段坏了）
+      editable: true,
+      options: optionsOf(mapKey),
+    };
+  };
 
   const fields: EnrollDraftField[] = [
     {
@@ -259,44 +326,9 @@ export function buildEnrollDraft(ctx: WeilingEnrollContext): EnrollDraft {
       source: '← suozaixx 所在学校（卫瓴侧是纯文本，与档案字段同形）',
       editable: true,
     },
-    {
-      key: '原学校类型',
-      label: '原学校类型',
-      value: schoolType ?? '',
-      tier: 'check',
-      source: ctx.schoolType
-        ? `← yxxlx「${ctx.schoolType}」`
-        : '← 卫瓴未填 yxxlx 原学校类型',
-      why:
-        ctx.schoolType && !schoolType
-          ? `卫瓴是「${ctx.schoolType}」，学生档案这一栏只有「国际学校 / 体制内学校」两个选项，对不上 ⇒ 留空（要填请手选）`
-          : undefined,
-      editable: true,
-      options: ARCHIVE_SCHOOL_TYPE_OPTIONS,
-    },
-    {
-      key: ENROLL_MONTH_FIELD,
-      label: '入学年月',
-      value: enrollMonth,
-      tier: 'check',
-      source: ctx.plannedTerm
-        ? `← jxrdzjxysj「${ctx.plannedTerm}」`
-        : '← 卫瓴未填 jxrdzjxysj 计划入读时间',
-      why: ctx.plannedTerm
-        ? '卫瓴这一档只到学期（还有「秋季或后」这种模糊值）⇒ 请确认到具体学期'
-        : undefined,
-      editable: true,
-      options: ARCHIVE_ENROLL_MONTH_OPTIONS,
-    },
-    {
-      key: '付款状态',
-      label: '付款状态',
-      value: payment,
-      tier: 'check',
-      source: ctx.paid ? `← jfqk 缴费情况「${ctx.paid}」` : '← 卫瓴未填 jfqk 缴费情况（该字段全库仅 7 条有值）',
-      editable: true,
-      options: ARCHIVE_PAYMENT_OPTIONS,
-    },
+    mappedField('schoolType', '原学校类型', schoolTypeTr, '档案这一栏只有「国际学校 / 体制内学校」，请确认卫瓴的「' + (ctx.schoolType || '') + '」该归到哪个'),
+    mappedField('plannedTerm', '入学年月', enrollMonthTr, '卫瓴这一档只到学期（还有「秋季或后」这种模糊值）⇒ 请确认到具体学期'),
+    mappedField('payment', '付款状态', paymentTr),
     {
       key: '备注',
       label: '备注',
@@ -305,6 +337,13 @@ export function buildEnrollDraft(ctx: WeilingEnrollContext): EnrollDraft {
       source: '← 自动生成的来源留痕（进不了字段的信息都放这里）',
       editable: true,
     },
+
+    // ── 这两栏**由「卫瓴映射」决定**：配了就是 check 档、没配就是 skip 档 ──
+    // 🔴 2026-09-30 峰哥要求把口径做成可配置（原来这两栏是"永不填 + 写理由"）。
+    //    口径只有招生老师知道（「活动-公众号」到底算官网还是活动招募），
+    //    写死在代码里等于每次都要改代码 + 重新部署。
+    mappedField('channel', '来源渠道', channelTr),
+    mappedField('stage', '生源跟进状态', stageTr),
 
     // ── 明确不填，且写明理由 ──────────────────────────────────
     {
@@ -315,8 +354,9 @@ export function buildEnrollDraft(ctx: WeilingEnrollContext): EnrollDraft {
       source: '← xssjxx 学生年级',
       why:
         '**选项体系不同，映射不了**：卫瓴给的是 G1–G12（年级），' +
-        '学生档案「当前年级」的选项是 Foundation / Pre-1 / Pre-2 / Pre-3 / 大一 / 未来班级 —— ' +
-        '没有 G 系列。硬写一个选项外的值，界面上会显示成"这个字段没值"，比留空更难查。' +
+        '学生档案「当前年级」的选项是 Foundation / Pre-1 / Pre-2 / Pre-3 / 大一 / ' +
+        '未来企业家班 / 全球领航计划 —— 没有 G 系列。' +
+        '硬写一个选项外的值，界面上会显示成"这个字段没值"，比留空更难查。' +
         '（卫瓴的年级已写进备注）',
       editable: false,
     },
@@ -339,27 +379,6 @@ export function buildEnrollDraft(ctx: WeilingEnrollContext): EnrollDraft {
       tier: 'skip',
       source: '← 联系人邮箱',
       why: '卫瓴联系人表 3703 条里「邮箱」**0 条有值**，没有可填的数据',
-      editable: false,
-    },
-    {
-      key: '来源渠道',
-      label: '来源渠道',
-      value: '',
-      tier: 'skip',
-      source: '← 来源渠道',
-      why:
-        '口径对不上：卫瓴有 18 种取值（活动-公众号 / 小红书 / 线下-推荐人转介绍 …），' +
-        '学生档案这一栏只有「官网咨询 / 转介绍 / 活动招募 / 其他」4 个固定选项，' +
-        '需要先定一条映射规则（已列为待确认项）；映射规则定下来之前留空',
-      editable: false,
-    },
-    {
-      key: '生源跟进状态',
-      label: '生源跟进状态',
-      value: '',
-      tier: 'skip',
-      source: '← 客户阶段',
-      why: '口径待定：卫瓴「客户阶段」是 潜在/适龄/面访/面试/成交客户，学生档案是 新线索/未录取/已录取/已入学，需要先定映射规则',
       editable: false,
     },
     {
@@ -387,12 +406,24 @@ export function buildEnrollDraft(ctx: WeilingEnrollContext): EnrollDraft {
     nameProblem,
     fields,
     // 「入学年月」一变，入学年份 / Arete入学年 跟着派生（与档案页同一份规则）
-    derived: deriveEnrollFields(enrollMonth) as Record<string, string>,
+    derived: deriveEnrollFields(enrollMonthTr.value) as Record<string, string>,
     remark,
   };
 }
 
-/** 从草稿里取出「要写进学生档案」的字段（只取 solid / check 档且有值/有意义的） */
+/**
+ * 从草稿里取出「要写进学生档案」的字段。
+ *
+ * 🔴 `skip` 档分两种，**必须区分**（2026-09-30 加「卫瓴映射」时才发现）：
+ *    · `editable: false` —— **硬不填**（学生手机号 / 学生邮箱 / 当前年级 / 学生标签）。
+ *      理由是"填了有害"或"没有数据来源"，所以连人工都不给写 —— 想填请去档案页填，
+ *      免得有人以为"在这里勾一下就能存"。
+ *    · `editable: true` —— **不自动填，但人工可以选**（如「来源渠道」还没配映射时的留空）。
+ *      它只在 `overrides` 真给了值时才写；`f.value` 本身是空的，所以不会误填。
+ *    ⇒ 判据：`tier === 'skip' && !editable` 才 continue。
+ *      （老写法是 `tier === 'skip'` 一律 continue —— 那时所有 skip 档都不可编辑，
+ *        所以行为一致；现在那两栏变可编辑了，不改这条就等于"手选了也不存"。）
+ */
 export function enrollWriteFields(
   draft: EnrollDraft,
   picked: Record<string, boolean>,
@@ -400,7 +431,7 @@ export function enrollWriteFields(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const f of draft.fields) {
-    if (f.tier === 'skip') continue;
+    if (f.tier === 'skip' && !f.editable) continue; // 硬不填
     if (picked[f.key] === false) continue; // 显式取消勾选
     const v = overrides[f.key] !== undefined ? overrides[f.key] : f.value;
     if (String(v ?? '').trim() === '') continue; // 空值不写（学生档案里"没填"就是没填）

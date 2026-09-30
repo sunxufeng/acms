@@ -140,3 +140,8 @@ IDP 配置页隐藏操作列（SHOW_OPS_COLUMN=false，表头与单元格同一�
 修「新 slot 起不来」：ScheduledTasksModule 漏导 GetnoteModule（tsc/单测/typecheck 全绿、只有装配期才炸）；新增启动期装配守卫 nest-module-di.test.ts,已完成,,P0,基础设施
 修「定时任务列表显示说谎」：每天多次的执行安排文案写死 hour:minute 导致显示成一天一次；改用 jobRunMinutes+formatTimeOfDay,已完成,,P0,教学管理
 修「音频补抓进度看不见」：status 兜底缺 noCred/trigger 且看不到定时任务那份（audio:__cron__）；新增 getnote-audio-progress.test.ts 守卫,已完成,,P1,教学管理
+卫瓴联系人「入学」：联系人列表操作列 → 转成学生档案（xsxm 为学生姓名、归属人映射为招生负责老师、三档字段映射、重名前置检测、周边实体顺手关联）,已完成,,P0,招生管理
+新增权限点 weilingEnroll（v12，legacyRead:null 只手工勾；叠加要求 module:students:create）,已完成,,P0,权限安全
+CrudPage 新增 rowActionSlotWhenReadonly：只读列表也能挂行级跨模块动作（新建/编辑/删除仍被 readonly 挡住）,已完成,,P1,基础设施
+修「转档失败返 500」：throw new Error 被 Nest 兜成 500 ⇒ 改 BadRequestException / NotFoundException,已完成,,P0,招生管理
+修「weilingEnroll 的 enter 被无条件发给 12 个角色（含 student/parent）」：enter 走另一套继承规则（menuPermission 为 null 即恒真）⇒ actions 去掉 enter + path 改假子路径,已完成,,P0,权限安全

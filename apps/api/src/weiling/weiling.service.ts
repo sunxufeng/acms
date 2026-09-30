@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import {
   TABLES,
   USER_TABLE,
@@ -882,6 +882,16 @@ export class WeilingService implements OnModuleInit {
   // 判据全在 contracts 的 `weiling-enroll.ts`（前端弹窗与这里共用同一份）。
   // ══════════════════════════════════════════════════════════════
 
+  /**
+   * 下面几处**必须抛 Nest 的 HTTP 异常**（`BadRequestException` / `NotFoundException`），
+   * 不能 `throw new Error('VALIDATION:…')`。
+   *
+   * 🔴 2026-09-30 线上验证揪到：普通 `Error` 会被 Nest 兜成 **500**，
+   *    于是"用户需要改一下输入"变成了"服务端故障" ——
+   *    前端显示不出人话，监控/告警也会把它计成服务端错误（真出事时没人信这个信号了）。
+   *    `message` 里的 `VALIDATION:` / `NOT_FOUND:` 前缀是给前端做文案映射用的，保留。
+   */
+
   /** 读一个联系人（只取字段体） */
   private async readContact(contactId: string): Promise<Record<string, unknown> | null> {
     const sql = getSqlStore();
@@ -917,7 +927,7 @@ export class WeilingService implements OnModuleInit {
     operatorName: string,
   ): Promise<{ ctx: WeilingEnrollContext; draft: EnrollDraft; contact: Record<string, unknown> }> {
     const contact = await this.readContact(contactId);
-    if (!contact) throw new Error('NOT_FOUND:联系人不存在');
+    if (!contact) throw new NotFoundException('NOT_FOUND:联系人不存在');
     const custom = parseCustom(contact['自定义字段']);
     const textOf = await this.customTextPicker();
 
@@ -1061,7 +1071,7 @@ export class WeilingService implements OnModuleInit {
       const stu = (await sql.get(TABLES.studentProfile.tableId, sid)) as
         | { fields?: Record<string, unknown> }
         | null;
-      if (!stu) throw new Error('NOT_FOUND:要关联的学生不存在');
+      if (!stu) throw new NotFoundException('NOT_FOUND:要关联的学生不存在');
       const sf = (stu.fields ?? {}) as Record<string, unknown>;
       const studentName = String(sf['学生姓名'] ?? '');
       await sql.update(TABLES.weilingContact.tableId, contactId, {
@@ -1089,10 +1099,10 @@ export class WeilingService implements OnModuleInit {
 
     // ── 新建学生档案 ──
     const nameProblem = draft.nameProblem;
-    if (nameProblem) throw new Error(`VALIDATION:${nameProblem}`);
+    if (nameProblem) throw new BadRequestException(`VALIDATION:${nameProblem}`);
     const fields = enrollWriteFields(draft, payload.picked ?? {}, payload.overrides ?? {});
     const studentName = String(fields['学生姓名'] ?? '').trim();
-    if (!studentName) throw new Error('VALIDATION:学生姓名必填');
+    if (!studentName) throw new BadRequestException('VALIDATION:学生姓名必填');
 
     // 🔴 建学生走 StudentService.create（复用必填校验 / ABAC / 默认值 / 人员字段 open_id 口径）
     const created = (await this.students.create(user, fields as never)) as { id?: string; recordId?: string };

@@ -321,6 +321,24 @@ describe('源码级守卫：权限点声明与判据成对', () => {
     expect(page).toContain('关联学生ID');
   });
 
+  it('🔴 转档失败要抛 Nest 的 HTTP 异常，不能 `throw new Error`（否则一律 500）', () => {
+    // 2026-09-30 线上验证揪到：`throw new Error('VALIDATION:…')` 被 Nest 兜成 **500**，
+    // 于是"用户需要改一下输入"显示成"服务端故障"，监控也会把它计成服务端错误。
+    // 判据：`VALIDATION:` / `NOT_FOUND:` 前缀的行必须走 BadRequest / NotFound。
+    const lines = strip(service)
+      .split('\n')
+      .filter((l) => /VALIDATION:|NOT_FOUND:/.test(l));
+    expect(lines.length).toBeGreaterThanOrEqual(4);
+    for (const l of lines) {
+      const isThrow = /throw\s/.test(l);
+      if (!isThrow) continue;
+      expect(l, `这行用了普通 Error（会变 500）：${l.trim()}`).toMatch(/BadRequestException|NotFoundException/);
+      expect(l, `这行不该用普通 Error：${l.trim()}`).not.toMatch(/throw new Error\(/);
+    }
+    expect(service).toContain('BadRequestException');
+    expect(service).toContain('NotFoundException');
+  });
+
   it('弹窗用服务端预检，不在前端重算判据', () => {
     expect(modal).toContain('weilingEnrollPreview');
     // 前端不许自己写映射表（写了必然与 contracts 漂移）

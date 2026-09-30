@@ -341,6 +341,26 @@ export class GetnoteController {
   }
 
   /**
+   * 「笔记录音补抓」的**无触发者**版本（2026-09-30）—— 供统一调度器与「定时任务」页的
+   * 「运行」按钮调用。
+   *
+   * 🔴 与上面 `refetch-audio` 的区别只有一处：**没有触发者 ⇒ 没有兜底凭证**。
+   *    选不到来源配置的笔记会**跳过并留痕**（进度里的 `noCred`），绝不拿别人的凭证去猜
+   *    （猜错只会换来一串「权限不足」，还看不到真正缺的是什么）。
+   *    这是定时任务该有的行为：半夜没人盯着，宁可不做也不能用错身份。
+   *
+   * ⚠️ 静态路由排在 `refetch-audio` 的**前面**（Nest 虽按整段精确匹配、不冲突，
+   *    但保持"更具体的路径在前"的惯例，套件「静态路由顺序」那条红线）。
+   */
+  @Post('refetch-audio/scheduled')
+  @HttpCode(200)
+  refetchAudioScheduled(@Req() req: Request) {
+    const user = (req as Request & { user: SessionUser }).user;
+    this.assert(user, 'module:getnote:update');
+    return this.svc.runScheduledAudioRefetch();
+  }
+
+  /**
    * 「保存原始音频」：把笔记的原始录音下载并落进 ACMS 附件目录（异步 + 进度轮询）。
    * 不传 `limit` = 处理全部待保存的；传了小数值可先试点。幂等，可反复调用。
    */

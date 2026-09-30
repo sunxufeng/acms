@@ -92,7 +92,7 @@ const COLUMNS: CrudColumn[] = [
     options: [...JOB_FREQS],
     filter: true,
     filterOptions: [...JOB_FREQS],
-    hint: '每天＝按「执行时间」的 HH:MM 跑一次；每小时＝从「执行时间」的 HH:MM 起、每小时一次（填 07:15 ⇒ 07:15 / 08:15 / …，次日仍从 07:15 开始）；每15分钟＝每小时 0/15/30/45 分',
+    hint: '每天＝按「执行时间」的 HH:MM 跑一次；每天多次＝按「执行时间」里**逗号分隔的多个时刻**各跑一次（如 08:00,13:00,18:00，最多 6 个）；每小时＝从「执行时间」的 HH:MM 起、每小时一次（填 07:15 ⇒ 07:15 / 08:15 / …）；每15分钟＝每小时 0/15/30/45 分',
     listOrder: 5,
   },
   {
@@ -102,7 +102,7 @@ const COLUMNS: CrudColumn[] = [
     form: true,
     type: 'text',
     required: true,
-    hint: 'HH:MM，北京时间。频率=每小时时它是**起始时刻**（那之前不跑，次日从这个点重新开始）',
+    hint: 'HH:MM，北京时间。频率=每天多次时可写多个、用逗号分隔（如 08:00,13:00,18:00；**每个时刻都要合法，有一个不合法整串作废**）；频率=每小时时它是**起始时刻**（那之前不跑，次日从这个点重新开始）',
     listOrder: 6,
   },
   {
@@ -288,6 +288,16 @@ export default function ScheduledTasksPage() {
       } else if (kind === '邮件收取') {
         const r = await api.syncAllMail();
         setNotice({ tone: 'ok', text: `已触发 ${r.synced} 个账户收取（各账户仍按自己的「收取频率」节流）` });
+      } else if (kind === '笔记音频补抓') {
+        // 与定时触发同一个执行体（`POST /getnote/refetch-audio` 的 scheduled 版本）。
+        // ⚠️ 触发型的接口：**没有触发者 ⇒ 没有兜底凭证**，选不到来源配置的笔记会跳过并留痕。
+        const r = await api.getnoteRefetchAudioScheduled();
+        setNotice({
+          tone: 'ok',
+          text: r.running
+            ? `已触发录音补抓（进度见「我的笔记」页）。上次进度：候选 ${r.total}／已保存 ${r.stored}／无音频 ${r.skipped}／失败 ${r.failed}／选不到凭证 ${r.noCred ?? 0}`
+            : '未触发（上一次还在跑，跑完再点）',
+        });
       } else if (kind === '知识库同步') {
         const r = await api.syncAllNoteSources();
         setNotice({

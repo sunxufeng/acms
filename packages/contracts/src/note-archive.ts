@@ -38,6 +38,9 @@ export interface NoteArchiveJobDef {
   /**
    * 多久跑一次。
    * · `每天` —— 按 HH:MM 跑一次
+   * · `每天多次` —— 按「执行时间」里**逗号分隔的多个 HH:MM**各跑一次（2026-09-30 新增，
+   *   峰哥的「每天分 3 次」）。每个时刻**各有自己的槽位**（跑过的不再跑），
+   *   所以补跑窗口内不会因为"第一个时刻跑过"就把后面两个也吞掉。
    * · `每小时` —— 从 HH:MM **起算**每小时一次（见 `shouldRunArchiveJob`）
    * · `每15分钟` —— 忽略 hour/minute
    */
@@ -48,6 +51,16 @@ export interface NoteArchiveJobDef {
    */
   hour: number;
   minute: number;
+  /**
+   * 「每天多次」的**全部时刻**（分钟数，升序去重）。
+   *
+   * 🔴 为什么单独一个字段而不是复用 `hour`/`minute`：那两个字段是**全站既有契约**
+   *    （TABLES 行字段、前端表单、导出、`archiveJobRowFields` 都按"单时刻"处理），
+   *    改成数组会牵动一圈；这里保留 `hour`/`minute` = **第一个时刻**（向后兼容，
+   *    非「每天多次」的频率一律只用它们），多时刻才额外带 `times`。
+   * 未配或只有一个时刻时为空数组 ⇒ `jobRunMinutes()` 会回落到 `[hour*60+minute]`。
+   */
+  times?: number[];
   /**
    * 周几执行：`0`=周日 … `6`=周六。**空数组 = 每天**。
    * 空表示每天而不是"从不"，是为了让"没配过"与"配了每天"落到同一个语义上（少一个状态）。
@@ -124,7 +137,7 @@ export const ARCHIVE_JOB_FIELDS = {
  *   另：种子（`NOTE_ARCHIVE_JOB_SEEDS`）+ 生产任务行（`seedJobs()` 只在空表时播种，
  *   存量表要手工补行）。
  */
-export const JOB_KINDS = ['笔记归档', '卫瓴联系人同步', '邮件收取', '知识库同步', '看板快照'] as const;
+export const JOB_KINDS = ['笔记归档', '卫瓴联系人同步', '邮件收取', '知识库同步', '看板快照', '笔记音频补抓'] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 /** 缺省类型：存量任务都是笔记归档（**兼容老数据**，别改成空串） */
 export const JOB_KIND_DEFAULT: JobKind = '笔记归档';
@@ -140,11 +153,33 @@ export const JOB_KIND_NOTE_ARCHIVE: JobKind = '笔记归档';
  *    · 每天的基线可以对比（"昨天 50 人、今天 58 人"）
  */
 export const JOB_KIND_SUPPORT_SNAPSHOT: JobKind = '看板快照';
+/**
+ * 「笔记录音补抓」（2026-09-30 新增，峰哥：「我的笔记里有些笔记是没法播放的…
+ * 新建一个定时任务，每天分 3 次系统定时扫描遇到这种没保存到系统的，系统后台自动保存」）。
+ *
+ * 🔴 这条任务**替代**了 getnote 模块里原先那个**进程内自建的定时器**
+ *    （`GetnoteService.startAudioCron()`，每天 06:30 固定一次）。迁过来的理由：
+ *    · 那个定时器不在「定时任务」页里 ⇒ 峰哥看不到、改不了时间、停不了；
+ *    · 它自己维护「今天跑过没」的内存标记，与统一调度器的槽位去重是两套机制；
+ *    · 峰哥要的是**每天 3 次**，那个写法改不动（硬编码 06:30）。
+ *    迁过来后：任务页可改时间/停用，补跑窗口、槽位去重都走统一那套。
+ *
+ * ⚠️ 判据与手动「保存原始音频」**完全同一份**（`runRefetchAudio`），
+ *    差别只有"没有触发者 ⇒ 没有兜底凭证"：选不到来源配置的笔记**跳过并留痕**，
+ *    绝不拿别人的凭证去猜。任务本身按「音频状态」幂等（跑过的第二次全是跳过）。
+ */
+export const JOB_KIND_NOTE_AUDIO: JobKind = '笔记音频补抓';
 
 /** 频率档位 */
-export const JOB_FREQS = ['每天', '每小时', '每15分钟'] as const;
+export const JOB_FREQS = ['每天', '每天多次', '每小时', '每15分钟'] as const;
 export type JobFreq = (typeof JOB_FREQS)[number];
 export const JOB_FREQ_DEFAULT: JobFreq = '每天';
+
+/**
+ * 「每天多次」最多几个时刻（够用即可：一天 3–4 次是实际需求，多了既没必要也易配错）。
+ * 校验时超了直接报错，而不是静默截断（静默截断会让老师以为配上了）。
+ */
+export const JOB_TIMES_MAX = 6;
 
 
 export const ARCHIVE_JOB_ON = '是';
@@ -208,6 +243,26 @@ export const NOTE_ARCHIVE_JOB_SEEDS: NoteArchiveJobDef[] = [
     kinds: [],
     groupByOwner: false,
     catchUpHours: 6,
+  },
+  {
+    // 2026-09-30 新增（峰哥：「每天分 3 次系统定时扫描…没保存到系统的自动保存」）。
+    // 🔴 时刻**分散在一天里**（早/午/晚）而不是等间隔：录音是当天陆续产生的，
+    //    早上那次补前一天的漏、中午下午两次补当天新产生的 —— 当天就能播上，不用等到第二天。
+    // ⚠️ 这条任务对应的是 getnote 里那个被**移除**的进程内 06:30 定时器（见常量注释）。
+    key: 'noteAudio',
+    label: '笔记音频补抓',
+    enabled: true,
+    kind: '笔记音频补抓',
+    freq: '每天多次',
+    hour: 8,
+    minute: 0,
+    times: [8 * 60, 13 * 60, 18 * 60],
+    weekdays: [],
+    rootFolderToken: '',
+    titleMustInclude: '',
+    kinds: [],
+    groupByOwner: false,
+    catchUpHours: 3,
   },
   {
     // 2026-09-24 新增：替代原先硬编码的 `setInterval(24h)`
@@ -326,6 +381,109 @@ export function normalizeWeekdays(input: unknown): number[] {
   return [...out].sort((a, b) => a - b);
 }
 
+/**
+ * 「执行时间」支持**多个时刻**：逗号（或中文逗号 / 顿号 / 分号 / 空格）分隔，
+ * 如 `08:00,13:00,18:00`。
+ *
+ * 🔴 返回**升序去重**的分钟数数组；任一时刻非法 ⇒ 返回**空数组**（调用方据此判"配错了"）。
+ *    故意不"跳过非法项、用剩下的跑" —— 半懂不懂的执行时间最难排查
+ *    （老师看到 `08:00, 8点, 18:00` 以为配了 3 次，实际只跑 1 次且没有任何提示）。
+ */
+export function parseTimesOfDay(input: unknown): number[] {
+  const s = String(input ?? '').trim().replace(/：/g, ':');
+  if (!s) return [];
+  const parts = s.split(/[,，、;；\s]+/).map((x) => x.trim()).filter(Boolean);
+  if (!parts.length) return [];
+  const out: number[] = [];
+  for (const p of parts) {
+    const t = parseTimeOfDay(p);
+    if (!t) return [];
+    const m = t.hour * 60 + t.minute;
+    if (!out.includes(m)) out.push(m);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/** 分钟数 → `HH:MM`（配置回写、界面展示共用一份，别各处自己 padStart） */
+export function formatTimeOfDay(minutes: number): string {
+  const m = Math.max(0, Math.min(24 * 60 - 1, Math.round(minutes)));
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * 这个任务**一天里要跑的所有时刻**（分钟数，升序）。
+ *
+ * · 非「每天多次」⇒ 恒为 `[hour*60+minute]`（「每15分钟」不使用它，但返回单值便于统一处理）
+ * · 「每天多次」⇒ `times`（空则回落单时刻，见 `NoteArchiveJobDef.times` 的说明）
+ */
+export function jobRunMinutes(job: NoteArchiveJobDef): number[] {
+  if (job.freq !== '每天多次') return [job.hour * 60 + job.minute];
+  const t = (job.times ?? []).filter((x) => Number.isInteger(x) && x >= 0 && x < 24 * 60);
+  const uniq = [...new Set(t)].sort((a, b) => a - b);
+  return uniq.length ? uniq : [job.hour * 60 + job.minute];
+}
+
+/**
+ * 任务「执行时间」的**原始文本**（多时刻用逗号连接）。
+ *
+ * 🔴 回写与界面展示**必须都走它**：`hour`/`minute` 只是"第一个时刻"，
+ *    拿它们回写会把「每天多次」的 `08:00,13:00,18:00` 静默压成 `08:00`（少跑两次且不报错）。
+ */
+export function jobTimeText(job: NoteArchiveJobDef): string {
+  if (job.freq !== '每天多次') return formatTimeOfDay(job.hour * 60 + job.minute);
+  const list = jobRunMinutes(job);
+  return list.map(formatTimeOfDay).join(',');
+}
+
+/**
+ * 此刻命中的是**第几个时间槽**（槽位去重用）；`-1` = 现在不该跑。
+ *
+ * 槽序号的含义随频率而变（每15分钟 = 一刻钟序号 · 每小时 = 小时数 ·
+ * 每天 = 恒 0 · 每天多次 = 第几个时刻）。
+ *
+ * 🔴 之所以返回"序号"而不是布尔：**槽位 key 里必须带上它**。否则「每天多次」的
+ *    三个时刻共用一个 key ⇒ 第一个跑过之后，另外两个当天永远不跑（静默少跑两次，
+ *    而这类"少跑"最容易被当成"任务不生效"排查半天）。
+ */
+export function dueJobSlot(job: NoteArchiveJobDef, nowMinutes: number): number {
+  if (job.freq === '每15分钟') {
+    // 槽位 = 每小时 4 格（:00 / :15 / :30 / :45）；给 6 分钟容差，
+    // 免得某一分钟 tick 被别的活占住就整天漏掉这一格（槽位去重保证一格只跑一次）。
+    return nowMinutes - Math.floor(nowMinutes / 15) * 15 <= 6 ? Math.floor(nowMinutes / 15) : -1;
+  }
+  if (job.freq === '每小时') {
+    /**
+     * 每小时一次，从「执行时间」的 **HH:MM 起算**。
+     *
+     * 🔴 2026-09-28：`hour` 在这一档里表达**起始时刻**（峰哥要的「每天早晨 7:15 开始、
+     *    每小时跑一遍」）——`07:15` ⇒ 07:15 / 08:15 … 23:15，当天 07:14 之前不跑。
+     *
+     * ⚠️ 向后兼容：存量任务若把执行时间写成 `00:00`（或任何 `HH:MM`，如「每小时第 15 分」
+     *    习惯写 `00:15`），起始时刻就是 00:15，**与旧行为等价**（00:00–00:14 本来也不满足
+     *    `% 60 >= 15`）。所以那次收紧不会让任何既有任务"少跑一次"。
+     *
+     * 后半句仍是「到点之后这一小时内都算到点」：部署重启错过那一刻时，本小时内下一次
+     * tick 能补上；槽位去重保证一小时只跑一次。
+     */
+    const start = job.hour * 60 + job.minute;
+    if (nowMinutes < start) return -1;
+    return nowMinutes % 60 >= job.minute ? Math.floor(nowMinutes / 60) : -1;
+  }
+  if (job.freq === '每天多次') {
+    const list = jobRunMinutes(job);
+    for (let i = 0; i < list.length; i += 1) {
+      const t = list[i] as number;
+      if (nowMinutes < t) break; // 升序：还没到，后面的更不会到
+      if (nowMinutes <= t + Math.max(0, job.catchUpHours) * 60) return i;
+    }
+    return -1;
+  }
+  // 每天：到点起算，且还在补跑窗口内
+  const start = job.hour * 60 + job.minute;
+  if (nowMinutes < start) return -1;
+  return nowMinutes <= start + Math.max(0, job.catchUpHours) * 60 ? 0 : -1;
+}
+
 /** 周几数组 → 展示文案（`[]` → 「每天」） */
 export function weekdaySummary(weekdays: number[]): string {
   if (!weekdays.length) return ARCHIVE_JOB_WEEKDAY_ANY;
@@ -361,10 +519,17 @@ export function parseArchiveJobRow(
 ): NoteArchiveJobDef {
   const f = (fields ?? {}) as Record<string, unknown>;
   const seed = NOTE_ARCHIVE_JOB_SEEDS.find((s) => s.key === id);
-  const time = parseTimeOfDay(f[ARCHIVE_JOB_FIELDS.执行时间]) ?? {
-    hour: seed?.hour ?? 1,
-    minute: seed?.minute ?? 0,
-  };
+  /** 「执行时间」可以是多时刻（`08:00,13:00,18:00`）；非法时整串作废 ⇒ 回落种子 */
+  const times = parseTimesOfDay(f[ARCHIVE_JOB_FIELDS.执行时间]);
+  const first = times[0];
+  const time =
+    first !== undefined
+      ? { hour: Math.floor(first / 60), minute: first % 60 }
+      : (parseTimeOfDay(f[ARCHIVE_JOB_FIELDS.执行时间]) ?? {
+          hour: seed?.hour ?? 1,
+          minute: seed?.minute ?? 0,
+        });
+  const freq = normalizeJobFreq(f[ARCHIVE_JOB_FIELDS.频率]) ?? seed?.freq ?? JOB_FREQ_DEFAULT;
   return {
     key: id,
     label: String(f[ARCHIVE_JOB_FIELDS.任务名称] ?? '').trim() || seed?.label || `任务 ${id}`,
@@ -372,9 +537,11 @@ export function parseArchiveJobRow(
     // 🔴 缺省必须是「笔记归档 / 每天」：存量行的这两个字段是空的，
     //    给成别的值时，上线当天两条归档任务会静默不跑（且不报错）。
     kind: normalizeJobKind(f[ARCHIVE_JOB_FIELDS.任务类型]) ?? seed?.kind ?? JOB_KIND_DEFAULT,
-    freq: normalizeJobFreq(f[ARCHIVE_JOB_FIELDS.频率]) ?? seed?.freq ?? JOB_FREQ_DEFAULT,
+    freq,
     hour: time.hour,
     minute: time.minute,
+    // 多时刻只在「每天多次」下有意义；`times` 长度 < 2 时不落（等价于单时刻，少一个状态）
+    ...(freq === '每天多次' && times.length > 1 ? { times } : {}),
     weekdays: normalizeWeekdays(f[ARCHIVE_JOB_FIELDS.执行日]),
     rootFolderToken: parseFolderToken(f[ARCHIVE_JOB_FIELDS.目标文件夹]) || seed?.rootFolderToken || '',
     titleMustInclude: String(f[ARCHIVE_JOB_FIELDS.标题关键词] ?? '').trim(),
@@ -391,7 +558,9 @@ export function archiveJobRowFields(job: NoteArchiveJobDef): Record<string, unkn
     [ARCHIVE_JOB_FIELDS.启用]: job.enabled ? ARCHIVE_JOB_ON : ARCHIVE_JOB_OFF,
     [ARCHIVE_JOB_FIELDS.任务类型]: job.kind,
     [ARCHIVE_JOB_FIELDS.频率]: job.freq,
-    [ARCHIVE_JOB_FIELDS.执行时间]: `${String(job.hour).padStart(2, '0')}:${String(job.minute).padStart(2, '0')}`,
+    // 🔴 用 `jobTimeText`（多时刻拼成 `08:00,13:00,18:00`）——
+    //    直接拼 `hour:minute` 会把「每天多次」压成单时刻（少跑、静默）
+    [ARCHIVE_JOB_FIELDS.执行时间]: jobTimeText(job),
     [ARCHIVE_JOB_FIELDS.执行日]: job.weekdays.length
       ? job.weekdays.map((d) => ARCHIVE_JOB_WEEKDAY_LABELS[d])
       : [ARCHIVE_JOB_WEEKDAY_ANY],
@@ -415,6 +584,14 @@ export function archiveJobRowFields(job: NoteArchiveJobDef): Record<string, unkn
 export function validateArchiveJob(job: NoteArchiveJobDef): string[] {
   const out: string[] = [];
   if (!Number.isInteger(job.hour) || !Number.isInteger(job.minute)) out.push('执行时间不是 HH:MM');
+  if (job.freq === '每天多次') {
+    const list = job.times ?? [];
+    if (list.length < 2) {
+      out.push(`「每天多次」需要至少两个时刻，用逗号分隔（如 08:00,13:00,18:00；每个时刻要合法，有一个不合法整串作废）`);
+    } else if (list.length > JOB_TIMES_MAX) {
+      out.push(`「每天多次」最多 ${JOB_TIMES_MAX} 个时刻（当前 ${list.length} 个）`);
+    }
+  }
   if (job.kind === JOB_KIND_NOTE_ARCHIVE) {
     if (!job.rootFolderToken) out.push('目标文件夹解析不出 token（请粘文件夹链接或 26 位 token）');
     if (!Array.isArray(job.kinds) || !job.kinds.length) out.push('输出内容没选（明细/总结至少选一个）');
@@ -610,6 +787,9 @@ export function jobSlotKey(job: NoteArchiveJobDef, day: string, nowMinutes: numb
   const hour = Math.floor(nowMinutes / 60);
   if (job.freq === '每15分钟') return `${job.key}:${day}:${hour}:${Math.floor((nowMinutes % 60) / 15)}`;
   if (job.freq === '每小时') return `${job.key}:${day}:${hour}`;
+  // 🔴 「每天多次」必须带上**槽序号** —— 否则三个时刻共用一个 key，
+  //    第一个跑过之后另外两个当天永远不跑（静默少跑两次）
+  if (job.freq === '每天多次') return `${job.key}:${day}:s${Math.max(0, dueJobSlot(job, nowMinutes))}`;
   return `${job.key}:${day}`;
 }
 
@@ -639,30 +819,6 @@ export function shouldRunArchiveJob(
   // `ranToday` 实际含义是「**本时间槽**已跑过」（见 `jobSlotKey`）——参数名保留是为兼容旧调用
   if (ranToday) return false;
   if (weekday !== undefined && !jobRunsOnWeekday(job, weekday)) return false;
-  if (job.freq === '每15分钟') {
-    // 槽位 = 每小时 4 格（:00 / :15 / :30 / :45）；给 6 分钟容差，
-    // 免得某一分钟 tick 被别的活占住就整天漏掉这一格（槽位去重保证一格只跑一次）。
-    return nowMinutes - Math.floor(nowMinutes / 15) * 15 <= 6;
-  }
-  if (job.freq === '每小时') {
-    /**
-     * 每小时一次，从「执行时间」的 **HH:MM 起算**。
-     *
-     * 🔴 2026-09-28：`hour` 在这一档里表达**起始时刻**（峰哥要的「每天早晨 7:15 开始、
-     *    每小时跑一遍」）——`07:15` ⇒ 07:15 / 08:15 … 23:15，当天 07:14 之前不跑。
-     *
-     * ⚠️ 向后兼容：存量任务若把执行时间写成 `00:00`（或任何 `HH:MM`，如「每小时第 15 分」
-     *    习惯写 `00:15`），起始时刻就是 00:15，**与旧行为等价**（00:00–00:14 本来也不满足
-     *    `% 60 >= 15`）。所以这次收紧不会让任何既有任务"少跑一次"。
-     *
-     * 后半句仍是「到点之后这一小时内都算到点」：部署重启错过那一刻时，本小时内下一次
-     * tick 能补上；槽位去重保证一小时只跑一次。
-     */
-    const start = job.hour * 60 + job.minute;
-    if (nowMinutes < start) return false;
-    return nowMinutes % 60 >= job.minute;
-  }
-  const start = job.hour * 60 + job.minute;
-  if (nowMinutes < start) return false;
-  return nowMinutes <= start + Math.max(0, job.catchUpHours) * 60;
+  // 到点判据统一收口到 `dueJobSlot`（四种频率都在里面，含「每天多次」的逐个时刻）
+  return dueJobSlot(job, nowMinutes) >= 0;
 }

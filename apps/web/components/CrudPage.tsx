@@ -6,7 +6,9 @@ import { usePermissions } from '../lib/permissions';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useTl } from '../lib/useTl';
-import { MODULE_RESOURCES } from '@acms/contracts';
+// `parseCsvRows`：CSV 解析的**唯一一份**实现（成绩册的「导入成绩」也用同一份，
+// 见 packages/contracts/src/markbook.ts 里那条说明）
+import { MODULE_RESOURCES, parseCsvRows } from '@acms/contracts';
 // 403 机器码 → 人话（统一出口，见 lib/apiError.ts）
 import { forbiddenInfo } from '../lib/apiError';
 import { api as apiClient, type Page, type DictMeta } from '../lib/api';
@@ -1787,32 +1789,18 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
 
   /** 解析 CSV（支持双引号转义），首行为表头 */
   function parseCsv(text: string): Record<string, string>[] {
-    const splitLine = (line: string): string[] => {
-      const out: string[] = [];
-      let cur = '';
-      let q = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (q) {
-          if (ch === '"') {
-            if (line[i + 1] === '"') { cur += '"'; i++; } else q = false;
-          } else cur += ch;
-        } else if (ch === '"') q = true;
-        else if (ch === ',') { out.push(cur); cur = ''; } else cur += ch;
-      }
-      out.push(cur);
-      return out;
-    };
-    const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim() !== '');
-    if (lines.length < 2) return [];
-    const headers = splitLine(lines[0]).map((h) => h.trim());
+    // 🔴 底层解析走 contracts 的 `parseCsvRows` —— **全站只此一份**（成绩册的「导入成绩」
+    //    用的是同一份）。两处各写一份的结果是"某个文件在一处能导、在另一处导不出来"。
+    //    顺带比原来那份强：支持引号内的换行（原来按行 split，会在这种文件上串行）。
+    const rows = parseCsvRows(text);
+    if (rows.length < 2) return [];
+    const headers = (rows[0] as string[]).map((h) => h.trim());
     const labelToKey = new Map(listCols.map((c) => [tl(c.label).trim(), c.key]));
-    return lines.slice(1).map((l) => {
-      const vals = splitLine(l);
+    return rows.slice(1).map((r) => {
       const o: Record<string, string> = {};
       headers.forEach((h, i) => {
         const key = labelToKey.get(h) ?? h;
-        o[key] = vals[i] ?? '';
+        o[key] = r[i] ?? '';
       });
       return o;
     });

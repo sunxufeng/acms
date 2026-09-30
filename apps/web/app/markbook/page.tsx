@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   api,
@@ -15,7 +15,19 @@ import ColumnEditor from '../../components/markbook/ColumnEditor';
 import Modal from '../../components/markbook/Modal';
 // 筛选下拉统一走全站组件（2026-09-22 第二批）：本页原先用「标签在左 + 原生 select」的 mb-field 写法
 import { FilterSelect } from '../../components/FilterSelect';
-import { defaultTermOf } from '@acms/contracts';
+// 模板导出 / 成绩导入的纯函数（2026-09-30）：
+//  · 表头生成与解析**共用同一份**（`gradeColumnHeaders`）—— 各写一份必然串位
+//  · `gradeCellExportText`：导出用的**语言无关**文本（免/缺/等级/数字）；
+//    不要用界面那个 cellText（它走 i18n，英文界面会导出 Excused/Absent）
+//  · `parseGradeImport`：空 = 不动 · `clear` = 清空 · 学生ID 优先匹配
+import {
+  GRADE_IMPORT_CLEAR,
+  buildGradeTemplateCsv,
+  defaultTermOf,
+  gradeCellExportText,
+  parseGradeImport,
+  type GradeImportParsed,
+} from '@acms/contracts';
 import {
   MARKBOOK_VIEWS,
   MarkbookView,
@@ -46,6 +58,20 @@ export default function MarkbookPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+
+  /** 导入成绩：弹窗 + 解析结果（确认前先给老师看清楚要改多少格）+ 提交结果 */
+  const [impOpen, setImpOpen] = useState(false);
+  const [impBusy, setImpBusy] = useState(false);
+  const [impFileName, setImpFileName] = useState('');
+  const [impParsed, setImpParsed] = useState<GradeImportParsed | null>(null);
+  const [impReport, setImpReport] = useState<{
+    saved: number;
+    removed: number;
+    skipped: number;
+    warnings: { columnId: string; studentId: string; message: string }[];
+    errors: { columnId: string; studentId: string; value: string; message: string }[];
+  } | null>(null);
+  const impFileRef = useRef<HTMLInputElement>(null);
 
   /** 未保存的改动：key = `${columnId}__${studentId}` → 输入框里的原始文本 */
   const [dirty, setDirty] = useState<Map<string, string>>(new Map());
@@ -337,6 +363,90 @@ export default function MarkbookPage() {
     [grid],
   );
 
+  /** 学生 id → 姓名（导入错误清单里要给人看名字，不能是一串 id） */
+  const nameOf = (studentId: string) =>
+    grid?.students.find((x) => x.id === studentId)?.name ?? studentId;
+  /** 列 id → 列名（同上） */
+  const colNameOf = (columnId: string) => grid?.columns.find((c) => c.id === columnId)?.name ?? columnId;
+
+  /**
+   * 导出当前班级的**导入模板**（CSV，带现有分数作参照）。
+   *
+   * 🔴 为什么带上现有分数：老师改分时能一眼看到原来是几分（不带的话就是"盲填"，
+   *    填错也发现不了）。空着的格子留空 = 导入时不改动它。
+   * 🔴 为什么用 `gradeCellExportText` 而不是界面上的 `cellText`：后者是给人看的、
+   *    免考/缺考走 i18n 文案（英文界面导出 `Excused` 这种），而导出/导入是机器往返。
+   */
+  const exportTemplate = () => {
+    if (!grid || !cls) return;
+    const text = buildGradeTemplateCsv({
+      students: grid.students.map((x) => ({ id: x.id, name: x.name, enName: x.enName })),
+      columns: grid.columns.map((c) => ({ id: c.id, name: c.name })),
+      cellText: (studentId, columnId) => gradeCellExportText(cellMap.get(`${columnId}__${studentId}`)),
+    });
+    downloadTextFile(`${cls}-成绩导入模板.csv`, text);
+    setMsg({
+      tone: 'ok',
+      text: t('templateDone', { students: grid.students.length, columns: grid.columns.length }),
+    });
+  };
+
+  /** 选文件 → 立刻解析并展示"要改多少格"（**不直接提交**，老师确认后才写库） */
+  const pickImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // ⚠️ 先清空 input 的 value：同一个文件连续选两次时 change 不再触发（真踩过）
+    e.target.value = '';
+    if (!file || !grid) return;
+    setImpFileName(file.name);
+    setImpReport(null);
+    try {
+      const text = await file.text();
+      setImpParsed(
+        parseGradeImport({
+          text,
+          students: grid.students.map((x) => ({ id: x.id, name: x.name })),
+          columns: grid.columns.map((c) => ({ id: c.id, name: c.name })),
+        }),
+      );
+    } catch (err) {
+      setImpParsed(null);
+      setMsg({ tone: 'error', text: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  /**
+   * 提交导入。**分批**（每批 300 格）：一个请求塞几百格的话，
+   * 后端逐格解析 + 逐条 upsert 会超时，而超时后老师不知道到底进了多少。
+   */
+  const runImport = async () => {
+    if (!grid || !impParsed || !cls) return;
+    const all = impParsed.rows;
+    if (!all.length) return;
+    setImpBusy(true);
+    const acc = { saved: 0, removed: 0, skipped: 0, warnings: [], errors: [] } as NonNullable<typeof impReport>;
+    try {
+      for (let i = 0; i < all.length; i += 300) {
+        const batch = all.slice(i, i + 300);
+        const res = await api.markbookSaveEntries(
+          cls,
+          batch.map((r) => ({ columnId: r.columnId, studentId: r.studentId, score: r.raw })),
+        );
+        acc.saved += res.saved;
+        acc.removed += res.removed;
+        acc.skipped += res.skipped;
+        acc.warnings.push(...res.warnings);
+        acc.errors.push(...res.errors);
+      }
+      setImpReport(acc);
+      setMsg({ tone: 'ok', text: t('importResult', { saved: acc.saved, removed: acc.removed, skipped: acc.skipped }) });
+      await loadGrid(cls);
+    } catch (err) {
+      setMsg({ tone: 'error', text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setImpBusy(false);
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-content">
@@ -390,6 +500,24 @@ export default function MarkbookPage() {
             </button>
             <button className="btn btn-outline" onClick={() => setHwOpen(true)} disabled={!cls || !grid}>
               {t('hwButton')}
+            </button>
+            {/* 模板导出 / 成绩导入（2026-09-30 峰哥要求）。
+                放在这一组是有意的：它们和「＋ 新建考核列」「作业同步」一样，
+                都是"往这个成绩册里加 / 写数据"的动作。 */}
+            <button className="btn btn-outline" onClick={exportTemplate} disabled={!cls || !grid}>
+              {t('templateBtn')}
+            </button>
+            <button
+              className="btn btn-outline"
+              onClick={() => {
+                setImpOpen(true);
+                setImpParsed(null);
+                setImpReport(null);
+                setImpFileName('');
+              }}
+              disabled={!cls || !grid}
+            >
+              {t('importBtn')}
             </button>
           </span>
           <span className="mb-meta">
@@ -557,7 +685,133 @@ export default function MarkbookPage() {
             )}
           </Modal>
         ) : null}
+
+        {/* ── 导入成绩（2026-09-30 峰哥要求）────────────────────────────────
+            两步：选文件 → **先看"要改多少格"再确认**。成绩导入是批量写，
+            没有这一步的话，一个列名写错的文件会把整班的分悄悄改掉。 */}
+        {impOpen && cls && grid ? (
+          <Modal
+            title={t('importTitle')}
+            subtitle={t('importSub', { cls })}
+            onClose={() => setImpOpen(false)}
+            width={760}
+            footer={
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', width: '100%' }}>
+                <button className="btn btn-outline" onClick={() => setImpOpen(false)}>
+                  {t('close')}
+                </button>
+                <button
+                  className="btn btn-primary"
+                  disabled={impBusy || !impParsed || !impParsed.rows.length}
+                  onClick={() => void runImport()}
+                >
+                  {impBusy
+                    ? t('importing')
+                    : impParsed && impParsed.rows.length
+                      ? t('importConfirm', { n: impParsed.rows.length, c: impParsed.clears })
+                      : t('importNone')}
+                </button>
+              </div>
+            }
+          >
+            <input
+              ref={impFileRef}
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: 'none' }}
+              onChange={(e) => void pickImportFile(e)}
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+              <button className="btn btn-outline" onClick={() => impFileRef.current?.click()}>
+                {t('importPick')}
+              </button>
+              <span className="muted" style={{ fontSize: 'var(--font-xs)' }}>
+                {impFileName || t('importNoFile')}
+              </span>
+            </div>
+            {/* 填法说明：与模板第 2 行的说明同源（改判据就改 contracts 的常量注释） */}
+            <div className="notice notice-info" style={{ marginBottom: 10 }}>
+              {t('importHowto', { clear: GRADE_IMPORT_CLEAR })}
+            </div>
+
+            {impParsed ? (
+              <>
+                {impParsed.unknownColumns.length ? (
+                  <div className="notice notice-error" style={{ marginBottom: 8 }}>
+                    {t('importUnknownCols', { cols: impParsed.unknownColumns.join('、') })}
+                  </div>
+                ) : null}
+                <div style={{ fontSize: 'var(--font-sm)', marginBottom: 6 }}>
+                  {t('importSummary', {
+                    rows: impParsed.rows.length,
+                    students: new Set(impParsed.rows.map((r) => r.studentId)).size,
+                    clears: impParsed.clears,
+                    untouched: impParsed.untouched,
+                  })}
+                </div>
+
+                {impParsed.problems.length ? (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)', marginBottom: 4 }}>
+                      {t('importProblems', { n: impParsed.problems.length })}
+                    </div>
+                    <div style={{ maxHeight: 160, overflow: 'auto', fontSize: 'var(--font-xs)' }}>
+                      {impParsed.problems.slice(0, 60).map((p, i) => (
+                        <div key={i} className="muted">
+                          {t('importLine', { line: p.line })} {p.where}：{p.reason}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {impReport ? (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>
+                      {t('importResult', { saved: impReport.saved, removed: impReport.removed, skipped: impReport.skipped })}
+                    </div>
+                    {impReport.warnings.length ? (
+                      <div className="muted" style={{ fontSize: 'var(--font-xs)', marginTop: 4 }}>
+                        {t('importWarn', { n: impReport.warnings.length })}
+                      </div>
+                    ) : null}
+                    {impReport.errors.length ? (
+                      <div style={{ marginTop: 6, color: 'var(--danger)', fontSize: 'var(--font-xs)' }}>
+                        <div style={{ fontWeight: 600 }}>{t('importErrors', { n: impReport.errors.length })}</div>
+                        <div style={{ maxHeight: 140, overflow: 'auto' }}>
+                          {impReport.errors.slice(0, 60).map((e, i) => (
+                            <div key={i}>
+                              {nameOf(e.studentId)} · {colNameOf(e.columnId)}：{e.value} —— {e.message}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="muted" style={{ fontSize: 'var(--font-xs)' }}>
+                {t('importHint')}
+              </div>
+            )}
+          </Modal>
+        ) : null}
       </div>
     </div>
   );
+}
+
+/**
+ * 触发浏览器下载一个文本文件（BOM + UTF-8）。
+ *
+ * ⚠️ 必须带 BOM：不带的话 Excel 打开中文会乱码（老师第一反应就是"文件坏了"）。
+ */
+function downloadTextFile(filename: string, text: string): void {
+  const blob = new Blob(['\ufeff' + text], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }

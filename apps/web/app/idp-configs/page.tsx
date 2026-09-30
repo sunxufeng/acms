@@ -34,6 +34,18 @@ import IdpCommDrawer, { type IdpCommTarget } from '../../components/IdpCommDrawe
  * 所以老师和学生刚记完立刻能看到。工具栏的「重算」是把实时值**固化进表**——
  * 作用是让 CSV 导出与按沟通次数排序也能用（`GenericCrudModule` 的导出读的是表字段）。
  */
+
+/**
+ * 是否显示学生明细表的「操作」列（内容是每行的「查看沟通」按钮）。
+ *
+ * 🔴 2026-09-30 峰哥要求**隐藏**这一列。
+ *    之所以用常量开关而不是直接删代码：那一列是 `IdpCommDrawer`（沟通记录抽屉）的**唯一入口**，
+ *    删干净就再没有地方能打开它了；留成开关，想恢复只改一个字。
+ *    ⚠️ 表头与单元格必须**用同一个常量**判断 —— 拆成两处各写一遍，哪天只改一处就会串位
+ *    （套件「列表隐藏列」那条红线：表头与表体两份手写必然串位）。
+ */
+const SHOW_OPS_COLUMN = false;
+
 export default function IdpConfigsPage() {
   const t = useTranslations('idpConfig');
   const [configs, setConfigs] = useState<IdpConfigOverview[]>([]);
@@ -380,7 +392,7 @@ export default function IdpConfigsPage() {
                         <th style={{ minWidth: 160 }}>{t('colTeacher')}</th>
                         <th style={{ minWidth: 70 }}>{t('colCommCount')}</th>
                         <th style={{ minWidth: 120 }}>{t('colLast')}</th>
-                        <th style={{ minWidth: 90 }}>{t('colOps')}</th>
+                        {SHOW_OPS_COLUMN ? <th style={{ minWidth: 90 }}>{t('colOps')}</th> : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -429,24 +441,26 @@ export default function IdpConfigsPage() {
                             ) : null}
                           </td>
                           <td className="muted">{r.lastAt ? fmtDate(r.lastAt) : '—'}</td>
-                          <td>
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
-                              onClick={() =>
-                                setTarget({
-                                  configId: active.id,
-                                  configName: `${active.yearName} ${active.term}`.trim() || active.name,
-                                  studentId: r.studentId,
-                                  studentName: r.studentName,
-                                  cls: r.cls,
-                                  archived: active.archived,
-                                })
-                              }
-                            >
-                              {t('viewComms')}
-                            </button>
-                          </td>
+                          {SHOW_OPS_COLUMN ? (
+                            <td>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                onClick={() =>
+                                  setTarget({
+                                    configId: active.id,
+                                    configName: `${active.yearName} ${active.term}`.trim() || active.name,
+                                    studentId: r.studentId,
+                                    studentName: r.studentName,
+                                    cls: r.cls,
+                                    archived: active.archived,
+                                  })
+                                }
+                              >
+                                {t('viewComms')}
+                              </button>
+                            </td>
+                          ) : null}
                         </tr>
                       ))}
                     </tbody>

@@ -14,6 +14,7 @@ import { NoteArchiveService } from '../note-archive/note-archive.service.js';
 import { WeilingService } from '../weiling/weiling.service.js';
 import { MailArchiveService } from '../mail-archive/mail-archive.service.js';
 import { GetnoteSourceService } from '../getnote/sources.service.js';
+import { GetnoteService } from '../getnote/getnote.service.js';
 import { StudentSupportService } from '../student-support/student-support.service.js';
 
 /**
@@ -50,6 +51,7 @@ export class ScheduledTasksRunner implements OnModuleInit {
     private readonly weiling: WeilingService,
     private readonly mail: MailArchiveService,
     private readonly getnoteSources: GetnoteSourceService,
+    private readonly getnote: GetnoteService,
     private readonly support: StudentSupportService,
   ) {}
 
@@ -122,6 +124,30 @@ export class ScheduledTasksRunner implements OnModuleInit {
         this.getnoteSources.syncAllDue(),
       );
       await this.writeRunResult(job, `检查后触发 ${r.synced} 个知识库同步，跳过 ${r.skipped} 个`);
+      return;
+    }
+    if (job.kind === '笔记音频补抓') {
+      // 2026-09-30（峰哥：「我的笔记里有些笔记是没法播放的…每天分 3 次系统定时扫描…自动保存」）。
+      // 这条任务**接替**了 getnote 里原先那个进程内自建的 06:30 定时器（已在那边移除）。
+      //
+      // 🔴 执行体与手动「保存原始音频」**完全同一份**（`runRefetchAudio`），
+      //    只有一点差别：定时任务没有触发者 ⇒ 没有兜底凭证，选不到来源配置的笔记
+      //    **跳过并留痕**（`noCred`），绝不拿别人的凭证去猜。
+      // 🔴 结果**跑完后**再回写：执行体是异步的（立刻返回进度对象），
+      //    所以传一个回调让它在收尾时把真实数字写进「上次运行详情」——
+      //    不传的话任务行里只剩"已触发"，出问题时看不出到底扫了几条。
+      const p = await this.getnote.runScheduledAudioRefetch((done) => {
+        void this.writeRunResult(
+          job,
+          `候选 ${done.total} · 已保存 ${done.stored} · 无音频 ${done.skipped} · ` +
+            `失败 ${done.failed} · 选不到凭证 ${done.noCred ?? 0} · ` +
+            `${(done.bytes / 1048576).toFixed(1)} MB`,
+        );
+      });
+      await this.writeRunResult(
+        job,
+        p.running ? `已触发录音补抓（上次进度：候选 ${p.total}／已保存 ${p.stored}）` : '未触发（上一次还在跑）',
+      );
       return;
     }
     if (job.kind === '看板快照') {

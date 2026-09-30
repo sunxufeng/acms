@@ -3,6 +3,7 @@ import { NoteArchiveModule } from '../note-archive/note-archive.module.js';
 import { WeilingModule } from '../weiling/weiling.module.js';
 import { MailArchiveModule } from '../mail-archive/mail-archive.module.js';
 import { GetnoteSourceModule } from '../getnote/sources.module.js';
+import { GetnoteModule } from '../getnote/getnote.module.js';
 import { StudentSupportModule } from '../student-support/student-support.module.js';
 import { ScheduledTasksRunner } from './scheduled-tasks.runner.js';
 

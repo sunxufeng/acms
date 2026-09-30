@@ -1809,6 +1809,15 @@ export const api = {
       body: JSON.stringify({ limit: limit ?? 0 }),
     }),
   getRefetchAudioStatus: () => request<RefetchAudioProgress>('/getnote/refetch-audio/status'),
+  /**
+   * 「笔记录音补抓」的**无触发者**版本（定时任务执行体）—— 「定时任务」页的「运行」按钮用它。
+   *
+   * 🔴 与 `refetchNoteAudio` 的差别：没有触发者 ⇒ 没有兜底凭证，选不到来源配置的笔记会
+   *    跳过并留痕（`noCred`）。手动点运行也用它，是为了与定时触发**跑的是同一条路径**
+   *    （不一致的话"手动能跑、定时跑不动"这类问题根本复现不出来）。
+   */
+  getnoteRefetchAudioScheduled: () =>
+    request<RefetchAudioProgress>('/getnote/refetch-audio/scheduled', { method: 'POST' }),
   // ── 部门管理（组织管理）：只读同步飞书通讯录部门树 ──
   /** 读取全部部门（前端构建树；已删除部门 status='invalid' 由前端过滤） */
   /**
@@ -2313,6 +2322,17 @@ export interface RefetchAudioProgress {
   skipped: number;
   /** 失败（下载 4xx / 落盘失败），下次可重试 */
   failed: number;
+  /**
+   * 选不到凭证 ⇒ 跳过（**不猜**）。
+   *
+   * ⚠️ 这份类型与后端 `apps/api/src/getnote/getnote.service.ts` 的 `RefetchAudioProgress`
+   *    是**两份**（后端定义在 app 私有模块里，没提到 contracts）—— 2026-09-30 就是因为
+   *    这里少了它，前端读 `r.noCred` 才编译不过。`apps/api/test/scheduled-tasks-runner.test.ts`
+   *    有一条守卫**逐字段比对两份定义**，缺字段会在测试里报出来，别再只改一边。
+   */
+  noCred?: number;
+  /** 谁触发的：手动按钮 / 每日定时任务 */
+  trigger?: 'manual' | 'cron';
   /** 累计落盘字节数 */
   bytes: number;
   lastNoteId?: string;

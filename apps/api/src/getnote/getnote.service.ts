@@ -2200,7 +2200,13 @@ export class GetnoteService implements OnModuleInit {
    * 定时任务没有「触发者」⇒ 没有兜底凭证 ⇒ 选不到来源配置的笔记**跳过并留痕**，
    * 绝不用别人的凭证去猜（猜错只会换来一串「权限不足」，还看不到真正缺的是什么）。
    */
-  async runScheduledAudioRefetch(): Promise<RefetchAudioProgress> {
+  async runScheduledAudioRefetch(
+    /**
+     * 跑完后的回调（可选）。统一调度器用它把**真实结果**写回任务行的「上次运行详情」——
+     * 不传就只是"触发完返回"，任务行里看不出跑成什么样。
+     */
+    onDone?: (p: RefetchAudioProgress) => void,
+  ): Promise<RefetchAudioProgress> {
     const key = 'audio:__cron__';
     const cur = this.audioJobs.get(key);
     if (cur?.running) return cur;
@@ -2219,16 +2225,18 @@ export class GetnoteService implements OnModuleInit {
     this.audioJobs.set(key, job);
     this.logger.log('每日音频抓取开始');
     void this.runRefetchAudio(null, {}, job)
-      .then(() =>
+      .then(() => {
         this.logger.log(
-          `每日音频抓取完成：候选 ${job.total}，成功 ${job.stored}，无音频 ${job.skipped}，` +
+          `音频补抓完成：候选 ${job.total}，成功 ${job.stored}，无音频 ${job.skipped}，` +
             `失败 ${job.failed}，选不到凭证 ${job.noCred ?? 0}，共 ${(job.bytes / 1048576).toFixed(1)} MB`,
-        ),
-      )
+        );
+        onDone?.(job);
+      })
       .catch((e) => {
         job.running = false;
         job.error = (e as Error).message.slice(0, 200);
-        this.logger.warn(`每日音频抓取异常：${job.error}`);
+        this.logger.warn(`音频补抓异常：${job.error}`);
+        onDone?.(job);
       });
     return job;
   }
@@ -2257,38 +2265,23 @@ export class GetnoteService implements OnModuleInit {
   }
 
   /**
-   * 起「每日 06:30 抓音频」的定时器。
+   * ⚠️ 这里的**进程内自建定时器已经移除**（2026-09-30）。
    *
-   * 🔴 为什么不是 `setInterval(24h)` 一把梭（项目里 `weiling.service` 是那么写的）：
-   *    蓝绿部署**每次都会重启进程**，24 小时计时随之清零 —— 部署一勤，这个定时
-   *    可能**永远等不到那一刻**（09-18 之后攒出 8 条缺口的同期，正好每天在部署）。
-   *    ⇒ 改成「每小时醒一次，看今天到点没到点、跑没跑过」：
-   *      判据是**日期 + 时刻**，与进程活了多久无关。部署再频繁也不会漏。
-   *    进程重启只丢「今天跑过没」这个内存标记 ⇒ 最坏是多跑一次，
-   *    而任务本身按 `音频状态` 幂等（第二次全是「已保存 ⇒ 跳过」）。
+   * 原先是 `startAudioCron()`：每小时醒一次，看今天到 06:30 没、跑没跑过 ——
+   * 那个写法本身是对的（不像 `setInterval(24h)` 会被部署重启清零），但有三处不足：
+   *   · 只跑**一次**（06:30），而录音是**当天陆续产生**的 ⇒ 当天录的当天播不上；
+   *   · 硬编码 06:30，峰哥在「定时任务」页看不到它、也改不了时间、停不了；
+   *   · 自己维护「今天跑过没」的内存标记，与统一调度器的槽位去重是两套机制。
+   *
+   * ⇒ 迁到统一调度器：任务类型「笔记音频补抓」，任务行 `noteAudio`，默认**每天 3 次**
+   *   （08:00 / 13:00 / 18:00），在「定时任务」页可改时间与停用。
+   *   执行体仍是本类的 `runScheduledAudioRefetch()`，判据一字未改。
+   *
+   * 🔴 迁移时**必须删掉这里**：留着就是"每天 4 次"（旧 06:30 + 新 3 次），
+   *    虽然任务按「音频状态」幂等、第二次全是跳过，但会白烧上游额度与日志。
    */
-  private startAudioCron(): void {
-    if (String(process.env.GETNOTE_AUDIO_CRON ?? '').trim().toLowerCase() === 'off') {
-      this.logger.log('GETNOTE_AUDIO_CRON=off，跳过每日音频抓取定时器');
-      return;
-    }
-    const tick = () => {
-      const { day, minutes } = GetnoteService.beijingClock();
-      if (this.audioCronDay === day) return; // 今天已经跑过
-      if (minutes < 6 * 60 + 30) return; // 还没到 06:30
-      this.audioCronDay = day;
-      void this.runScheduledAudioRefetch();
-    };
-    // 启动后 3 分钟先查一次（让其它模块就绪；也覆盖「今天该跑但进程是刚起来的」），之后每小时一次
-    setTimeout(tick, 3 * 60 * 1000).unref?.();
-    setInterval(tick, 60 * 60 * 1000).unref?.();
-  }
-
-  /** 「今天已跑过」的日期（北京时间 `YYYY-MM-DD`），进程内即可 —— 见 `startAudioCron` 的说明 */
-  private audioCronDay = '';
-
   async onModuleInit(): Promise<void> {
-    this.startAudioCron();
+    this.logger.log('音频补抓已交由统一调度器（定时任务「笔记音频补抓」，默认每天 3 次）');
   }
 
   async refetchAudioStatus(user: SessionUser): Promise<RefetchAudioProgress> {

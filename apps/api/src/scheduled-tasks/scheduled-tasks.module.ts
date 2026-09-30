@@ -18,7 +18,20 @@ import { ScheduledTasksRunner } from './scheduled-tasks.runner.js';
  *    `Nest can't resolve dependencies` 直接起不来（好在是启动就炸，不会静默）。
  */
 @Module({
-  imports: [NoteArchiveModule, WeilingModule, MailArchiveModule, GetnoteSourceModule, StudentSupportModule],
+  // 🔴 这里必须把**每一个**被注入的 service 所属的模块都写进来。
+  //    2026-09-30 踩到：`GetnoteModule` 的 `import` 语句写了、但漏在下面的数组里，
+  //    TS 编译、单测、typecheck 全绿（数组元素只是类引用），**只有启动时才炸**：
+  //    `Nest can't resolve dependencies of ScheduledTasksRunner (…, GetnoteService)`。
+  //    而且症状是「新 slot 起不来 ⇒ 探活恒 000」，若在蓝绿切换后才暴露就是线上 502。
+  //    守卫见 `apps/api/test/scheduled-tasks-di.test.ts`。
+  imports: [
+    NoteArchiveModule,
+    WeilingModule,
+    MailArchiveModule,
+    GetnoteSourceModule,
+    GetnoteModule,
+    StudentSupportModule,
+  ],
   providers: [ScheduledTasksRunner],
 })
 export class ScheduledTasksModule {}

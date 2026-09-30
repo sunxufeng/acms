@@ -504,8 +504,21 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
    *    —— `weilingContacts:update` 与 `studentSupportConfig` 都踩过同一个坑。
    * 🔴 `subOf: 'weilingContacts'`：它**没有自己的菜单**（入口是联系人列表的操作列），
    *    不填这个字段矩阵里就生不出勾选行，管理员找不到地方授权。
+   *
+   * 🔴🔴 `actions` 里**不能有 `enter`**（2026-09-30 上线验证揪到，写在这里免得再犯）：
+   *    `inheritModulePermissions` 对 `enter` 用的是**另一套规则** ——
+   *    `!resource.adminOnly && (!resource.menuPermission || legacy.has(menuPermission)) && ...`。
+   *    本资源 `menuPermission: null` ⇒ 前半段恒真 ⇒ **`enter` 会被无条件发给所有角色**。
+   *    于是「`legacyRead: null` ⇒ 不发给任何人」这句话**只对 read/update/refresh 成立**。
+   *    实测：`actions: [...READ, 'update']` 上线后，**12 个角色**（含 student / parent）
+   *    都拿到了 `module:weilingEnroll:enter`。
+   *    ⇒ 没有自己菜单的资源，`actions` 只写 `['read', 'update']`（同 `studentSupportRemove`）。
+   *    守卫见 `apps/api/test/weiling-enroll.test.ts` 的「必须含 update、不得含 enter」。
+   * 🔴 `path` 用**不存在的子路径**：与 `weilingContacts` 共用 `/weiling-contacts` 时，
+   *    `moduleByPath` 靠「相等长度不覆盖」才让父资源先命中 —— 一旦有人重排数组就翻车
+   *    （那 12 个角色带着 `enter` ⇒ 学生/家长可能看见「联系人管理」菜单）。用假路径把这条路堵死。
    */
-  { key: 'weilingEnroll', label: '联系人转学生档案', path: '/weiling-contacts', legacyRead: null, legacyWrite: null, menuPermission: null, actions: [...READ, 'update'], subOf: 'weilingContacts' },
+  { key: 'weilingEnroll', label: '联系人转学生档案', path: '/weiling-contacts/enroll', legacyRead: null, legacyWrite: null, menuPermission: null, actions: ['read', 'update'], subOf: 'weilingContacts' },
   { key: 'reports', label: '报表管理', path: '/reports', legacyRead: 'report:read', legacyWrite: null, menuPermission: 'report:read', actions: READ },
   // ── 报表级权限（v3，2026-09-19）：每个报表一个权限点 ──
   //

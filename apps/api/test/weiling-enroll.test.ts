@@ -287,6 +287,47 @@ describe('源码级守卫：权限点声明与判据成对', () => {
     expect(r?.subOf).toBe('weilingContacts');
   });
 
+  it('🔴🔴 actions 里不得有 `enter` —— 它会被**无条件发给所有角色**，与"默认谁都没有"直接冲突', () => {
+    // 2026-09-30 上线验证实测：`actions: [...READ, 'update']`（含 enter）上线后，
+    // **12 个角色**（含 student / parent）都拿到了 `module:weilingEnroll:enter`。
+    // 根因：`inheritModulePermissions` 对 `enter` 用另一套规则 ——
+    //   `!adminOnly && (!menuPermission || legacy.has(menuPermission)) && …`
+    // 本资源 `menuPermission: null` ⇒ 前半段恒真 ⇒ 无条件发放。
+    // 也就是说：**「legacyRead: null ⇒ 不发给任何人」只对 read/update/refresh 成立**。
+    const r = MODULE_RESOURCES.find((x) => x.key === 'weilingEnroll');
+    expect(r?.actions).not.toContain('enter');
+    expect([...(r?.actions ?? [])]).toEqual(['read', 'update']);
+  });
+
+  it('🔴 通用规则：**增量迁移引入的**「不发给任何人」资源不得声明 `enter`', () => {
+    // 上面那个坑的推广，但**只针对"通过增量迁移发放过"的资源** ——
+    // 判据取 `MODULE_RESOURCE_INTRODUCED_VERSION` 里登记过的 key：
+    // 登记过 ⇒ 它会走 `inheritModulePermissions(…, onlyKeys)`，此时只要有 `enter`
+    // 就必然无条件发给全站（因为这类资源的 menuPermission 都是 null）。
+    //
+    // ⚠️ 为什么不写成"一切 legacyRead:null 的资源"：存量里 `studentRecords` / `examGrades` /
+    //    `examTypes` / `examComments` / `departmentManagement` 也是 `legacyRead:null` + `enter`,
+    //    那几个是**容器型/历史资源**，`enter` 的发放面本来就是宽的（菜单可见性），
+    //    不在本次交付范围、也不该由这条守卫替它们下结论。写成全局规则会直接红在一片存量上，
+    //    然后守卫就会被加豁免加到失效 —— 那是"守卫变噪音"的老路。
+    const introduced = new Set(Object.keys(MODULE_RESOURCE_INTRODUCED_VERSION));
+    const bad = MODULE_RESOURCES.filter(
+      (r) =>
+        introduced.has(r.key) &&
+        r.legacyRead === null &&
+        r.menuPermission === null &&
+        !r.adminOnly &&
+        r.actions.includes('enter'),
+    ).map((r) => `${r.key}（会被无条件发给所有角色）`);
+    expect(bad).toEqual([]);
+  });
+
+  it('path 用不存在的子路径，避免与父资源抢 moduleByPath', () => {
+    const r = MODULE_RESOURCES.find((x) => x.key === 'weilingEnroll');
+    expect(r?.path).toBe('/weiling-contacts/enroll');
+    expect(r?.path).not.toBe('/weiling-contacts');
+  });
+
   it('🔴 引入版本 == 当次抬的版本号（否则 `(v-1, v]` 增量覆盖不到它）', () => {
     expect(MODULE_RESOURCE_INTRODUCED_VERSION.weilingEnroll).toBe(ROLE_PERMISSION_VERSION);
   });

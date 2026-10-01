@@ -329,20 +329,35 @@ export function fieldValueOf(fields: Record<string, unknown>, field: string, tra
  *
  * ⚠️ 映射表为空 ⇒ **原样返回**（不是返回空）——「没配映射」和「配了但没命中」是两回事：
  *    前者应该让号正常生成（比如项目码本来就要求填原文），后者才是"这条规则配漏了"。
+ *
+ * 🔴 但**生成编号时**不能这么放行：`入学年级` 配了映射表却遇到表外的值（如 `大三`），
+ *    原样拼进号里会得到 `26FA-大三-001` 这种格式外的号，而且它**会被写进数据库**。
+ *    ⇒ `generateCode()` 用的是下面这个 `mapFieldValueStrict()`（`hit=false` 即拒绝生成）。
+ *    本函数保留宽松语义，只给"展示原值"这类场景用。
  */
 export function mapFieldValue(raw: string, map: Record<string, string>, mode: CodeMapMatch): string {
+  return mapFieldValueStrict(raw, map, mode).value;
+}
+
+/** 带命中标记的映射（生成编号时用：未命中 ⇒ 宁可不生成，也不写格式外的号） */
+export function mapFieldValueStrict(
+  raw: string,
+  map: Record<string, string>,
+  mode: CodeMapMatch,
+): { value: string; hit: boolean } {
   const entries = Object.entries(map ?? {});
-  if (!entries.length) return raw;
+  if (!entries.length) return { value: raw, hit: true }; // 没配映射 = 不需要映射
   if (mode === 'suffix') {
     // 长键优先，避免 `季` 与 `秋季` 同时命中时取到更短的
     const hit = entries.filter(([k]) => k && raw.endsWith(k)).sort((a, b) => b[0].length - a[0].length)[0];
-    return hit ? hit[1] : raw;
+    return hit ? { value: hit[1], hit: true } : { value: raw, hit: false };
   }
   if (mode === 'contains') {
     const hit = entries.filter(([k]) => k && raw.includes(k)).sort((a, b) => b[0].length - a[0].length)[0];
-    return hit ? hit[1] : raw;
+    return hit ? { value: hit[1], hit: true } : { value: raw, hit: false };
   }
-  return map[raw] ?? raw;
+  const exact = map[raw];
+  return exact === undefined ? { value: raw, hit: false } : { value: exact, hit: true };
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -447,8 +462,10 @@ function collectSerials(prefix: string, suffix: string, existing: string[], glob
  * 关键判据（单测钉住）：
  *   ① 存量格式必须能**逐条复现**（见 `apps/api/test/code-rules.test.ts`）
  *   ② 撞号时按 `conflict` 处置；`next` 往后跳到第一个没被占用的号（允许跳号，见设计 K3）
- *   ③ 任何一处取不到值都**退化**：段渲染成空串、流水从 `start` 起，
- *      绝不抛错（生成编号失败会连带把"新建学生"整条链路弄挂）
+ *   ③ 🔴 **必需段取不到值 ⇒ 不生成**（`code` 为空 + `reason` 说明缺什么），
+ *      **绝不产出 `26FA--001` 这种格式外的残号**（见下方必需段校验的注释）
+ *   ④ 任何情况下都**不抛错**：生成编号失败会连带把"新建学生"整条链路弄挂，
+ *      所以"不生成"是用返回值表达的，不是异常
  */
 export function generateCode(rule: CodeRule, ctx: CodeGenContext): CodeGenResult {
   if (!rule || !rule.enabled) return { code: '', serial: 0, groupKey: '', reason: '规则未启用' };
@@ -460,6 +477,37 @@ export function generateCode(rule: CodeRule, ctx: CodeGenContext): CodeGenResult
 
   const pick = seededPicker(ctx.randomSeed ?? String(ctx.nowMs));
   const sep = typeof rule.separator === 'string' ? rule.separator : '';
+
+  /**
+   * 🔴 必需段校验：**取不到值的 `field` 段 ⇒ 整条规则不生成**。
+   *
+   * 为什么不能"退化成空串"（2026-10-01 生产实测揪出）：
+   *   默认学籍号规则的段是 `[年份][学期][-][项目码][-][流水]`，两个 `-` 是**独立的文本段**。
+   *   学生的「入学年级」为空时，只有项目码段变成空串、被 `filter(x => x !== '')` 滤掉，
+   *   而两个 `-` 还在 ⇒ 生成 `26FA--001`。
+   *   这个残号**格式不合法却长得像合法的**，批量补号会把它写进「学籍号（脱敏）」
+   *   —— 而学籍号是**学生 / 家长 / 小程序的登录凭证**，写错了就是"这个人拿这个号登不进来"。
+   *   ⇒ 宁可这条不生成（页面上把原因写清楚让人补数据），也不写格式外的号。
+   *
+   * 同理，`map` 配了却没命中的值（如 `入学年级='大三'` 不在映射表里）也拒绝生成 ——
+   * 否则会写出 `26FA-大三-001`。
+   */
+  for (const s of segs) {
+    if (s.kind !== 'field') continue;
+    const raw = fieldValueOf(ctx.fields, s.field, s.transform);
+    if (!raw) {
+      return { code: '', serial: 0, groupKey: '', reason: `字段「${s.field}」为空，无法生成` };
+    }
+    const m = mapFieldValueStrict(raw, s.map ?? {}, s.mapMatch ?? 'exact');
+    if (!m.hit) {
+      return {
+        code: '',
+        serial: 0,
+        groupKey: '',
+        reason: `「${raw}」不在字段「${s.field}」的映射表里，无法生成`,
+      };
+    }
+  }
 
   const serialIdx = segs.findIndex((s) => s.kind === 'serial');
   const serialSeg = segs[serialIdx] as Extract<CodeSegment, { kind: 'serial' }>;
@@ -749,6 +797,17 @@ export type CodeFillPreview = {
   existingCount: number;
   /** 已有值而被跳过的条数（只补空，不动已有值） */
   skipped: number;
+  /**
+   * 🔴 **能补的条数**（= `rows` 里 `code` 非空的那部分）。
+   *
+   * 页面上的「需要补 N 条」和按钮文案必须用这个数，**不能用 `rows.length`** ——
+   * `rows` 里还含着"必需字段为空 ⇒ 生成不出来"的行（带 `reason`），
+   * 按 `rows.length` 显示会承诺一个写不进去的条数（2026-10-01 实测：84 人里
+   * 2 人缺「入学年级」，页面会写"需要补 2 条"，实际一条都不会写）。
+   */
+  fillable: number;
+  /** 缺必需输入而**生成不出来**的条数（这些行在 `rows` 里 `code` 为空、带 `reason`） */
+  blocked: number;
   rows: CodeFillRow[];
   samples: CodeFillRow[];
 };

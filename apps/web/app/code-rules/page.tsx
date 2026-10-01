@@ -403,7 +403,14 @@ export default function CodeRulesPage() {
           {!fill.preview ? <p className="muted">计算中…</p> : (
             <>
               <p style={{ fontSize: 13 }}>
-                「{fill.preview.field}」：需要补 <b>{fill.preview.rows.length}</b> 条 ·
+                「{fill.preview.field}」：可补 <b>{fill.preview.fillable}</b> 条 ·
+                {/* 🔴 这里**不能**用 rows.length：它含着"缺必需输入、生成不出来"的行，
+                    按它显示会承诺一个写不进去的条数（2026-10-01 实测 84 人里 2 人缺「入学年级」） */}
+                {fill.preview.blocked > 0 ? (
+                  <>
+                    缺输入 <b style={{ color: 'var(--danger)' }}>{fill.preview.blocked}</b> 条（需先补数据） ·
+                  </>
+                ) : null}
                 已有值不动 <b>{fill.preview.skipped}</b> 条 · 当前已有 <b>{fill.preview.existingCount}</b> 条有值
               </p>
               {fill.preview.rows.length === 0 ? (
@@ -418,7 +425,9 @@ export default function CodeRulesPage() {
                           <tr key={row.id}>
                             <td>{row.name || row.id}</td>
                             <td className="mono">{row.code || '—'}</td>
-                            <td className="muted">{row.reason ?? ''}</td>
+                            <td className="muted" style={row.code ? undefined : { color: 'var(--danger)' }}>
+                              {row.reason ?? ''}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -427,8 +436,12 @@ export default function CodeRulesPage() {
                   <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                     <button className="btn" onClick={() => setFill(null)}>取消</button>
                     {canEdit ? (
-                      <button className="btn btn-primary" disabled={busy} onClick={() => void doFill(fill.ruleKey)}>
-                        {busy ? '写入中…' : `确认补 ${fill.preview.rows.length} 条`}
+                      <button
+                        className="btn btn-primary"
+                        disabled={busy || fill.preview.fillable === 0}
+                        onClick={() => void doFill(fill.ruleKey)}
+                      >
+                        {busy ? '写入中…' : `确认补 ${fill.preview.fillable} 条`}
                       </button>
                     ) : null}
                   </div>

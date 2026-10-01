@@ -237,7 +237,7 @@ export class CodeRulesService {
       }
     }
     this.logger.log(
-      `批量补号：${rule.targetField} 补 ${filled} 条（命中 ${plan.rows.length}，跳过 ${plan.skipped}）；操作人 ${user.name ?? ''}`,
+      `批量补号：${rule.targetField} 补 ${filled} 条（可补 ${plan.fillable}，跳过已有值 ${plan.skipped}，缺输入 ${plan.blocked}）；操作人 ${user.name ?? ''}`,
     );
     return { ok: true, filled, skipped: plan.skipped, rows: plan.rows };
   }
@@ -259,9 +259,21 @@ export class CodeRulesService {
       const name = String(rec['学生姓名'] ?? rec['姓名'] ?? rec.id ?? '');
       const r = generateCode(rule, { nowMs: Date.now(), fields: rec, existing: acc });
       rows.push({ id: String(rec.id ?? ''), name, code: r.code, reason: r.reason });
+      // 🔴 只有真生成出来的号才累加进 `acc`：生成不出来的行（缺必需输入）如果也占位，
+      //    后面那些**能生成**的记录会被空号"顶掉"一个流水位（表现为跳号，且原因看不出来）
       if (r.code) acc.push(r.code);
     }
-    return { field: rule.targetField, existingCount: existing.length, skipped, rows, samples: rows.slice(0, 200) };
+    // 🔴 「能补几条」必须和「写库循环里真正会写的条数」同源（`fill()` 里也是 `if (!row.code) continue`）
+    const fillable = rows.filter((x) => x.code).length;
+    return {
+      field: rule.targetField,
+      existingCount: existing.length,
+      skipped,
+      fillable,
+      blocked: rows.length - fillable,
+      rows,
+      samples: rows.slice(0, 200),
+    };
   }
 
   // ══════════════════════════════════════════════════════════════

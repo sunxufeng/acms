@@ -21,6 +21,7 @@ import {
   MODULE_RESOURCES,
   MODULE_RESOURCE_INTRODUCED_VERSION,
   ROLE_PERMISSION_VERSION,
+  STUDENT_NO_GRADE_MAP,
   codeRuleConflicts,
   codeRuleFor,
   codeRulesVisible,
@@ -216,13 +217,49 @@ describe('生成器：撞号 / 退化 / 边界', () => {
     expect(got.reason).toContain('未启用');
   });
 
-  it('字段缺失 ⇒ 退化（段渲染成空、流水从 start 起），**不抛错**', () => {
+  it('🔴 必需字段为空 ⇒ **不生成**（绝不产出 `26FA--001` 这种残号）+ 不抛错', () => {
+    /*
+     * 2026-10-01 上线探针实测揪出：两个学生的「入学年级」为空，
+     * 项目码段被 `filter(x => x !== '')` 滤掉、**两个 `-` 文本段却留着**
+     * ⇒ 生成 `26FA--001`。批量补号会把这个格式外的号写进「学籍号（脱敏）」，
+     * 而学籍号是学生/家长/小程序的**登录凭证** ⇒ 必须拒绝生成。
+     */
     const got = generateCode(DEFAULT_STUDENT_NO_RULE, { nowMs: NOW, fields: {}, existing: [] });
-    // 三个字段段都渲染成空 ⇒ 只剩两个固写的 `-` 与流水 ⇒ `--001`。
-    // 难看，但这是"三个输入全空"的退化输入，**不该抛错**（抛错会连带把新建学生弄挂）；
-    // 批量为这类记录补号时，「预检」会把这样的号列出来让人先看到。
-    expect(got.code).toBe('--001');
-    expect(got.serial).toBe(1);
+    expect(got.code).toBe('');
+    expect(got.reason).toContain('入学年份');
+    // 反证：残号一个字符都不该出现（判据要盯住**产物**，不能只看 code 为空）
+    expect(got.code).not.toContain('-');
+
+    // 只缺最后一个字段（项目码）也会残 ⇒ 同样拒绝
+    const noGrade = generateCode(DEFAULT_STUDENT_NO_RULE, {
+      nowMs: NOW,
+      fields: { 入学年份: '2026', 入学年月: '26秋季' },
+      existing: [],
+    });
+    expect(noGrade.code).toBe('');
+    expect(noGrade.reason).toContain('入学年级');
+
+    // 反证：把缺的那个字段填上 ⇒ 立刻能生成（说明拒绝的原因是"缺输入"而不是规则本身坏了）
+    const ok = generateCode(DEFAULT_STUDENT_NO_RULE, {
+      nowMs: NOW,
+      fields: { 入学年份: '2026', 入学年月: '26秋季', 入学年级: 'Pre-1' },
+      existing: [],
+    });
+    expect(ok.code).toBe('26FA-P1-001');
+  });
+
+  it('🔴 配了映射表却没命中 ⇒ 也拒绝生成（否则写出 `26FA-大三-001`）', () => {
+    const got = generateCode(DEFAULT_STUDENT_NO_RULE, {
+      nowMs: NOW,
+      fields: { 入学年份: '2026', 入学年月: '26秋季', 入学年级: '大三' }, // 不在 STUDENT_NO_GRADE_MAP 里
+      existing: [],
+    });
+    expect(got.code).toBe('');
+    expect(got.reason).toContain('大三');
+    expect(got.reason).toContain('映射表');
+
+    // 反证：`mapFieldValue` 的**宽松**语义保留（展示原值用），只有生成时严格
+    expect(mapFieldValue('大三', STUDENT_NO_GRADE_MAP, 'exact')).toBe('大三');
   });
 
   it('传垃圾进 generateCode 也不抛错', () => {

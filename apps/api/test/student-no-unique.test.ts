@@ -18,7 +18,22 @@ import { describe, expect, it } from 'vitest';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..', '..');
-const read = (...p: string[]) => readFileSync(path.join(ROOT, ...p), 'utf8');
+/**
+ * 读文件带 **Map 缓存**。
+ *
+ * 🔴 为什么要缓存：本机沙箱读一个文件约 160ms，本文件里多个用例会重复读同一批文件；
+ *    不缓存时「扫一批目录」那条用例在机器有负载时**偶发超时**（2026-10-01 实测 7182ms
+ *    撞上默认 5000ms）。超时的守卫会被当成噪音，而噪音守卫的下场就是被绕过。
+ */
+const readCache = new Map<string, string>();
+const read = (...p: string[]) => {
+  const key = p.join('/');
+  const hit = readCache.get(key);
+  if (hit !== undefined) return hit;
+  const v = readFileSync(path.join(ROOT, ...p), 'utf8');
+  readCache.set(key, v);
+  return v;
+};
 
 /** 学籍号字段的准确中文名（前后端两份声明都必须等于它） */
 const FIELD = '学籍号（脱敏）';
@@ -91,7 +106,9 @@ describe('学籍号 · 字段名一致性', () => {
       offenders,
       `这些地方把「学籍号」当字段名了（真名是「${FIELD}」，取不到值且不报错）：\n${offenders.join('\n')}`,
     ).toEqual([]);
-  });
+    // 🔴 显式放宽超时：这条要扫 8 个目录（几十个文件），沙箱冷盘时单次可能超过默认的 5s。
+    //    默认值会让它**偶发假红**，而假红的守卫等于没有守卫（会被绕过）。
+  }, 30_000);
 
   it('全仓扫描脚本存在（覆盖上面那批之外的目录，提交前跑）', () => {
     const script = read('scripts', 'field_name_lint.mjs');
@@ -161,12 +178,46 @@ describe('学籍号 · 接口', () => {
     expect(iRoute).toBeLessThan(iId);
   });
 
-  it('预检只判 `students:read`，且只回占用者姓名/编号（**不回学籍号本身**）', () => {
-    const body = strip(svc.slice(svc.indexOf('async checkStudentNo(')));
+  it('预检只判 `students:read`（密级门禁见下一条），且**不回学籍号明文**', () => {
+    // 🔴 切片必须带**代码锚点**终点。上一版是 `svc.slice(indexOf(...))` ——
+    //    一直切到文件末尾，把后面几个方法一并框了进来（判据范围失控）。
+    const body = svc.slice(
+      svc.indexOf('async checkStudentNo('),
+      svc.indexOf('private assertStudentNoVisible('),
+    );
+    expect(body.length, '切片失败：锚点没命中').toBeGreaterThan(0);
     expect(body).toContain("requireModule(user, 'students', 'read')");
     expect(body).toContain('holder');
-    // 返回值里不得出现学籍号字段本身的值
-    expect(body).not.toContain('studentNoValue');
+    // 🔴 真判据：提示语模板里**不得插值 `${target}`**（那就是学籍号明文）。
+    //    上一版这里写的是 `expect(body).not.toContain('studentNoValue')` ——
+    //    代码里从不存在 `studentNoValue` 这个标识符，所以断言**恒真**：
+    //    注释写着"不回学籍号本身"、判据却查了个不相干的变量，
+    //    于是线上真的把明文回显了出去（2026-10-01 线上探针抓到）。
+    //    终点用 `holder:` 这个**代码锚点**（不能拿注释当锚点：`strip` 之后注释
+    //    已经没了，`indexOf` 返回 -1，而 `slice(from, -1)` 会把后面整段框进来 ⇒ 假红）。
+    const iReason = body.indexOf('reason:');
+    const iHolder = body.indexOf('holder:', iReason);
+    expect(iReason, '没找到 reason 模板').toBeGreaterThan(-1);
+    expect(iHolder, '没找到 holder 锚点').toBeGreaterThan(iReason);
+    expect(body.slice(iReason, iHolder)).not.toContain('${target}');
+  });
+
+  it('🔴 预检要求「看得见学籍号这一栏」，且判据与写入路径**同源**', () => {
+    const body = svc.slice(svc.indexOf('private assertStudentNoVisible('));
+    expect(body.length, '找不到 assertStudentNoVisible').toBeGreaterThan(0);
+    // 同源：复用 stripProtected（create/update 用的就是它），
+    // 而不是另写一套 `rankOf(maxDataLevel) >= 4`（会与字典密级配置错开）
+    expect(body).toContain('this.mask.stripProtected(user');
+    // 挡不住就是一台可枚举机 ⇒ 必须抛
+    expect(body).toContain('ForbiddenException');
+    // 🔴 403 而不是 401：前端 request() 把 401 当"未登录"并跳 /login
+    expect(body).not.toContain('UnauthorizedException');
+    // 只定义不调用 = 静默无效，所以还要钉住调用点
+    const caller = svc.slice(
+      svc.indexOf('async checkStudentNo('),
+      svc.indexOf('private assertStudentNoVisible('),
+    );
+    expect(caller).toContain('this.assertStudentNoVisible(user)');
   });
 
   it('前端路径与后端一致，且带 excludeId', () => {

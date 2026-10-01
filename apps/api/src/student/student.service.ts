@@ -27,6 +27,12 @@ const TABLE = TABLES.studentProfile.tableId;
  */
 export const STUDENT_NO_FIELD = '学籍号（脱敏）';
 
+/**
+ * 密级探针值：只为把「学籍号（脱敏）」这个键喂进 `stripProtected` 走一遍，
+ * 看它会不会被剔除，不参与任何业务、也不会落库。
+ */
+const FIELD_LEVEL_PROBE = '__probe__';
+
 /** 关联类字段（DuplexLink/SingleLink/Attachment），M1 只读，编辑时跳过 */
 const READONLY_FIELDS = new Set([
   '学生编号', '监护人与家庭', '学籍与班级历史', '健康与安全档案', '授权与同意',
@@ -530,6 +536,11 @@ export class StudentService {
    *    （`学生编号` 或 `学籍号（脱敏）` 任一命中 + 姓名即可登录）
    *    ⇒ 重复不只是"数据脏"，而是**两个人的账号会互串**。
    *    所以不能等提交后才 400：那时用户已经填完一整页表单。
+   *
+   * 🔴🔴 调用它要求「看得见学籍号这一栏」（见 `assertStudentNoVisible`）。
+   *    否则它就是一台**枚举机**：`available` 的 true/false 本身足以逐个试出
+   *    库里所有学籍号（格式规整、可穷举），而学籍号 + 姓名能直接登进学生门户。
+   *    所以：低密级用户**不该有这个能力**（他们也填不了这一栏 —— 写入时会被 strip 掉）。
    */
   async checkStudentNo(
     user: SessionUser,
@@ -537,6 +548,7 @@ export class StudentService {
     excludeId?: string,
   ): Promise<{ ok: boolean; available: boolean; reason: string; holder: { name: string; studentNo: string; status: string } | null }> {
     requireModule(user, 'students', 'read');
+    this.assertStudentNoVisible(user);
     const target = String(value ?? '').trim();
     // 空值不报"被占用" —— 学籍号不是必填字段（"没填"是合法状态，多个学生都可以不填）
     if (!target) return { ok: true, available: true, reason: '', holder: null };
@@ -545,11 +557,34 @@ export class StudentService {
     return {
       ok: true,
       available: false,
-      reason: `学籍号「${target}」已被学生「${hit.name || '（未填姓名）'}」${
+      // 🔴 提示里**不得插值 `${target}`**（那是学籍号明文，L4 受控字段）——
+      //    理由同上：任何"输入 → 回显明文"的接口都会把脱敏绕过。
+      //    只需要让人知道「跟谁撞了」，够定位即可。
+      reason: `该学籍号已被学生「${hit.name || '（未填姓名）'}」${
         hit.studentNo ? `（学生编号 ${hit.studentNo}）` : ''
       }使用${hit.status ? `，当前状态：${hit.status}` : ''}`,
       holder: { name: hit.name, studentNo: hit.studentNo, status: hit.status },
     };
+  }
+
+  /**
+   * 判「当前账号看不看得见学籍号这一栏」，看不见就直接 403。
+   *
+   * 🔴 判据必须与**写入路径同源**：拿探针值走一遍 `stripProtected`
+   *    （`create` / `update` 用的就是这一步），键被删掉 = 看不见。
+   *    另写一套「`rankOf(maxDataLevel) >= 4`」会与字典里的密级配置**错开**：
+   *    运营在密级页把该字段改成 L3 后，预检还在按 L4 拦（或反之）——
+   *    声明与判据各说各话，正是本仓反复踩过的静默 bug。
+   * 🔴 返 **403** 而不是 401：前端 `request()` 把 401 当作"未登录"并跳 `/login`，
+   *    而这里只是"没权限用这个能力"，用户应留在原页面。
+   */
+  private assertStudentNoVisible(user: SessionUser): void {
+    const probe = this.mask.stripProtected(user, 'students', { [STUDENT_NO_FIELD]: FIELD_LEVEL_PROBE });
+    if (!(STUDENT_NO_FIELD in probe)) {
+      throw new ForbiddenException(
+        'FIELD_LEVEL_DENIED:学籍号是受控字段，当前账号密级不足，不能使用学籍号查重预检。',
+      );
+    }
   }
 
   /**

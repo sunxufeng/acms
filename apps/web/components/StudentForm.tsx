@@ -996,7 +996,10 @@ function PhotoAttachmentSection({
       setNoState({ checking: false, reason: '', available: true });
       return;
     }
-    if (!noValue) {
+    // 🔴 打码值（低密级用户看到的 `●●●`）**不是真值**：拿它查重毫无意义，
+    //    而且服务端现在会因密级不足返 403（`assertStudentNoVisible`）——
+    //    别为一个注定失败的请求白跑一趟（学籍号格式里不会有 `●`，不会误伤）。
+    if (!noValue || noValue.includes('●')) {
       setNoState({ checking: false, reason: '', available: true });
       return;
     }

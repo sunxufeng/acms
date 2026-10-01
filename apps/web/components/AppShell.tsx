@@ -19,6 +19,8 @@ import {
   studentRecordMenuVisible,
   supportConfigVisible,
   weilingMappingVisible,
+  codeRulesVisible,
+  CODE_RULES_MENU_KEY,
   supportMenuVisible,
 } from '@acms/contracts';
 import { loadPermissions, resetPermissions } from '../lib/permissions';
@@ -456,6 +458,12 @@ export default function AppShell({
     // `legacyRead: null` ⇒ 默认只有系统管理员能看到这个菜单。
     if (item.key === WEILING_MAPPING_MENU_KEY) {
       return weilingMappingVisible(myPerms);
+    }
+    // 「代码规则」（2026-10-01，v14）：编号的生成规则。同样是一次配置影响
+    // **以后每个新记录的编号**，而学籍号是登录凭证 ⇒ 与「卫瓴映射」同类，
+    // 只认权限点、不吃菜单白名单；`legacyRead: null` ⇒ 默认只有系统管理员能看到。
+    if (item.key === CODE_RULES_MENU_KEY) {
+      return codeRulesVisible(myPerms);
     }
     if (item.key === MY_IDP_MENU_KEY || item.key === IDP_STATS_MENU_KEY) {
       return idpMenuVisible(

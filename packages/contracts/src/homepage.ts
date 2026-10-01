@@ -358,6 +358,12 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     // `legacyRead: null` ⇒ 迁移不发给任何人，默认只有系统管理员持有。
     // `perm` 留空 ⇒ 可见性收口在 AppShell 的 `weilingMappingVisible`。
     { key: 'weilingMapping', label: '卫瓴映射', enLabel: 'Weiling Mapping', href: '/weiling-mapping', icon: 'target', section: '后台管理', order: 27, perm: '' },
+    // 「代码规则」（2026-10-01，v14）：编号（学籍号等）的**生成规则**配置页。
+    // 与「卫瓴映射」同区同类：改一次影响**以后每个新记录的编号**，而学籍号又是
+    // 学生与家长的登录凭证 ⇒ 权限点 `module:codeRules:read`+`:update`，
+    // `legacyRead: null` ⇒ 迁移不发给任何人，默认只有系统管理员持有。
+    // `perm` 留空 ⇒ 可见性收口在 AppShell 的 `codeRulesVisible`。
+    { key: 'codeRules', label: '代码规则', enLabel: 'Code Rules', href: '/code-rules', icon: 'settings', section: '后台管理', order: 28, perm: '' },
 
     { key: 'student360', label: '学生全景', enLabel: 'Student 360', href: '/student-360', icon: 'students', section: '学生闭环', order: 10, perm: 'student360:read' },
     { key: 'sourceFollowups', label: '招生跟进', enLabel: 'Admissions Follow-ups', href: '/source-followups', icon: 'admissions', section: '学生闭环', order: 20, perm: 'followup:read' },

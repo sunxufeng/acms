@@ -47,6 +47,7 @@ import { GetnoteModule } from './getnote/getnote.module.js';
 import { NoteSnapshotModule } from './getnote/note-snapshot.module.js';
 import { OpenPlatformModule } from './open-platform/open-platform.module.js';
 import { WeilingModule } from './weiling/weiling.module.js';
+import { CodeRulesModule } from './code-rules/code-rules.module.js';
 import { MyFollowupsModule } from './my-followups/my-followups.module.js';
 import { OWNER_MAPPING_METAS } from './owner-mapping/owner-mapping.meta.js';
 import { OwnerMappingModule } from './owner-mapping/owner-mapping.module.js';
@@ -133,6 +134,7 @@ import { ImpersonateModule } from './impersonate/impersonate.module.js';
     NoteSnapshotModule,
     OpenPlatformModule,
     WeilingModule,
+    CodeRulesModule,
     MyFollowupsModule,
     OwnerMappingModule,
     // 归属人映射的 REST 路由（通用 CRUD）；建表由 OwnerMappingModule 在启动期做

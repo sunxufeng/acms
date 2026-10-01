@@ -133,7 +133,7 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *     必须声明 `update` —— 只声明 read 的话矩阵里没有可勾的格，
  *     这个点连 `PERMISSIONS` 目录都不在（`weilingContacts:update` 踩过同一个坑）。
  */
-export const ROLE_PERMISSION_VERSION = 13;
+export const ROLE_PERMISSION_VERSION = 14;
 
 /**
  * 资源「从哪个版本开始存在」。
@@ -187,6 +187,12 @@ export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
   // **不随迁移发放**，只在角色矩阵里手工勾给管理员/招生负责人。
   // ⚠️ 引入版本必须 == 当次抬的版本号，否则 `(12, 13]` 这段增量覆盖不到它。
   weilingMapping: 13,
+  // v14（2026-10-01）：「代码规则」配置页。它决定**以后每个新记录的编号长什么样**
+  //  （学籍号 / 学生编号…），而学籍号是学生与家长的**登录凭证** ——
+  //  改错一条规则会让后续所有人拿到格式错的号 ⇒ 与卫瓴映射同级，`legacyRead: null`
+  //  **不随迁移发放**，默认只有系统管理员，其他角色由管理员在矩阵里手工勾。
+  //  ⚠️ 引入版本必须 == 当次抬的版本号，否则 `(13, 14]` 这段增量覆盖不到它。
+  codeRules: 14,
 };
 
 /** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */
@@ -504,6 +510,31 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
     key: 'weilingMapping',
     label: '卫瓴映射',
     path: '/weiling-mapping',
+    legacyRead: null,
+    legacyWrite: null,
+    menuPermission: null,
+    actions: ['read', 'update'],
+    genericCrud: false,
+  },
+  /**
+   * 「代码规则」配置页（v14，2026-10-01）。
+   *
+   * 管「一个编号怎么拼出来」—— 学籍号 / 学生编号（后者登记但默认停用）。
+   * 改一次影响**以后所有新记录**，而**学籍号是学生与家长的登录凭证** ⇒
+   * 与 `weilingMapping` 同级：`legacyRead: null`（不随迁移发放），默认只有系统管理员。
+   *
+   * ⚠️ 有真实页面 `/code-rules` ⇒ 真 path、**不需要 `subOf`**。
+   * 🔴 `actions` 恰为 `['read','update']`，**不得带 `enter`**：本资源 `menuPermission: null`，
+   *    `enter` 的继承判据是 `!adminOnly && (!menuPermission || …)`
+   *    ⇒ 一旦声明 `enter` 就会**无条件发给全站角色**（含 student / parent）。
+   *    菜单可见性走自定义判据 `codeRulesVisible()`（同 `studentSupportConfig` / `weilingMapping`）。
+   * 🔴 必须**声明 `update`**：只声明 read 的话角色矩阵里没有可勾的格，
+   *    这个权限点连 `PERMISSIONS` 目录都进不去（`weilingContacts:update` 踩过同一个坑）。
+   */
+  {
+    key: 'codeRules',
+    label: '代码规则',
+    path: '/code-rules',
     legacyRead: null,
     legacyWrite: null,
     menuPermission: null,

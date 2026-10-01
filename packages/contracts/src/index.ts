@@ -36,3 +36,7 @@ export * from './weiling-mapping.js';
 // —— 🔴 后台 matchStudents() 的跳过判据与前端列表格的状态展示必须是同一份，
 //    各写一遍会出现「界面显示自动、后台其实跳过了」这种静默不一致
 export * from './weiling-link.js';
+// 「代码规则」：编号的段 DSL + 生成器（学籍号等自动编号）
+// —— 🔴 默认规则是**逆推自生产 82 个学籍号**的（82/82 一致），单测钉住"能逐条复现存量"；
+//    试算接口与真正落库必须走同一个 generateCode，前端不许自己估算
+export * from './code-rules.js';

@@ -12,6 +12,7 @@ import { requireModule } from '../shared/require-module.js';
 import { StudentScopeService } from '../shared/student-scope.service.js';
 import { isScopeUnrestricted, studentInScope } from '../shared/student-scope.js';
 import { linkIds } from '../shared/record.util.js';
+import { CodeRulesService } from '../code-rules/code-rules.service.js';
 
 import type { CreateStudentDto, UpdateStudentDto, StudentFilterDto, ExportQueryDto } from './student.dto.js';
 
@@ -68,6 +69,12 @@ export class StudentService {
      * 与上面的 ABAC（校区 + 密级）是两条独立的闸门，都要过。
      */
     @Inject(StudentScopeService) private readonly scopeSvc: StudentScopeService,
+    /**
+     * 「代码规则」（v14，2026-10-01）：新建学生时给**留空**的「学籍号（脱敏）」自动生成。
+     * 🔴 只在 `create` 里用，**不在 `update` 里用** —— 学籍号是学生与家长的登录凭证，
+     *    追溯改号 = 有人登不上系统（设计 K2：存量一个都不动）。
+     */
+    @Inject(CodeRulesService) private readonly codeRules: CodeRulesService,
   ) {}
 
   /** DTO → Base 写入字段（跳过只读字段，单选纯串、多选数组） */
@@ -628,6 +635,26 @@ export class StudentService {
     const fields = this.toWriteFields(this.mask.stripProtected(user, 'students', dto as unknown as Record<string, unknown>));
     if (!fields['数据密级']) fields['数据密级'] = 'L1';
     if (!fields['当前状态']) fields['当前状态'] = '潜在学生';
+    /*
+     * 「代码规则」（v14）：学籍号**留空就自动生成**（设计 K1）。
+     *
+     * 🔴 顺序很关键 —— 必须在 `stripProtected` **之后**：
+     *    「学籍号（脱敏）」是 L4 受控字段，低密级用户提交时那一栏会被静默删掉。
+     *    如果放在 strip 之前生成，低密级用户新建的学生会拿到一个学籍号，
+     *    而这个号对提交者本人是"看不见的"——他能建、但看不到自己建出来的号。
+     *    放在之后 ⇒ 低密级用户那栏本来就空 ⇒ 生成也是空的（与"看不见"一致），
+     *    真需要号就由有权限的人去补（批量补号）。
+     *
+     * 🔴 生成失败**不能让新建失败**：`generateFor` 内部把异常兜住，返回空 code ⇒
+     *    照常建记录（宁可少一个号，也不能让人建不了学生）。
+     */
+    if (!String(fields['学籍号（脱敏）'] ?? '').trim()) {
+      const gen = await this.codeRules.generateFor('studentProfile', '学籍号（脱敏）', {
+        ...fields,
+        ...(dto as unknown as Record<string, unknown>),
+      });
+      if (gen.code) fields['学籍号（脱敏）'] = gen.code;
+    }
     // 🔴 学籍号查重必须在**真正写库之前**（它在 strip 之后，见该方法的注释）
     await this.assertStudentNoUnique(fields);
     await this.ensureTagOptions(dto);

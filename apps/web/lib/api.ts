@@ -18,6 +18,10 @@ import type {
   SupportOwnerOption,
   SupportSaveBody,
   SupportSignalConfig,
+  // 代码规则（v14，2026-10-01）：DTO 在 contracts，前后端共用同一份
+  CodeRulesView,
+  CodeFillPreview,
+  CodeFillRow,
   SupportConfigPreview,
   SupportConfigResult,
   SupportStudentOption,
@@ -1031,6 +1035,30 @@ export const api = {
   weilingRestoreAutoLink: (contactId: string) =>
     request<{ ok: boolean }>(`/weiling/contacts/${encodeURIComponent(contactId)}/restore-auto`, {
       method: 'PUT',
+    }),
+
+  // ── 「代码规则」（v14，2026-10-01）：学籍号等自动编号的生成规则 ────────
+  /**
+   * 读配置 + 试算预览。
+   *
+   * 🔴 预览里的号是**服务端**用生成时同一份 `generateCode` 算的 —— 前端不许自己估算，
+   *    否则"预览看到的号"与"以后真生成的号"必然漂移（而且不报错）。
+   */
+  codeRulesGet: () => request<CodeRulesView>('/code-rules'),
+  /** 用提交的规则试算（**不保存**）：只替换 body 里带的规则，其余保持当前配置 */
+  codeRulesPreview: (body: { rules?: unknown[] }) =>
+    request<CodeRulesView>('/code-rules/preview', { method: 'POST', body: JSON.stringify(body) }),
+  /** 保存（整体替换；存进去的是归一化后那份） */
+  codeRulesSave: (body: { rules: unknown[] }) =>
+    request<CodeRulesView>('/code-rules', { method: 'PUT', body: JSON.stringify(body) }),
+  /** 批量补号**预检**（不写库） */
+  codeRulesFillPreview: (ruleKey: string) =>
+    request<CodeFillPreview>('/code-rules/fill/preview', { method: 'POST', body: JSON.stringify({ ruleKey }) }),
+  /** 批量补号（写库，二次确认后调用；只补空值） */
+  codeRulesFill: (ruleKey: string) =>
+    request<{ ok: boolean; filled: number; skipped: number; rows: CodeFillRow[] }>('/code-rules/fill', {
+      method: 'POST',
+      body: JSON.stringify({ ruleKey }),
     }),
   weilingAnalyze: (params: { from?: string; to?: string; owner?: string; channel?: string; stage?: string; status?: string } = {}) => {
     const qs = new URLSearchParams();

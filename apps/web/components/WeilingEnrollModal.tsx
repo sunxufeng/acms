@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Modal } from './Modal';
 import { api, type WeilingEnrollPreview } from '../lib/api';
+// 跳转箭头统一来源（别直接在 JSX 里打字符，见 lib/uiGlyphs.ts）
+import { JUMP_ARROW } from '../lib/uiGlyphs';
 
 /**
  * 「联系人 → 转入学生档案」的确认弹窗（2026-09-30 峰哥需求）。
@@ -120,7 +122,9 @@ export function WeilingEnrollModal({ contactId, contactName, onClose, onDone }: 
         footer={
           <>
             <button className="btn" onClick={onClose}>关闭</button>
-            <Link className="btn btn-primary" href={`/students/${encodeURIComponent(result.studentId)}`}>查看学生档案 ↗</Link>
+            <Link className="btn btn-primary" href={`/students/${encodeURIComponent(result.studentId)}`}>
+              查看学生档案 {JUMP_ARROW}
+            </Link>
           </>
         }
       >
@@ -176,7 +180,9 @@ export function WeilingEnrollModal({ contactId, contactName, onClose, onDone }: 
               {alreadyLinked.reason || '无说明'}）。
               重复转档会造出第二条同样的档案，所以这里不再提供「入学」。
               <div style={{ marginTop: 8 }}>
-                <Link className="btn btn-sm btn-primary" href={`/students/${encodeURIComponent(alreadyLinked.studentId)}`}>查看该学生 ↗</Link>
+                <Link className="btn btn-sm btn-primary" href={`/students/${encodeURIComponent(alreadyLinked.studentId)}`}>
+                  查看该学生 {JUMP_ARROW}
+                </Link>
               </div>
             </div>
           ) : null}
@@ -199,7 +205,9 @@ export function WeilingEnrollModal({ contactId, contactName, onClose, onDone }: 
                       {s.name}
                       <span className="muted"> · {[s.enrolledAt, s.grade, s.cls, s.status].filter(Boolean).join(' · ') || '无更多信息'}</span>
                     </span>
-                    <Link href={`/students/${encodeURIComponent(s.id)}`} target="_blank" className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>查看 ↗</Link>
+                    <Link href={`/students/${encodeURIComponent(s.id)}`} target="_blank" className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>
+                      查看 {JUMP_ARROW}
+                    </Link>
                   </label>
                 ))}
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', cursor: 'pointer' }}>

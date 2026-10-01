@@ -1386,6 +1386,31 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
     });
   }, [items, studentCols, studentEnglishByName, studentIdByName]);
 
+  /**
+   * `studentLink` 列（考勤 / 实践活动 / 阶段评价 / 成绩 / 校友跟进 的「学生」）点进去去哪。
+   *
+   * 🔴 2026-10-01 统一为 **学生档案**（方案 B / 设计 H3）：
+   *    在此之前这 5 个模块传的 `studentDetailHref` 全是**本模块详情页**
+   *    （`/student-attendances/<记录id>` 等），而 `/students`、`/student-records`
+   *    里同样叫「学生」的列跳的是**学生档案** —— 同一个列头两个落点，
+   *    用户点两次得到两种结果，只能理解成"有一个是坏的"。
+   *
+   * 判据：列头叫「学生」⇒ 用户想看的是**这个人**，不是这条记录。
+   *   （若要"看本模块详情"，正确做法是把列头改成「考勤记录」之类，而不是让链接偷偷指向别处。）
+   *
+   * ⚠️ 解析不到学生 id 时**回落到模块自己的详情页**，而不是不做链接：
+   *    `__studentRefId` 是按姓名反查注入的，名字对不上（学生已改名 / 数据脏）就会缺，
+   *    这时把链接降级成"看这条记录"远比给出一个死链或一段不可点的纯文本好。
+   */
+  const studentLinkTarget = useCallback(
+    (row: Record<string, unknown>): string | undefined => {
+      const sid = str(row[STUDENT_REF_KEY]);
+      if (sid) return studentHref(sid);
+      return studentDetailHref ? studentDetailHref(row) : undefined;
+    },
+    [studentDetailHref],
+  );
+
   // 卫瓴联系人候选项（招生跟进的「关联联系人」）：value=contact_id，label=姓名｜手机号。
   // 存 id 而不是姓名：联系人有重名、也会改名，存 id 由后端解析显示才不会串。
   const [weilingContactOptions, setWeilingContactOptions] = useState<{ value: string; label: string }[]>(
@@ -2493,27 +2518,78 @@ export default function CrudPage({ title, subtitle, columns, api, statusField, t
                               </span>
                             );
                           })()
-                          : (c.type === 'studentLink' && studentDetailHref
-                            ? <Link href={studentDetailHref(row)} style={{ color: 'var(--accent)', fontWeight: 600 }}>{studentLabel(str(row[c.key]), row[STUDENT_ENGLISH_KEY])}</Link>
+                          : (c.type === 'studentLink'
+                            /*
+                             * 落点优先学生档案（见 `studentLinkTarget` 的注释）。
+                             * 样式收口到 `.link-cell`（2026-10-01 方案 B），不再内联 accent+600 ——
+                             * 内联的那些散在各处，改一次口径要全站搜一遍，必然漏。
+                             */
+                            ? (() => {
+                                const target = studentLinkTarget(row);
+                                const label = studentLabel(str(row[c.key]), row[STUDENT_ENGLISH_KEY]);
+                                return target ? (
+                                  <Link className="link-cell" href={target}>{label}</Link>
+                                ) : (
+                                  <span>{label}</span>
+                                );
+                              })()
                             : c.render
                               ? c.render(row[c.key], row)
                               // 色值列：色块 + 色值。默认长相收口在这里（各模块别再自己写一份）
                               : c.type === 'color'
                                 ? <ColorChip value={str(row[c.key])} />
-                                : (c.type === 'student' || c.type === 'studentLink'
+                                : (c.type === 'student'
                                 ? studentLabel(str(row[c.key]), row[STUDENT_ENGLISH_KEY])
                                 : (c.openRecord
                                   /**
-                                   * 🔴 `openRecord` 列是可点进详情的，**必须给统一的链接样式**。
+                                   * 🔴 表格里「可点进详情」的文字（2026-10-01，方案 B）：
+                                   *    必须是**真 `<a>`**（这里用 next/link，渲染出来就是 `<a href>`）。
                                    *
-                                   * 2026-09-19 修：此前只有「自己写了 render 的列」才有样式
-                                   * （学生记录的主题列手写了 `accent + 700`），而没写 render 的
-                                   * 列（招生跟进的「沟通主题」）虽然也能点，看上去却是普通文本 ——
-                                   * 同一件事两种长相，用户会以为「这个不能点/那个格式不对」。
-                                   * 收口在这里之后，凡 `openRecord` 的列自动一致；
-                                   * 列若自带 render（如联系人姓名、学生姓名），仍走自己的样式。
+                                   * 历史：2026-09-19 收口过一次样式（此前只有自己写了 render 的列才有
+                                   * `accent+700`，没写 render 的列虽然也能点、看上去却是普通文本），
+                                   * 但那次只统一了**长相**，没统一**语义** —— 仍然是
+                                   * `<td onClick>` + 一个裸 `<span>`，键盘**完全够不着**
+                                   * （Tab 聚焦不到、不能右键复制链接、不能中键开新标签页）。
+                                   *
+                                   * 现在：文字本身是链接（可聚焦、有 `:focus-visible` 轮廓），
+                                   * `<td>` 上的 onClick **保留**作为整格点击的附加热区；
+                                   * 但链接自己 `stopPropagation`，避免同一次点击触发两条导航。
+                                   *
+                                   * 样式一律走 `.link-cell`，不再内联 `accent + 700`
+                                   * —— 这也顺手断掉了「用链接色却没有点击行为」那类伪链接的土壤。
+                                   *
+                                   * ⚠️ 没有 `detailHref` 时（少数模块用弹窗编辑而非详情页）
+                                   *    渲染成 `<button>` 而不是 `href="#"`：`#` 会让状态栏显示
+                                   *    一个假地址、中键点开一个空白页，语义是错的。
+                                   *    `<button>` 的 font 不继承，所以这里要显式 inherit。
                                    */
-                                  ? <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{cellText(row[c.key], c, tl, dictMeta)}</span>
+                                  ? detailHref ? (
+                                    <Link
+                                      className="link-cell"
+                                      href={detailHref(String(row.id))}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {cellText(row[c.key], c, tl, dictMeta)}
+                                    </Link>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="link-cell"
+                                      style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        padding: 0,
+                                        fontFamily: 'inherit',
+                                        fontSize: 'inherit',
+                                      }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openEdit(row);
+                                      }}
+                                    >
+                                      {cellText(row[c.key], c, tl, dictMeta)}
+                                    </button>
+                                  )
                                   : cellText(row[c.key], c, tl, dictMeta))))}
                     </td>
                   ))}

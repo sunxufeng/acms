@@ -9,6 +9,8 @@ import { COLUMNS } from './columns';
 // 没有该权限的人点按钮原来只会看到 `FORBIDDEN:module:weilingContacts:update`。
 import { forbiddenText } from '../../lib/apiError';
 import { usePermissions } from '../../lib/permissions';
+// 跳转箭头统一来源（别直接在 JSX 里打字符，见 lib/uiGlyphs.ts）
+import { JUMP_ARROW } from '../../lib/uiGlyphs';
 import WeilingEnrollModal from '../../components/WeilingEnrollModal';
 
 /** 接口错误 → 提示文案（权限类错误翻成「没有权限（联系人管理 · 编辑）…」） */
@@ -363,7 +365,7 @@ export default function WeilingContactsPage() {
             // 已关联过 ⇒ 不给「入学」（重复转档会造出第二条同样档案），只给查看入口
             return (
               <a className="btn btn-ghost btn-sm" href={`/students/${encodeURIComponent(linkedId)}`} title={`已关联到学生「${studentName}」`}>
-                查看学生 ↗
+                查看学生 {JUMP_ARROW}
               </a>
             );
           }

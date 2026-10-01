@@ -1,10 +1,10 @@
-import Link from 'next/link';
 // 状态码值口径放 contracts：报表「按状态」维度要用同一份，两处各写一份必然漂移
 import { WEILING_STATUS_LABELS } from '@acms/contracts';
 import type { CrudColumn } from '../../components/CrudPage';
-import { STUDENT_ENGLISH_KEY, STUDENT_REF_KEY, studentHref, studentLabel } from '../../components/CrudPage';
 // 「学生姓名」来自上游自定义字段（整包 JSON），解析逻辑与招生跟进共用一份
 import { studentNameOfContact } from '../../lib/weilingCustomFields';
+// 「关联学生」列的可操作单元格（手工关联 / 取消关联 / 恢复自动）
+import LinkStudentCell from './LinkStudentCell';
 
 /**
  * 时间字段 → 毫秒。
@@ -185,7 +185,7 @@ export const COLUMNS: CrudColumn[] = [
   {
     key: '关联学生',
     label: '关联学生',
-    width: '170px',
+    width: '230px',
     filter: true,
     filterType: 'text',
     filterOp: 'contains',
@@ -194,37 +194,21 @@ export const COLUMNS: CrudColumn[] = [
     filterPlaceholder: '关联学生',
     // 占位文案只有 4 个字，用默认 160 会把整行筛选撑散；收到刚好撑满文案的宽度。
     filterWidth: 100,
-    render: (v, row) => {
-      const name = String(v ?? '');
-      if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-      const score = Number(row['匹配置信度'] ?? 0);
-      const color = score >= 90 ? '#2c6b45' : score >= 70 ? '#7a5c10' : '#6b6b66';
-      const bg = score >= 90 ? '#eaf5ee' : score >= 70 ? '#fdf6e8' : '#f0efeb';
-      // 学生记录 id 两个来源，优先用后端匹配时写入的「关联学生ID」（精确）：
-      //  1. 关联学生ID —— matchStudents 按姓名/手机号匹配后写入的 student record id
-      //  2. STUDENT_REF_KEY —— CrudPage 按姓名反查注入（页面传 studentNameKeys 才会有），
-      //     兜底给「匹配 ID 还为空」的老数据/特殊行
-      // 两个都没有（学生已删除 / 档案里没有）就退化成纯文本，不做成死链。
-      const refId = String(row['关联学生ID'] ?? '') || String(row[STUDENT_REF_KEY] ?? '');
-      const label = studentLabel(name, row[STUDENT_ENGLISH_KEY]);
-      return (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {refId ? (
-            <Link href={studentHref(refId)} className="name-link" title="查看学生基本信息">
-              {label}
-            </Link>
-          ) : (
-            <span>{label}</span>
-          )}
-          <span
-            title={String(row['匹配依据'] ?? '')}
-            style={{ fontSize: 10, padding: '1px 5px', borderRadius: 8, background: bg, color, whiteSpace: 'nowrap' }}
-          >
-            {score}
-          </span>
-        </span>
-      );
-    },
+    /*
+     * 2026-10-01：这一格从「只读展示」改成**可操作**的单元格（峰哥要求）。
+     *
+     * 原来是内联渲染：已关联 ⇒ `<Link className="name-link">`；未关联 ⇒ 灰 `—`。
+     * 现在交给 `LinkStudentCell` —— 它多了三件事：
+     *   ① 未关联时可点「+ 学生」即搜即选（手工关联，参考邮件归档页）；
+     *   ② 已关联时右侧 `×` 可**取消关联**（二次确认 + 可选原因）；
+     *   ③ 已忽略的行显示灰标 + 「恢复自动」，否则「已忽略」是单向门。
+     *
+     * ⚠️ 组件自己维护本地状态（与 mail-archive 的 LinkRelatedCell 同构）：
+     *    父级 CrudPage 重拉数据时按 seed 复位，所以**不要把 row 解构进 props 后长期持有**。
+     * ⚠️ `width` 从 170 放宽到 230：chip + 置信度徽标 + `×` 三个元素并排需要空间，
+     *    170 会把按钮挤成逐字竖排（那个坑邮件归档踩过，见 LinkRelatedCell 的 nowrap 注释）。
+     */
+    render: (_v, row) => <LinkStudentCell row={row} />,
   },
   { key: '企业名', label: '企业', width: '180px', list: false },
   { key: '备注', label: '备注', width: '240px', list: false },
@@ -240,7 +224,9 @@ export const COLUMNS: CrudColumn[] = [
 /** 详情页展示顺序（分组标题 → 字段） */
 export const DETAIL_GROUPS: { title: string; keys: string[] }[] = [
   { title: '基本信息', keys: ['联系人姓名', '手机号', '邮箱', '状态', '客户阶段', '归属人', '流失状态'] },
-  { title: '关联匹配', keys: ['关联学生', '匹配置信度', '匹配依据'] },
+  // 「关联匹配」组补上人工干预的三个字段（2026-10-01）：不看这三个，
+  // 没人知道某条为什么一直不关联（是人工否掉的？还是同步坏了？）
+  { title: '关联匹配', keys: ['关联学生', '匹配置信度', '匹配依据', '关联来源', '关联操作人', '关联操作时间'] },
   { title: '来源', keys: ['来源渠道', '来源组件', '落地页', '创建时间', '领取时间'] },
   { title: '跟进', keys: ['首次跟进时间', '最近跟进时间', '互动分', '跟进次数', '标签'] },
   { title: '企业与其它', keys: ['企业名', '备注', '其他信息'] },

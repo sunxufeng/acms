@@ -726,7 +726,30 @@ export default function StudentSupportPage() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.studentId} style={{ cursor: 'pointer' }} onClick={() => void openCard(r)}>
+                /*
+                 * 整行可点（看板详情）。
+                 *
+                 * 🔴 2026-10-01 补两件事（方案 B）：
+                 *   ① 学生名加 `.link-cell` —— 原来整行都能点，名字却是纯黑字，
+                 *      **完全看不出这里可以点**（这是"整行可点"最典型的可发现性缺口）。
+                 *   ② 行本身可聚焦 + 回车/空格可触发 —— 只会用键盘的人原本完全进不去。
+                 *      整行是个 `<tr>`（不是链接），所以用 `role="button"` + `tabIndex`，
+                 *      `:focus-visible` 给轮廓。名称列的颜色与点击落点一致（都是看板详情），
+                 *      不会造出"名字看着跳学生档案、实际跳看板"的新歧义。
+                 */
+                <tr
+                  key={r.studentId}
+                  role="button"
+                  tabIndex={0}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => void openCard(r)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      void openCard(r);
+                    }
+                  }}
+                >
                   <td style={tdStyle}>
                     <span
                       style={{
@@ -738,7 +761,9 @@ export default function StudentSupportPage() {
                       }}
                     />
                   </td>
-                  <td style={{ ...tdStyle, fontWeight: 600 }}>{r.name}</td>
+                  <td style={tdStyle}>
+                    <span className="link-cell">{r.name}</span>
+                  </td>
                   <td style={tdStyle}>
                     {[r.grade, r.campus].filter(Boolean).join(' · ')}
                   </td>

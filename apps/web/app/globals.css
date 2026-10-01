@@ -967,11 +967,44 @@ a:hover { color: var(--accent-hover); }
 
 /* ── Link cell (clickable table cell) ───────────────────────── */
 
+/**
+ * 表格内的文字链接（2026-10-01 启用；此前是**死代码**，全站 0 处引用）。
+ *
+ * 方案 B（峰哥 2026-10-01 拍板）：表格里的可点文字，默认就上 accent 色
+ * + 600 字重 + 无下划线，**hover 才加下划线**，并且必须是真 `<a>`。
+ *
+ * 🔴 为什么默认就要上色（而不是"默认黑、hover 才亮"）：
+ *    表格里「沟通主题」「联系人」这类列**没有任何视觉锚点**，
+ *    不上色就完全看不出能点 = 把这个列做成隐藏功能。
+ *    带**头像 / 缩略图**的名称列（学生档案·学生、卫瓴联系人）例外 ——
+ *    头像已经承担了锚点职责，继续用 `.name-link`（默认黑、hover 才亮），
+ *    否则一屏十几个蓝绿色链接会过载。
+ *
+ * 🔴 为什么必须有 `:focus-visible`：链接从 `<td onClick>` 换成真 `<a>` 的**全部收益**
+ *    就是键盘可达（Tab 聚焦 / 右键复制 / 中键新标签页）。没有可见的焦点轮廓，
+ *    Tab 过去看不见落在哪，等于白换。无障碍层面这也是硬要求。
+ *
+ * ⚠️ 字号**不设**：这里是表格单元格，字号必须继承 `.data-table` 的 `--font-base`（14px）。
+ *    原定义写着 `font-size: var(--font-sm)`（12px），直接启用会让**链接文字比同列其他文字小一圈**
+ *    —— 一行里就这一个词变小，非常显眼。这是启用这份死 CSS 时最容易带出的回归。
+ */
 .link-cell {
-  color: var(--accent); font-weight: 500; font-size: var(--font-sm);
-  cursor: pointer; transition: color var(--dur-fast) var(--ease);
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease);
 }
-.link-cell:hover { color: var(--accent-hover); text-decoration: underline; }
+.link-cell:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
 
 /* ── Form inputs (app theme) ──────────────────────────────── */
 

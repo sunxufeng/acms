@@ -245,6 +245,52 @@ export class WeilingController {
   }
 
   /**
+   * **取消关联**（2026-10-01 峰哥）：这条联系人和这个学生没关系。
+   *
+   * 起因：联系人「丁点儿-万美妗妈妈转介绍」被自动关联到了学生「万美妗」，
+   * 但那其实是**妈妈的朋友**在推荐 —— 而系统里原先根本没有取消关联的功能。
+   *
+   * 三件事一起做才算真的取消（缺一个这个功能就是假的）：
+   *   ① 清 `关联学生` + `关联学生ID`（只清一个 = 悬空壳值）；
+   *   ② 把 `关联来源` 置为 **已忽略** —— 否则下一轮同步（每天 07:00）会原样写回来；
+   *   ③ 原依据与原因**留痕在 `匹配依据` 里**（以后回看才知道它当初靠什么匹配上的）。
+   *
+   * 幂等：重复调用返回成功（`already` 标明这次其实没改动）。
+   * 权限：复用 `module:weilingContacts:update`（服务内 `loadContactForLink` 里判），
+   *      与 sync / match / fill-recruiter 同一档 —— 它只改联系人自己的字段，不碰学生档案。
+   * ⚠️ 路由段是 `contacts/:id/unlink`，与 `@Get('contacts/:id/enroll-preview')` 同形，
+   *    不会与任何静态路由冲突（本 controller 没有裸 `@Get(':id')`）。
+   */
+  @Put('contacts/:id/unlink')
+  unlink(@Req() req: Request, @Param('id') id: string, @Body() body: { reason?: string }) {
+    return this.svc.unlinkContact((req as Request & { user: SessionUser }).user, String(id), body ?? {});
+  }
+
+  /**
+   * **手工关联 / 改为关联到指定学生**：有关系，但不是原来那个。
+   *
+   * 为什么「取消」之外还必须有它：误关联实际分两类 ——
+   *   · 「妈妈的朋友」⇒ 跟谁都没关系 ⇒ 取消；
+   *   · 「选错人了，应该是另一个学生」⇒ 只是指错了 ⇒ 改指。
+   * 只做取消的话，第二类得先取消再等自动匹配，而取消之后它被标成"已忽略"，
+   * **再也匹配不回来** ⇒ 死锁。
+   */
+  @Put('contacts/:id/relink')
+  relink(@Req() req: Request, @Param('id') id: string, @Body() body: { studentId?: string }) {
+    return this.svc.relinkContact((req as Request & { user: SessionUser }).user, String(id), body ?? {});
+  }
+
+  /**
+   * **恢复自动匹配**：把「已忽略 / 人工指定」放回「自动」，让每轮同步重新接管。
+   *
+   * 没有它，「已忽略」就是单向门 —— 点错了取消之后再也回不到自动匹配。
+   */
+  @Put('contacts/:id/restore-auto')
+  restoreAuto(@Req() req: Request, @Param('id') id: string) {
+    return this.svc.restoreAutoLink((req as Request & { user: SessionUser }).user, String(id));
+  }
+
+  /**
    * 重算联系人的「跟进次数」（不访问上游，只扫本地库）。
    * 该字段是同步时写回的缓存快照，会与跟进记录表漂移；权限与其它维护动作一致（weiling:sync）。
    */

@@ -1004,6 +1004,34 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  /**
+   * **取消关联**（2026-10-01）：这条联系人和这个学生没关系。
+   *
+   * 🔴 它不只是清字段 —— 服务端同时把 `关联来源` 置为 **已忽略**，
+   *    否则每天 07:00 的同步会把它原样写回来（`matchStudents` 是无条件覆盖的）。
+   * 幂等：重复调用返回成功，`already` 标明这次其实没改动。
+   */
+  weilingUnlinkContact: (contactId: string, reason?: string) =>
+    request<{ ok: boolean; already: boolean; studentName: string }>(
+      `/weiling/contacts/${encodeURIComponent(contactId)}/unlink`,
+      { method: 'PUT', body: JSON.stringify({ reason: reason ?? '' }) },
+    ),
+  /**
+   * **手工关联 / 改为关联到指定学生**。
+   *
+   * ⚠️ 只传 studentId，**不传学生姓名** —— 姓名以服务端档案里的当前值为准
+   *    （前端传来的可能过期，也可能是拼错的另一个学生）。
+   */
+  weilingRelinkContact: (contactId: string, studentId: string) =>
+    request<{ ok: boolean; studentId: string; studentName: string }>(
+      `/weiling/contacts/${encodeURIComponent(contactId)}/relink`,
+      { method: 'PUT', body: JSON.stringify({ studentId }) },
+    ),
+  /** **恢复自动匹配**：把「已忽略 / 人工指定」放回「自动」，让每轮同步重新接管。 */
+  weilingRestoreAutoLink: (contactId: string) =>
+    request<{ ok: boolean }>(`/weiling/contacts/${encodeURIComponent(contactId)}/restore-auto`, {
+      method: 'PUT',
+    }),
   weilingAnalyze: (params: { from?: string; to?: string; owner?: string; channel?: string; stage?: string; status?: string } = {}) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, v);

@@ -32,3 +32,7 @@ export * from './weiling-enroll.js';
 // 卫瓴映射：卫瓴取值 → 学生档案选项（可配置；默认值 = 原写死的映射表）
 // —— 🔴 与 weiling-enroll 的 buildEnrollDraft(ctx, mapping?) 配套，只此一份
 export * from './weiling-mapping.js';
+// 卫瓴联系人 ↔ 学生档案「关联来源」三态 + 取消/改指/恢复自动的写库判据
+// —— 🔴 后台 matchStudents() 的跳过判据与前端列表格的状态展示必须是同一份，
+//    各写一遍会出现「界面显示自动、后台其实跳过了」这种静默不一致
+export * from './weiling-link.js';

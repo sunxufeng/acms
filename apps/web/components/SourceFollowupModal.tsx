@@ -7,6 +7,8 @@ import { api } from '../lib/api';
 import CrudView from './CrudView';
 import { COLUMNS as SOURCE_COLUMNS } from '../app/source-followups/columns';
 import { Modal } from './Modal';
+// 跳转箭头统一来源（别直接在 JSX 里打字符，见 lib/uiGlyphs.ts）
+import { JUMP_ARROW } from '../lib/uiGlyphs';
 
 /**
  * 招生跟进详情弹窗（2026-09-24，供「我的跟进」展开区点击用）。
@@ -50,7 +52,7 @@ export default function SourceFollowupModal({ id, onClose }: { id: string; onClo
       width={760}
       footer={
         <Link href={`/source-followups/${id}`} className="btn btn-outline btn-sm" onClick={onClose}>
-          {t('openFullPage')} →
+          {t('openFullPage')} {JUMP_ARROW}
         </Link>
       }
     >

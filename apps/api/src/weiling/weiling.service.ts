@@ -16,6 +16,12 @@ import {
   weilingMappingInvalid,
   weilingMappingTally,
   weilingValueDistribution,
+  isAutoMatchable,
+  matchDecisionOf,
+  linkSourceOf,
+  unlinkPatch,
+  relinkPatch,
+  restoreAutoPatch,
   type EnrollDraft,
   type SessionUser,
   type WeilingEnrollContext,
@@ -815,19 +821,35 @@ export class WeilingService implements OnModuleInit {
    */
   async matchStudents(
     opts: { fillRecruiter?: 'new' | 'always' } = {},
-  ): Promise<{ ok: boolean; matched: number; total: number; filled: number; message?: string }> {
+  ): Promise<{
+    ok: boolean;
+    matched: number;
+    total: number;
+    filled: number;
+    /** 被人为豁免（人工指定 / 已忽略）而跳过的条数 */
+    skipped: number;
+    /** 有候选但未达写库门槛、只在界面提示的条数 */
+    advisory: number;
+    message?: string;
+  }> {
     const fillMode = opts.fillRecruiter ?? 'new';
     const sql = getSqlStore();
-    if (!sql) return { ok: false, matched: 0, total: 0, filled: 0, message: '未配置数据库连接' };
+    if (!sql)
+      return { ok: false, matched: 0, total: 0, filled: 0, skipped: 0, advisory: 0, message: '未配置数据库连接' };
     try {
       const students = await this.fetchStudentIndex();
-      if (!students.length) return { ok: false, matched: 0, total: 0, filled: 0, message: '未读到学生档案' };
+      if (!students.length)
+        return { ok: false, matched: 0, total: 0, filled: 0, skipped: 0, advisory: 0, message: '未读到学生档案' };
 
       // 归属人 → ACMS 用户 open_id（「招生负责老师」默认值的依据）。读不到就退化成"不补"。
       const ownerOpenIds = await this.ownerOpenIdIndex();
 
       let total = 0;
       let matched = 0;
+      /** 被人为豁免（来源=人工/已忽略）而跳过的条数 —— 没有这个计数，出问题查不出来 */
+      let skipped = 0;
+      /** 有候选但分数不够写库门槛（=55 分那档）⇒ 只在界面上提示，不落库 */
+      let advisory = 0;
       /**
        * 本次**新建立**关联的学生 → 候选招生老师。
        *
@@ -855,28 +877,53 @@ export class WeilingService implements OnModuleInit {
           total += 1;
           if (!id) continue;
           const prevStudentId = String(f['关联学生ID'] ?? '');
+          /**
+           * 🔴 人工豁免（2026-10-01）：来源不是「自动」就整条跳过。
+           *
+           * 这是「取消关联」**不被打回去的唯一依据** —— 没有这一行，
+           * 今天点的取消会在明天 07:00 的同步里原样回来（`patch` 是无条件覆盖的）。
+           * ⚠️ 判据必须用 contracts 的 `isAutoMatchable()`，别在这里再写一遍字符串比较：
+           *    两处各写一份，早晚会出现「界面显示已忽略、后台照样覆盖」。
+           */
+          if (!isAutoMatchable(f)) {
+            skipped += 1;
+            continue;
+          }
           const hit = bestMatch(f, students);
-          const patch: Record<string, unknown> = {
-            关联学生: hit?.name ?? '',
-            关联学生ID: hit?.id ?? '',
-            匹配置信度: hit?.score ?? 0,
-            匹配依据: hit?.reason ?? '',
-            匹配时间: Date.now(),
-          };
-          if (hit) {
-            matched += 1;
-            // 新建立关联（此前没关联 / 换了一个学生）⇒ 记为该学生「招生负责老师」的候选。
-            // 同一学生可能被多个联系人指向（父母各自一条线索），后面按置信度挑最优的一条。
-            const ownerOpenId = ownerOpenIds.get(String(f['归属人'] ?? '').trim()) ?? '';
-            const isNewLink = prevStudentId !== hit.id;
-            if (ownerOpenId && (isNewLink || fillMode === 'always')) {
-              const prev = candidates.get(hit.id);
-              const cand = { openId: ownerOpenId, score: hit.score, contactId: id };
-              if (preferRecruiterCandidate(prev, cand)) candidates.set(hit.id, cand);
-            }
+          /**
+           * 🔴 「没命中 / 分数不够」就**不写**这 5 个字段。
+           *
+           * 原来写的是 `关联学生: hit?.name ?? ''` —— 本轮没算出来就把字段**清空**，
+           * 连"以前有人手工关联过"的都会被抹掉。改成只在真命中且达到写库门槛时才写。
+           *
+           * 门槛见 `MATCH_WRITE_MIN_SCORE`：55 分（昵称包含学生姓名）那一档降到 advisory
+           * ⇒ 只提示不落库，改由人在「联系人管理」页手工确认。
+           */
+          const decision = matchDecisionOf(hit?.score);
+          if (!hit || decision !== 'write') {
+            if (hit && decision === 'advisory') advisory += 1;
+            continue;
+          }
+          matched += 1;
+          // 新建立关联（此前没关联 / 换了一个学生）⇒ 记为该学生「招生负责老师」的候选。
+          // 同一学生可能被多个联系人指向（父母各自一条线索），后面按置信度挑最优的一条。
+          const ownerOpenId = ownerOpenIds.get(String(f['归属人'] ?? '').trim()) ?? '';
+          const isNewLink = prevStudentId !== hit.id;
+          if (ownerOpenId && (isNewLink || fillMode === 'always')) {
+            const prev = candidates.get(hit.id);
+            const cand = { openId: ownerOpenId, score: hit.score, contactId: id };
+            if (preferRecruiterCandidate(prev, cand)) candidates.set(hit.id, cand);
           }
           try {
-            await sql.update(TABLES.weilingContact.tableId, id, patch);
+            await sql.update(TABLES.weilingContact.tableId, id, {
+              关联学生: hit.name,
+              关联学生ID: hit.id,
+              匹配置信度: hit.score,
+              匹配依据: hit.reason,
+              匹配时间: Date.now(),
+              // 顺手把来源标成「自动」，让存量那条无字段的老数据逐轮收敛出来
+              关联来源: '自动',
+            });
           } catch (e) {
             this.logger.warn(`写入匹配结果失败 ${id}：${(e as Error).message.slice(0, 100)}`);
           }
@@ -886,14 +933,122 @@ export class WeilingService implements OnModuleInit {
       }
       const filled = await this.fillRecruiter(candidates);
       this.logger.log(
-        `卫瓴联系人匹配完成：${matched}/${total} 命中，补招生负责老师 ${filled} 人（模式 ${fillMode}）`,
+        `卫瓴联系人匹配完成：${matched}/${total} 命中（人为豁免跳过 ${skipped}，低分仅提示 ${advisory}），` +
+          `补招生负责老师 ${filled} 人（模式 ${fillMode}）`,
       );
-      return { ok: true, matched, total, filled };
+      return { ok: true, matched, total, filled, skipped, advisory };
     } catch (e) {
       const msg = (e as Error).message.slice(0, 200);
       this.logger.warn(`卫瓴联系人匹配失败：${msg}`);
-      return { ok: false, matched: 0, total: 0, filled: 0, message: msg };
+      return { ok: false, matched: 0, total: 0, filled: 0, skipped: 0, advisory: 0, message: msg };
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // 关联的人工干预：取消 / 改指 / 恢复自动（2026-10-01 峰哥）
+  // ══════════════════════════════════════════════════════════════
+
+  /**
+   * 三个关联动作共用的前置：鉴权 → 取联系人 → 取当前关联快照。
+   *
+   * 🔴 权限复用 `module:weilingContacts:update`（"维护联系人"的既有权限点），
+   *    **不新造点** —— 它只改联系人自己那 5 个字段，不碰学生档案、不建记录，
+   *    与 `weilingEnroll`（会建学生档案）的后果完全不同。
+   * ⚠️ 鉴权抛的是 **403**（`requireModule` → `ForbiddenException`），不是 401：
+   *    前端 `request()` 把 401 当"未登录"直接跳 /login。
+   */
+  private async loadContactForLink(
+    user: SessionUser,
+    contactId: string,
+  ): Promise<{ sql: NonNullable<ReturnType<typeof getSqlStore>>; id: string; f: Record<string, unknown> }> {
+    requireModule(user, 'weilingContacts', 'update');
+    const sql = getSqlStore();
+    if (!sql) throw new BadRequestException('未配置数据库连接');
+    const id = String(contactId ?? '').trim();
+    if (!id) throw new BadRequestException('缺少联系人 id');
+    const rec = await sql.get(TABLES.weilingContact.tableId, id);
+    if (!rec) throw new NotFoundException(`联系人不存在：${id}`);
+    const f = ((rec as { fields?: Record<string, unknown> }).fields ??
+      (rec as unknown as Record<string, unknown>)) as Record<string, unknown>;
+    return { sql, id, f };
+  }
+
+  /**
+   * **取消关联**：这条联系人和这个学生没关系。
+   *
+   * 幂等 —— 已经取消过再点一次也返回成功（误触 / 运维脚本重复执行不该报错），
+   * 用 `already` 告诉调用方"这次其实什么都没改"。
+   *
+   * 写什么由 contracts 的 `unlinkPatch()` 统一决定（`关联学生` 与 `关联学生ID`
+   * **必须一起清**：PG 模式没有飞书双向关联自动回填，只清一个会留下
+   * "看着有关联、点进去 404"的悬空壳值）。
+   */
+  async unlinkContact(
+    user: SessionUser,
+    contactId: string,
+    body: { reason?: string } = {},
+  ): Promise<{ ok: true; already: boolean; studentName: string }> {
+    const { sql, id, f } = await this.loadContactForLink(user, contactId);
+    const studentName = String(f['关联学生'] ?? '').trim();
+    const already = linkSourceOf(f) === '已忽略' && !String(f['关联学生ID'] ?? '').trim();
+    const patch = unlinkPatch({
+      nowMs: Date.now(),
+      actor: user.name,
+      reason: body.reason,
+      prevReason: String(f['匹配依据'] ?? ''),
+      prevScore: Number(f['匹配置信度'] ?? 0),
+    });
+    await sql.update(TABLES.weilingContact.tableId, id, patch);
+    this.logger.log(
+      `取消关联：联系人 ${id}（原关联学生「${studentName || '无'}」，操作人 ${user.name}${already ? '，重复操作' : ''}）`,
+    );
+    return { ok: true, already, studentName };
+  }
+
+  /**
+   * **手工关联 / 改为关联到指定学生**：有关系，但不是原来那个。
+   *
+   * ⚠️ 学生姓名以**档案里的当前值**为准，不采信请求体里传来的名字 ——
+   *    它可能过期（学生改过名），也可能是前端拼错的另一个学生。
+   */
+  async relinkContact(
+    user: SessionUser,
+    contactId: string,
+    body: { studentId?: string } = {},
+  ): Promise<{ ok: true; studentId: string; studentName: string }> {
+    const { sql, id } = await this.loadContactForLink(user, contactId);
+    const studentId = String(body.studentId ?? '').trim();
+    if (!studentId) throw new BadRequestException('缺少 studentId');
+    const stu = await sql.get(TABLES.studentProfile.tableId, studentId);
+    if (!stu) throw new NotFoundException(`学生不存在：${studentId}`);
+    const sf = ((stu as { fields?: Record<string, unknown> }).fields ?? {}) as Record<string, unknown>;
+    const studentName = String(sf['学生姓名'] ?? '').trim();
+    if (!studentName) throw new BadRequestException(`该学生没有姓名，无法关联：${studentId}`);
+    await sql.update(
+      TABLES.weilingContact.tableId,
+      id,
+      relinkPatch({ nowMs: Date.now(), actor: user.name, studentId, studentName }),
+    );
+    this.logger.log(`手工关联：联系人 ${id} → 学生「${studentName}」（${studentId}，操作人 ${user.name}）`);
+    return { ok: true, studentId, studentName };
+  }
+
+  /**
+   * **恢复自动匹配**：让每轮同步重新接管这条联系人。
+   *
+   * 没有这个动作，「已忽略」就是**单向门** —— 人点错了取消（其实这条是对的）
+   * 之后再也回不到自动匹配，只能靠手工指定，而手工指定的置信度恒为 100、
+   * 依据恒为「人工指定」，信息量反而比自动匹配少。
+   */
+  async restoreAutoLink(user: SessionUser, contactId: string): Promise<{ ok: true }> {
+    const { sql, id } = await this.loadContactForLink(user, contactId);
+    await sql.update(
+      TABLES.weilingContact.tableId,
+      id,
+      restoreAutoPatch({ nowMs: Date.now(), actor: user.name }),
+    );
+    this.logger.log(`恢复自动匹配：联系人 ${id}（操作人 ${user.name}）`);
+    return { ok: true };
   }
 
   // ══════════════════════════════════════════════════════════════

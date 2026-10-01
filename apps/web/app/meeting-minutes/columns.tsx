@@ -156,7 +156,16 @@ export function buildMeetingColumns(ctx: MeetingColumnCtx = EMPTY_CTX): CrudColu
       render: (_v, row) => {
         const name = deptName(row);
         if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-        return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{name}</span>;
+        /*
+         * 🔴 2026-10-01：**去掉链接色**。
+         *
+         * 原先是 `accent + 700`，与真链接无从分辨，但这一格**点不动**
+         * （部门是权限侧的概念，没有部门详情页可跳）。表格里用链接色却不给点击行为
+         * = 教会用户"这个系统的链接有时是坏的"。
+         *
+         * 需要看部门的话走左侧部门树（`/users` 的组织架构），不在这里挂假链接。
+         */
+        return <span>{name}</span>;
       },
     },
     { key: '会议类型', label: '会议类型', width: '110px', filter: true, form: true, type: 'select', dictKey: '会议类型', required: true, listOrder: 2, section: SEC_BASE },

@@ -38,9 +38,14 @@ export const COLUMNS: CrudColumn[] = [
       const ids = row['关联联系人__link'] as string[] | undefined;
       const id = Array.isArray(ids) ? ids[0] : '';
       return id ? (
-        <Link href={`/weiling-contacts/${id}`} style={{ color: 'var(--accent)', fontWeight: 700 }}>{name}</Link>
+        // 样式收口到 `.link-cell`（2026-10-01 方案 B）：accent + 600 + hover 下划线 + focus 轮廓。
+        // 不再内联 `accent + 700` —— 700 在表格里太重，而且焦点轮廓只有走类名才有。
+        <Link className="link-cell" href={`/weiling-contacts/${id}`}>{name}</Link>
       ) : (
-        <span style={{ fontWeight: 700 }}>{name}</span>
+        // 拿不到 contact_id（关联联系人被删 / 老数据）⇒ 退化成纯文本。
+        // ⚠️ 这里**不加粗也不上色**：凡"看着像链接却点不动"的单元格，
+        // 用户都会反复点然后报「链接坏了」（本次要消灭的伪链接就是这个模式）。
+        <span>{name}</span>
       );
     },
   },
@@ -87,7 +92,20 @@ export const COLUMNS: CrudColumn[] = [
     render: (_v, row) => {
       const name = studentName(row);
       if (!name) return <span style={{ color: 'var(--fg-tertiary)' }}>—</span>;
-      return <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{studentLabel(name, row[STUDENT_ENGLISH_KEY])}</span>;
+      /*
+       * 🔴 2026-10-01：**去掉链接色**。
+       *
+       * 这一格原先渲染成 `accent + 700`，和真链接**长得一模一样**，但它**点不动**
+       * （没有 href、没有 onClick）—— 用户会反复点、然后来报「链接坏了」。
+       * 表格里「用了链接色却没有点击行为」的单元格，全站只剩这一处和
+       * /meeting-minutes 的「可见部门」，本次一并消灭。
+       *
+       * 为什么不是"给它加个跳转"：这里的值是从联系人带出来的**姓名快照**，
+       * 不一定能解析到学生记录（重名 / 学生改名 / 联系人未关联学生）。
+       * 有真跳转需求时应该走 `studentLink` 列的 `studentLinkTarget()`（会回落），
+       * 而不是在这里挂一个可能 404 的链接。
+       */
+      return <span>{studentLabel(name, row[STUDENT_ENGLISH_KEY])}</span>;
     },
   },
   { key: '跟进时间', label: '跟进时间', width: '150px', form: true, type: 'datetime', listOrder: 4 },

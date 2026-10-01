@@ -146,7 +146,9 @@ CrudPage 新增 rowActionSlotWhenReadonly：只读列表也能挂行级跨模块
 修「转档失败返 500」：throw new Error 被 Nest 兜成 500 ⇒ 改 BadRequestException / NotFoundException,已完成,,P0,招生管理
 修「weilingEnroll 的 enter 被无条件发给 12 个角色（含 student/parent）」：enter 走另一套继承规则（menuPermission 为 null 即恒真）⇒ actions 去掉 enter + path 改假子路径,已完成,,P0,权限安全
 "「卫瓴映射」后台可配置页（v13）：卫瓴「来源渠道/客户阶段/学校类型/计划入学学期/缴费方式」→ 学生档案选项的对应关系可配 + 左列真实取值分布 + 右列候选来自运行期字典 + 试算（不保存）+ 恢复出厂默认 + 学生详情「招生来源」反查；判据参数化 buildEnrollDraft(ctx, mapping = DEFAULT) 第三参可选 ⇒ 老调用点零改动、默认全空 = 线上行为不变（已断言）；实测档案「来源渠道」是 8 个选项、生源跟进状态 6 个（旧文档抄的是过期快照）",已完成,,P0,招生管理
-联系人「取消关联」（设计已出，待确认后开发）：关联来源三态（自动/人工/已忽略）+ 每轮同步豁免已忽略项 + 审计留痕 + 档案字段回收口径；根因 bestMatch() 末条 nick.includes(学生姓名) 给 55 分而 55 恰是写库门槛 ⇒「丁点儿-万美妗妈妈转介绍」被误关联到「万美妗」；⚠️ 只清空字段没用（matchStudents() 每天 07:00 无条件覆盖 5 个字段）,待开始,,P0,招生管理
-全站超链接风格统一（统计与方案已出，待确认后统一改）：7 种实现 / 5 种长相 + 2 处「伪链接」（source-followups 关联学生、meeting-minutes 可见部门：accent+700 但点不动）+ .link-cell 是死 CSS；推荐方案 B（默认可见色 + 真 <a> + hover 下划线）,待开始,,P1,基础设施
+联系人「取消关联」（v14，已上线）：关联来源三态（自动/人工/已忽略）+ matchStudents 跳过非「自动」+ 没命中就不写 + 写库门槛 55→70（55 分那档降级为只提示不写库）；取消/改指/恢复自动三个接口，幂等 + 留痕原依据；线上实测 matched 83/3706（原 100，少的 17 条正是 55 分那批）· skipped 2 · advisory 15,已完成,,P0,招生管理
+全站超链接统一（方案 B，已上线）：.link-cell 从死代码启用（accent+600+hover 下划线+:focus-visible，删掉会让链接比正文小一圈的 font-size:12px）+ CrudPage.openRecord 改真 <a> + 消灭 2 处伪链接 + studentLink 落点统一到学生档案 + /student-support 名称列上色与行可聚焦 + 跳转箭头收口到 lib/uiGlyphs.ts,已完成,,P1,基础设施
 学籍号唯一性：保存时查重提醒 + 提交前预检 GET /students/student-no-taken；字段真名是「学籍号（脱敏）」带全角括号（写成「学籍号」取到恒空且不报错，顺手修 AI 工具与学生门户两处老 bug + 新增 field_name_lint.mjs 全仓守卫）；查重在服务端用真值做且放在 stripProtected 之后、update 传 excludeId；🔴 上线探针揪出安全洞并修复：预检原先把学籍号明文回显在 reason 里且只判 students:read ⇒ 低密级用户可把 available 当枚举机，现改为密级不足一律 403 FIELD_LEVEL_DENIED（判据在门禁之后，不存在的号/空值也 403）；根因是测试写了声明却没写成断言（not.toContain('studentNoValue') 是恒真空断言）,已完成,,P0,数据质量
 「代码规则」页（设计已出，待确认后开发）：学籍号等自动编号规则可配 —— 规则表 code_rules（scope: 学籍号/学生编号/…）+ 段位 DSL（常量/年份 YYYY/YY/月份/学科/流水位数/重置周期 year|month|none/分隔符）+ 试算 + 冲突预检 + 历史不追溯,待开始,,P1,数据质量
+修「上游同步整行替换，静默清空本地字段」：syncAll 的「先 createWithId，冲突了再 update」是假兜底 —— createWithId 走 upsert、冲突时不抛异常，catch 永不执行，整行 data 被上游字段覆盖（实测抹掉 3 条联系人的 5 个关联键，键消失而非变空串）；新增 SqlStore.upsertMergeWithId（data = 老 ‖ 新），联系人/跟进记录/字段描述三处落库改走它,已完成,,P0,基础设施
+联系人管理「关联学生」列改为可操作单元格：未关联 ⇒ 虚线「+ 学生」即搜即选；已关联 ⇒ chip + × 取消（二次确认 + 可选原因）；已忽略 ⇒ 灰标 + 「恢复自动」；与 /mail-archive 的「关联」列同构（峰哥指定参考）,已完成,,P1,招生管理

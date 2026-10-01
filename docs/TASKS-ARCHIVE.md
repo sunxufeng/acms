@@ -1,11 +1,69 @@
 # ACMS 任务归档
 
-> 时间跨度：2026-08-25 ~ 2026-10-01（36 个工作日）· 共 **1439 条**（已完成 1432 · 待处理 7）
+> 时间跨度：2026-08-25 ~ 2026-10-01（36 个工作日）· 共 **1476 条**（已完成 1469 · 待处理 7）
 >
 > ⚠️ 本文件是**执行过程**的归档（含"构建部署验证"这类操作性任务），用于回溯"做过什么"。
 > **项目计划**（要做什么、优先级、状态）见仓库根目录 [`PLAN.md`](../PLAN.md)。
 >
 > 由 AI 助手在每次工作后同步；`[x]` = 已完成，`[ ]` = 待处理。
+
+## 2026-10-01 下午（取消/手工关联学生 + 超链接方案 B，v14，上线验证揪出 1 个既有事故，37 条，完成 37）
+
+峰哥看完设计稿拍板：「超链接统一按 B 方案」「代码规则按你的建议执行」
+「取消关联：丁点儿-万美妗妈妈、杨帆重复那条，让业务手工判断」
+「联系人管理关联学生列参考邮件归档页，可点 `+ 学生` 手工关联」。
+
+### 一、取消关联 / 手工关联学生（已上线）
+
+- [x] contracts 新增 `weiling-link.ts`：`关联来源` 三态 + `matchDecisionOf` 写库门槛 + `unlinkPatch` / `relinkPatch` / `restoreAutoPatch`
+- [x] 🔴 「未设置 ⇒ 自动」：存量 3706 条都没有这个字段，返回空/抛错等于功能全废
+- [x] 🔴 豁免判据**成对**：`isAutoMatchable()` 必须真在 `matchStudents()` 里被调用，且用 `continue` 不是 `return`（`return` 会退出整个匹配循环且不报错）
+- [x] `matchStudents`：跳过非「自动」+ **没命中就不写**（原来 `hit?.name ?? ''` 会把人工关联过的也清掉）
+- [x] 写库门槛 55 → **70**：55 分（昵称包含学生姓名）降级为 advisory，**只提示不写库**
+- [x] 新增 `unlinkContact` / `relinkContact` / `restoreAutoLink`（幂等 + 原依据留痕在 `匹配依据` 里 + 不动 `匹配时间`）
+- [x] 三个接口挂 controller：`PUT /weiling/contacts/:id/{unlink,relink,restore-auto}`，权限复用 `module:weilingContacts:update`（不新造点）
+- [x] 前端 `LinkStudentCell`：「+ 学生」即搜即选 / chip + `×` 取消（二次确认 + 可选原因）/ 已忽略灰标 +「恢复自动」
+- [x] 「关联匹配」组补 `关联来源` / `关联操作人` / `关联操作时间`（不看这三个，没人知道某条为什么一直不关联）
+- [x] 权限不足返 **403** 而不是 401（`request()` 会把 401 当未登录跳 `/login`）
+
+### 二、超链接统一（方案 B，已上线）
+
+- [x] `.link-cell` 从**死代码**启用 + `:focus-visible` 轮廓 + 🔴 **删掉 `font-size: 12px`**（会让链接文字比表格正文 14px 小一圈）
+- [x] `CrudPage.openRecord` 从 `<td onClick><span>` 改成**真 `<a>`**（保留整格热区，链接自己 `stopPropagation` 免双导航）
+- [x] 消灭 2 处**伪链接**：招生跟进·关联学生、会议纪要·可见部门（长得像链接却点不动）
+- [x] `studentLink` 落点统一到**学生档案**（新增 `studentLinkTarget`，解析不到学生 id 才回落本模块详情）
+- [x] `/student-support` 整行可点的看板：名称列补 `.link-cell` + 行可聚焦（Tab / 回车）
+- [x] 跳转箭头收口到 `lib/uiGlyphs.ts`（3 处硬编码字符 → 1 个常量 `JUMP_ARROW`）
+- [x] `scripts/link_style_lint.mjs`：全仓唯一性检查（沙箱 grep 全仓要 80 秒 ⇒ 不进单测）
+
+### 三、🔴 上线验证揪出的既有事故（本轮最有价值的发现）
+
+- [x] 探针发现 55 分那批 **17 → 12**：其中 3 条的 5 个关联键**整个消失**（键不存在 ≠ 变空串，这是"整行被替换"的指纹）
+- [x] 查 `updated_at`/`updated_by` 定位到 `system:scheduled-tasks` 在 19:15 那次同步干的
+- [x] 根因：`try { createWithId } catch { update }` 是**假兜底** —— `createWithId` 走 upsert、冲突时**不抛异常**，`catch` 永不执行
+- [x] 新增 `SqlStore.upsertMergeWithId()`（`ON CONFLICT … data = 老 ‖ 新`，保留未提及的键）
+- [x] 联系人 / 跟进记录 / 字段描述三处落库改走合并版；`createWithId` 保持整体替换语义不动（配置行依赖）
+- [x] 守卫 `apps/api/test/sync-preserve-fields.test.ts`（9 条，含"不得再出现假兜底写法"的源码判据）
+- [x] 修复被抹掉的 3 条关联（孙天润 / 张筱然 / 薛炜衡）
+- [x] 触发一次真实同步，验证合并写入不再抹字段
+
+### 四、生产数据修正（峰哥指定）
+
+- [x] 取消「丁点儿-万美妗妈妈转介绍」→ 万美妗（原因：妈妈的朋友转介绍，非家长）
+- [x] 取消「杨帆（曹老师｜Dainel）」那条重复关联（原因：疑似重复线索两条同名杨帆，交业务人工判断）
+- [x] 修正丁点儿那条被中间「改指」动作覆盖掉的「原依据」（改回带 `昵称包含学生姓名 · 55 分` 的版本）
+- [x] 对账确认：万美妗身上 90 分的「秦宁蔚」关联原样保留（取消必须逐条，不能按学生清）
+
+### 五、门禁与交付链
+
+- [x] 线上探针 v15：**35/35**（含「跑一次重算后已忽略的不得被写回」这条关键判据）
+- [x] 前端产物核对：`/weiling/contacts`、`restore-auto`、`/unlink`、`/relink`、`link-cell` 均在产物里
+- [x] 页面可达性 7 条全 200
+- [x] 靶向测试 315 条 + 新增 49 条通过；api / web typecheck、`field_name_lint`、`i18n_labels_lint`、`link_style_lint` 全绿
+- [x] commit `beb338b` → 推 GitHub（API 快照式，比 tree SHA）
+- [x] commit `7ca6890`（同步修复）→ 推 GitHub（同上）
+- [x] 部署两次：`IXSoiyfYY2LrAh9-u9Ftb` → `iV1VFpaBxgDE2iBLmXUII`，蓝绿零空窗
+- [x] 三处归档同步（`PLAN.md` / `PLAN.csv` / 本文件）
 
 ## 2026-10-01（卫瓴映射配置页 + 学籍号唯一性，v13，上线探针揪出 1 个安全洞，52 条，完成 52）
 

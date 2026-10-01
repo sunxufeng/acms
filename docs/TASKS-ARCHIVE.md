@@ -1,11 +1,73 @@
 # ACMS 任务归档
 
-> 时间跨度：2026-08-25 ~ 2026-10-01（36 个工作日）· 共 **1476 条**（已完成 1469 · 待处理 7）
+> 时间跨度：2026-08-25 ~ 2026-10-02（37 个工作日）· 共 **1515 条**（已完成 1508 · 待处理 7）
 >
 > ⚠️ 本文件是**执行过程**的归档（含"构建部署验证"这类操作性任务），用于回溯"做过什么"。
 > **项目计划**（要做什么、优先级、状态）见仓库根目录 [`PLAN.md`](../PLAN.md)。
 >
 > 由 AI 助手在每次工作后同步；`[x]` = 已完成，`[ ]` = 待处理。
+
+## 2026-10-02（「代码规则」页 + 残号修复，v14，39 条，完成 39）
+
+峰哥：「继续做代码规则页功能」—— 采纳 K1–K5 全部建议（留空即自动生成 / 存量 84 人不动 /
+允许跳号 / 新造独立权限点 / 首批只上「学籍号」、「学生编号」列但默认停用）。
+
+**设计与摸底**
+
+- [x] 逆推生产学籍号真实格式（**不照抄设计稿的假设值** `AR-26秋-B-0001`）
+- [x] 确认格式 = `[入学年份后2][FA|SP]-[入学年级→项目码]-[流水3]`，项目码是**入学时**的年级
+- [x] 验证 82/82 一致；取 34 条样本做回归夹具（覆盖 18 种「学期×入学年级」组合）
+- [x] 登记权限资源 `codeRules`（`legacyRead:null`、`actions` 含 update、不含 enter）
+- [x] `ROLE_PERMISSION_VERSION 13 → 14` + `MODULE_RESOURCE_INTRODUCED_VERSION.codeRules = 14`
+
+**契约层（`packages/contracts/src/code-rules.ts`）**
+
+- [x] 段 DSL：固定文本 / 日期分量 / 记录字段（可带映射）/ 流水号（位数·起始·步长·重置周期·作用域）/ 随机串
+- [x] 全局选项：分隔符 / 大小写 / 冲突策略（跳到下一个可用号 | 直接报错）/ 重试次数
+- [x] `normalizeCodeRuleConfig()` 逐项回落 + 钳制 + 去重，**永不抛错**
+- [x] `generateCode()` 纯函数：撞号跳过、`error` 策略返回原因、流水按「年前缀+项目码」分组重置
+- [x] 默认规则逐条复现存量 82/82（34 条样本回归测试）
+- [x] 导出 DTO（`CodeRulesView`/`CodeFillPreview`/`CodeFillRow`），前后端共用一份
+- [x] 菜单 key + `codeRulesVisible()` 判据（`menuPermission: null` ⇒ 必须显式判据，否则全站可见）
+
+**后端**
+
+- [x] `code-rules.service/controller/module`：规则 CRUD（存 `systemConfig` 单行 JSON，不造新表）
+- [x] 试算接口 `/code-rules/preview`（用服务端同一份生成器，**不写库**）
+- [x] 批量补号 `fill` + 预检 `fill/preview`（同一个函数 ⇒ 看到的就是会写的；只补空值，绝不覆盖）
+- [x] 冲突预检 `codeRuleConflicts()`（两条启用规则占同一字段 = 静默不确定）
+- [x] 学生建档钩子：`StudentService` 注入 `CodeRulesService`，学籍号留空即自动生成（只在新建）
+- [x] `app.module.ts` 注册 `CodeRulesModule`（**装配期才炸**的那类坑，配 `nest-module-di.test.ts` 守卫）
+
+**前端**
+
+- [x] `/code-rules` 页：规则列表 + 段编辑（增删/排序/类型切换/参数）+ 实时预览 + 试算 + 冲突检查 + 批量补号
+- [x] `AppShell` 菜单接线（`codeRulesVisible(myPerms)`）
+- [x] `lib/api.ts` 客户端方法 + 类型导入
+
+**🔴 上线探针揪出的残号 bug（本轮最有价值的部分）**
+
+- [x] 现象：预览里出现 `26FA--001`（两个学生的「入学年级」为空）
+- [x] 根因：段结构里两个 `-` 是**独立文本段** ⇒ 项目码段变空串被滤掉、**两个 `-` 还留着**
+- [x] 危害：学籍号是**学生/家长/小程序的登录凭证**，批量补号会把格式外的号写进库且**不报错**
+- [x] 修：**必需段取不到值 ⇒ 不生成**（返回原因让人先补数据）；配了 map 却未命中同样拒绝
+- [x] 修：`mapFieldValueStrict()` 带命中标记；老的 `mapFieldValue()` 保留宽松语义（只给展示用）
+- [x] 修：`CodeFillPreview` 增加 `fillable`/`blocked`，**「能补几条」不能再用 `rows.length`**
+- [x] 修：只有真生成出来的号才累加进 `existing`（否则后面能生成的记录会凭空跳号）
+- [x] 前端预检文案改为「可补 X · 缺输入 Y（需先补数据）」，缺输入行标红、`fillable=0` 时按钮置灰
+- [x] 测试：把「字段缺失 ⇒ 退化成 `--001`」改成新语义 + 残号反证 + 映射未命中 + 34 条存量仍逐条复现
+
+**门禁与交付**
+
+- [x] `pnpm --filter @acms/contracts build` → api/web typecheck 全绿
+- [x] 靶向测试 108 条含 `nest-module-di` / `code-rules` / `weiling-link` / `link-style` / `sync-preserve-fields` / `student-no-unique`
+- [x] `i18n_labels_lint`（539 条 tl 字面量命中）+ `field_name_lint`
+- [x] commit → 推 GitHub（比 tree SHA）→ 构建 → 打包（先 mv vendor 避守卫）→ 拆 tar 核 BUILD_ID → 部署
+- [x] 线上验证 v16 探针 **36/36**（`BUILD_ID = ZprbzQQoLxc8k035KyqdN`，slot 3001/3101）
+- [x] 产物核对：运行中 contracts 包含必需段校验、学生建档钩子已接、`CodeRulesModule` 在装配里
+- [x] 探针建的 2 条学生记录 SQL 删除 + 对账回基线（84 人 / 该组最大流水回到 025）
+- [x] 三处归档同步（PLAN.md / PLAN.csv / 本文件）
+- [x] 工作记忆整理（21.2K → 11.3K，完整版归档为 `MEMORY-ARCHIVE-V15.md`）
 
 ## 2026-10-01 下午（取消/手工关联学生 + 超链接方案 B，v14，上线验证揪出 1 个既有事故，37 条，完成 37）
 

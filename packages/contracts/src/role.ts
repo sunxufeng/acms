@@ -371,7 +371,9 @@ export interface RoleDef {
    *  - 非空对象        = 维度间 AND、维度内 OR
    *  - undefined / 空 = **一条都看不到**（原来是不限制，绝对不要改回去）
    *
-   * 维度：当前年级 / 当前状态（入学年级字典与实际数据不符，故不纳入）。
+   * 维度：当前年级 / 当前状态。⚠️ 「入学年级」**当前不在**这两个维度里；
+   * 2026-10-02 它的字典已与数据对齐（改前是 托班~高三 + G1~G12、与实际完全不符），
+   * 是否把它加成第三个维度需峰哥拍板后再动（改了要同步 `ROLE_SCOPE_DIMS` 与界面）。
    * 多角色取**并集**；任一角色配了 `'all'` 则该用户不受限。见 `student-scope.ts`。
    */
   dataScope?: RoleDataScope;
@@ -386,7 +388,9 @@ export interface RoleDef {
  *
  * ⚠️ 这里是**唯一真源**：`apps/api/src/shared/student-scope.ts` 的 `STUDENT_SCOPE_DIMS`
  * 由它赋值而来。两边各写一遍迟早会漂移（改了维度却只改一处 ⇒ 判定与界面不一致）。
- * 只做两个维度：入学年级字典与实际数据不符，故不纳入。
+ * 只做两个维度（当前年级 / 当前状态）。「入学年级」不纳入的理由**不是**字典不准了
+ * （2026-10-02 已对齐），而是它是「入学时的年级、不随升学变化」⇒ 对数据范围区分度低；
+ * 要加需峰哥拍板，并同步改 `student-scope.ts` 与配置界面。
  */
 export const ROLE_SCOPE_DIMS = ['当前年级', '当前状态'] as const;
 export type RoleScopeDim = (typeof ROLE_SCOPE_DIMS)[number];

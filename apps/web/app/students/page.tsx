@@ -552,9 +552,11 @@ export default function StudentsPage() {
           label={t('fldGrade')}
           value={filters['入学年级'] as string}
           onChange={(v) => setFilter('入学年级', v)}
-          options={dicts['入学年级'] ?? ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '初一', '初二', '初三', '高一', '高二', '高三']}
-        />
-        <FilterSelect
+          options={
+            // ⚠️ 兜底候选与字典种子、表单离线兜底三处必须是同一套（2026-10-02 对齐「当前年级」）
+            dicts['入学年级'] ?? ['Pre-1', 'Pre-2', 'Pre-3', '大一', '未来企业家班', '全球领航计划']
+          }
+        />        <FilterSelect
           label={t('fldCurrentGrade')}
           value={filters['当前年级'] as string}
           onChange={(v) => setFilter('当前年级', v)}

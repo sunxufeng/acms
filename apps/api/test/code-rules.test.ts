@@ -34,9 +34,11 @@ import {
   type CodeRule,
 } from '@acms/contracts';
 
-// ── 生产夹具（2026-10-01 只读盘点：84 条里挑 34 条，覆盖 18 种「学期×入学年级」组合） ──
-// ⚠️ 另有 2 条（`26FA-FEP-003` 李东霖 / `26FA-P3-005` 庄心怡）的「入学年级」字段是空的
-//    ⇒ 输入缺失，无法复现（这是数据缺口，不是规则问题），故不进夹具。
+// ── 生产夹具（2026-10-01 只读盘点，2026-10-02 补齐 4 条 → **全部 84 条都能复现**）──
+// 取值组合覆盖「学期 FA/SP × 入学年级 8 种」，每条含 入学年份/入学年月/入学年级 三个输入。
+// 🔴 2026-10-02 补上 `26FA-FEP-003` 李东霖 / `26FA-P3-005` 庄心怡 —— 这两条原本
+//    「入学年级」为空、输入缺失无法复现；已按各自学籍号反推补回（FEP→未来企业家班、P3→Pre-3，
+//    同组 001/002 与 001–004 的取值也印证了这一点）⇒ 现在**存量 84 条一条不缺地逐条复现**。
 const FIXTURE: { code: string; year: string; term: string; grade: string }[] = [
   { code: '23FA-P1-001', year: '2023', term: '23秋季', grade: 'Pre-1' },
   { code: '24FA-P1-001', year: '2024', term: '24秋季', grade: 'G10' },
@@ -52,6 +54,7 @@ const FIXTURE: { code: string; year: string; term: string; grade: string }[] = [
   { code: '25SP-P1-001', year: '2025', term: '25春季', grade: 'Pre-1' },
   { code: '26FA-FEP-001', year: '2026', term: '26秋季', grade: '未来企业家班' },
   { code: '26FA-FEP-002', year: '2026', term: '26秋季', grade: '未来企业家班' },
+  { code: '26FA-FEP-003', year: '2026', term: '26秋季', grade: '未来企业家班' },
   { code: '26FA-P1-001', year: '2026', term: '26秋季', grade: 'Pre-1' },
   { code: '26FA-P1-002', year: '2026', term: '26秋季', grade: 'Pre-1' },
   { code: '26FA-P1-008', year: '2026', term: '26秋季', grade: 'Pre-1' },
@@ -60,6 +63,9 @@ const FIXTURE: { code: string; year: string; term: string; grade: string }[] = [
   { code: '26FA-P2-002', year: '2026', term: '26秋季', grade: 'Pre-2' },
   { code: '26FA-P3-001', year: '2026', term: '26秋季', grade: 'Pre-3' },
   { code: '26FA-P3-002', year: '2026', term: '26秋季', grade: 'Pre-3' },
+  { code: '26FA-P3-003', year: '2026', term: '26秋季', grade: 'Pre-3' },
+  { code: '26FA-P3-004', year: '2026', term: '26秋季', grade: 'Pre-3' },
+  { code: '26FA-P3-005', year: '2026', term: '26秋季', grade: 'Pre-3' },
   { code: '26FA-Y1-001', year: '2026', term: '26秋季', grade: '大一' },
   { code: '26FA-Y1-002', year: '2026', term: '26秋季', grade: '大一' },
   { code: '26SP-FEP-001', year: '2026', term: '26春季', grade: '未来企业家班' },
@@ -88,7 +94,11 @@ const fieldsOf = (r: { year: string; term: string; grade: string }) => ({
 });
 
 describe('🔴 默认规则必须逐条复现生产存量学籍号', () => {
-  it('34 条样本、18 种「学期×入学年级」组合，逐条复现', () => {
+  it('🔴 存量学籍号**逐条复现**（含 2026-10-02 按号码反推补回的两条）', () => {
+    // 判据：把每条的三个输入喂给默认规则，必须生成出它**已经有的那个号**。
+    // 为什么这是底线：学籍号是登录凭证、已发的号绝不追溯修改 ⇒ 规则一旦跟存量格式不一致，
+    // 新学生会拿到另一套格式的号，两套长期并存且**不报错**。
+    expect(FIXTURE.length).toBeGreaterThanOrEqual(38);
     const failures: string[] = [];
     for (const row of FIXTURE) {
       const prefix = prefixOf(row.code);

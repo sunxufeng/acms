@@ -90,7 +90,12 @@ export const STUDENT_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { key: '当前年级', label: '当前年级', type: 'select', dictKey: '当前年级', options: ['Foundation', 'Pre-1', 'Pre-2', 'Pre-3', '大一', '未来企业家班', '全球领航计划'] },
       { key: '校区', label: '校区', type: 'select', dictKey: '校区', options: ['主校区', '东校区', '西校区', '南校区', '北校区', '国际部校区'] },
       { key: '当前学段', label: '当前学段', type: 'select', dictKey: '当前学段', options: ['幼儿园', '小学', '初中', '高中', '国际课程'] },
-      { key: '入学年级', label: '入学年级', type: 'select', dictKey: '入学年级', options: ['托班', '小班', '中班', '大班', '一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '初一', '初二', '初三', '高一', '高二', '高三'] },
+      /**
+       * ⚠️ 这里的 `options` 只是**字典取不到时的离线兜底**（`optionsFor()` 是字典优先）。
+       *    2026-10-02 与字典一起对齐成「当前年级」那一套 —— 改前是 `托班…高三`
+       *    （本地学段模板），跟库里真实取值（Pre-1/Pre-2/Pre-3/…）一套都对不上。
+       */
+      { key: '入学年级', label: '入学年级', type: 'select', dictKey: '入学年级', options: ['Pre-1', 'Pre-2', 'Pre-3', '大一', '未来企业家班', '全球领航计划'] },
       { key: '实际学制', label: '实际学制', type: 'select', dictKey: '实际学制' },
       { key: '入学类型', label: '入学类型', type: 'select', dictKey: '入学类型', options: ['统招', '国际', '插班', '转学'] },
       { key: '入学日期', label: '入学日期', type: 'date' },

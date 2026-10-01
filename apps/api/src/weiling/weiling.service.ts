@@ -260,13 +260,12 @@ export class WeilingService implements OnModuleInit {
             property_type: Number(f.property_type ?? 0),
             options: JSON.stringify(f.options ?? []),
           };
-          // 用 api_name 当主键。⚠️ 先 create 再 update（SqlStore.update 对不存在的
-          // 记录不抛异常，反过来写会导致一条都存不进去）
-          try {
-            await sql.createWithId(TABLES.weilingField.tableId, f.api_name, payload);
-          } catch {
-            await sql.update(TABLES.weilingField.tableId, f.api_name, payload);
-          }
+          // 用 api_name 当主键。⚠️ 必须用**合并** upsert：
+          //   · 写成 `createWithId` ⇒ 冲突分支是整体替换，本地字段全丢；
+          //   · 写成 `try { create } catch { update }` ⇒ `update` 对不存在的记录不抛异常，
+          //     好在这两个都不致命（字段描述表本来就只有上游数据），但语义上仍该是 merge。
+          //   🔴 详见 SqlStore.upsertMergeWithId() 的注释（那个坑在联系人表上出过真事故）。
+          await sql.upsertMergeWithId(TABLES.weilingField.tableId, f.api_name, payload);
         }
       } catch (e) {
         this.logger.warn(`卫瓴字段描述落库失败：${(e as Error).message.slice(0, 120)}`);
@@ -415,18 +414,27 @@ export class WeilingService implements OnModuleInit {
       for (const id of staffIds) nameMap.set(id, await this.staffName(id));
 
       // 落库
-      // ⚠️ 顺序必须是「先 create，冲突了再 update」：SqlStore.update 对不存在的
-      // 记录不会抛异常（只是影响 0 行），如果反过来写，新建记录会被静默吞掉 ——
-      // 表现就是「同步报告成功 N 条，库里却是空的」（2026-09-12 踩过）。
+      // 🔴 必须用**合并** upsert（`upsertMergeWithId`），不能用
+      //    `try { createWithId } catch { update }`：
+      //    `createWithId` 走的是 ON CONFLICT upsert，**冲突时不抛异常**，
+      //    于是 `catch` 永远不执行，整行 data 被上游字段整体替换 ——
+      //    所有本地字段（关联学生 / 关联学生ID / 匹配置信度 / 匹配依据 / 匹配时间 /
+      //    关联来源 / 跟进次数 / 流失状态）**被静默清空**。
+      //    2026-10-01 实测：一次同步抹掉 3 条已关联联系人的 5 个关联键
+      //    （键是"消失"而不是变空串，这就是整行被替换的指纹）。
+      //    ⚠️ 以前看不出来，是因为紧随其后的 `matchStudents()` 会把命中的写回来；
+      //       一旦某档匹配降级成"只提示不写库"，被抹掉的关联就再也回不来了。
+      //    （下面那段"先 create 再 update"的注释是 2026-09-12 为解决"新建记录被静默吞掉"
+      //    写的，那个问题由 upsert 一次解决，不必再写两段。）
       let written = 0;
       for (const c of rows) {
         const id = String(c['contact_id'] ?? '');
         if (!id) continue;
         const f = this.flatten(c, nameMap);
         try {
-          await sql.createWithId(TABLES.weilingContact.tableId, id, f);
-        } catch {
-          await sql.update(TABLES.weilingContact.tableId, id, f);
+          await sql.upsertMergeWithId(TABLES.weilingContact.tableId, id, f);
+        } catch (e) {
+          this.logger.warn(`联系人落库失败 ${id}：${(e as Error).message.slice(0, 120)}`);
         }
         written += 1;
       }
@@ -585,11 +593,8 @@ export class WeilingService implements OnModuleInit {
                 原始数据: JSON.stringify(pg),
                 同步时间: Date.now(),
               };
-              try {
-                await sql.createWithId(TABLES.weilingProgress.tableId, pid, row);
-              } catch {
-                await sql.update(TABLES.weilingProgress.tableId, pid, row);
-              }
+              // 同联系人：必须用**合并** upsert，否则跟进记录的本地字段也会被整体替换
+              await sql.upsertMergeWithId(TABLES.weilingProgress.tableId, pid, row);
               this.progressSync.records += 1;
             }
             // 顺带把「跟进次数」写回联系人，列表页要展示

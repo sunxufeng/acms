@@ -413,6 +413,41 @@ export class SqlStore implements DataStore {
     return id;
   }
 
+  /**
+   * 用指定 id **合并**写入：不存在则插入，已存在则 `data = 旧 || 新`（**保留未提及的键**）。
+   *
+   * 🔴 为什么必须有它（`createWithId` 在冲突分支是 `data = EXCLUDED.data`，**整体替换**）：
+   *    上游同步非常容易写成"先 create，冲突了再 update"：
+   *
+   *    ```ts
+   *    try { await sql.createWithId(t, id, upstreamFields) } catch { await sql.update(t, id, upstreamFields) }
+   *    ```
+   *
+   *    但这个写法**是错的** —— `createWithId` 走的是 upsert，冲突时**不抛异常**，
+   *    于是 `catch` 永远不执行，整行 `data` 被上游字段覆盖，
+   *    所有**非上游字段**（`关联学生` / `关联来源` / `跟进次数` / `流失状态` …）**被静默清空**。
+   *
+   *    实测（2026-10-01）：卫瓴联系人同步跑一次，把 3 条已关联联系人的
+   *    `关联学生`/`关联学生ID`/`匹配置信度`/`匹配依据`/`匹配时间` 五个键整个抹掉
+   *    （键**消失**而不是变空串 —— 这是"整行被替换"的指纹）。
+   *    以前看不出来，是因为紧随其后的 `matchStudents()` 会把命中的再写回来；
+   *    一旦某档匹配降级为"只提示不写库"，被抹掉的关联就**回不来了**。
+   *
+   * ⇒ 凡是"刷新上游字段但要保留本地字段"的写入，一律用这个方法。
+   * ⚠️ 需要**整体替换**语义的地方（如配置行 `createWithId` 当 upsert 用）继续用 `createWithId`，
+   *    两者语义不同，别互相替换。
+   */
+  async upsertMergeWithId(tableId: string, id: string, fields: Record<string, unknown>): Promise<string> {
+    const t = sqlTableName(tableId);
+    const actor = this.actorId();
+    await this.pool.query(
+      `INSERT INTO ${t} (id, data, created_by, updated_by) VALUES ($1, $2::jsonb, $3, $3)
+       ON CONFLICT (id) DO UPDATE SET data = ${t}.data || EXCLUDED.data, updated_at = now(), updated_by = $3`,
+      [id, JSON.stringify(fields ?? {}), actor],
+    );
+    return id;
+  }
+
   async update(tableId: string, recordId: string, fields: Record<string, unknown>): Promise<void> {
     const t = sqlTableName(tableId);
     await this.pool.query(

@@ -9,47 +9,119 @@
  * 不归一的话，「按操作人统计」里会出现三个"不同的人"，报表直接失去意义。
  * 归一的真源是**系统用户表的姓名**（如 `孙旭峰｜Richard`），其他写法都往它上面并。
  *
- * 另外两类需要单独看待，不能混进「人」里：
- *   - **系统任务**（`系统 · 行为告警重算`）—— 不是人在点；
- *   - **测试账号**（`验证探针` / `探针` / `forge` / `adm`）—— 是验证脚本写的。
- * 它们统一归到一行「系统任务 · 测试」，明细留在 `detail` 里供排查（不要静默丢掉）。
+ * 另外还有**三种「不是人」的操作人**要单独看待（2026-10-02 扩成三个桶，
+ * 改前它们全挤在「系统任务 · 测试」一行里，把真实业务量和测试混在一起了）：
+ *   - `系统任务`（`系统 · 行为告警重算` / `数据导入（飞书学习沟通）`）—— 是**真实业务量**；
+ *   - `内部账号 · 无署名`（`系统管理员` / `系统运维`）—— 有真实动作，只是没有个人署名；
+ *   - `测试与验证`（`验证探针` / `probe` / `adm` / `test` …）—— **不是业务量**。
+ * 每个桶的明细留在 `detail` 里供排查（不要静默丢掉）。
  */
 
 /** 未填值/空值的展示名。**必须排最后** —— 它表示「没有信息」，不是一个类别 */
 export const UNFILLED = '（未填写）';
 
-/** 系统任务与测试账号合并后的行名 */
-export const SYSTEM_ACTOR = '系统任务 · 测试';
+/**
+ * 「不是人」的操作人分三个桶（2026-10-02 峰哥：「报表里怎么会有这些」）。
+ *
+ * 为什么要分成三个而不是一个：它们的**性质完全不同**，混成一行就没法判断
+ * "报表数字里有多少是真实业务量"：
+ *   - `系统任务`   = 系统自己干的（定时任务 / 导入 / 重算），**是真实业务量的一部分**；
+ *   - `内部账号`   = 以岗位/角色身份登录的操作（`系统管理员` / `系统运维`），有真实业务动作，
+ *                    只是当时会话里没有个人姓名；
+ *   - `测试与验证` = 验证脚本与测试账号留下的（探针 / probe / test / adm…），**不是业务量**。
+ *
+ * 改前这三种全挤在「系统任务 · 测试」一行里（连真业务和测试都分不开）。
+ */
+export const AUTO_ACTOR = '系统任务';
+export const INTERNAL_ACTOR = '内部账号 · 无署名';
+export const TEST_ACTOR = '测试与验证';
+
+/** 所有「非人」行名（报表里要单独补 `detail` 的几行） */
+export const MERGED_ACTORS: readonly string[] = [AUTO_ACTOR, INTERNAL_ACTOR, TEST_ACTOR];
 
 /**
- * 系统任务 / 测试账号的识别模式。
- *
- * 刻意保守：只匹配明确的写法，宁可有漏网的（显示成一个人名，肉眼能看出来）
- * 也不要把真人误并进「系统任务」（那会让使用量凭空少一块，且很难发现）。
+ * ⚠️ 兼容旧名（历史代码/测试引用过）。**新代码一律用上面三个**。
+ * 语义已变（旧的是"系统+测试合并成一行"），这里只是别名指向 `系统任务`。
  */
-const SYSTEM_PATTERNS: readonly RegExp[] = [
-  /^系统/, // 系统 · 行为告警重算
-  /^system\b/i,
-  /探针/, // 验证探针 / 探针
-  /^验证/, // 「验证」/「验证会话」—— 自动化验证脚本留下的名字（2026-09-21 实测有）
-  /测试/, // 测试账号
-  /^forge$/i,
-  /^adm(in(istrator)?)?$/i,
-  /^cron\b/i,
-  /^bot\b/i,
+export const SYSTEM_ACTOR = AUTO_ACTOR;
+
+/**
+ * 内部账号（以岗位/角色身份操作，无个人署名）。
+ * 🔴 **必须排在「自动」前面判断** —— 这几个名字都以「系统」开头，
+ *    先判「自动」的话 `系统管理员` 会被当成定时任务（那就把真实业务量算丢了）。
+ */
+const INTERNAL_PATTERNS: readonly RegExp[] = [
+  /^系统管理员$/,
+  /^超级管理员$/,
+  /^系统运维$/,
+  /^管理员$/,
+  /^admin(istrator)?$/i,
+  /^root$/i,
+  /^unknown$/i, // 会话里没带姓名（生产实测 8 条，建/删成对 ⇒ 也是脚本留下的）
 ];
 
 /**
- * 维度值（行名/列名）的清洗：**只去首尾空白**。
- *
- * ⚠️ 与 `normalizeActorName` 的区别很重要：那个还会去中间的空格（人名里
- * `刘佳音 ｜ Joy` 要并成 `刘佳音｜Joy`），但**列名是业务文本**（如「系统任务 · 测试」
- * 「学生记录 · 家校沟通」），把中间空格删掉会变成「系统任务·测试」——
- * 2026-09-21 上线探针就抓到过这个（断言用带空格的文案比对不上）。
- * 所以行名在调用方先归一，`buildMatrix` 只做 trim。
+ * 系统自动任务 / 导入。
+ * 「数据导入（飞书学习沟通）」是**真实业务数据**的导入人（22 条学生记录），必须算业务量，
+ * 只是它的"操作人"不是自然人。
  */
-function cleanLabel(raw: unknown): string {
-  return String(raw ?? '').trim() || UNFILLED;
+const AUTO_PATTERNS: readonly RegExp[] = [
+  /^系统/, // 系统 · 行为告警重算
+  /^system\b/i,
+  /^system:/i, // 业务表审计列的形态：system:scheduled-tasks / system:unknown
+  /数据导入/,
+  /重算/,
+  /补抓/,
+  /同步/, // 「卫瓴同步」这类
+  /^cron\b/i,
+  /^bot\b/i,
+  /^scheduler/i,
+];
+
+/**
+ * 测试与验证账号（验证脚本 / 测试时手工造的会话）。
+ * 🔴 判据来自 2026-10-02 生产审计的**全量取值盘点**，不是猜的：
+ *    `验证探针` 61 · `验证` 10 · `验证会话` 8 · `探针` 10 · `probe` 8 · `adm` 10 ·
+ *    `部署验证` 7 · `测试` 4 · `验收管理员` 4 · `t` 4 · `ou_adminfix` 3 ·
+ *    `forgeadmin` 3 · `forge` 26 · `test` 2 · `p` 1。
+ *    它们的共同指纹：**同一模块「创建 N 条 + 删除 N 条」成对出现** ——
+ *    建一条、验完删一条，业务数据没残留，只留下审计痕迹。
+ */
+const TEST_PATTERNS: readonly RegExp[] = [
+  /探针/,
+  /^验证/, // 验证 / 验证会话 / 验证管理员 / 验证探针
+  /^部署验证$/,
+  /^验收/, // 验收管理员
+  /^测试/, // 测试 / 测试账号
+  /^test/i,
+  /^t$/,
+  /^p$/,
+  /^forge/i, // forge / forgeadmin
+  /^probe$/i,
+  /^adm(in(istrator)?)?$/i,
+  /^ou_/i, // ou_adminfix / ou_import_* 这类合成 openId
+  /^dev$/i,
+];
+
+/**
+ * 系统任务 / 测试账号的识别（**旧的单一判断**）。
+ * ⚠️ 新代码请用 `classifyNonPersonActor()` —— 它能区分「系统任务 / 内部账号 / 测试与验证」。
+ * 保留这个函数只为兼容既有调用点与非人判断。
+ */
+export function isSystemActor(raw: unknown): boolean {
+  return classifyNonPersonActor(raw) !== null;
+}
+
+/** 判定一个操作人属于哪个「非人」桶；是真人则返回 `null` */
+export function classifyNonPersonActor(raw: unknown): string | null {
+  const s = normalizeActorName(raw);
+  if (!s) return null;
+  // 🔴 顺序：(1) 内部账号 → (2) 系统任务 → (3) 测试与验证
+  //    1 必须在 2 前面（系统管理员/系统运维 都以"系统"开头）
+  if (INTERNAL_PATTERNS.some((re) => re.test(s))) return INTERNAL_ACTOR;
+  if (AUTO_PATTERNS.some((re) => re.test(s))) return AUTO_ACTOR;
+  if (TEST_PATTERNS.some((re) => re.test(s))) return TEST_ACTOR;
+  return null;
 }
 
 /**
@@ -65,11 +137,17 @@ export function normalizeActorName(raw: unknown): string {
     .trim();
 }
 
-/** 是否是系统任务 / 测试账号 */
-export function isSystemActor(raw: unknown): boolean {
-  const s = normalizeActorName(raw);
-  if (!s) return false;
-  return SYSTEM_PATTERNS.some((re) => re.test(s));
+/**
+ * 维度值（行名/列名）的清洗：**只去首尾空白**。
+ *
+ * ⚠️ 与 `normalizeActorName` 的区别很重要：那个还会去中间的空格（人名里
+ * `刘佳音 ｜ Joy` 要并成 `刘佳音｜Joy`），但**列名是业务文本**（如「系统任务 · 测试」
+ * 「学生记录 · 家校沟通」），把中间空格删掉会变成「系统任务·测试」——
+ * 2026-09-21 上线探针就抓到过这个（断言用带空格的文案比对不上）。
+ * 所以行名在调用方先归一，`buildMatrix` 只做 trim。
+ */
+function cleanLabel(raw: unknown): string {
+  return String(raw ?? '').trim() || UNFILLED;
 }
 
 /**
@@ -104,7 +182,9 @@ export function buildActorNormalizer(knownNames: readonly string[]): (raw: unkno
   return (raw: unknown): string => {
     const s = normalizeActorName(raw);
     if (!s) return UNFILLED;
-    if (isSystemActor(s)) return SYSTEM_ACTOR;
+    // 「不是人」的先分流成三个桶（系统任务 / 内部账号 / 测试与验证）
+    const bucket = classifyNonPersonActor(s);
+    if (bucket) return bucket;
     const exact = byFull.get(s);
     if (exact) return exact;
     for (const seg of s.split('｜').filter(Boolean)) {

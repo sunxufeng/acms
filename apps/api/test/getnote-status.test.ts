@@ -110,3 +110,85 @@ describe('筛选下拉候选', () => {
     expect([...NOTE_STATUS_FILTER_OPTIONS]).not.toContain(NOTE_STATUS_ALL);
   });
 });
+
+/**
+ * 🔴 「归档」独立成权限点（v15，2026-10-02 峰哥：「笔记删除和归档权限需要分开」）。
+ *
+ * 改前：归档借用 `module:getnote:update`（能编辑 = 能归档）。
+ * 改后：归档 = `module:getnoteArchive:update`，删除 = `module:getnote:delete`，
+ *       两者可分别勾选。
+ *
+ * 这里钉住三件事，任何一条漏了都会出事：
+ *   ① 新资源**必须继承「编辑」**（`legacyRead`）—— 否则抬版本后原本能归档的教职工角色
+ *      全部失去能力，而且**没有任何报错**（按钮消失 + 点了 403）；
+ *   ② 判据必须 `update`（只声明 read 的话这个点不在 PERMISSIONS 目录里，矩阵里勾不到）；
+ *   ③ 前后端用**同一个点**（不同点是"按钮能点但接口 403"的经典成因）。
+ */
+describe('🔴 归档独立权限点（v15）', () => {
+  it('资源已登记：subOf getnote / actions 含 update / legacyRead 继承「编辑」', async () => {
+    const { MODULE_RESOURCES, MODULE_RESOURCE_INTRODUCED_VERSION, ROLE_PERMISSION_VERSION } = await import(
+      '@acms/contracts'
+    );
+    const res = MODULE_RESOURCES.find((r) => r.key === 'getnoteArchive');
+    expect(res, '未登记 getnoteArchive 资源').toBeTruthy();
+    expect(res!.subOf).toBe('getnote');
+    expect(res!.actions).toContain('update');
+    expect(res!.legacyRead).toBe('module:getnote:update');
+    expect(res!.menuPermission).toBeNull();
+    expect(res!.actions).not.toContain('enter');
+    // 引入版本固定为 15 且不超过当前版本（否则那段增量迁移覆盖不到）
+    expect(MODULE_RESOURCE_INTRODUCED_VERSION.getnoteArchive).toBe(15);
+    expect(MODULE_RESOURCE_INTRODUCED_VERSION.getnoteArchive).toBeLessThanOrEqual(ROLE_PERMISSION_VERSION);
+  });
+
+  it('🔴 path 不能与父资源同值（moduleByPath 靠数组顺序，重排即串位）', async () => {
+    const { MODULE_RESOURCES } = await import('@acms/contracts');
+    const child = MODULE_RESOURCES.find((r) => r.key === 'getnoteArchive');
+    const parent = MODULE_RESOURCES.find((r) => r.key === 'getnote');
+    expect(child!.path).not.toBe(parent!.path);
+  });
+
+  it('源码守卫：归档与删除各自断言**不同的**权限点', async () => {
+    const { readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const raw = readFileSync(path.join(here, '..', 'src', 'getnote', 'getnote.controller.ts'), 'utf8');
+    /**
+     * 🔴 `not.toContain` 之前**必须剥注释**：这次就踩了 ——
+     *    实现里的注释写着「改前借用 `module:getnote:update`」，于是"不得含旧写法"
+     *    这条断言恒红，而代码其实是对的。
+     */
+    const ctrl = raw
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    // 归档/激活：窗口**必须切到下一个方法为止** ——
+    //   紧跟其后的 `@Put('notes/:id')`（编辑）本来就该用 `module:getnote:update`，
+    //   窗口放宽到固定字符数会把那个方法框进来 ⇒ 假红。
+    const statusAt = ctrl.indexOf("'notes/:id/status'");
+    const nextAt = ctrl.indexOf("@Put('notes/:id')", statusAt);
+    expect(statusAt).toBeGreaterThan(-1);
+    expect(nextAt).toBeGreaterThan(statusAt);
+    const statusBody = ctrl.slice(statusAt, nextAt);
+    expect(statusBody).toContain('module:getnoteArchive:update');
+    expect(statusBody).not.toContain("'module:getnote:update'");
+    // 删除：仍用原来的 delete 点（归档独立出去**不影响**删除的授权口径）
+    const delAt = ctrl.indexOf("@Delete('notes/:id')");
+    expect(delAt).toBeGreaterThan(-1);
+    expect(ctrl.slice(delAt, delAt + 300)).toContain('module:getnote:delete');
+  });
+
+  it('源码守卫：前端按钮门控与后端同一个点', async () => {
+    const { readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const page = readFileSync(
+      path.join(here, '..', '..', 'web', 'app', 'getnote', 'page.tsx'),
+      'utf8',
+    );
+    expect(page).toContain("perms.includes('module:getnoteArchive:update')");
+    // 不能还留着旧的借用写法
+    expect(page).not.toContain("perms.includes('module:getnote:update')");
+  });
+});

@@ -686,6 +686,21 @@ export class MailArchiveService extends BaseRecordService {
     if (ids.studentIds !== undefined) patch['关联学生'] = clean(ids.studentIds);
     if (ids.contactIds !== undefined) patch['关联联系人'] = clean(ids.contactIds);
     if (!Object.keys(patch).length) return;
+    /**
+     * 🔴 留痕：**谁在什么时候改了关联**（2026-10-02 峰哥：「关联学生或联系人，
+     *    把操作人记录下来，形成报表，增加到报表管理里使用统计卡片里」）。
+     *
+     * 为什么不靠通用的审计列（`updated_by` / `updated_at`）：
+     *   那两个字段**任何**更新都会动（比如同步任务回填正文），分不出"这次更新是不是人在改关联"。
+     *   所以专门记两个字段，报表直接按它们统计。
+     *
+     * ⚠️ 必须放在 `if (!Object.keys(patch).length) return` **之后**：
+     *    空调用（既没传 studentIds 也没传 contactIds）不该留下"某人关联过一次"的痕迹。
+     * ⚠️ 存**姓名**（与「沟通人」「归属人」等字段同一口径），报表侧再按系统用户表归一；
+     *    姓名取不到时退回 openId（宁可显示 id 也别丢这次操作）。
+     */
+    patch['关联操作人'] = String(user.name ?? '').trim() || user.openId;
+    patch['关联操作时间'] = Date.now();
     await this.base.update(this.meta.tableId, recordId, patch);
 
     // ① 老师手工改完之后，立刻按「三方一致化」补上传递关系（联系人 ↔ 学生）。

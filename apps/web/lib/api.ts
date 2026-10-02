@@ -3453,6 +3453,19 @@ export interface UsagePayload {
     byHost: { label: string; count: number; lastAt: number; avgMinutes: number | null; mainType: string }[];
     undated: number;
   };
+  /** ⑥ 邮件归档 · 手动关联留痕（`关联操作人` / `关联操作时间`，2026-10-02 起才有数据） */
+  mailLinks: {
+    total: number;
+    byActor: {
+      label: string;
+      count: number;
+      students: number;
+      contacts: number;
+      lastAt: number;
+      share: number;
+    }[];
+    undated: number;
+  };
   /** 数据源读取失败 / 有记录缺时间字段时的说明 —— 区分「读不到」与「真的没人用」 */
   warnings: string[];
 }
@@ -3478,6 +3491,11 @@ export interface ActivityPayload {
     lastAt: number | null;
     hours: number[];
     peakHour: number;
+    /**
+     * 「不是人」的合并行（系统任务 / 内部账号 · 无署名 / 测试与验证）由哪些原始写法合成。
+     * 空串 = 这一行就是一个人（真人已按系统用户表归一）。
+     */
+    detail: string;
   }[];
   byDay: { date: string; logins: number; actions: number }[];
   modules: { module: string; count: number }[];

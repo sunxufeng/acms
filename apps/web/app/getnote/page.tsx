@@ -25,7 +25,9 @@ import {
 } from '@acms/contracts';
 import { putConvertPayload, formatConvertLogs, totalConvertCount, enabledConvertTargets, CONVERT_QUERY_FLAG, CONVERT_QUERY_VALUE } from '../../lib/noteConvert';
 import { useTl } from '../../lib/useTl';
-// 按钮级门控：归档 / 激活与后端同一个权限点（module:getnote:update）
+// 按钮级门控：归档 / 激活与后端同一个权限点
+// （v15 起是 **module:getnoteArchive:update** —— 2026-10-02 峰哥要求「删除和归档权限分开」，
+//   归档不再借用「编辑」；删除仍是 module:getnote:delete）
 import { usePermissions } from '../../lib/permissions';
 // 行内播放（操作列 ▶/⏸）已抽成通用 hook，学生记录等附件字段的列表共用同一份逻辑
 import { useRowAudio } from '../../lib/rowAudio';
@@ -535,14 +537,15 @@ export default function GetnotePage() {
   /** 归档/激活失败提示（成功不提示 —— 行上的标记与按钮本身就是反馈） */
   const [statusErr, setStatusErr] = useState('');
   /**
-   * 按钮权限：归档 / 激活走 `module:getnote:update`（矩阵里的「编辑」列）。
+   * 按钮权限：归档 / 激活走 `module:getnoteArchive:update`（矩阵里的「笔记归档」行）。
+   * 🔴 与后端判据**同一个点**，改一处必须同时改另一处（否则出现"按钮能点但接口 403"）。
    *
    * 与后端同一个权限点；前端只负责「不显示点了会 403 的按钮」，真正拦得住的是接口。
    * ⚠️ 权限缓存是登录后拉一次（`lib/permissions.ts`）—— 管理员改了角色配置后，
    *    用户需要刷新/重登才会看到按钮变化，这与全站其它按钮的行为一致。
    */
   const perms = usePermissions();
-  const canSetStatus = perms.includes('module:getnote:update');
+  const canSetStatus = perms.includes('module:getnoteArchive:update');
 
   /**
    * 归档 / 激活。**不做二次确认**：归档是可逆的（旁边就是「激活」），

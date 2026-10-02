@@ -49,7 +49,7 @@ function Segmented<T extends string>({ value, onChange, options }: {
  *   1. 「合计」列/行**直接显示后端给的数**，前端不重算 —— 重算就成了两套口径，
  *      一旦后端修了某个归属规则，界面会继续显示旧数字。
  *   2. `0` 显示成淡色 `·`：矩阵里大量格子是 0，全写 `0` 会让表看起来像噪音。
- *   3. 合并行（「系统任务 · 测试」）的 `detail` 挂在行名 title 上 ——
+ *   3. 合并行（「系统任务 / 内部账号 · 无署名 / 测试与验证」）的 `detail` 挂在行名 title 上 ——
  *      正常不占地方，排查时一悬停能看到「这 80 次都是哪些写法」。
  */
 function MatrixTable({ m, unit, firstCol, rowTitle }: {
@@ -166,6 +166,8 @@ export function UsagePanel({ from, to }: { from: string; to: string }) {
   const sr = data.studentRecords;
   const sf = data.sourceFollowups;
   const mt = data.meetings;
+  /** ⑥ 邮件归档 · 手动关联留痕 */
+  const ml = data.mailLinks;
 
   return (
     <div>
@@ -185,7 +187,9 @@ export function UsagePanel({ from, to }: { from: string; to: string }) {
         口径：统计区间 <b>{data.from}</b> ~ <b>{data.to}</b>。
         <b>只统计落在区间内、且带时间字段的记录</b>（缺时间的记录不参与筛选，条数见各区块下方说明）。
         <b>操作人已按系统用户表归一</b>——同一个人写成「孙旭峰 / 孙旭峰｜Richard / Richard」会并成一行；
-        <b>系统任务与测试账号</b>（如「验证探针」）单独归到「系统任务 · 测试」，不计入人。
+        <b>不是人的操作人按性质分三个桶</b>：<b>系统任务</b>（定时任务 / 数据导入，算真实业务量）、
+        <b>内部账号 · 无署名</b>（以岗位身份登录，如「系统管理员」）、
+        <b>测试与验证</b>（验证脚本留下的「验证探针 / probe / adm / test」等，**不是业务量**）。
         <b>笔记按「归属人」= 该笔记所属知识库配置的归属人</b>（不是笔记作者）。
         <b>审计日志的时间精度到「天」</b>（存储层会把毫秒时间戳格式化成日期），
         所以按天看用量是准的、跨天边界最多差一天。
@@ -331,7 +335,7 @@ export function UsagePanel({ from, to }: { from: string; to: string }) {
           firstCol="操作人"
         />
         <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-tertiary)', marginTop: 6 }}>
-          行名后带 <b>*</b> 的是合并行（系统任务 / 测试账号），鼠标悬停可看由哪些写法合成。
+          行名后带 <b>*</b> 的是合并行（系统任务 / 内部账号 / 测试与验证），鼠标悬停可看由哪些写法合成。
         </div>
       </Block>
 
@@ -379,6 +383,56 @@ export function UsagePanel({ from, to }: { from: string; to: string }) {
                   <td style={{ padding: '6px 8px', fontSize: 'var(--font-xs)', color: 'var(--fg-secondary)' }}>合计</td>
                   <td style={{ padding: '6px 8px', fontSize: 'var(--font-xs)', textAlign: 'right', fontWeight: 700 }}>{mt.total} 场</td>
                   <td colSpan={3} />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Block>
+
+      <Block
+        title="⑥ 邮件归档 · 手动关联（按操作人）"
+        hint={`数的是「老师手工把邮件挂到学生/联系人身上」的次数（留痕字段「关联操作人 / 关联操作时间」）${ml.undated ? ` · 另有 ${ml.undated} 条留痕缺时间未计入` : ''} · ⚠️ 留痕是 2026-10-02 才加的，之前的历史关联没有操作人，这块从那天起算`}
+      >
+        {ml.byActor.length === 0 ? (
+          <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-tertiary)' }}>所选时间段内没有关联操作</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 480 }}>
+              <thead>
+                <tr>
+                  {['操作人', '关联次数', '涉及学生', '涉及联系人', '占比', '最近一次'].map((h, i) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: '6px 8px',
+                        fontSize: 'var(--font-xs)',
+                        fontWeight: 500,
+                        color: 'var(--fg-tertiary)',
+                        textAlign: i === 0 ? 'left' : 'right',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ml.byActor.map((a) => (
+                  <tr key={a.label} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: '6px 8px', fontSize: 'var(--font-xs)', color: 'var(--fg-secondary)' }}>{a.label}</td>
+                    <td style={{ padding: '6px 8px', fontSize: 'var(--font-xs)', textAlign: 'right', fontWeight: 700 }}>{a.count}</td>
+                    <td style={{ padding: '6px 8px', fontSize: 'var(--font-xs)', textAlign: 'right', color: 'var(--fg-tertiary)' }}>{a.students}</td>
+                    <td style={{ padding: '6px 8px', fontSize: 'var(--font-xs)', textAlign: 'right', color: 'var(--fg-tertiary)' }}>{a.contacts}</td>
+                    <td style={{ padding: '6px 8px', fontSize: 'var(--font-xs)', textAlign: 'right', color: 'var(--fg-tertiary)' }}>{a.share}%</td>
+                    <td style={{ padding: '6px 8px', fontSize: 'var(--font-xs)', textAlign: 'right', color: 'var(--fg-tertiary)' }}>{fmtTime(a.lastAt)}</td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--bg-subtle)' }}>
+                  <td style={{ padding: '6px 8px', fontSize: 'var(--font-xs)', color: 'var(--fg-secondary)' }}>合计</td>
+                  <td style={{ padding: '6px 8px', fontSize: 'var(--font-xs)', textAlign: 'right', fontWeight: 700 }}>{ml.total} 次</td>
+                  <td colSpan={4} />
                 </tr>
               </tbody>
             </table>

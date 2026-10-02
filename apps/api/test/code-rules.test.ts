@@ -473,8 +473,21 @@ describe('权限与菜单', () => {
     expect(res!.actions).not.toContain('enter');
   });
 
-  it('引入版本 == 当次抬的版本号（否则那段增量迁移覆盖不到）', () => {
-    expect(MODULE_RESOURCE_INTRODUCED_VERSION.codeRules).toBe(ROLE_PERMISSION_VERSION);
+  it('引入版本 = 它被引入的那一版（v14），且 ≤ 当前版本', () => {
+    // ⚠️ 这条不能写成 `=== ROLE_PERMISSION_VERSION`：那是「引入当次正好等于当前版本」，
+    //    以后再抬版本（v15 加「笔记归档」权限点）就会误红。
+    //    真正的不变式是：**引入版本固定为引入当次的版本号，且永远 ≤ 当前版本** ——
+    //    否则 `(from, to]` 这段增量迁移覆盖不到它。
+    expect(MODULE_RESOURCE_INTRODUCED_VERSION.codeRules).toBe(14);
+    expect(MODULE_RESOURCE_INTRODUCED_VERSION.codeRules).toBeLessThanOrEqual(ROLE_PERMISSION_VERSION);
+  });
+
+  it('🔴 所有登记的资源：引入版本都不超过当前版本（不然永远迁移不到）', () => {
+    for (const [key, v] of Object.entries(MODULE_RESOURCE_INTRODUCED_VERSION)) {
+      expect(v, `${key} 的引入版本 ${v} 超过了当前版本 ${ROLE_PERMISSION_VERSION}`).toBeLessThanOrEqual(
+        ROLE_PERMISSION_VERSION,
+      );
+    }
   });
 
   it('菜单可见性靠显式判据（有 read 才显示，否则菜单在但点进去 403）', () => {

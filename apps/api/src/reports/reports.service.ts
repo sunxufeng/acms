@@ -15,7 +15,8 @@ import { BASE_CLIENT, getSqlStore } from '../base.provider.js';
 import { LoginLogService } from '../login-log/login-log.service.js';
 import { buildDedupGroups, toDedupRow, type DedupResult, type DedupRow } from './contact-dedup.js';
 import {
-  SYSTEM_ACTOR,
+  MERGED_ACTORS,
+  UNFILLED,
   buildActorDetail,
   buildActorNormalizer,
   buildMatrix,
@@ -393,6 +394,23 @@ export class ReportsService {
     const moduleMap = new Map<string, number>();
     const allDays = new Set<string>();
 
+    /**
+     * 🔴 操作人必须**归一**（2026-10-02 修的一个真 bug）：
+     *    改前这张卡直接用原始姓名 `bump(l.姓名)` / `bump(a.actor)` ⇒
+     *    同一个峰哥出现成**三行**（`孙旭峰` / `孙旭峰｜Richard` / `Richard`），
+     *    而隔壁「使用统计」卡早就归一了 —— 两张卡对同一段时间给出不一样的人数。
+     *    归一真源同样是系统用户表的姓名；「不是人」的写法归成三个桶。
+     */
+    const names = [...(await this.personNameMap()).values()];
+    const normalizeActor = buildActorNormalizer(names);
+    /** 归一行 → 原始写法计数（给合并行补 title 明细） */
+    const rawByActor = new Map<string, Map<string, number>>();
+    const noteRaw = (raw: string, norm: string) => {
+      const m = rawByActor.get(norm) ?? new Map<string, number>();
+      m.set(raw, (m.get(raw) ?? 0) + 1);
+      rawByActor.set(norm, m);
+    };
+
     const bump = (name: string, at: number, kind: 'login' | 'action') => {
       const a = touch(name);
       const h = new Date(at).getHours();
@@ -414,9 +432,17 @@ export class ReportsService {
       byDayMap.set(dk, day);
     };
 
-    for (const l of logins) if (l.姓名) bump(l.姓名, l.登录时间, 'login');
+    for (const l of logins) {
+      if (!l.姓名) continue;
+      const who = normalizeActor(l.姓名);
+      noteRaw(String(l.姓名).trim(), who);
+      bump(who, l.登录时间, 'login');
+    }
     for (const a of actions) {
-      if (a.actor) bump(a.actor, a.at, 'action');
+      if (!a.actor) continue;
+      const who = normalizeActor(a.actor);
+      noteRaw(a.actor.trim(), who);
+      bump(who, a.at, 'action');
       if (a.module) moduleMap.set(a.module, (moduleMap.get(a.module) ?? 0) + 1);
     }
 
@@ -430,6 +456,10 @@ export class ReportsService {
         lastAt: a.lastAt || null,
         hours: a.hours,
         peakHour: a.hours.indexOf(Math.max(...a.hours)),
+        /** 合并行的原始写法明细（如 `系统任务` 由「系统 · 行为告警重算」等合成） */
+        detail: MERGED_ACTORS.includes(a.name)
+          ? buildActorDetail(rawByActor.get(a.name) ?? new Map())
+          : '',
       }))
       .sort((x, y) => y.logins + y.actions - (x.logins + x.actions));
 
@@ -439,11 +469,21 @@ export class ReportsService {
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
 
+    /**
+     * 🔴 「活跃用户」必须**只数真人**：
+     *    归一后 `byUser` 里还混着 3 行「不是人」的桶（系统任务 / 内部账号 / 测试与验证）
+     *    与 `（未填写）`，把它们算进"活跃用户"等于虚报人数。
+     *    （改前更糟：三种姓名写法 + 一堆探针署名会各自算一个人。）
+     */
+    const personCount = byUser.filter(
+      (u) => !MERGED_ACTORS.includes(u.name) && u.name !== UNFILLED,
+    ).length;
+
     return {
       from: dayKey(fromMs),
       to: dayKey(toMs),
       summary: {
-        activeUsers: byUser.length,
+        activeUsers: personCount,
         logins: logins.length,
         actions: actions.length,
         activeDays: allDays.size,
@@ -931,6 +971,53 @@ export class ReportsService {
       mtByHost.set(who, cur);
     }
 
+    /**
+     * ⑥ 邮件归档 · 手动关联（2026-10-02 峰哥：「关联学生或联系人，把操作人记录下来，
+     *    形成报表，增加到报表管理里使用统计卡片里」）。
+     *
+     * 数据源：邮件归档表上由 `MailArchiveService.link()` 写入的两个**留痕字段**
+     * （`关联操作人` / `关联操作时间`）—— 这条链路里的"操作"就是「手动挂了学生/联系人」。
+     *
+     * ⚠️ 留痕是**今天才加的** ⇒ 历史记录没有这两个字段。所以这一块天然是"从上线那天起算"，
+     *    不是"这段时间真的没人关联"。这一点写在 `hint` 与 `warnings` 里，避免被当成数据缺失。
+     */
+    const maRows = await readTable(TABLES.mailArchive.tableId, '邮件归档');
+    const maByActor = new Map<string, { count: number; students: number; contacts: number; lastAt: number }>();
+    /** 关联字段可能是数组（多值）也可能是单个字符串（历史写法）—— 两种都要能数 */
+    const countLinks = (v: unknown): number => {
+      if (Array.isArray(v)) return v.filter((x) => String(x ?? '').trim() !== '').length;
+      return String(v ?? '').trim() ? 1 : 0;
+    };
+    let maUndated = 0;
+    for (const f of maRows) {
+      const actorRaw = txt(f, '关联操作人');
+      if (!actorRaw) continue; // 没留痕的历史记录：不算、也不报"缺时间"（它们本来就没有这次操作）
+      const at = num(f, '关联操作时间');
+      if (!at) {
+        maUndated += 1;
+        continue;
+      }
+      if (!inRange(at)) continue;
+      const who = normalizeActor(actorRaw);
+      const cur = maByActor.get(who) ?? { count: 0, students: 0, contacts: 0, lastAt: 0 };
+      cur.count += 1;
+      cur.students += countLinks(f['关联学生']);
+      cur.contacts += countLinks(f['关联联系人']);
+      cur.lastAt = Math.max(cur.lastAt, at);
+      maByActor.set(who, cur);
+    }
+    const maTotal = [...maByActor.values()].reduce((s, v) => s + v.count, 0);
+    const maList = [...maByActor.entries()]
+      .map(([label, v]) => ({
+        label,
+        count: v.count,
+        students: v.students,
+        contacts: v.contacts,
+        lastAt: v.lastAt,
+        share: maTotal ? Math.round((v.count / maTotal) * 100) : 0,
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'zh-Hans-CN'));
+
     const warnOf = (rows: Record<string, unknown>[], tableLabel: string, undated: number, field: string): void => {
       // 「表里总共多少条 / 其中多少条没时间」都写清楚：数字对不上时这就是解释
       if (rows.length && undated) {
@@ -942,16 +1029,19 @@ export class ReportsService {
     warnOf(noteRows, '笔记快照', noteUndated, '笔记创建时间');
     warnOf(mtRows, '会议纪要', mtUndated, '会议时间');
     if (auSkipped) warnings.push(`审计日志有 ${auSkipped} 条记录没有「操作时间」，已忽略`);
+    if (maUndated) warnings.push(`邮件归档有 ${maUndated} 条关联留痕没有「关联操作时间」，已忽略`);
 
-    /** 给矩阵里的合并行补明细（只有系统任务/测试那一行需要） */
-    const withDetail = (m: ReturnType<typeof buildMatrix>, key: string) => ({
+    /** 给矩阵里的合并行补明细（系统任务 / 内部账号 / 测试与验证 三行都要） */
+    const withDetail = (m: ReturnType<typeof buildMatrix>) => ({
       ...m,
       rows: m.rows.map((r) =>
-        r.label === key ? { ...r, detail: buildActorDetail(auRawByActor.get(key) ?? new Map()) } : r,
+        MERGED_ACTORS.includes(r.label)
+          ? { ...r, detail: buildActorDetail(auRawByActor.get(r.label) ?? new Map()) }
+          : r,
       ),
     });
-    const auModule = withDetail(buildMatrix(auModuleItems), SYSTEM_ACTOR);
-    const auAction = withDetail(buildMatrix(auActionItems), SYSTEM_ACTOR);
+    const auModule = withDetail(buildMatrix(auModuleItems));
+    const auAction = withDetail(buildMatrix(auActionItems));
 
     const noteTotal = [...noteByOwner.values()].reduce((s, v) => s + v.count, 0);
     const noteList = [...noteByOwner.entries()]
@@ -992,6 +1082,8 @@ export class ReportsService {
         undated: sfUndated,
       },
       notes: { total: noteTotal, byOwner: noteList, undated: noteUndated },
+      /** ⑥ 邮件归档 · 手动关联留痕（2026-10-02 起才有数据） */
+      mailLinks: { total: maTotal, byActor: maList, undated: maUndated },
       audit: { total: auModuleItems.length, byModule: auModule, byAction: auAction, skipped: auSkipped },
       meetings: { total: mtList.reduce((s, m) => s + m.count, 0), byHost: mtList, undated: mtUndated },
       /** 口径说明里要展示的：这块数据可能不完整（读失败 / 缺时间字段） */

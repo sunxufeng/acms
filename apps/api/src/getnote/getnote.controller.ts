@@ -395,11 +395,16 @@ export class GetnoteController {
    * 是「在本系统里把它收起来」，**不是删除**；真要删是 `DELETE /getnote/notes/:id`（进上游回收站）。
    * 历史笔记没有状态行 = 有效，所以「激活」只对归档过的笔记有意义（幂等，重复点不出错）。
    *
-   * 权限：复用 `module:getnote:update`（矩阵里的「编辑」列）。
-   * 为什么不为它单开权限点：动作目录是固定 9 个（enter/read/create/update/delete/import/
-   * export/refresh/transition），新增 `transition` 要抬 `ROLE_PERMISSION_VERSION` 并迁移存量角色
-   * （生产角色矩阵是持久化配置，不迁移的话**连系统管理员都不持有新点**，上线即「点了 403」）。
-   * 归档在语义上就是「编辑这条笔记的状态」，归到「编辑」不牵强，且零迁移、零风险。
+   * 权限：**独立权限点 `module:getnoteArchive:update`**（v15，2026-10-02 峰哥：
+   * 「笔记删除和归档权限需要分开」）。改前借用 `module:getnote:update`，
+   * 于是"能编辑"就等于"能归档"，两个动作没法分开授权。
+   * 现在「归档」与「删除」(`module:getnote:delete`) 是两个可分别勾选的授权项。
+   *
+   * ⚠️ 为什么这次能独立成点、而 2026-09-21 那次没做：动作目录固定 9 个，
+   *    新增动作要抬 `ROLE_PERMISSION_VERSION` 并迁移存量角色（不迁移连系统管理员都没新点）。
+   *    现在的做法是**新开一个 subOf 资源**（`getnoteArchive`，`actions: ['read','update']`），
+   *    并让它 `legacyRead = module:getnote:update` ⇒ 抬版本时**随增量迁移发放**给
+   *    所有原本能编辑笔记的角色，**零能力回退**。
    *
    * ⚠️ 声明在 `@Put('notes/:id')` 之前：与既有子路由保持同一惯例（顺序本身不冲突，
    *    路径段数不同，但排前面将来加 `notes/:id/*` 时不会被 :id 吃掉）。
@@ -411,7 +416,7 @@ export class GetnoteController {
     @Body() body: { status?: string; title?: string },
   ) {
     const user = (req as Request & { user: SessionUser }).user;
-    this.assert(user, 'module:getnote:update');
+    this.assert(user, 'module:getnoteArchive:update');
     return this.svc.setNoteStatus(user, id, String(body?.status ?? ''), body?.title);
   }
 

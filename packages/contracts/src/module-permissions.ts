@@ -133,7 +133,7 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *     必须声明 `update` —— 只声明 read 的话矩阵里没有可勾的格，
  *     这个点连 `PERMISSIONS` 目录都不在（`weilingContacts:update` 踩过同一个坑）。
  */
-export const ROLE_PERMISSION_VERSION = 14;
+export const ROLE_PERMISSION_VERSION = 15;
 
 /**
  * 资源「从哪个版本开始存在」。
@@ -193,6 +193,13 @@ export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
   //  **不随迁移发放**，默认只有系统管理员，其他角色由管理员在矩阵里手工勾。
   //  ⚠️ 引入版本必须 == 当次抬的版本号，否则 `(13, 14]` 这段增量覆盖不到它。
   codeRules: 14,
+  // v15（2026-10-02）：「笔记归档 / 激活」独立成点。峰哥：「笔记删除和归档权限需要分开」。
+  //  🔴 `legacyRead = module:getnote:update` ⇒ **随迁移发放**：归档是可逆动作，
+  //    而且原来所有能编辑笔记的人一直在用它，不继承就是一次静默的能力回退。
+  //    （对比 `studentSupportRemove` / `weilingEnroll` / `codeRules` 的 `legacyRead: null`：
+  //      那几个要么破坏性、要么改配置，不能跟着旧点发放。）
+  //  ⚠️ 引入版本必须 == 当次抬的版本号，否则 `(14, 15]` 这段增量覆盖不到它。
+  getnoteArchive: 15,
 };
 
 /** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */
@@ -629,6 +636,39 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
   { key: 'aiAdmin', label: 'AI 用量', path: '/ai/admin', legacyRead: 'ai:admin', legacyWrite: null, menuPermission: 'aiusage:read', actions: READ },
   { key: 'getnote', label: '知识库', path: '/getnote', legacyRead: 'getnote:read', legacyWrite: 'getnote:write', menuPermission: 'getnote:read', actions: [...CRUD, 'import'] },
   { key: 'getnoteSources', label: '知识库配置', path: '/getnote-sources', aliases: ['/getnote/sources', '/export/getnoteSource'], legacyRead: 'getnote:read', legacyWrite: 'getnote:write', menuPermission: 'getnote:write', actions: RECORD },
+  /**
+   * 「笔记归档 / 激活」（v15，2026-10-02 峰哥：「笔记删除和归档权限需要分开」）。
+   *
+   * 改前的状态：**归档借用「编辑」**（`module:getnote:update`，见 getnote.controller 里
+   * `PUT notes/:id/status` 的注释），删除用 `module:getnote:delete`。
+   * 于是"能改标题"就等于"能把笔记收进归档" —— 两个动作的授权没法分开。
+   *
+   * 现在独立成点，「删除」与「归档」成为两个可分别勾选的授权项：
+   *   · 归档 = `module:getnoteArchive:update`（本资源）
+   *   · 删除 = `module:getnote:delete`（保持不变）
+   *
+   * 🔴 `legacyRead: 'module:getnote:update'` —— **必须继承「编辑」**：
+   *    归档是可逆动作（可「激活」回来）、且是原来所有能编辑笔记的人一直在用的能力。
+   *    若不继承，抬版本后 **Phase1–8 等教职工角色全都失去归档能力**（连按钮都没了），
+   *    而他们本来就能归档 ⇒ 那就是一次静默的能力回退。
+   *    （对比 `studentSupportRemove` / `codeRules` 那几个 `legacyRead: null` 的：
+   *      那些要么是破坏性的、要么是配置类，**不能**跟着旧点发放。）
+   *
+   * ⚠️ `actions` 必须**含 `update`**：判据是 `module:getnoteArchive:update`，
+   *    只声明 `read` 的话这个点根本不在 `PERMISSIONS` 目录里，矩阵里没有可勾的格。
+   * ⚠️ `path` 不能与父资源同值（`moduleByPath` 靠数组顺序匹配，重排即串位）⇒ 用假子路径。
+   */
+  {
+    key: 'getnoteArchive',
+    label: '笔记归档',
+    path: '/getnote-archive-action',
+    legacyRead: 'module:getnote:update',
+    legacyWrite: null,
+    menuPermission: null,
+    actions: ['read', 'update'],
+    subOf: 'getnote',
+    genericCrud: false,
+  },
   /**
    * 归属人映射（2026-09-24）：卫瓴「归属人」→ ACMS 用户 的对照表。
    *

@@ -89,6 +89,11 @@ export function ActivityPanel({ from, to }: { from: string; to: string }) {
           >
             口径：<b>登录</b> = 每次成功登录（登录日志表）；<b>操作</b> = 审计日志里的写操作（创建 / 更新 / 删除）。
             系统不记录访问日志与在线时长，所以这是「什么时候登录过、什么时候动过数据」，不是在线时长。
+            <br />
+            <b>操作人已归一</b>（真源是系统用户表的姓名）：同一个人写成「孙旭峰」/
+            「孙旭峰｜Richard」/「Richard」会合成一行；「不是人」的写法合成
+            「系统任务」/「内部账号 · 无署名」/「测试与验证」三行
+            （<b>活跃人数只数真人</b>，不含这三行）。
           </div>
 
           {/* 汇总 */}
@@ -159,7 +164,19 @@ export function ActivityPanel({ from, to }: { from: string; to: string }) {
                   <tbody>
                     {data.byUser.map((u) => (
                       <tr key={u.name}>
-                        <td style={{ padding: '3px 8px', whiteSpace: 'nowrap' }}>{u.name}</td>
+                        {/*
+                          行名后带 `*` 的是「不是人」的合并行（系统任务 / 内部账号 / 测试与验证），
+                          鼠标悬停看它由哪些原始写法合成 —— 与「使用统计」卡同一套归一。
+                        */}
+                        <td
+                          style={{ padding: '3px 8px', whiteSpace: 'nowrap' }}
+                          title={u.detail || u.name}
+                        >
+                          {u.name}
+                          {u.detail ? (
+                            <span style={{ color: 'var(--fg-tertiary)', marginLeft: 4 }}>*</span>
+                          ) : null}
+                        </td>
                         {HOURS.map((h) => (
                           <td key={h} style={{ padding: 0 }}>
                             <div

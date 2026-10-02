@@ -10,7 +10,10 @@
 import { describe, expect, it } from 'vitest';
 import { MODULE_RESOURCES } from '@acms/contracts';
 import {
-  SYSTEM_ACTOR,
+  AUTO_ACTOR,
+  INTERNAL_ACTOR,
+  TEST_ACTOR,
+  classifyNonPersonActor,
   UNFILLED,
   buildActorDetail,
   buildActorNormalizer,
@@ -90,21 +93,45 @@ describe('人员归一（「同一个人三种写法」是这张报表最容易�
   });
 });
 
-describe('系统任务 / 测试账号的识别', () => {
-  it.each(['系统 · 行为告警重算', '系统任务', '验证探针', '探针', '验证', '验证会话', '测试账号', 'forge', 'adm', 'admin', 'cron 同步'])(
-    '%s → 系统组',
-    (raw) => expect(isSystemActor(raw)).toBe(true),
+describe('「不是人」的操作人分流成三个桶（2026-10-02 扩的）', () => {
+  it.each(['系统 · 行为告警重算', '系统任务', '数据导入（飞书学习沟通）', 'cron 同步', 'system:scheduled-tasks'])(
+    '%s → 系统任务（**算真实业务量**）',
+    (raw) => expect(classifyNonPersonActor(raw)).toBe(AUTO_ACTOR),
   );
+
+  it.each(['系统管理员', '系统运维', '管理员', 'admin', 'unknown'])(
+    '%s → 内部账号 · 无署名',
+    (raw) => expect(classifyNonPersonActor(raw)).toBe(INTERNAL_ACTOR),
+  );
+
+  // 这一组是**生产审计全量盘点**出来的写法（不是猜的），见 usage-agg.ts 里的注释
+  it.each(['验证探针', '探针', '验证', '验证会话', '验证管理员', '测试账号', '测试', 'forge', 'forgeadmin', 'adm', 'probe', '部署验证', '验收管理员', 'ou_adminfix', 't', 'p', 'test'])(
+    '%s → 测试与验证（**不是业务量**）',
+    (raw) => expect(classifyNonPersonActor(raw)).toBe(TEST_ACTOR),
+  );
+
+  it('🔴 顺序坑：`系统管理员` 不能被 `系统` 前缀吞进「系统任务」', () => {
+    // 两者都以「系统」开头，必须先判内部账号。混错的代价是把真实业务量算成自动任务。
+    expect(classifyNonPersonActor('系统管理员')).toBe(INTERNAL_ACTOR);
+    expect(classifyNonPersonActor('系统运维')).toBe(INTERNAL_ACTOR);
+    expect(classifyNonPersonActor('系统 · 行为告警重算')).toBe(AUTO_ACTOR);
+  });
 
   it.each(['孙旭峰', '郝瑞玲｜Rin', '刘攀扬｜Amy', 'Arete Developer'])(
-    '%s → 真人（不能被误并进系统组）',
-    (raw) => expect(isSystemActor(raw)).toBe(false),
+    '%s → 真人（不能被误并进任何一个桶）',
+    (raw) => {
+      expect(classifyNonPersonActor(raw)).toBeNull();
+      expect(isSystemActor(raw)).toBe(false);
+    },
   );
 
-  it('归一函数把系统任务折成同一行', () => {
+  it('归一函数按桶折行', () => {
     const norm = buildActorNormalizer(NAMES);
-    expect(norm('验证探针')).toBe(SYSTEM_ACTOR);
-    expect(norm('系统 · 行为告警重算')).toBe(SYSTEM_ACTOR);
+    expect(norm('验证探针')).toBe(TEST_ACTOR);
+    expect(norm('probe')).toBe(TEST_ACTOR);
+    expect(norm('系统管理员')).toBe(INTERNAL_ACTOR);
+    expect(norm('系统 · 行为告警重算')).toBe(AUTO_ACTOR);
+    expect(norm('数据导入（飞书学习沟通）')).toBe(AUTO_ACTOR);
   });
 
   it('明细文本列出各写法与次数（只有一种写法时不显示，避免噪音）', () => {
@@ -175,11 +202,12 @@ describe('矩阵构建', () => {
   it('🔴 维度值是业务文本，**中间的空格必须保留**（去空格只针对人名）', () => {
     // 2026-09-21 上线探针抓到的：`buildMatrix` 误用人员归一函数 ⇒
     // 「系统任务 · 测试」被显示成「系统任务·测试」，「学生记录 · 家校沟通」同理。
+    // （行名 2026-10-02 拆成三个桶，这里改用「内部账号 · 无署名」验证同一件事）
     const m = buildMatrix([
-      { row: '系统任务 · 测试', col: '学生记录 · 家校沟通' },
+      { row: '内部账号 · 无署名', col: '学生记录 · 家校沟通' },
       { row: '甲', col: '日常跟进' },
     ]);
-    expect(m.rows.some((r) => r.label === '系统任务 · 测试')).toBe(true);
+    expect(m.rows.some((r) => r.label === '内部账号 · 无署名')).toBe(true);
     expect(m.cols).toContain('学生记录 · 家校沟通');
   });
 
@@ -217,5 +245,61 @@ describe('审计「业务模块」翻中文名', () => {
   it('空值 → 空串（交给矩阵归到「（未填写）」）', () => {
     expect(resolve('')).toBe('');
     expect(resolve(undefined)).toBe('');
+  });
+});
+
+/**
+ * 🔴 两张卡必须用**同一份**归一（2026-10-02 修的真 bug）。
+ *
+ * 「使用统计」卡早就归一了，但隔壁「活跃时段」卡直接 `bump(l.姓名)` / `bump(a.actor)`
+ * ⇒ 同一个峰哥在活跃时段表里出现成三行（孙旭峰 / 孙旭峰｜Richard / Richard），
+ * 两张卡对同一段时间给出不一样的人数。这类"两张报表口径不一致"的 bug 不会报错，
+ * 只能靠人和测试盯住 —— 所以这里用源码守卫钉死。
+ */
+describe('🔴 活跃时段卡必须走与使用统计卡同一份归一', () => {
+  const readSvc = async () => {
+    const { readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    return readFileSync(path.join(here, '..', 'src', 'reports', 'reports.service.ts'), 'utf8');
+  };
+
+  /** 按**方法边界**切片：从 `async activity(` 到下一个顶层方法（`\n  async ` 或 `\n  private `） */
+  const sliceMethod = (src: string, startMark: string): string => {
+    const at = src.indexOf(startMark);
+    expect(at, `未找到方法起点：${startMark}`).toBeGreaterThan(-1);
+    const rest = src.slice(at + startMark.length);
+    const next = rest.search(/\n  (?:async |private |public |protected )?\w+\(/);
+    return next === -1 ? rest : rest.slice(0, next);
+  };
+
+  /** 剥掉行注释与块注释（`not.toContain` 之前必须做，否则自己的注释会把自己判失败） */
+  const stripComments = (s: string) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('登录日志与审计日志的姓名都过 normalizeActor（不是直接用原始值）', async () => {
+    const body = stripComments(sliceMethod(await readSvc(), 'async activity('));
+    expect(body).toContain('const who = normalizeActor(l.姓名)');
+    expect(body).toContain('const who = normalizeActor(a.actor)');
+    expect(body).toContain('buildActorNormalizer(');
+    // 反证：不得再出现「直接用原始姓名进桶」的老写法
+    expect(body).not.toContain('bump(l.姓名');
+    expect(body).not.toContain('bump(a.actor');
+  });
+
+  it('🔴 「活跃人数」只数真人（三个桶与「未填写」不算人）', async () => {
+    const body = stripComments(sliceMethod(await readSvc(), 'async activity('));
+    expect(body).toContain('activeUsers: personCount');
+    expect(body).toContain('MERGED_ACTORS.includes(u.name)');
+    expect(body).toContain('u.name !== UNFILLED');
+    // 反证：不得再直接用行数当人数（那会把桶虚报成人）
+    expect(body).not.toContain('activeUsers: byUser.length');
+  });
+
+  it('使用统计卡的三行合并行都要补 detail（否则悬停看不到来源）', async () => {
+    const body = stripComments(sliceMethod(await readSvc(), 'async usage('));
+    expect(body).toContain('MERGED_ACTORS.includes(r.label)');
+    expect(body).toContain('buildActorDetail(');
   });
 });

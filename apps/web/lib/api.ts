@@ -1995,7 +1995,8 @@ export const api = {
   studentScopeOptions: () =>
     request<{
       dims: { dim: string; values: { value: string; count: number }[] }[];
-      cross: { 当前年级: string; 当前状态: string; count: number }[];
+      /** 交叉计数是**全维度元组**（2026-10-02 加「入学年级」起）⇒ 按任意已勾选维度组合都能精确算人数 */
+      cross: { 当前年级: string; 当前状态: string; 入学年级: string; count: number }[];
       total: number;
     }>('/students/scope-options'),
   listDepartments: () => request<DepartmentListResult>('/departments'),  /**

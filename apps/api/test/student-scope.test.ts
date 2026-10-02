@@ -121,3 +121,54 @@ describe('studentInScope（维度之间 AND、同一维度 OR）', () => {
     expect(studentInScope({ 当前年级: ['Pre-5', 'Pre-6'], 当前状态: '在校在读' }, scope)).toBe(false);
   });
 });
+
+/**
+ * 🔴 2026-10-02 加了第三个维度「入学年级」（峰哥拍板）。
+ *
+ * 加维度这件事本身很危险：如果判据写成「每个维度都必须命中」，那么**所有已有角色**
+ * 的 `dataScope` 里都没有「入学年级」这一键 ⇒ 立刻变成"一条都看不到"。
+ * 下面的断言就是钉住这件事：**未配置的维度 = 不限制**（老配置零影响）。
+ */
+describe('🔴 加维度「入学年级」不得影响已有配置', () => {
+  it('维度清单里有「入学年级」，且顺序是 当前年级 → 当前状态 → 入学年级', async () => {
+    const { ROLE_SCOPE_DIMS } = await import('@acms/contracts');
+    expect([...ROLE_SCOPE_DIMS]).toEqual(['当前年级', '当前状态', '入学年级']);
+  });
+
+  it('🔴 老配置（不含「入学年级」键）⇒ 该维度不限制：记录有没有这一栏都可见', () => {
+    const old = { 当前年级: ['Pre-1'], 当前状态: ['在校在读'] };
+    // 有「入学年级」
+    expect(studentInScope({ ...REC, 入学年级: 'Pre-1' }, old)).toBe(true);
+    // 没有「入学年级」这一栏 —— 老配置下也必须可见（否则一加维度就把人挡住了）
+    expect(studentInScope({ ...REC }, old)).toBe(true);
+  });
+
+  it('配了「入学年级」⇒ 过滤生效；记录该维度为空则不可见', () => {
+    const s = { 入学年级: ['Pre-3'] };
+    expect(studentInScope({ 入学年级: 'Pre-3' }, s)).toBe(true);
+    expect(studentInScope({ 入学年级: 'Pre-1' }, s)).toBe(false);
+    expect(studentInScope({}, s)).toBe(false);
+  });
+
+  it('新维度参与 AND，且与其它维度同源判断', () => {
+    const s = { 当前状态: ['在校在读'], 入学年级: ['Pre-3'] };
+    expect(studentInScope({ 当前状态: '在校在读', 入学年级: 'Pre-3' }, s)).toBe(true);
+    expect(studentInScope({ 当前状态: '在校在读', 入学年级: 'Pre-1' }, s)).toBe(false);
+    expect(studentInScope({ 当前状态: '已毕业', 入学年级: 'Pre-3' }, s)).toBe(false);
+  });
+
+  it('🔴 「所有维度都空」在**配置层**就被归一成 null（fail-closed 的支点不在 studentInScope）', () => {
+    // ① 配置层：全空 ⇒ null；而 null 的语义是"看不到任何学生"（调用方负责处理）
+    expect(normalizeScope({ 入学年级: [] })).toBeNull();
+    expect(normalizeRoleScope({ 入学年级: [] })).toBeNull();
+    expect(mergeRoleScopes([{ 当前年级: [] }, { 入学年级: [] }])).toBeNull();
+    // ② 显式 deny 标记不是"全空"，是"一条都不可见"
+    expect(isDenyAll(SCOPE_DENY_ALL)).toBe(true);
+    // ③ ⚠️ 别把两者混了：**对象层面**的全空仍算"不限制"（这是 2026-09-18 之前的老语义，
+    //    保留给内部调用），所以下面这条是 true —— 真正挡住人的是上游把配置归一成了 null
+    expect(isScopeUnrestricted({ 入学年级: [] })).toBe(true);
+    expect(studentInScope({ 入学年级: 'Pre-1' }, {})).toBe(true);
+    // 加维度后这条区分依然成立：只要有一个维度配了值，就不是"全空"
+    expect(normalizeScope({ 入学年级: ['Pre-3'] })).toEqual({ 入学年级: ['Pre-3'] });
+  });
+});

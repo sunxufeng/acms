@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { RoleDef } from '@acms/contracts';
+import { ROLE_SCOPE_DIMS, type RoleDef, type RoleScopeDim } from '@acms/contracts';
 import { api } from '../lib/api';
 import { useTl } from '../lib/useTl';
 import { LEVEL_OPTS, STATUS_OPTS, TEACHER_TYPE_FALLBACK } from '../app/users/constants';
@@ -46,10 +46,11 @@ export default function UserForm({ row, onDone }: UserFormProps) {
    * 角色级表达不了「各自只看自己班」，必须能在人这一级单独配。
    */
   const [scopeMode, setScopeMode] = useState<'role' | 'all' | 'custom'>('role');
-  const [scopeSel, setScopeSel] = useState<{ 当前年级?: string[]; 当前状态?: string[] }>({});
+  const [scopeSel, setScopeSel] = useState<Partial<Record<RoleScopeDim, string[]>>>({});
   const [scopeOpts, setScopeOpts] = useState<{
     dims: { dim: string; values: { value: string; count: number }[] }[];
-    cross: { 当前年级: string; 当前状态: string; count: number }[];
+    /** 交叉计数是**全维度元组**（2026-10-02 加「入学年级」起） */
+    cross: { 当前年级: string; 当前状态: string; 入学年级: string; count: number }[];
     total: number;
   } | null>(null);
 
@@ -103,7 +104,9 @@ export default function UserForm({ row, onDone }: UserFormProps) {
 
   /** 编辑态回显人级范围；新建默认「跟随角色」 */
   useEffect(() => {
-    const raw = row?.['学生档案范围'] as { mode?: string; scope?: { 当前年级?: string[]; 当前状态?: string[] } } | undefined;
+    const raw = row?.['学生档案范围'] as
+      | { mode?: string; scope?: Partial<Record<RoleScopeDim, string[]>> }
+      | undefined;
     if (raw && typeof raw === 'object') {
       const mode = raw.mode === 'all' || raw.mode === 'custom' ? raw.mode : 'role';
       setScopeMode(mode);
@@ -181,7 +184,7 @@ export default function UserForm({ row, onDone }: UserFormProps) {
        * 避免「配了自定义却什么都没选」被误判成一条都看不到。
        */
       if (scopeMode === 'all') payload['学生档案范围'] = { mode: 'all' };
-      else if (scopeMode === 'custom' && (scopeSel.当前年级?.length || scopeSel.当前状态?.length)) {
+      else if (scopeMode === 'custom' && ROLE_SCOPE_DIMS.some((d) => (scopeSel[d] ?? []).length)) {
         payload['学生档案范围'] = { mode: 'custom', scope: scopeSel };
       } else payload['学生档案范围'] = { mode: 'role' };
 
@@ -319,7 +322,7 @@ export default function UserForm({ row, onDone }: UserFormProps) {
                     <div style={{ fontSize: 'var(--font-xs)', color: 'var(--fg-secondary)', paddingTop: 4 }}>{tl(d.dim)}</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       {d.values.map((v) => {
-                        const dim = d.dim as '当前年级' | '当前状态';
+                        const dim = d.dim as RoleScopeDim;
                         const on = (scopeSel[dim] ?? []).includes(v.value);
                         return (
                           <label

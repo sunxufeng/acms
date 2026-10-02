@@ -12,9 +12,11 @@ import {
   normalizeRoleScope,
   normalizeUserScopeEntry,
   SCOPE_DENY_ALL,
+  STUDENT_SCOPE_DIMS,
   studentInScope,
   type RoleScopeCfg,
   type StudentScope,
+  type StudentScopeDim,
   type UserScopeEntry,
 } from './student-scope.js';
 
@@ -278,14 +280,20 @@ export class StudentScopeService {
     this.userCfgCache = null;
   }
 
-  /** 学生范围候选值（当前年级 / 当前状态 + 人数 + 两维交叉计数），供配置界面用 */
+  /**
+   * 学生范围候选值（各维度实际值 + 人数 + **全维度交叉计数**），供配置界面用。
+   *
+   * 🔴 交叉计数必须是**所有维度**的元组（2026-10-02 加「入学年级」时改的）：
+   *    预览要按「任意组合的已勾选维度」精确算可见人数，而维度间是 AND ⇒
+   *    只给「当前年级 × 当前状态」两维的话，用户**只勾「入学年级」**时就估不出人数了。
+   */
   async options(): Promise<{
     dims: { dim: string; values: { value: string; count: number }[] }[];
-    cross: { 当前年级: string; 当前状态: string; count: number }[];
+    cross: (Record<StudentScopeDim, string> & { count: number })[];
     total: number;
   }> {
     const rows = await this.allStudents();
-    const dims = ['当前年级', '当前状态'];
+    const dims = STUDENT_SCOPE_DIMS;
     const out = dims.map((dim) => {
       const m = new Map<string, number>();
       for (const r of rows) {
@@ -301,17 +309,21 @@ export class StudentScopeService {
     });
     const crossMap = new Map<string, number>();
     for (const r of rows) {
-      const g = String(r.rec['当前年级'] ?? '').trim();
-      const s = String(r.rec['当前状态'] ?? '').trim();
-      if (!g && !s) continue;
-      const k = `${g}\u0000${s}`;
+      const tup = dims.map((d) => String(r.rec[d] ?? '').trim());
+      // 所有维度全空的记录不进交叉表（它任何组合都命中不了，留着只会让预览算错）
+      if (tup.every((v) => !v)) continue;
+      const k = tup.join('\u0000');
       crossMap.set(k, (crossMap.get(k) ?? 0) + 1);
     }
     return {
       dims: out,
       cross: Array.from(crossMap.entries()).map(([k, count]) => {
-        const [g = '', s = ''] = k.split('\u0000');
-        return { 当前年级: g, 当前状态: s, count };
+        const parts = k.split('\u0000');
+        const row = { count } as Record<StudentScopeDim, string> & { count: number };
+        dims.forEach((d, i) => {
+          row[d] = parts[i] ?? '';
+        });
+        return row;
       }),
       total: rows.length,
     };

@@ -14,6 +14,8 @@ import {
   sameDataScope,
   isScopeDenyAll,
   type RoleDataScope,
+  ROLE_SCOPE_DIMS,
+  type RoleScopeDim,
   DEFAULT_NAV_MENU_CONFIG,
   type NavMenuConfig,
   type NavMenuGroup,
@@ -183,10 +185,10 @@ export default function RoleManagementPage() {
   const [menuQuery, setMenuQuery] = useState('');
   /** 权限分配视图：矩阵（菜单×操作）/ 列表（按模块）—— 两者同一集合，只是呈现不同 */
   const [permView, setPermView] = useState<'matrix' | 'list'>('matrix');
-  /** 学生范围候选值（实际数据值 + 人数 + 交叉计数），进页面拉一次 */
+  /** 学生范围候选值（实际数据值 + 人数 + **全维度**交叉计数），进页面拉一次 */
   const [scopeOpts, setScopeOpts] = useState<{
     dims: { dim: string; values: { value: string; count: number }[] }[];
-    cross: { 当前年级: string; 当前状态: string; count: number }[];
+    cross: { 当前年级: string; 当前状态: string; 入学年级: string; count: number }[];
     total: number;
   } | null>(null);
   /**
@@ -623,17 +625,17 @@ export default function RoleManagementPage() {
    * 🔴 两个维度都取消勾选 ⇒ 收敛为 `undefined`，语义是**一条都看不到**（不是不限制）。
    *    要「看全部」请用上面的「不限制（看全部学生）」开关。
    */
-  function toggleScopeDim(dim: '当前年级' | '当前状态', value: string) {
+  function toggleScopeDim(dim: RoleScopeDim, value: string) {
     if (!draft || draft.lockedPermissions) return;
     setDraft((prev) => {
       if (!prev) return prev;
       const ds = typeof prev.dataScope === 'object' ? prev.dataScope : undefined;
       const cur = ds?.[dim] ?? [];
       const next = cur.includes(value) ? cur.filter((x) => x !== value) : [...cur, value];
-      const scope: { 当前年级?: string[]; 当前状态?: string[] } = { ...(ds ?? {}) };
+      const scope: Partial<Record<RoleScopeDim, string[]>> = { ...(ds ?? {}) };
       if (next.length) scope[dim] = next;
       else delete scope[dim];
-      // 两个维度都空 ⇒ 收敛成 undefined（= 一条都看不到），与 role-scope.ts 的判据同源
+      // 所有维度都空 ⇒ 收敛成 undefined（= 一条都看不到），与 role-scope.ts 的判据同源
       return { ...prev, dataScope: isScopeDenyAll(scope) ? undefined : scope };
     });
   }
@@ -649,18 +651,28 @@ export default function RoleManagementPage() {
 
   /**
    * 预览：按当前 draft 的范围算「可见学生数」。
-   * 用后端给的「当前年级 × 当前状态」**交叉计数**精确算 —— 两个维度是 AND，不能把各维度人数相加。
-   * 未配置的维度视为不限制（该维度全部算命中）；**两个维度都空 = 0 人**（不是全部）。
+   * 用后端给的**全维度交叉计数**精确算 —— 维度之间是 AND，不能把各维度人数相加。
+   * 未配置的维度视为不限制（该维度全部算命中）；**所有维度都空 = 0 人**（不是全部）。
+   *
+   * 🔴 判据必须与后端 `studentInScope()` **逐字同构**（2026-10-02 加维度时改成按维度的通用判断）：
+   *    要求了某维度、但这条记录该维度为空 ⇒ **不可见**（宁可少看，不可漏看）。
+   *    原来只写死两个维度，加「入学年级」后只勾它就会算错。
    */
   const scopePreview = useMemo(() => {
     if (!scopeOpts) return null;
     const ds = draft?.dataScope;
     if (ds === 'all') return scopeOpts.total;
     if (isScopeDenyAll(ds)) return 0;
-    const g = (typeof ds === 'object' ? ds?.当前年级 : undefined) ?? [];
-    const s = (typeof ds === 'object' ? ds?.当前状态 : undefined) ?? [];
+    const picked = typeof ds === 'object' && ds ? ds : {};
     return scopeOpts.cross
-      .filter((r) => (!g.length || g.includes(r.当前年级)) && (!s.length || s.includes(r.当前状态)))
+      .filter((r) =>
+        ROLE_SCOPE_DIMS.every((d) => {
+          const want = picked[d] ?? [];
+          if (!want.length) return true; // 该维度未限制
+          const have = String(r[d] ?? '').trim();
+          return !!have && want.includes(have);
+        }),
+      )
       .reduce((sum, r) => sum + r.count, 0);
   }, [scopeOpts, draft?.dataScope]);
 
@@ -1567,7 +1579,7 @@ export default function RoleManagementPage() {
                     <div style={{ fontSize: 'var(--font-sm)', color: 'var(--fg-secondary)', paddingTop: 4 }}>{d.dim}</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       {d.values.map((v) => {
-                        const dim = d.dim as '当前年级' | '当前状态';
+                        const dim = d.dim as RoleScopeDim;
                         // dataScope 可能是字符串 'all'，必须先收窄再取维度
                         const ds = typeof draft.dataScope === 'object' ? draft.dataScope : undefined;
                         const on = (ds?.[dim] ?? []).includes(v.value);

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ACMS 教学域下拉 · 字典对照表（2026-09-20）</title>
+<style>
+  :root {
+    --fg: #1f2430; --fg-2: #5a6472; --fg-3: #8b95a5;
+    --bg: #ffffff; --bg-alt: #f6f8fa; --border: #e3e7ee;
+    --accent: #0f9d8f; --accent-soft: #e6f6f4;
+    --warn: #b45309; --warn-soft: #fef6e7; --danger: #b42318; --danger-soft: #fef3f2;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg-alt); color: var(--fg);
+    font: 15px/1.75 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+  .sheet { max-width: 980px; margin: 0 auto; background: var(--bg); padding: 48px 56px 72px;
+    box-shadow: 0 1px 3px rgba(16,24,40,.06), 0 12px 32px rgba(16,24,40,.06); }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: .2px; }
+  h2 { font-size: 19px; margin: 40px 0 12px; padding-bottom: 8px; border-bottom: 2px solid var(--accent-soft); }
+  h3 { font-size: 15.5px; margin: 24px 0 8px; color: var(--accent); }
+  p { margin: 8px 0; }
+  .lead { color: var(--fg-2); font-size: 14.5px; }
+  code { background: var(--accent-soft); color: #0b6b62; padding: 1px 6px; border-radius: 5px;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; }
+  th, td { border: 1px solid var(--border); padding: 9px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--bg-alt); font-weight: 600; white-space: nowrap; }
+  td.k { font-weight: 600; white-space: nowrap; }
+  .vals { font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #0b6b62; }
+  .tag { display: inline-block; font-size: 11.5px; padding: 1px 7px; border-radius: 999px; margin-right: 4px; white-space: nowrap; }
+  .t-ok { background: var(--accent-soft); color: #0b6b62; }
+  .t-warn { background: var(--warn-soft); color: var(--warn); }
+  .t-danger { background: var(--danger-soft); color: var(--danger); }
+  blockquote { margin: 14px 0; padding: 12px 16px; border-radius: 0 8px 8px 0; font-size: 14px; }
+  .b-warn { background: var(--warn-soft); border-left: 3px solid #e6a23c; color: #6b4a10; }
+  .b-danger { background: var(--danger-soft); border-left: 3px solid #f04438; color: #7a271a; }
+  .b-info { background: var(--bg-alt); border-left: 3px solid var(--border); color: var(--fg-2); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+  @media print { body { background: #fff; } .sheet { box-shadow: none; padding: 0 12px; }
+    h2 { page-break-after: avoid; } table, blockquote { page-break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<h1>教学域下拉 · 字典对照表</h1>
+<p class="lead">2026-09-20 交付。本次把七个页面里「要手打 / 写死」的下拉改成可选，数据来源统一。
+这张表说明：<strong>每个下拉现在读哪里、可选值有哪些、能不能自己改、改了要注意什么</strong>。</p>
+
+<blockquote class="b-info">
+<strong>一句话总览</strong>：教学域的枚举分成两类 ——「<strong>展示口径</strong>」（想怎么改都行，
+在「字典管理」页自助维护）和「<strong>判据口径</strong>」（值就是系统判定用的字面量，改文案会让口径失效）。
+后者已用代码兜底，不会算错，但你会看到「该档位没生效」。
+</blockquote>
+
+<h2>一、新增的 8 个字典 key（在「字典管理」页可编辑）</h2>
+<table>
+  <thead>
+    <tr><th>字典 key</th><th>可选值</th><th>用在哪</th><th>能否自行修改</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="k">学年</td>
+      <td class="vals">2020学年 … 2030学年（11 项）</td>
+      <td>成绩批次 · 课程规划</td>
+      <td><span class="tag t-ok">随便改</span>要增删年份直接在这里加减</td>
+    </tr>
+    <tr>
+      <td class="k">教学学期</td>
+      <td class="vals">第一学期 / 第二学期 / 全学年</td>
+      <td>成绩批次 · 课程规划</td>
+      <td><span class="tag t-ok">随便改</span>但与成绩批次表的字段枚举保持一致更省心</td>
+    </tr>
+    <tr>
+      <td class="k">行为类型</td>
+      <td class="vals">正向 / 负向</td>
+      <td>行为记录</td>
+      <td><span class="tag t-warn">别改文案</span>这两个值参与告警累计口径（只有「负向」计入告警）</td>
+    </tr>
+    <tr>
+      <td class="k">评语标签</td>
+      <td class="vals">通用 / 鼓励 / 进步 / 提醒 / 待改进</td>
+      <td>常用评语库</td>
+      <td><span class="tag t-ok">随便改</span>新标签直接加，旧标签删掉不影响历史评语</td>
+    </tr>
+    <tr>
+      <td class="k">适用范围</td>
+      <td class="vals">全校 / 学习领域</td>
+      <td>学习成果</td>
+      <td><span class="tag t-warn">别改文案</span>它决定「按年级适用」还是「按部门（学科组）适用」</td>
+    </tr>
+    <tr>
+      <td class="k">舍入口径</td>
+      <td class="vals">四舍五入 / 保留1位小数 / 向上取整 / 向下取整 / 不处理</td>
+      <td>成绩批次（期末结转）</td>
+      <td><span class="tag t-danger">改文案会让口径失效</span>见下方说明</td>
+    </tr>
+    <tr>
+      <td class="k">免考处理</td>
+      <td class="vals">不计入分母 / 计0分</td>
+      <td>成绩批次（期末结转）</td>
+      <td><span class="tag t-danger">改文案会让口径失效</span></td>
+    </tr>
+    <tr>
+      <td class="k">缺考处理</td>
+      <td class="vals">计0分 / 不计入分母</td>
+      <td>成绩批次（期末结转）</td>
+      <td><span class="tag t-danger">改文案会让口径失效</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<blockquote class="b-danger">
+<strong>为什么会「失效」（已做兜底，不会算错，但你会感觉没生效）</strong><br />
+舍入 / 免考 / 缺考这三档是服务端按<strong>文字本身</strong>判定的（代码里写的是
+「等于『不计入分母』就免考不算分母」）。所以谁把「不计入分母」改成「不计分母」，
+系统就认不出这一档了 —— 它不会报错，而是<strong>回落到「成绩口径设置」页里的全局值</strong>。<br />
+本次已加防护（<code>pickMode</code>）：认不出的值一律回落，<strong>绝不会出现「免考反而拉低总评」这种反向结果</strong>。
+要加档位或改名字，得先改服务端常量（`exam-grade/exam-grade.logic.ts`），跟我说一声即可。
+</blockquote>
+
+<h2>二、没有进字典、但也是「可选」的字段</h2>
+<table>
+  <thead><tr><th>字段</th><th>数据来源</th><th>为什么不用字典</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="k">考核类型<br />（成绩类型权重<br />+ 成绩册 · 新建考核列）</td>
+      <td><strong>「考核类型」表</strong> —— 也就是你刚配好的 5 条：<br />
+        日常练习 / 平时成绩 / 实践课程 / 月考 / 期末考试</td>
+      <td>
+        它是<strong>真业务配置</strong>（带缺省权重、是否计入总评、颜色），而且第二层权重是按
+        <strong>类型名称逐字匹配</strong>的。放一份到字典就是两份名单：在「考核类型」页改名后
+        权重会<strong>静默不生效</strong>（总评看着就是没加权）。<br />
+        下拉顺序 = 表上的「排序」字段，没填时按缺省权重升序（日常练习 → 期末考试）。<br />
+        <strong>成绩册 · 新建考核列</strong>里是同一份下拉，括号里会标出
+        <strong>该类型在本班的权重</strong>（如「期末考试（本班权重 55）」；本班没配则显示缺省权重）。
+      </td>
+    </tr>
+    <tr>
+      <td class="k">班级 / 适用年级</td>
+      <td>字典 <code>当前年级</code>（Foundation / Pre-1 / Pre-2 / Pre-3 / 大一 / 未来企业家班 …）</td>
+      <td>—（复用学生档案的同一份名单，保证与成绩册分组一致）</td>
+    </tr>
+    <tr>
+      <td class="k">状态类字段</td>
+      <td>仍写在代码里（批次：草稿 / 已发布；评语：启用 / 停用）</td>
+      <td>它们是<strong>流程值</strong>不是运营枚举，改了会让状态机对不上</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>三、「考核类型」的下拉为什么不读「成绩类型权重」表</h2>
+<blockquote class="b-warn">
+常见的直觉是：成绩册建列时要选考核类型，而「成绩类型权重」里就是「班级 × 考核类型 → 权重」，
+那候选就该从那里取。<strong>实测下来这样会让功能不可用</strong>：
+权重表是<strong>按班级配的</strong>，目前只有「全球领航计划」配了 5 条，
+Pre-1 / Pre-2 / Foundation 等班<strong>一条都没有</strong> —— 拿它当候选，这些班打开「新建考核列」
+会看到一个<strong>空下拉</strong>，反而建不了列。
+</blockquote>
+<p>正确的分工是两张表各管一件事：</p>
+<table>
+  <thead><tr><th>要回答的问题</th><th>看哪里</th></tr></thead>
+  <tbody>
+    <tr><td><strong>有哪些考核类型</strong>（下周要不要加「期中小测」）</td>
+      <td>「考核类型」页 —— 这里加一条，两个下拉同时多一个选项</td></tr>
+    <tr><td><strong>每类在某班占多少分</strong>（如某班期末占 55）</td>
+      <td>「成绩类型权重」页 —— 没配的班用「考核类型」页上的<strong>缺省权重</strong>兜底</td></tr>
+  </tbody>
+</table>
+<p class="lead">所以成绩册建列时是<strong>从类型表选</strong>、同时把<strong>本班权重标在括号里</strong>，
+既不会出现空下拉，也不用再跳去权重页对照。</p>
+
+<h2>四、四处「顺带变好」的地方</h2>
+<p>下面这几个字段原来是<strong>自由文本</strong>，写法一不统一就会「按它检索/聚合时对不上」。现在都变成下拉：</p>
+<table>
+  <thead><tr><th>页面</th><th>字段</th><th>原来的问题</th></tr></thead>
+  <tbody>
+    <tr><td>成绩类型权重</td><td>班级、类型</td><td>类型要手打，与「考核类型」页写法差一个字就<strong>权重不生效</strong></td></tr>
+    <tr><td>成绩批次</td><td>学年</td><td>自由文本（可能写成 2026-2027 或 2026学年，两种都对不上）</td></tr>
+    <tr><td>课程规划</td><td>学年</td><td>同上，且按学年检索只能走顶部搜索框</td></tr>
+    <tr><td>学习成果</td><td>适用年级</td><td>原来用的是「幼儿园 / 一年级 / … / 高三」这套 K12 年级，与本校口径并不一致</td></tr>
+  </tbody>
+</table>
+<p class="lead">另外这四处的<strong>筛选框</strong>也从「输一半筛不到」（文本精确匹配）变成了下拉。</p>
+
+<h2>五、自查清单（改完想知道有没有生效）</h2>
+<ol>
+  <li>「字典管理」页 → 找到对应 key → 看候选值是不是你想要的（新加的 8 个 key 都在里面）。</li>
+  <li>打开对应页面 → 新建 → 该字段应该是<strong>下拉</strong>，且候选与字典一致。</li>
+  <li>存一条 → 列表里显示的值应与所选一致（历史记录不会被改写）。</li>
+  <li>若是「舍入 / 免考 / 缺考」三档：改完到「考试与成绩」跑一次结转预览，
+      确认总评数字符合预期（这是唯一能看出「口径有没有生效」的地方）。</li>
+</ol>
+
+<hr />
+<p class="lead">交付记录：<code>a266ee2</code>（七个页面 + 字典 8 key + 口径归一）、<code>7ff8a4c</code>（类型候选排序）、
+<code>e018b0c</code>（成绩册考核类型改下拉 + 标出本班权重）；
+后端 263 项测试全绿；线上已验证 8 个 key 取值、类型候选与「考核类型」页逐条对账、权重/批次/目标建改读回。</p>
+
+</div>
+</body>
+</html>

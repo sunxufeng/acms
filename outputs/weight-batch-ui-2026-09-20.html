@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>成绩类型权重 · 批量录入新交互 · 2026-09-20</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --fg:#1c1f23; --fg2:#5b6470; --border:#e3e6ea;
+    --accent:#2f6bd8; --accent-soft:#eaf1fd; --ok:#12805c; --okbg:#e8f6f1;
+    --warn:#b06a00; --warnbg:#fdf3e3; --code:#f2f4f7; --muted:#8b95a1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 24px 72px}
+  h1{font-size:26px;margin:0 0 6px}
+  .sub{color:var(--fg2);font-size:14px;margin-bottom:26px}
+  h2{font-size:19px;margin:34px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border)}
+  h3{font-size:15px;margin:20px 0 8px}
+  p{margin:10px 0}
+  code{background:var(--code);padding:1px 6px;border-radius:5px;font-size:13px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  ul{margin:8px 0 8px 20px;padding:0}
+  li{margin:6px 0}
+  .muted{color:var(--fg2);font-size:13px}
+  .box{border-left:4px solid var(--accent);background:#f4f8ff;padding:14px 16px;border-radius:0 10px 10px 0;margin:14px 0}
+  .box.warn{border-color:var(--warn);background:var(--warnbg)}
+  .box.ok{border-color:var(--ok);background:var(--okbg)}
+  .box p:first-child{margin-top:0}.box p:last-child{margin-bottom:0}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:var(--code);font-weight:600;font-size:13px;color:var(--fg2)}
+
+  /* ── 界面示意 ── */
+  .mock{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:16px 0}
+  .mock-hd{padding:14px 18px;border-bottom:1px solid var(--border)}
+  .mock-hd h4{margin:0;font-size:17px}
+  .mock-hd p{margin:4px 0 0;font-size:12.5px;color:var(--fg2)}
+  .mock-bd{padding:14px 18px}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:12px 14px;
+    background:var(--code);border:1px solid var(--border);border-radius:10px;margin-bottom:12px}
+  .fld{display:flex;flex-direction:column;gap:5px;min-width:150px}
+  .fld span{font-size:12px;font-weight:600;color:var(--fg2)}
+  .fld .ctrl{background:#fff;border:1px solid var(--border);border-radius:7px;padding:6px 9px;font-size:13.5px}
+  .fld .ctrl.sel::after{content:' ▾';color:var(--muted)}
+  .btnbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;
+    background:var(--code);border:1px solid var(--border);border-radius:10px;margin-bottom:10px}
+  .btnx{border:1px solid var(--border);background:#fff;border-radius:7px;padding:5px 11px;font-size:13px}
+  .btnx.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .btnx.ghost{background:transparent;color:var(--fg2)}
+  table.mock-tb{width:100%;border-collapse:collapse;font-size:13.5px;margin:0}
+  .mock-tb th{background:var(--code);font-size:12px;padding:7px 9px}
+  .mock-tb td{padding:7px 9px;border-bottom:1px solid var(--border)}
+  .mock-tb tr.dim{opacity:.5}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px}
+  .inp{background:#fff;border:1px solid var(--border);border-radius:6px;padding:4px 8px;width:78px;font-size:13.5px}
+  .step{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;border-radius:50%;
+    background:var(--accent);color:#fff;font-size:12px;font-weight:700;margin-right:7px}
+  .foot{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color:var(--fg2);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>成绩类型权重 · 批量录入新交互</h1>
+  <div class="sub">2026-09-20 · 提交 <code>d478c5d</code> · 部署 BUILD_ID <code>a1gxMnLdbpLCV1v7HEYPY</code>（槽 3002/3102）</div>
+
+  <div class="box">
+    <p><strong>原来：</strong>一条一条建（选班 → 选类型 → 填权重 → 保存 ×N）。一个班 7 个考核类型要点 20 多次，
+    而且<strong>容易漏</strong> —— 漏一个类型，那一类就按缺省权重算，不报错、也没提示。</p>
+    <p><strong>现在：</strong><span class="step">1</span>选班级 → <span class="step">2</span>选考核类型组 →
+    <span class="step">3</span>勾选类型（默认全选）→ <span class="step">4</span>填统一权重 → <span class="step">5</span>保存。
+    <strong>配完一组大约 3 次点击。</strong></p>
+  </div>
+
+  <h2>界面示意</h2>
+
+  <div class="mock">
+    <div class="mock-hd">
+      <h4>成绩类型权重</h4>
+      <p>权重的第二层：某一行的权重 = 列上的「列权重」× 本表「班级 × 考核类型」的权重</p>
+    </div>
+    <div class="mock-bd">
+
+      <div class="bar">
+        <div class="fld">
+          <span>班级</span>
+          <div class="ctrl sel">全球领航计划</div>
+        </div>
+        <div class="fld">
+          <span>考核类型组</span>
+          <div class="ctrl sel">致极考核组-2026</div>
+        </div>
+        <div class="fld" style="flex:1;min-width:220px">
+          <span>&nbsp;</span>
+          <p class="muted" style="margin:0;font-size:12px">选定组后，下面列出该组下的考核类型（停用的组不可选）</p>
+        </div>
+      </div>
+
+      <div class="btnbar">
+        <div class="btnx ghost">全选</div>
+        <div class="btnx ghost">全不选</div>
+        <span class="muted" style="font-size:12px">已选 7 / 7</span>
+        <span style="flex:1"></span>
+        <div class="fld" style="min-width:96px">
+          <span style="font-size:12px">统一权重</span>
+          <div class="ctrl">20</div>
+        </div>
+        <div class="btnx">填入选中项</div>
+        <div class="btnx primary">保存选中的 7 项</div>
+      </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 12px">
+        「填入选中项」只填输入框、<strong>不落库</strong>；确认无误再点「保存」。未勾选的类型不会被改动。</p>
+
+      <table class="mock-tb">
+        <thead>
+          <tr><th style="width:38px"></th><th>考核类型</th><th style="width:120px">权重</th><th style="width:170px">当前实际</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>☑</td><td><span class="dot" style="background:#36CFC9"></span>期末考试</td>
+              <td><span class="inp">20</span></td><td class="muted">本班已设 55</td></tr>
+          <tr><td>☑</td><td><span class="dot" style="background:#FFA940"></span>期中考试</td>
+              <td><span class="inp">20</span></td><td class="muted">未设 · 按缺省 20</td></tr>
+          <tr><td>☑</td><td><span class="dot" style="background:#9254DE"></span>PBL</td>
+              <td><span class="inp">20</span></td><td class="muted">未设 · 按缺省 15</td></tr>
+          <tr class="dim"><td>☐</td><td><span class="dot" style="background:#40A9FF"></span>课堂参与
+              <span class="muted" style="font-size:11px">· 不计入总评</span></td>
+              <td><span class="inp">5</span></td><td class="muted">未设 · 按缺省 5</td></tr>
+        </tbody>
+      </table>
+      <p class="muted" style="font-size:12px;margin:10px 0 0">
+        改某一行的数字会<strong>自动勾上</strong>那一行（手都伸到这一行了，多半就是要写它）；
+        右侧的「当前实际」让你一眼知道现在按多少算。</p>
+    </div>
+  </div>
+
+  <h2>几个刻意的设计</h2>
+  <table>
+    <thead><tr><th style="width:190px">点</th><th>为什么</th></tr></thead>
+    <tbody>
+      <tr><td><strong>先填框、后保存</strong></td>
+        <td>批量写最怕一次改错一大批。「填入选中项」只改输入框、<strong>不落库</strong>，
+        确认后再点保存 —— 与作业同步「先预览后确认」同一条原则。</td></tr>
+      <tr><td><strong>每行可单独改</strong></td>
+        <td>统一值只是起点，个别类型（比如期末）常常要单独调。改动时自动勾上该行。</td></tr>
+      <tr><td><strong>显示「当前实际」</strong></td>
+        <td>「本班已设 55」/「未设 · 按缺省 20」—— 否则你不知道现在到底按多少算。</td></tr>
+      <tr><td><strong>默认全选</strong></td>
+        <td>最常见的意图就是「给这一组统配一遍」。未勾选的一律不动，不会误伤。</td></tr>
+      <tr><td><strong>保存串行写</strong></td>
+        <td>同一张表并发 create/update 容易出现「读-改-写」互相覆盖。</td></tr>
+      <tr><td><strong>停用组不可选</strong></td>
+        <td>与刚上的规则一致（停用 = 不许再选）。要改这些类型的旧配置，先启用组，
+        或者用下方「已配置的权重」里的删除。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warn">
+    <p><strong>三个口径仍然写在页面上（配错都是静默的）：</strong></p>
+    <ul>
+      <li>匹配用的是<strong>「班级」文本</strong>，不是「教学班」：只填教学班 ⇒ 权重静默不生效。</li>
+      <li><strong>不必凑 100</strong>：汇总的分母是「实际参与项的权重和」（自归一化）。写成 40/30/20/10 更好读。</li>
+      <li>考核类型名是<strong>逐字匹配的键</strong>：候选来自「考核类型」表，改名会让权重静默失效。</li>
+    </ul>
+  </div>
+
+  <h2>验证</h2>
+  <div class="box ok">
+    <ul>
+      <li>三条读链路（组下拉 / 按组筛类型 / 按班级筛权重）均通 ✅</li>
+      <li>走了一遍真实的「新建 → 读回 → 更新 → 读回 → 删除」⇒ 删除后列表<strong>真的归零</strong>（归档对界面生效）✅</li>
+      <li>体检：权重行的「类型」与考核类型表<strong>全部对得上</strong>（无失效权重行）✅</li>
+      <li>探针数据 0 残留 · 272 项测试全绿 ✅</li>
+    </ul>
+    <p class="muted">⚠️ 仍拿不到页面截图（本机 443 已知 EIP 间歇问题）。麻烦刷新看一眼新界面是否符合你的预期，
+    不合适的地方我接着调。</p>
+  </div>
+
+  <div class="foot">ACMS · 教学管理 › 成绩类型权重 · 已推 GitHub（<code>d478c5d</code> / <code>9c2f703</code>）并部署到生产。</div>
+</div>
+</body>
+</html>

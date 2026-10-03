@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ACMS 教学管理 · 成绩录入与期末合成指导书</title>
+<style>
+  :root { --fg:#1f2430; --fg-2:#5a6472; --bg:#fff; --bg-alt:#f6f8fa; --border:#e3e7ee;
+    --accent:#0f9d8f; --accent-soft:#e6f6f4; --warn-soft:#fef6e7; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg-alt); color:var(--fg);
+    font:15px/1.75 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+  .sheet { max-width:920px; margin:0 auto; background:var(--bg); padding:48px 56px 72px;
+    box-shadow:0 1px 3px rgba(16,24,40,.06), 0 12px 32px rgba(16,24,40,.06); }
+  h1 { font-size:26px; margin:0 0 6px; } h2 { font-size:19px; margin:40px 0 12px; padding-bottom:8px; border-bottom:2px solid var(--accent-soft); }
+  h3 { font-size:16px; margin:26px 0 8px; color:var(--accent); } h4 { font-size:15px; margin:20px 0 6px; }
+  p { margin:8px 0; } p.li { margin:5px 0 5px 4px; } p.li.dot::before { content:"·"; color:var(--accent); font-weight:700; margin-right:8px; }
+  code { background:var(--accent-soft); color:#0b6b62; padding:1px 6px; border-radius:5px;
+    font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  blockquote { margin:12px 0; padding:12px 16px; background:var(--warn-soft); border-left:3px solid #e6a23c; border-radius:0 8px 8px 0; color:#6b4a10; }
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; }
+  th, td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--bg-alt); font-weight:600; } hr { border:none; border-top:1px solid var(--border); margin:36px 0; }
+  strong { color:#101828; }
+  @media print { body { background:#fff; } .sheet { box-shadow:none; padding:0 12px; } h2 { page-break-after:avoid; } table, blockquote { page-break-inside:avoid; } }
+</style></head><body><div class="sheet">
+<h1>ACMS 教学管理 · 成绩录入与期末合成指导书</h1>
+<blockquote>版本：2026-09-20 ｜ 适用：致极学院任课老师 / 班主任 / 教务</blockquote>
+<blockquote>覆盖：<strong>平时练习打分</strong> → <strong>月考准备与评估</strong> → <strong>学期末成绩（平时 + 月度 + 期末 + 实践）</strong></blockquote>
+<blockquote>原则：本文只写系统<strong>已经能做的事</strong>；做不到的一律在第 6 节如实列出，不含推测。</blockquote>
+<hr />
+<h2>0. 一页速览</h2>
+<table><thead><tr><th>你要做的事</th><th>入口</th><th>关键动作</th></tr></thead><tbody>
+<tr><td>平时练习打分</td><td>教学管理 → <strong>成绩册</strong> <code>/markbook</code></td><td>选班级 → 新建考核列 → 网格录分 → 「保存 N 处改动」</td></tr>
+<tr><td>月考</td><td>成绩册 + <strong>考试与成绩</strong> <code>/exam-grades</code></td><td>建列录分 → 结转总评 → 异常审查 → 确认</td></tr>
+<tr><td>学期末合成</td><td>成绩册（汇成四列）+ <code>/exam-grades</code></td><td>按占比设列权重 → 结转 → 确认 → 出成绩单</td></tr>
+<tr><td>配置考核类型</td><td><strong>考核类型</strong> <code>/exam-types</code></td><td>名称 / 缺省权重 / <strong>计入总评</strong></td></tr>
+<tr><td>评语</td><td><strong>常用评语库</strong> <code>/exam-comments</code> + <code>/exam-grades</code> 批量评语</td><td>一键套用 → 失焦即存</td></tr>
+</tbody></table>
+<p>两条口径先记住，后面全都靠它们：</p>
+<p class="li">1. <strong>权重是两层相乘</strong>：一行分数的权重 = 该列「列权重」× 该「考核类型」的「缺省权重」。</p>
+<p class="li">2. <strong>只有勾了「计入总评 = 是」的考核类型，才会进入期末结转</strong>。这是控制「哪些分算进期末」的总开关。</p>
+<hr />
+<h2>1. 一次性准备（四项，建议开学前做完）</h2>
+<table><thead><tr><th>#</th><th>准备项</th><th>在哪做</th><th>说明</th></tr></thead><tbody>
+<tr><td>1</td><td><strong>考核类型</strong></td><td>考核类型 <code>/exam-types</code></td><td>至少建：<code>日常练习</code>（计入总评=<strong>否</strong>）、<code>平时成绩</code>、<code>月考</code>、<code>期末考试</code>、<code>实践课程</code>（后四个=<strong>是</strong>，缺省权重都填 1）</td></tr>
+<tr><td>2</td><td><strong>成绩等级体系 + 绩点</strong></td><td>教学管理 → <strong>成绩等级体系</strong> <code>/grade-scales</code></td><td>左栏建体系、右栏配该体系的等级与<strong>绩点</strong>。不配绩点 ⇒ 期末总评的 GPA 与班级排名会是<strong>空的</strong>（页面会提示「未配置绩点」，不会显示 0）</td></tr>
+<tr><td>3</td><td><strong>成绩批次</strong></td><td>教学管理 → <strong>成绩批次</strong> <code>/exam-batches</code></td><td>批次带 <code>学年/学期/起日期/止日期/舍入口径/免考处理/缺考处理</code>。<strong>结转只统计「考核日期」落在起止区间内的列</strong> —— 这是区间过滤的依据</td></tr>
+<tr><td>4</td><td><strong>老师权限</strong></td><td>角色管理 → 权限矩阵</td><td><code>成绩册</code>：查看 / 新建 / 修改 / 删除（列）+ 导出；<code>考试与成绩</code>：查看 / 修改 + <strong>结转</strong>（<code>transition</code>）；<code>考核类型</code>：查看 / 新建 / 修改</td></tr>
+</tbody></table>
+<blockquote>以上四项<strong>都有页面了</strong>（2026-09-20 补齐）。配套的两项配置也一并上线：</blockquote>
+<blockquote><strong>成绩类型权重</strong>（教学管理 → 成绩类型权重 <code>/markbook-weights</code>，按 <code>班级 × 考核类型</code> 调第二层权重）与</blockquote>
+<blockquote><strong>学生成绩目标</strong>（教学管理 → 学生成绩目标 <code>/markbook-targets</code>，它决定成绩册里的「是否达标」）。</blockquote>
+<hr />
+<h2>2. 路径一：平时练习打分</h2>
+<p><strong>入口</strong>：教学管理 → 成绩册 <code>/markbook</code></p>
+<p class="li">1. <strong>选班级</strong>：顶部选「班级」。⚠️ 名单实际按学生档案的<strong>当前年级</strong>分组（系统里「当前班级」字段目前是空的），所以这里选的是年级（Pre-1 / Pre-2 / Pre-3 / 大一 / 未来企业家班 / 全球领航计划）。</p>
+<p class="li">2. <strong>新建考核列</strong>（一列 = 一次考核）：填</p>
+<p>   <code>列名称</code>（如「9/18 课后练习」）· <code>考核类型</code>（选 <code>日常练习</code>）· <code>科目</code>（从已有值下拉选，<strong>期末总评按它拆科目</strong>）·</p>
+<p>   <code>列权重</code> · <code>满分</code> · <code>等级体系</code> · <code>考核日期</code> · <code>排序</code> · <code>状态</code> ·</p>
+<p>   <code>学生可见</code> / <code>家长可见</code>（三态：未设置 / 是 / 否，<strong>只有选「是」才公开</strong>）·</p>
+<p>   <code>完成日期</code>（家长可见闸门，留空 = 不设闸门，到该日期前家长看不到这一列）。</p>
+<p>   「关联作业」在列编辑里只做展示，<strong>绑定入口在网格下方的作业同步面板</strong>。</p>
+<p class="li">3. <strong>录分</strong>：点格子直接输入 → 右上角 <strong>「保存 N 处改动」</strong>（一次提交整块网格，可以录完一屏再保存）。</p>
+<p class="li">4. <strong>看结果</strong>：网格右侧三列是实时算出来的 —— <code>总评</code>（按两层权重加权）、<code>等级</code>、<code>目标</code>。</p>
+<p class="li">5. <strong>改过等级体系 / 目标后</strong>，点 <strong>「重算快照」</strong>，否则历史条目的等级/达标还是旧值。</p>
+<p><strong>录入规则（重要）</strong></p>
+<p class="li dot">单元格接受这些写法（2026-09-20 起）：</p>
+<p class="li">- <code>85</code> —— 按该列满分制的原始分</p>
+<p class="li">- <code>85%</code> —— 按该列满分折算（满分为 50 时，<code>85%</code> = 42.5）</p>
+<p class="li">- 字母等级（如 <code>B</code>）—— 按该等级体系的分数区间取中位折算</p>
+<p class="li">- <code>*</code> 或 <code>免考</code> —— 免考（得分为空；默认<strong>不进</strong>总评分母）</p>
+<p class="li">- <code>缺</code> —— 缺考（按 <strong>0 分</strong>；默认<strong>计入</strong>分母）</p>
+<p class="li">- 留空 —— 未录入（保存后会删掉这一格）</p>
+<p class="li dot">免考与缺考在格子里显示成「免考 / 缺考」，不会显示成空白或 0 —— 这两者对总评分母的影响完全不同，混起来看会让总评变得没法解释。</p>
+<p class="li dot">输入了服务端不认识的写法（如等级体系里没有的字母 <code>Z</code>）会<strong>报错且不落库</strong>，不会静默丢。</p>
+<p class="li dot">作业联动：网格下方 <strong>「作业同步」面板</strong>（有未保存改动时面板不显示）—— 选一份作业 → 预览 → 同步，系统把「已完成」的学生按满分（或提交得分）写进对应列；<strong>未完成留空</strong>，不会写 0。</p>
+<p><strong>建议做法</strong>：日常练习的考核类型设成 <strong><code>日常练习</code>（计入总评=否）</strong>。这样这些列只是过程留痕，<strong>不会进入期末结转</strong>，期末那一步才不会被几十列练习分搅乱。</p>
+<hr />
+<h2>3. 路径二：月考的准备与评估</h2>
+<h3>准备（30 分钟）</h3>
+<p class="li">1. <strong>批次</strong>：为这次月考建一个成绩批次（或直接用覆盖全学期的批次）。起止日期建议覆盖到考试当天。</p>
+<p class="li">2. <strong>列</strong>：在成绩册里给<strong>每个科目</strong>新建一列，考核类型选 <code>月考</code>，<code>考核日期</code> 填考试日期（<strong>必须落在批次区间内</strong>，否则不参与结转）。</p>
+<p class="li">3. <strong>录分</strong>：同第 2 节；考完集中录入 + 保存。</p>
+<h3>评估（四步，都在 <code>/exam-grades</code> 的「期末总评」Tab）</h3>
+<p class="li">1. <strong>预览结转</strong>：选 <code>批次 + 班级 + 科目</code> → 点「预览结转」，先看条数与分数是否合理，确认无误再 <strong>「一键结转」</strong>。系统按 <code>Σ(百分制得分 × 权重) ÷ Σ权重</code> 算出每位学生的总评（分母只算参与项）。</p>
+<p class="li">2. <strong>异常成绩审查</strong>：5 条规则自动提示 —— <code>超满分 / 零分 / 离群偏高 / 离群偏低 / 突变</code>。<strong>只提示、不改分</strong>，用来复核录入错误。离群阈值可在「成绩口径」里调（倍数与突变分差）。</p>
+<p class="li">3. <strong>看分布与排名</strong>：报表里「<strong>考试成绩分布</strong>」「<strong>GPA 与班级排名</strong>」（排名需要先给等级配绩点，范围 = 同批次 + 同科目 + 同班级）。</p>
+<p class="li">4. <strong>确认</strong>：逐条「确认」或「<strong>全部确认</strong>」。<strong>确认后不能改分</strong>（要改先「撤销确认」）。</p>
+<h3>出材料</h3>
+<p class="li dot"><strong>批量评语</strong> Tab：按科目挑常用评语一键套用，<strong>失焦即存</strong>；已确认的评语会锁定。</p>
+<p class="li dot"><strong>成绩单</strong> Tab：写班主任总评语 → 单份 <strong>导出 PDF</strong> 或 <strong>整班导出 ZIP</strong>（导出次数会记在成绩单上，便于追踪）。</p>
+<hr />
+<h2>4. 路径三：学期末成绩（平时 + 月度 + 期末 + 实践）</h2>
+<blockquote>⚠️ 先说清机制：系统的期末总评<strong>只从成绩册这一个来源</strong>按科目加权算出来，没有「四类来源权重」这种配置项。</blockquote>
+<blockquote>但用「考核类型 × 列权重」<strong>完全可以精确表达你要的占比</strong>，做法就是把四类<strong>各汇成一列</strong>。</blockquote>
+<h3>四步做法</h3>
+<p><strong>第 1 步：类型准备</strong>（第 1 节已建好）</p>
+<table><thead><tr><th>类别</th><th>考核类型</th><th>计入总评</th><th>成绩册里建几列</th><th>该类的列权重</th></tr></thead><tbody>
+<tr><td>日常练习（过程留痕）</td><td>日常练习</td><td><strong>否</strong></td><td>每次练习一列</td><td>随意（不进合成）</td></tr>
+<tr><td><strong>平时成绩</strong></td><td>平时成绩</td><td>是</td><td>每科 <strong>1 列</strong></td><td><strong>40</strong></td></tr>
+<tr><td><strong>月考</strong></td><td>月考</td><td>是</td><td>每次月考 1 列（等权）</td><td><strong>20 ÷ 月考次数</strong>（如 2 次 → 各 10）</td></tr>
+<tr><td><strong>期末考试</strong></td><td>期末考试</td><td>是</td><td>每科 1 列</td><td><strong>30</strong></td></tr>
+<tr><td><strong>实践课程</strong></td><td>实践课程</td><td>是</td><td>每科 1 列</td><td><strong>10</strong></td></tr>
+</tbody></table>
+<p><strong>第 2 步：填「汇总列」的分数</strong></p>
+<p class="li dot"><strong>平时成绩</strong>：填平时练习的加权平均 —— 直接抄网格右侧算好的 <code>总评</code>（或按你的口径手算）。<strong>不要</strong>把几十列练习都设成「计入总评」，那会让占比失控。</p>
+<p class="li dot"><strong>月考</strong>：每次考完就填那一列（一学期 3 次就 3 列、各 20/3）。</p>
+<p class="li dot"><strong>期末考试</strong>：考试成绩照实填。</p>
+<p class="li dot"><strong>实践课程</strong>：按实践表现评定一个 0–100 的分填进去（系统里「实践活动」模块<strong>没有分数字段</strong>，实践分由老师给定，这里作为它的落地位置）。</p>
+<p><strong>第 3 步：结转</strong></p>
+<p>批次起止日期覆盖<strong>整个学期</strong> → <code>/exam-grades</code> 选批次/班级/科目 → 预览 → 一键结转。</p>
+<p>算出来的就是：</p>
+<p>```</p>
+<p>期末总评 = (平时×40 + 月考×20 + 期末×30 + 实践×10) ÷ 100</p>
+<p>```</p>
+<p>（权重和是<strong>自归一化</strong>的：分母只累加&quot;实际参与&quot;的项，所以改了占比不用动别的地方。）</p>
+<p><strong>第 4 步：确认与出成绩单</strong></p>
+<p>逐条确认 / 全部确认 → 写班主任总评语 → 导出 PDF 或整班 ZIP。</p>
+<h3>三条必须知道的注意</h3>
+<p class="li">1. <strong>占比只调「列权重」，别再动类型缺省权重</strong>——两层是相乘的，同时改很容易算错（类型权重保持 1 最省心）。</p>
+<p class="li">2. <strong>缺考 / 免考 / 未录入会让分母变小</strong>，占比会自动重分配（这就是&quot;不计入分母&quot;的语义）。如果你要的是「缺考按 0 分算、不要重分配」，把批次的 <code>缺考处理</code> 设成 <strong><code>计0分</code></strong>（默认值就是它）；<code>免考处理</code> 默认 <code>不计入分母</code>。</p>
+<p class="li">3. <strong>期末总评是快照</strong>：成绩册改分后<strong>不会自动更新</strong>，要重新「一键结转」；已确认的记录不会被覆盖，改分前先「撤销确认」。</p>
+<hr />
+<h2>5. 口径与参数一览</h2>
+<table><thead><tr><th>参数</th><th>默认值</th><th>在哪改</th></tr></thead><tbody>
+<tr><td>舍入口径</td><td>保留 1 位小数</td><td>批次字段优先 → 「成绩口径」Tab → 代码缺省（三级回落）</td></tr>
+<tr><td>免考处理</td><td>不计入分母</td><td>同上</td></tr>
+<tr><td>缺考处理</td><td>计0分</td><td>同上</td></tr>
+<tr><td>异常阈值（高倍 / 低倍 / 突变分差）</td><td>1.5 / 0.5 / 30</td><td>「成绩口径」Tab</td></tr>
+<tr><td>GPA 小数位</td><td>2</td><td>同上（另需给等级表配「绩点」）</td></tr>
+<tr><td>列权重缺省</td><td>1</td><td>成绩册列</td></tr>
+<tr><td>类型缺省权重</td><td>1</td><td>考核类型页</td></tr>
+<tr><td>等级区间 / 达标</td><td>等级体系</td><td>无页面（走接口）；达标需先给学生建「个人目标」</td></tr>
+</tbody></table>
+<hr />
+<h2>6. 目前做不到（照实说，别指望）</h2>
+<p class="li">1. <strong>期末总评不能自动合成四类来源</strong> —— 它只按成绩册加权。第 4 节那套「汇成四列」是目前唯一可行且准确的替代做法。</p>
+<p class="li">2. <strong>没有「月考」这个实体</strong> —— 用「一个叫『月考』的考核类型 + 科目 + 成绩批次」来表达，批次名靠人工约定。</p>
+<p class="li">3. <strong>期末总评与成绩单没有独立列表页</strong>：结转结果与分析都在「考试与成绩」页里看，逐条改评语也从那里进。</p>
+<p class="li">4. <strong>成绩册不支持粘贴 Excel / 整列填充 / 导入导出</strong>：只有整块保存、作业同步、重算快照。</p>
+<p class="li">5. <strong>「输入已被修正」的提示未逐条展示</strong>：服务端会返回修正明细（如超满分截断、负数归 0），页面目前只提示保存条数。</p>
+<p class="li">6. <strong>家长 / 学生门户看不到期末总评与成绩单</strong> —— 门户只读成绩册的条目（按可见性过滤）+ 作业 + 家校沟通。</p>
+<p class="li">7. <strong>出勤率不进任何成绩</strong>；「实践活动」「学习成果」两个模块<strong>没有成绩字段</strong>，不参与合成（实践课分只能像第 4 节那样手工落到成绩册列里）。</p>
+<p class="li">8. <strong>教学班维度不可用</strong>（教学班表为空）：类型权重表若要按「教学班」配是匹配不上的，实际按<strong>班级文本</strong>匹配 —— 只填教学班不填班级会<strong>静默不生效</strong>。</p>
+<hr />
+<h2>7. 常见问题</h2>
+<p><strong>Q：改了成绩，期末总评怎么没变？</strong></p>
+<p>A：总评是结转时写下的快照。重新「一键结转」即可；已确认的记录要先「撤销确认」。</p>
+<p><strong>Q：某次成绩没进期末总评？</strong></p>
+<p>A：按顺序查三件事 —— ① 该列的 <code>考核日期</code> 是否在批次起止区间内；② 该列 <code>状态</code> 是否被停了；③ 该列的 <code>考核类型</code> 是否勾了「计入总评」。另外，<strong>考核类型要与类型表的写法逐字一致</strong>（成绩册里是手打的，写错一个空格/同义词就匹配不上，而且不报错）。</p>
+<p><strong>Q：家长看不到成绩？</strong></p>
+<p>A：成绩册列的 <code>学生可见 / 家长可见</code> 必须显式为「是」（空值 = 不可见），且家长端还多一道 <code>完成日期</code> 闸门（空 = 不设闸门）。这三个开关现在都能在<strong>成绩册 → 列上的「编辑」</strong>里直接设。</p>
+<p><strong>Q：为什么权重没生效？</strong></p>
+<p>A：检查类型权重表填的是不是 <strong>「班级」</strong>（不是「教学班」）；以及成绩册列上的类型文字是否与类型表一致。</p>
+<hr />
+<h2>附：配置页面入口一览（2026-09-20 更新）</h2>
+<p><strong>配置类页面</strong>（都在「教学管理」菜单下，可用角色权限逐项授权）：</p>
+<table><thead><tr><th>要配什么</th><th>页面</th></tr></thead><tbody>
+<tr><td>成绩批次（结转的起止日期、舍入 / 免考 / 缺考口径、异常阈值）</td><td>教学管理 → <strong>成绩批次</strong></td></tr>
+<tr><td>成绩等级体系 + 等级 + <strong>绩点</strong></td><td>教学管理 → <strong>成绩等级体系</strong>（左栏体系，右栏等级）</td></tr>
+<tr><td>类型权重（班级 × 考核类型 → 权重）</td><td>教学管理 → <strong>成绩类型权重</strong></td></tr>
+<tr><td>学生个人目标（决定「是否达标」）</td><td>教学管理 → <strong>学生成绩目标</strong></td></tr>
+<tr><td>列的可见性 / 完成闸门 / 科目</td><td>成绩册 → 列头上的「编辑」</td></tr>
+<tr><td>关联作业绑定</td><td>成绩册 → 网格下方「作业同步」面板</td></tr>
+<tr><td>免考 / 缺考 / 字母等级录入</td><td>成绩册 → 直接敲进格子（<code>*</code> / <code>缺</code> / <code>B</code> / <code>85%</code>）</td></tr>
+</tbody></table>
+<p><strong>仍需走接口的</strong>（页面暂时没有）：</p>
+<table><thead><tr><th>要做什么</th><th>说明</th></tr></thead><tbody>
+<tr><td>期末总评手动调分、写班主任评语、成绩单 PDF</td><td>「考试与成绩」页上有按钮，但没有独立列表页</td></tr>
+<tr><td>批量导入历史成绩</td><td>目前没有导入端点</td></tr>
+</tbody></table>
+<p>新页面都走通用 CRUD，<code>module:&lt;模块&gt;:&lt;动作&gt;</code> 权限点已登记（成绩批次 <code>module:examBatches:*</code>、等级体系 <code>module:gradeScales:*</code>、</p>
+<p>类型权重 <code>module:markbookWeights:*</code>、学生目标 <code>module:markbookTargets:*</code>）——</p>
+<p>角色管理 → 权限矩阵里能逐项勾选「进入菜单 / 查看 / 新增 / 编辑 / 删除 / 导出」。</p>
+<p>告诉我「哪个班、哪一科、什么占比」，我直接把类型、批次、等级体系与绩点、列和可见性一次性配好。</p>
+</div></body></html>

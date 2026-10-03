@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>已上线 · 学生记录新增「IDP沟通」「学生沟通」两个记录类型</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#fff; --fg:#1b1e23; --fg2:#5b6470; --fg3:#8b95a1;
+    --border:#e2e6ea; --accent:#2f6bd8; --accent-soft:#eaf1fd;
+    --ok:#0f7a56; --okbg:#e7f6f0; --warn:#a8620a; --warnbg:#fdf4e5;
+    --code:#f1f3f6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif}
+  .wrap{max-width:1040px;margin:0 auto;padding:38px 22px 80px}
+  h1{font-size:24px;margin:0 0 4px}
+  .sub{color:var(--fg2);font-size:13.5px;margin-bottom:10px}
+  .pill-live{display:inline-block;background:var(--okbg);color:var(--ok);border:1px solid #bfe3d5;
+    font-size:12px;font-weight:700;padding:2px 10px;border-radius:999px;margin-bottom:20px}
+  h2{font-size:18px;margin:34px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border)}
+  p{margin:9px 0}
+  code{background:var(--code);padding:1px 6px;border-radius:5px;font-size:12.5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  ul{margin:8px 0 8px 20px;padding:0} li{margin:5px 0}
+  .muted{color:var(--fg2);font-size:12.5px}
+  .box{border-left:4px solid var(--accent);background:#f3f8ff;padding:13px 16px;border-radius:0 10px 10px 0;margin:14px 0}
+  .box.warn{border-color:var(--warn);background:var(--warnbg)}
+  table.doc{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  table.doc th,table.doc td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  table.doc th{background:var(--code);font-weight:600;font-size:12.5px;color:var(--fg2)}
+  .tab{display:inline-block;border:1px solid var(--border);background:#fff;border-radius:6px;
+    padding:2px 11px;font-size:12.5px;color:var(--fg2);margin:0 6px 6px 0}
+  .tab.new{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin:14px 0}
+  .ok-mark{color:var(--ok);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>学生记录 · 新增「IDP沟通」「学生沟通」两个记录类型</h1>
+  <div class="sub">同时收起了原来那套独立的 IDP 沟通入口 · 2026-09-21</div>
+  <div class="pill-live">已部署并验证 · BUILD_ID no4OxW1x7bIiRiINMfupF（槽 3002/3102）</div>
+
+  <h2>一、现在的 Tab</h2>
+  <div class="card">
+    <div>
+      <span class="tab">全部</span>
+      <span class="tab">日常跟进</span>
+      <span class="tab new">IDP沟通</span>
+      <span class="tab new">学生沟通</span>
+      <span class="tab">家校沟通</span>
+      <span class="tab">学生观察</span>
+    </div>
+    <ul>
+      <li>两个新类型都紧跟「日常跟进」，<b>字段与日常跟进逐字段相同</b> —— 不出现家长三件套
+        （只有家校沟通才有），也不出现观察类型（只有学生观察才有）。</li>
+      <li>语义界定：<b>IDP沟通</b> = IDP 相关的沟通；<b>学生沟通</b> = 与学生<b>本人</b>的沟通；
+        而<b>家校沟通</b> = 与家长的沟通（也是家长端 / 学生端<b>唯一</b>会读到的类型）。</li>
+      <li>AI 分析、录音播放、「存为笔记」等能力三者一致。</li>
+    </ul>
+  </div>
+
+  <h2>二、权限：三个类型共用一个权限点，零配置</h2>
+  <p>能看 / 能写「日常跟进」的人，就能看 / 能写「IDP沟通」和「学生沟通」——<b>一个角色配置都不用改</b>。</p>
+  <p class="muted">技术依据：类型域权限是「遍历 类型 → moduleKey 再判权限」，所以多个类型指向同一个
+     moduleKey 时会被一起放行。没新造权限点，避免「上线了但除管理员外没人看得见」。</p>
+
+  <h2>三、原来那套独立的 IDP 沟通入口已收起</h2>
+  <table class="doc">
+    <thead><tr><th>原入口</th><th>现在</th></tr></thead>
+    <tbody>
+      <tr><td>IDP管理页行级的「沟通记录 / 新增沟通」</td><td>已移除</td></tr>
+      <tr><td>IDP方案详情页里内嵌的「沟通记录」列表</td><td>已移除</td></tr>
+      <tr><td>旧链接 <code>/idp-plans/&lt;id&gt;/communications</code>（含 new / edit）</td>
+        <td>自动跳到「学生记录 → IDP沟通」，<b>不会 404</b></td></tr>
+    </tbody>
+  </table>
+  <p class="muted">那张独立的 IDP 沟通表当时是 0 行 ⇒ 收起入口没有丢数据。表与接口保留未删（可恢复）。</p>
+
+  <h2>四、⚠️ 邀请你确认一件事（两轮都遇到同样现象）</h2>
+  <div class="box warn">
+    <p><b>两轮都是：我到线上查字典时，「新类型」已经在里面了、顺序也对。</b></p>
+    <p>而能写字典文件的只有「字典更新」这一个接口（重启不会自动补），所以这说明是
+       <b>从界面改的</b> —— 大概是你在「字典管理」页自己加上的？</p>
+    <p>我这边两轮的补写脚本都写成「读现值 → 缺才插入」的幂等写法，所以<b>都跳过了、没有覆盖任何手工值</b>
+       （上一轮 IDP沟通 那次，因为文件里已经是 4 项，我那次写入是重复的一次、值一致）。</p>
+    <p><b>如果确实是你加的</b> → 那就对上了，以后这类字典调整你可以继续自己在页面上做；
+       <b>如果不是你</b> → 告我一声，我查是不是有别的进程 / 自动化在动字典。</p>
+  </div>
+
+  <h2>五、验证结果（线上真实接口，探针已清干净）</h2>
+  <table class="doc">
+    <thead><tr><th>项</th><th>IDP沟通</th><th>学生沟通</th></tr></thead>
+    <tbody>
+      <tr><td>字典取值含它（且顺序正确）</td><td class="ok-mark">✅</td><td class="ok-mark">✅</td></tr>
+      <tr><td>建一条 → 读回类型正确、字段与日常跟进同构、按类型能筛出、总行数 +1</td>
+        <td class="ok-mark">✅</td><td class="ok-mark">✅</td></tr>
+      <tr><td><b>权限反向</b>：无任何类型权限的会话 —— 建它被拒（403）、也看不到</td>
+        <td class="ok-mark">✅</td><td class="ok-mark">✅</td></tr>
+      <tr><td><b>家长 / 学生端不外流</b>（带阳性对照：同一学生挂「家校沟通」+ 新类型两条探针 ⇒
+        门户能读到家校沟通那条、读不到新类型那条）</td><td class="ok-mark">✅</td><td class="ok-mark">✅</td></tr>
+      <tr><td>测试（含「字典取值与类型定义必须逐项同序一致」等防漏改断言）</td>
+        <td colspan="2">后端 300 项全绿</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">📌 你一直在用：学生记录已经从 2 条涨到 <b>12 条</b>（含你建的 IDP沟通 等）。</p>
+
+  <h2>六、另一个既有问题（<b>没动</b>，等你定）</h2>
+  <div class="box">
+    <p>「导出」页的数据源清单是三合一时留下的：</p>
+    <ul>
+      <li>选「<b>日常跟进</b>」实际导出的是<b>整张主表</b> —— 会把 IDP沟通、学生沟通、家校沟通、
+        学生观察的记录一起导出去；</li>
+      <li>选「<b>家校沟通</b>」指向的是三合一<b>之前</b>的那张旧表。</li>
+    </ul>
+    <p>导出接口本身是<b>整表导出、不按记录类型过滤</b>。要不要我改成「按记录类型分别导出」？
+       这属于另一件事，你说了我再做。</p>
+  </div>
+
+  <h2>七、交付信息</h2>
+  <table class="doc">
+    <tbody>
+      <tr><td>提交</td><td>IDP沟通 <code>d2bf46a</code> · 学生沟通 <code>4067252</code> · 文档 <code>1f21bb2</code>，均已推 GitHub</td></tr>
+      <tr><td>部署</td><td>当前 BUILD_ID <code>no4OxW1x7bIiRiINMfupF</code>（对外槽 3002/3102）</td></tr>
+      <tr><td>数据变更</td><td>无（两轮字典数据都不需要我补；代码侧仅改种子，线上以文件为准）</td></tr>
+    </tbody>
+  </table>
+
+  <p class="muted" style="margin-top:26px">
+    ⚠️ 我这边仍截不了图（本机到 acms 的 443 是那个已知的 EIP 间歇问题；服务器侧探活 200）。
+    刷新后看一眼顶部 Tab 与新建时的下拉即可。
+  </p>
+
+</div>
+</body>
+</html>

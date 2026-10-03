@@ -37,7 +37,13 @@ if not TOKEN:
 
 
 def git(*args, strip=True):
-    r = subprocess.run(['git', *args], capture_output=True, text=True)
+    # 🔴 必须关掉 `core.quotePath`：git 默认把**非 ASCII 路径**输出成 C 风格转义
+    #    （`"outputs/acms-\344\274\232…"`）。本脚本靠 `diff --name-only` 拿路径列表，
+    #    拿到这种带引号、带八进制转义的"路径"后既匹配不到远端也没有对应 blob ⇒
+    #    会被当成「删除」，最终生成一个非法 tree，GitHub 直接 `422 BadObjectState`。
+    #    （2026-10-03 实测：加两个中文名 .md 进仓库时第一次炸出来，之前从没踩到是因为
+    #     仓库里一直没新增中文路径。）
+    r = subprocess.run(['git', '-c', 'core.quotePath=false', *args], capture_output=True, text=True)
     if r.returncode != 0:
         raise SystemExit('git %s 失败: %s' % (' '.join(args), r.stderr.strip()[:200]))
     # ⚠️ message 这类内容**不能 strip**：少一个尾部换行，算出来的 commit SHA 就与本地不同

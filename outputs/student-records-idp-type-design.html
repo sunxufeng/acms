@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>方案 · 学生记录新增记录类型「IDP沟通」</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#fff; --fg:#1b1e23; --fg2:#5b6470; --fg3:#8b95a1;
+    --border:#e2e6ea; --accent:#2f6bd8; --accent-soft:#eaf1fd;
+    --ok:#0f7a56; --okbg:#e7f6f0; --warn:#a8620a; --warnbg:#fdf4e5;
+    --danger:#b3261e; --dangerbg:#fdecea; --code:#f1f3f6; --row:#fafbfc;
+    --typebg:rgba(47,107,216,.10); --sub:#f3f7ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif}
+  .wrap{max-width:1120px;margin:0 auto;padding:38px 22px 80px}
+  h1{font-size:25px;margin:0 0 4px}
+  .sub{color:var(--fg2);font-size:13.5px;margin-bottom:10px}
+  .draft{display:inline-block;background:var(--warnbg);color:var(--warn);border:1px solid #f0d9b5;
+    font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;margin-bottom:20px}
+  h2{font-size:19px;margin:36px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border)}
+  h3{font-size:15.5px;margin:22px 0 8px}
+  p{margin:9px 0}
+  code{background:var(--code);padding:1px 6px;border-radius:5px;font-size:12.5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  ul{margin:8px 0 8px 20px;padding:0}
+  li{margin:5px 0}
+  .muted{color:var(--fg2);font-size:12.5px}
+  .box{border-left:4px solid var(--accent);background:#f3f8ff;padding:13px 16px;border-radius:0 10px 10px 0;margin:14px 0}
+  .box.warn{border-color:var(--warn);background:var(--warnbg)}
+  .box.ok{border-color:var(--ok);background:var(--okbg)}
+  .box.danger{border-color:var(--danger);background:var(--dangerbg)}
+  .box p:first-child{margin-top:0}.box p:last-child{margin-bottom:0}
+  table.doc{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  table.doc th,table.doc td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  table.doc th{background:var(--code);font-weight:600;font-size:12.5px;color:var(--fg2)}
+  .tag{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px}
+  .tag.new{background:var(--okbg);color:var(--ok)}
+  .tag.chg{background:var(--warnbg);color:var(--warn)}
+  .tag.keep{background:var(--code);color:var(--fg2)}
+
+  .sheet{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:14px 0}
+  .sheet-hd{padding:10px 15px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;
+    flex-wrap:wrap;gap:8px;align-items:center}
+  .sheet-hd b{font-size:14px}
+  .sheet-bd{padding:14px 15px}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .tab{border:1px solid var(--border);background:#fff;border-radius:6px;padding:3px 12px;font-size:12.5px;color:var(--fg2)}
+  .tab.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .tab.n{background:#eef1f5;border-style:dashed}
+  .fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+  .fld{border:1px solid var(--border);border-radius:8px;padding:6px 9px;font-size:12.5px;background:var(--row)}
+  .fld b{display:block;font-size:11px;color:var(--fg3);font-weight:600;margin-bottom:2px}
+  .fld .v{color:var(--fg)}
+  .pill{display:inline-block;background:var(--accent-soft);color:#1d4fa8;border-radius:5px;
+    padding:0 6px;font-size:11px;font-weight:600}
+  .sect{font-size:11px;font-weight:700;color:var(--fg2);letter-spacing:.4px;margin:14px 0 7px;
+    display:flex;align-items:center;gap:8px}
+  .sect::after{content:'';flex:1;height:1px;background:var(--border)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:780px){.two{grid-template-columns:1fr}}
+  .card2{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:13px 15px}
+  .card2 h4{margin:0 0 6px;font-size:14px}
+  .card2.rec{border-color:#bcd2f5;box-shadow:0 0 0 3px var(--accent-soft)}
+  .kv{font-size:12.5px;color:var(--fg2)}
+  .kv b{color:var(--fg)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>学生记录 · 新增记录类型「IDP沟通」</h1>
+  <div class="sub">需求：在 /student-records 新建 / 修改记录时，「记录类型」多一个选项「IDP沟通」，字段与「日常跟进」完全相同。</div>
+  <div class="draft">方案待你确认 · 未改任何代码</div>
+
+  <div class="box danger">
+    <p><b>🔴 先说一个必须先定的发现：系统里已经有一张独立的「IDP 沟通记录」表。</b></p>
+    <p>它挂在「IDP 方案」下面（<code>idpCommunication</code>，字段：关联IDP方案 / 沟通日期 / 沟通人 / 沟通内容 / 需要的帮助·下一步计划 / 原始文档），
+       入口在「IDP管理」页 <code>/idp-plans</code> 里，<b>沟通记录必须先建一个 IDP 方案才能挂上去</b>。</p>
+    <p>好消息：<b>它和「IDP方案」表目前都是 0 行 —— 建了但从来没被用过</b>；「学生记录」现有 2 条数据，都是「日常跟进」。</p>
+    <p>所以这次的需求会带来一个岔路：<b>系统里会出现"两处都能记 IDP 沟通"</b>。现在没数据、风险很小；只要两边都开始用，
+       就会出现「同一件事一半记在这、一半记在那」，而学生全景 / 搜索 / AI / 导出各读一处 ⇒ <b>谁也看不到全貌</b>。
+       请先在这三个里选一个（见「一、要你选的第一件事」）。</p>
+  </div>
+
+  <h2>一、要你选的第一件事：那张已有的 IDP 沟通表怎么办</h2>
+
+  <div class="two">
+    <div class="card2 rec">
+      <h4>A · 推荐：学生记录里加类型，把 /idp-plans 的「IDP沟通」收起来</h4>
+      <p class="kv">「IDP沟通」统一在学生记录里记；<code>/idp-plans</code> 只保留「IDP 方案」本身。</p>
+      <ul class="kv">
+        <li>✅ <b>一处入口</b>，不用先建方案再挂沟通</li>
+        <li>✅ 学生全景、搜索、AI 汇总、导出<b>天然都能看到</b>（它们都读学生记录）</li>
+        <li>✅ 权限沿用「日常跟进」，不用改任何角色配置</li>
+        <li>⚠️ 那张表现有 0 行 ⇒ 收起它<b>不会丢任何数据</b></li>
+      </ul>
+    </div>
+    <div class="card2">
+      <h4>B / C · 备选</h4>
+      <p class="kv"><b>B 两边都留着用</b>：需要你把分工定死（比如"正式 IDP 会议走 A、日常随口聊走 B"），
+        否则必然出现重复与遗漏。我不建议。</p>
+      <p class="kv"><b>C 不加类型，改成把那张表的沟通聚合进学生记录（只能看不能改）</b>：与你要的
+        「新建、修改」不符，且必须先在 IDP管理 里建方案才记得了。</p>
+    </div>
+  </div>
+
+  <h2>二、现状：这套「记录类型」是怎么实现的</h2>
+  <p>一句话：<b>一张表 + 一个「记录类型」单选字段</b>。日常跟进 / 家校沟通 / 学生观察 三类记录共用同一张物理表
+     （沿用原来「日常跟进表」），靠类型字段区分。三条链路各自读同一份类型定义：</p>
+  <table class="doc">
+    <thead><tr><th>链路</th><th>实现位置</th><th>作用</th></tr></thead>
+    <tbody>
+      <tr><td><b>类型 → 权限</b></td>
+        <td><code>packages/contracts/src/student-records.ts</code><br><span class="muted">（类型 → moduleKey 映射）</span></td>
+        <td>后端按「你持有哪个类型的模块权限」逐类型过滤<b>读</b>与<b>写</b>：看不到没权限的类型，也建不出没权限的类型</td></tr>
+      <tr><td><b>类型 → 表头措辞</b></td>
+        <td><code>apps/web/app/student-records/columns.tsx</code> 的 <code>WORDS</code></td>
+        <td>日常跟进/家校沟通用「沟通人 · 沟通主题 · 沟通时间」，学生观察用「观察人 · 主题 · 观察时间」</td></tr>
+      <tr><td><b>类型 → 字段显隐</b></td>
+        <td>同上，<code>showIf</code> 里硬编码</td>
+        <td>只有家校沟通显示「家长 / 家长反馈态度 / 家长反馈」；只有学生观察显示「观察类型」</td></tr>
+      <tr><td><b>类型 → 顶部 Tab</b></td>
+        <td><code>student-records/page.tsx</code></td>
+        <td>Tab 由类型定义<b>自动生成</b>，新类型会自己出现，不用改 Tab 代码</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box ok">
+    <p><b>✅ 一个让改动量变小的发现：</b>类型定义里的 <code>ownFields</code>（该类型专属字段）与 <code>legacyPath</code>（旧页面地址）
+       目前<b>没有任何代码在消费</b> —— 它们只是声明。字段显隐实际由前端 <code>showIf</code> 决定。</p>
+    <p>而「IDP沟通与日常跟进完全相同」恰好等于<b>什么都不用加</b>：日常跟进本来就是「全套公共字段 + 没有任何专属字段」。
+       所以这次<b>不需要碰显隐逻辑</b>。（如果以后要给 IDP沟通 加专属字段，就要同时改 <code>showIf</code>，我会在代码注释里写明。）</p>
+  </div>
+
+  <h2>三、改动清单（5 处）</h2>
+  <table class="doc">
+    <thead><tr><th>#</th><th>改哪</th><th>改什么</th><th>不改会怎样</th></tr></thead>
+    <tbody>
+      <tr><td>1</td>
+        <td><code>packages/contracts/src/student-records.ts</code></td>
+        <td>加一个类型定义：<code>value='IDP沟通'</code>、<code>moduleKey=…</code>、<code>ownFields=[]</code></td>
+        <td>后端<b>不认识</b>这个值 ⇒ 保存直接报 <code>400 未知的记录类型</code>。<br>
+            <span class="muted">（这其实是保护机制：写错别字不会造出一条"谁都看不见"的脏记录）</span></td></tr>
+      <tr><td>2</td>
+        <td><code>apps/api/src/dictionary/dict.data.ts</code></td>
+        <td>「记录类型」字典加 <code>IDP沟通</code></td>
+        <td>新建表单的「记录类型」下拉里<b>没有这一项</b>，根本选不到；筛选也没有</td></tr>
+      <tr><td>3</td>
+        <td><code>apps/web/app/student-records/columns.tsx</code></td>
+        <td><code>WORDS</code> 加「IDP沟通 → 与日常跟进同一套词」</td>
+        <td>表头落成<b>中性词</b>（"记录人 / 主题 / 时间"）—— 不报错，但看起来与日常跟进不是一个东西</td></tr>
+      <tr><td>4</td>
+        <td><code>apps/web/app/student-records/page.tsx</code></td>
+        <td>① 页面副标题现在写死「日常跟进 / 家校沟通 / 学生观察」<br>② 右侧 AI 面板的提示语里也写死了"三类"</td>
+        <td>文案与实际不符（小问题，但你会觉得"是不是没改干净"）</td></tr>
+      <tr><td>5</td>
+        <td><b>字典生效性</b>（不是改代码，是改之前必须核实的）</td>
+        <td>已核实：生产的字典持久化文件里<b>没有</b>「记录类型」这个 key ⇒ 改种子<b>会生效</b></td>
+        <td>如果它已被持久化过，改种子会被文件覆盖 ⇒ <b>白改</b>（这就是"字典里改了没生效"的根因）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>明确<b>不会</b>受影响的地方（都已核实过）</h3>
+  <table class="doc">
+    <thead><tr><th>地方</th><th>结论</th></tr></thead>
+    <tbody>
+      <tr><td><b>家长端 / 学生端</b></td>
+        <td><span class="tag keep">不会外流</span> 门户只读「家校沟通」类型（判据写死），
+            所以 IDP沟通 <b>不会</b>出现在家长或学生看到的内容里 —— 如果你要的就是这个，那正好</td></tr>
+      <tr><td><b>学生全景（360）</b></td>
+        <td><span class="tag keep">自动包含</span> 它按同一份类型权限自动包含新类型，分区名仍是「学生记录」</td></tr>
+      <tr><td><b>家校沟通的既有判据</b></td>
+        <td><span class="tag keep">不动</span>（门户可见性、沟通记录筛选都按 <code>=== '家校沟通'</code> 判，不受影响）</td></tr>
+      <tr><td><b>导出</b></td>
+        <td><span class="tag keep">自动包含</span> 学生记录是一个导出入口，导出时按类型筛选即可</td></tr>
+      <tr><td><b>已有 2 条数据</b></td>
+        <td><span class="tag keep">不受影响</span>（都是「日常跟进」，类型字段不动）</td></tr>
+    </tbody>
+  </table>
+
+  <h2>四、要你拍板的第二件事：IDP沟通 归谁管（权限）</h2>
+  <p>每个类型要挂一个模块权限点，它决定「谁能看、谁能建」。这里只有两个选法，后果差别很大：</p>
+  <table class="doc">
+    <thead><tr><th>选项</th><th>效果</th><th>代价 / 额外要做的事</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>A · 推荐：复用「日常跟进」的权限</b></td>
+        <td>任何能看到/能写日常跟进的人，<b>同时</b>就能看/能写 IDP沟通。<br>
+            上线即生效，<b>一个角色配置都不用改</b></td>
+        <td>不能单独授权（"只想给 IDP 导师看 IDP沟通、不给看日常跟进"做不到）。<br>
+            将来真需要分开，再单独加权限点也不晚</td>
+      </tr>
+      <tr>
+        <td><b>B · 用「IDP管理」的权限</b></td>
+        <td>语义更贴切（IDP 的事归 IDP 模块</td>
+        <td>🔴 <b>新权限点默认没人持有</b> ⇒ 上线后除管理员外<b>所有人都看不到 IDP沟通</b>，
+            你得逐个角色去「权限矩阵」里勾。<br>
+            还要额外做三件事：加权限行、把权限行挂到菜单下（不挂的话<b>矩阵里没有这一行可勾</b>）、跑一次权限版本迁移</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="box">
+    <p><b>我的建议是 A。</b>理由：既然内容和敏感度都与日常跟进完全相同，就没必要为了"看起来更整齐"多造一个权限点，
+       换来的却是「上线了但没人能看见」这种最容易误判为 bug 的状态。（这个坑我们前几天刚在别的模块上踩过：
+       新权限点没人勾 ⇒ 功能等于不可用。）</p>
+  </div>
+
+  <h2>五、改完之后长什么样</h2>
+
+  <div class="sheet">
+    <div class="sheet-hd"><b>学生记录 · 列表（顶部 Tab）</b><span class="muted">新类型自动出现在 Tab 里</span></div>
+    <div class="sheet-bd">
+      <div class="tabs">
+        <span class="tab">全部</span>
+        <span class="tab">日常跟进</span>
+        <span class="tab on n">IDP沟通</span>
+        <span class="tab">家校沟通</span>
+        <span class="tab">学生观察</span>
+      </div>
+      <p class="muted" style="margin:0">建议位置：<b>紧挨「日常跟进」</b>（语义最近）。切到 IDP沟通 后，
+        表头措辞与日常跟进完全一致：沟通人 / 沟通主题 / 沟通时间 / 沟通方式 …</p>
+    </div>
+  </div>
+
+  <div class="sheet">
+    <div class="sheet-hd"><b>新建 / 修改记录表单</b><span class="muted">记录类型 = IDP沟通 时</span></div>
+    <div class="sheet-bd">
+      <div class="sect">基本信息</div>
+      <div class="fields">
+        <div class="fld"><b>记录类型 *</b><span class="v"><span class="pill">IDP沟通</span>（下拉可选：日常跟进 / IDP沟通 / 家校沟通 / 学生观察）</span></div>
+        <div class="fld"><b>关联学生</b><span class="v">下拉选学生</span></div>
+        <div class="fld"><b>沟通时间</b><span class="v">日期时间</span></div>
+        <div class="fld"><b>沟通人</b><span class="v">人员</span></div>
+      </div>
+      <div class="sect">沟通内容</div>
+      <div class="fields">
+        <div class="fld"><b>沟通方式</b><span class="v">下拉（读字典）</span></div>
+        <div class="fld"><b>沟通主题</b><span class="v">文本</span></div>
+        <div class="fld"><b>沟通总结（报告）</b><span class="v">长文本</span></div>
+        <div class="fld"><b>沟通明细（MD 对话记录）</b><span class="v">长文本</span></div>
+        <div class="fld"><b>沟通附件清单</b><span class="v">附件（可放录音）</span></div>
+        <div class="fld"><b>沟通时长(分钟)</b><span class="v">数字</span></div>
+        <div class="fld"><b>沟通人备注</b><span class="v">文本</span></div>
+        <div class="fld"><b>信息敏感级别</b><span class="v">下拉（读字典）</span></div>
+      </div>
+      <div class="sect">跟进闭环</div>
+      <div class="fields">
+        <div class="fld"><b>待办事项</b><span class="v">文本</span></div>
+        <div class="fld"><b>责任人</b><span class="v">文本</span></div>
+        <div class="fld"><b>跟进截止日期</b><span class="v">日期</span></div>
+        <div class="fld"><b>闭环状态</b><span class="v">下拉</span></div>
+        <div class="fld"><b>闭环日期</b><span class="v">日期</span></div>
+      </div>
+      <p class="muted" style="margin:10px 0 0">
+        ✅ 与「日常跟进」逐字段相同（<b>不出现</b>「家长 / 家长反馈态度 / 家长反馈」——那三个只有家校沟通才有；
+        也<b>不出现</b>「观察类型」——只有学生观察才有）。</p>
+    </div>
+  </div>
+
+  <h2>六、部署后我会怎么验（含反证）</h2>
+  <ul>
+    <li><b>建 → 读回</b>：用探针会话建一条 IDP沟通，读回类型正确、字段齐全</li>
+    <li><b>权限正/反两向</b>：
+      <ul>
+        <li>正向：持有「日常跟进」权限的会话，<b>能</b>建 IDP沟通、能在列表看到它</li>
+        <li>反向：只用「学生观察」权限的会话，<b>建不出、也看不到</b> IDP沟通（越权拦截仍生效 —— 这条最重要，
+            防止新类型把权限放大了）</li>
+      </ul></li>
+    <li><b>不外流</b>：家长端接口确认<b>不返回</b> IDP沟通 记录</li>
+    <li><b>下拉与筛选</b>：字典里出现「IDP沟通」，Tab 与筛选都能筛出正确条数</li>
+    <li><b>探针清理干净</b>（0 残留）、后端全量测试绿</li>
+    <li>顺手<b>补一条单测</b>：断言「类型定义」与「字典取值」两处<b>完全一致</b> —— 这两份是手抄同步的，
+        现在没有测试守着，将来漏改一处就会出现「Tab 里有、下拉里没有」这类不一致（不报错）</li>
+  </ul>
+
+  <h2>七、要你确认的 5 件事</h2>
+  <table class="doc">
+    <thead><tr><th>#</th><th>问题</th><th>我的建议</th></tr></thead>
+    <tbody>
+      <tr><td>①</td><td><b>/idp-plans 那张「IDP沟通」表怎么办</b>（现在 0 行）</td>
+        <td><b>收起它</b>，沟通统一在学生记录里记（上面 A 方案）</td></tr>
+      <tr><td>②</td><td><b>权限归属</b></td><td><b>复用「日常跟进」权限</b>（零配置、上线即可用）</td></tr>
+      <tr><td>③</td><td><b>IDP沟通 要不要专属字段</b>（例如「关联 IDP 方案 / 阶段」）</td>
+        <td>按你说的「完全相同」——<b>不加</b>。要加请告诉我加哪些</td></tr>
+      <tr><td>④</td><td><b>Tab 位置</b></td><td>紧跟「日常跟进」之后</td></tr>
+      <tr><td>⑤</td><td><b>家长/学生端永远看不到 IDP沟通</b>（门户现在只放家校沟通）</td>
+        <td>保持现状。<b>如果 IDP 沟通也希望家长能看到，那是另一个需求</b>（要加可见性开关，得单独做）</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warn">
+    <p><b>⚠️ 一个要知道的既有特性（不是这次引入的）：</b>「记录类型」这个字典是<b>可编辑</b>的，
+       而类型值同时是<b>代码里的判据字面量</b>。所以如果有人到「字典管理」把「IDP沟通」改成别的写法，
+       新建时会直接报「未知的记录类型」——<b>好消息是不会静默丢数据</b>（后端的取值校验挡住了），
+       坏消息是用户不理解为什么报错。</p>
+    <p>结论：将来要改名（比如改成「IDP 面谈」），<b>告诉我改代码</b>，别只在字典里改文案。</p>
+  </div>
+
+  <p class="muted" style="margin-top:26px">
+    改动范围：后端 2 个文件 + 前端 2 个文件（外加可选的一条单测）。
+    本次<b>未改任何代码</b>；你确认后我按「commit → 推 GitHub → 部署 → 线上验证」走完，并把三处交付文档与技能补上。
+  </p>
+
+</div>
+</body>
+</html>

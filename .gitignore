@@ -16,3 +16,6 @@ logs/
 .acms-tmp/
 # CLI / MCP 分发文件是**生成物**（源在 apps/cli/，由 build_tars.sh 复制过来）
 apps/web/public/cli/
+
+# outputs/ 的姓名清单（PII，禁止入库；给 scripts/outputs_pii_lint.mjs 用）
+.acms-names.txt

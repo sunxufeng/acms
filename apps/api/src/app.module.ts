@@ -51,6 +51,7 @@ import { CodeRulesModule } from './code-rules/code-rules.module.js';
 import { MyFollowupsModule } from './my-followups/my-followups.module.js';
 import { OWNER_MAPPING_METAS } from './owner-mapping/owner-mapping.meta.js';
 import { OwnerMappingModule } from './owner-mapping/owner-mapping.module.js';
+import { MESSAGE_METAS } from './messages/messages.meta.js';
 import { GetnoteSourceModule } from './getnote/sources.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import {
@@ -139,6 +140,8 @@ import { ImpersonateModule } from './impersonate/impersonate.module.js';
     OwnerMappingModule,
     // 归属人映射的 REST 路由（通用 CRUD）；建表由 OwnerMappingModule 在启动期做
     GenericCrudModule.registerAll(OWNER_MAPPING_METAS),
+    // 内部消息的 REST 路由（通用 CRUD，2026-10-03）；飞书表为占位 tableId，上线前须建表回填
+    GenericCrudModule.registerAll(MESSAGE_METAS),
     GetnoteSourceModule,
     ReportsModule,
     FieldMaskModule,

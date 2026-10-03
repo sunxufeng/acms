@@ -368,6 +368,8 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'student360', label: '学生全景', enLabel: 'Student 360', href: '/student-360', icon: 'students', section: '学生闭环', order: 10, perm: 'student360:read' },
     { key: 'sourceFollowups', label: '招生跟进', enLabel: 'Admissions Follow-ups', href: '/source-followups', icon: 'admissions', section: '学生闭环', order: 20, perm: 'followup:read' },
     { key: 'studentAttendances', label: '学生考勤', enLabel: 'Attendance', href: '/student-attendances', icon: 'students', section: '学生闭环', order: 30, perm: 'studentattendance:read' },
+    // 考勤预警（2026-10-03 ACMS 模块参考设计）：只读聚合页，复用学生考勤数据，按 关联学生编号 统计异常考勤。
+    { key: 'attendanceAlerts', label: '考勤预警', enLabel: 'Attendance Alerts', href: '/attendance-alerts', icon: 'alert', section: '学生闭环', order: 32, perm: 'studentattendance:read' },
     { key: 'grades', label: '学业成绩', enLabel: 'Grades', href: '/grades', icon: 'courses', section: '学生闭环', order: 40, perm: 'grade:read' },
     { key: 'practiceActivities', label: '实践活动', enLabel: 'Activities', href: '/practice-activities', icon: 'students', section: '学生闭环', order: 50, perm: 'activity:read' },
     // 学生记录（2026-09-18）：日常跟进 / 家校沟通 / 学生观察 三合一后的唯一入口。
@@ -402,6 +404,12 @@ export const DEFAULT_NAV_MENU_CONFIG: NavMenuConfig = {
     { key: 'curriculum', label: '课程规划', enLabel: 'Curriculum', href: '/curriculum', icon: 'book', section: '教学管理', order: 30, perm: 'module:curriculum:read' },
     { key: 'lessonPlans', label: '课时教案', enLabel: 'Lesson Plans', href: '/lesson-plans', icon: 'list', section: '教学管理', order: 40, perm: 'module:lessonPlan:read' },
     { key: 'behaviour', label: '行为记录', enLabel: 'Behaviour', href: '/behaviour', icon: 'flag', section: '教学管理', order: 50, perm: 'module:behaviour:read' },
+    // 内部消息（2026-10-03 ACMS 模块参考设计）：教务/教师/学务之间的轻量内部通知。
+    // 走 legacy 原始权限点 message:read / message:write（见 domain/permission.ts），
+    // 不进 module:* 版本化迁移，避免无 .env 时无法运行时校验的高风险迁移。
+    { key: 'messages', label: '内部消息', enLabel: 'Internal Messages', href: '/messages', icon: 'mail', section: '教学管理', order: 60, perm: 'message:read' },
+    // 教室冲突（2026-10-03 ACMS 模块参考设计）：只读聚合页，复用排课表排课数据，按 场地|日期|开始时间 查重。
+    { key: 'venueConflicts', label: '教室冲突', enLabel: 'Venue Conflicts', href: '/venue-conflicts', icon: 'location', section: '教学管理', order: 70, perm: 'schedule:read' },
     { key: 'attendanceCodes', label: '考勤码', enLabel: 'Attendance Codes', href: '/attendance-codes', icon: 'check', section: '教学管理', order: 90, perm: 'module:attendanceCodes:read' },
     // 成绩册的四张配置表（2026-09-20 补页面）：等级体系与绩点、类型权重、学生成绩目标。
     // 它们此前只有接口没有页面 —— 页面提示「先去配 XX」却无处可配。

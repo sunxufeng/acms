@@ -157,6 +157,9 @@ export const PERMISSIONS = [
   // 两个都没有时仍可**浏览**渲染结果，只是不能改。
   'md:edit',
   'md:import',
+  // 内部消息（ACMS 模块参考设计；2026-10-03）：教务/教师/学务之间的轻量内部通知
+  'message:read',
+  'message:write',
   ...MODULE_PERMISSIONS,
 ] as const;
 
@@ -193,6 +196,7 @@ export const DOMAIN_LABELS: Record<string, string> = {
   openplatform: '开放平台',
   weiling: '卫瓴SCRM',
   md: '明细（原始记录）',
+  message: '内部消息',
   // 菜单级域（标签直接用菜单名，便于按菜单名搜索授权）
   dashboard: '工作概览',
   portal: '学生门户',

@@ -2358,6 +2358,10 @@ export const api = {
   homeworkSubmissions: crud('/lesson-plans/homework-submissions'),
   homeworkTrackers: crud('/lesson-plans/homework-tracker'),
 
+  // ── 内部消息（ACMS 模块参考设计；2026-10-03）────────────────────────────
+  // 教务 / 教师 / 学务之间的轻量内部通知。后端表为占位 tableId，上线前须建表回填。
+  messages: crud('/messages'),
+
   /**
    * 部署环节到课次：把该「单元开课」所属单元的全部环节，按顺序落到该教学班的课次上。
    * replaceExisting 默认 true（先清掉已生成的部署记录再重建）；传 false 只补没部署过的环节。

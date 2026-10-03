@@ -321,6 +321,9 @@ export const TABLES = {
   apiToken: { tableId: 'tblapitoken000001', name: 'API令牌表' },
   /** API 令牌调用日志：默认只记写操作，读操作只累加令牌上的计数（避免写热 PG） */
   apiTokenLog: { tableId: 'tbltoklog00000001', name: 'API令牌调用日志表' },
+  // 内部消息（ACMS 模块参考设计；2026-10-03 新增，待建表）
+  // TODO(上线前置): 在飞书 Base 创建对应数据表后，将下列占位 tableId 替换为真实值
+  message: { tableId: 'tbl_message_pending', name: '内部消息表(待建)' },
 } as const;
 
 export type TableKey = keyof typeof TABLES;

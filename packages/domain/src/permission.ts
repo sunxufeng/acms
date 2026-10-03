@@ -39,6 +39,7 @@ const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'mail:read', 'mail:write',
     // 得到大脑（Get笔记）知识库
     'getnote:read', 'getnote:write',
+    'message:read', 'message:write',
   ],
   院级管理: [
     'student:read', 'student:write', 'student:archive',
@@ -63,6 +64,7 @@ const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'mail:read', 'mail:write',
     // 得到大脑（Get笔记）知识库
     'getnote:read', 'getnote:write',
+    'message:read', 'message:write',
   ],
   教务: [
     'student:read', 'student:write', 'student:archive',
@@ -82,6 +84,7 @@ const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'mail:read',
     // 得到大脑（Get笔记）知识库
     'getnote:read', 'getnote:write',
+    'message:read', 'message:write',
   ],
   财务: [
     'student:read', 'export:run',
@@ -90,6 +93,7 @@ const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'finance:read', 'finance:approve',
     'notification:read',
     'ai:chat',
+    'message:read',
   ],
   教师本人: [
     'student:read',
@@ -100,6 +104,7 @@ const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'ai:chat',
     // 得到大脑（Get笔记）知识库
     'getnote:read', 'getnote:write',
+    'message:read', 'message:write',
   ],
   学生事务: [
     'student:read',
@@ -114,6 +119,7 @@ const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'mail:read',
     // 得到大脑（Get笔记）知识库
     'getnote:read', 'getnote:write',
+    'message:read', 'message:write',
   ],
   招生: [
     'student:read', 'student:write', 'followup:read', 'followup:write',
@@ -122,6 +128,7 @@ const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'mail:read', 'mail:write',
     // 得到大脑（Get笔记）知识库
     'getnote:read', 'getnote:write',
+    'message:read', 'message:write',
   ],
   HR行政: [
     'student:read',
@@ -135,6 +142,7 @@ const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'ai:chat',
     // 得到大脑（Get笔记）：只读
     'getnote:read',
+    'message:read',
   ],
   审计: [
     'student:read', 'followup:read', 'attendance:read', 'billing:read',
@@ -146,6 +154,7 @@ const BASE_ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'ai:chat',
     // 得到大脑（Get笔记）：只读
     'getnote:read',
+    'message:read',
   ],
   // 微信小程序学生端：仅本人数据（门户只读 + 打卡写）。不授予 student:write/archive，
   // 避免越权修改其他学生档案；打卡写仅校验 attendance:write。

@@ -133,7 +133,7 @@ export type ModulePermission = `module:${string}:${ModuleAction}`;
  *     必须声明 `update` —— 只声明 read 的话矩阵里没有可勾的格，
  *     这个点连 `PERMISSIONS` 目录都不在（`weilingContacts:update` 踩过同一个坑）。
  */
-export const ROLE_PERMISSION_VERSION = 15;
+export const ROLE_PERMISSION_VERSION = 16;
 
 /**
  * 资源「从哪个版本开始存在」。
@@ -194,12 +194,16 @@ export const MODULE_RESOURCE_INTRODUCED_VERSION: Record<string, number> = {
   //  ⚠️ 引入版本必须 == 当次抬的版本号，否则 `(13, 14]` 这段增量覆盖不到它。
   codeRules: 14,
   // v15（2026-10-02）：「笔记归档 / 激活」独立成点。峰哥：「笔记删除和归档权限需要分开」。
-  //  🔴 `legacyRead = module:getnote:update` ⇒ **随迁移发放**：归档是可逆动作，
+  //  🔴 声明继承源 `module:getnote:update` ⇒ **随迁移发放**：归档是可逆动作，
   //    而且原来所有能编辑笔记的人一直在用它，不继承就是一次静默的能力回退。
-  //    （对比 `studentSupportRemove` / `weilingEnroll` / `codeRules` 的 `legacyRead: null`：
+  //    （对比 `studentSupportRemove` / `weilingEnroll` / `codeRules` 的 `null`：
   //      那几个要么破坏性、要么改配置，不能跟着旧点发放。）
-  //  ⚠️ 引入版本必须 == 当次抬的版本号，否则 `(14, 15]` 这段增量覆盖不到它。
-  getnoteArchive: 15,
+  //  🔴🔴 **但 v15 那轮填错了字段**（只填 `legacyRead`，而 `update` 动作的继承源是
+  //    `legacyWrite`）⇒ 迁移"成功"了、却**一个角色都没拿到**（只剩系统管理员靠兜底持有）。
+  //    详见资源定义处的注释。由此多出一条硬判据：**声明了继承源就必须有测试证明真能继承**。
+  //  v16（2026-10-03）：**修正 + 重放**。角色在 v15 那轮已被推到 15，只改资源定义不会再迁移，
+  //    必须把引入版本一起抬到 16，`(15, 16]` 这段增量才会把这一行重新发给存量角色。
+  getnoteArchive: 16,
 };
 
 /** 取 `(fromVersion, toVersion]` 区间里引入的资源 key（迁移用） */
@@ -647,12 +651,24 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
    *   · 归档 = `module:getnoteArchive:update`（本资源）
    *   · 删除 = `module:getnote:delete`（保持不变）
    *
-   * 🔴 `legacyRead: 'module:getnote:update'` —— **必须继承「编辑」**：
+   * 🔴 `legacyRead` / `legacyWrite` **都填 `module:getnote:update`** —— 必须继承「编辑」：
    *    归档是可逆动作（可「激活」回来）、且是原来所有能编辑笔记的人一直在用的能力。
    *    若不继承，抬版本后 **Phase1–8 等教职工角色全都失去归档能力**（连按钮都没了），
    *    而他们本来就能归档 ⇒ 那就是一次静默的能力回退。
    *    （对比 `studentSupportRemove` / `codeRules` 那几个 `legacyRead: null` 的：
    *      那些要么是破坏性的、要么是配置类，**不能**跟着旧点发放。）
+   *
+   * 🔴🔴 **两个字段管不同的动作，填错哪个哪个就静默发不出去**（2026-10-03 实测踩到）：
+   *    引擎（`inheritModulePermissions`）里
+   *      · `read` / `refresh` 动作取 **`legacyRead`**
+   *      · `export` 动作取 `legacyRead` **且**要求 `export:run`
+   *      · `create` / `update` / `delete` / `transition` 取 **`legacyWrite`**
+   *    v15 我只填了 `legacyRead` ⇒ **`update` 判据的继承源是 `legacyWrite`（null）**
+   *    ⇒ 迁移"跑成功了"（启动日志有「已完成角色权限 v15 一次性迁移」），
+   *      但**一个角色都没拿到这个点**（10 个原本能归档的角色里 9 个掉队，只剩系统管理员
+   *      因为 `healLockedRoles()` 兜底）。**全程没有任何报错**，只有线上探针能抓。
+   *    ⚠️ 而且「迁移是一次性的」：那轮把角色的版本推到了 15 ⇒ 改完必须**再抬到 16**
+   *      （只改这一行、不抬版本 = 永远不会再补）。
    *
    * ⚠️ `actions` 必须**含 `update`**：判据是 `module:getnoteArchive:update`，
    *    只声明 `read` 的话这个点根本不在 `PERMISSIONS` 目录里，矩阵里没有可勾的格。
@@ -663,7 +679,7 @@ export const MODULE_RESOURCES: readonly ModuleResource[] = [
     label: '笔记归档',
     path: '/getnote-archive-action',
     legacyRead: 'module:getnote:update',
-    legacyWrite: null,
+    legacyWrite: 'module:getnote:update',
     menuPermission: null,
     actions: ['read', 'update'],
     subOf: 'getnote',

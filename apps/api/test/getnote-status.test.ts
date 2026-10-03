@@ -136,8 +136,10 @@ describe('🔴 归档独立权限点（v15）', () => {
     expect(res!.legacyRead).toBe('module:getnote:update');
     expect(res!.menuPermission).toBeNull();
     expect(res!.actions).not.toContain('enter');
-    // 引入版本固定为 15 且不超过当前版本（否则那段增量迁移覆盖不到）
-    expect(MODULE_RESOURCE_INTRODUCED_VERSION.getnoteArchive).toBe(15);
+    // 引入版本：v15 首次登记（但发错了字段、一个角色都没拿到）⇒ v16 修正重放。
+    // 🔴 这里钉 16 而不是 15 —— 不是"数字好看"，而是「迁移是一次性的」：
+    //    角色在 v15 那轮已被推到 15，引入版本必须 > 15 才会再补一次。
+    expect(MODULE_RESOURCE_INTRODUCED_VERSION.getnoteArchive).toBe(16);
     expect(MODULE_RESOURCE_INTRODUCED_VERSION.getnoteArchive).toBeLessThanOrEqual(ROLE_PERMISSION_VERSION);
   });
 
